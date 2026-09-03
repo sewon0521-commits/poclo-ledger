@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  /* 홈 화면 추가(PWA) 시 노치/하단 인디케이터 영역 확보 */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* iOS에서 입력 시 자동 확대 방지 */
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+  font-size: 16px;
+}
