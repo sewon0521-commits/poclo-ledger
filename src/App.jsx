@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { Plus, Camera, Loader2, CalendarDays, Users, AlertCircle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Plus, CalendarDays, Users, AlertCircle } from "lucide-react";
 import {
   won,
   monthOf,
@@ -15,6 +15,7 @@ import { readReceipt } from "./lib/receipt";
 import TxForm from "./components/TxForm";
 import DailyView from "./components/DailyView";
 import VendorView from "./components/VendorView";
+import ReceiptDrop from "./components/ReceiptDrop";
 import { Kpi, Tab } from "./components/ui";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
@@ -36,7 +37,6 @@ export default function App() {
   const [form, setForm] = useState(null); // null이면 폼 닫힘
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
-  const fileRef = useRef(null);
 
   const persist = (list) => {
     setTx(list);
@@ -100,11 +100,7 @@ export default function App() {
   const toggleInvoice = (id) =>
     persist(tx.map((t) => (t.id === id ? { ...t, invoice: !t.invoice } : t)));
 
-  const onPickFile = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-
+  const onReceipt = async (file) => {
     setBusy(true);
     setNotice("");
     const result = await readReceipt(file);
@@ -114,11 +110,10 @@ export default function App() {
       const g = result.data;
       setForm({
         _k: Date.now(),
+        ...g,
         date: g.date || defaultDate(),
-        vendor: g.vendor,
         supply: g.supply || "",
-        memo: g.items,
-        vatSeparate: g.vatSeparate,
+        memo: "",
         fromReceipt: true,
       });
     } else {
@@ -133,6 +128,13 @@ export default function App() {
         failed: true,
       });
     }
+  };
+
+  const rowProps = {
+    onToggleMethod: toggleMethod,
+    onToggleInvoice: toggleInvoice,
+    onEdit: editTx,
+    onDelete: deleteTx,
   };
 
   const addButton = (
@@ -153,7 +155,7 @@ export default function App() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-stone-900">포클로 매입 장부</h1>
               <p className="mt-1 text-sm text-stone-500">
-                영수증만 올리면 자동 입력. 이체·삼촌이 섞여도 알아서 갈라줘요.
+                장끼만 올리면 자동 입력. 이체·삼촌 대납이 섞여도 알아서 갈라줘요.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -191,39 +193,15 @@ export default function App() {
           </div>
         </header>
 
-        <div className="mb-4 flex gap-2.5">
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={busy}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-3.5 font-semibold text-white transition hover:bg-rose-800 disabled:opacity-60"
-          >
-            {busy ? (
-              <>
-                <Loader2 size={18} className="animate-spin" /> 영수증 읽는 중…
-              </>
-            ) : (
-              <>
-                <Camera size={18} /> 영수증 올리기
-              </>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={openBlank}
-            className="flex items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-3.5 font-medium text-stone-700 transition hover:bg-stone-100"
-          >
-            <Plus size={18} /> 직접
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={onPickFile}
-          />
-        </div>
+        <ReceiptDrop busy={busy} onFile={onReceipt} />
+
+        <button
+          type="button"
+          onClick={openBlank}
+          className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-3 font-medium text-stone-700 transition hover:bg-stone-100"
+        >
+          <Plus size={18} /> 장끼 없이 직접 입력
+        </button>
 
         {notice && (
           <div className="mb-4 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-600">
@@ -244,7 +222,7 @@ export default function App() {
         <section className="mb-5 space-y-3">
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
             <div className="flex items-center gap-1.5 text-sm font-semibold text-rose-800">
-              <AlertCircle size={15} /> 미증빙 삼촌 매입 (부가세 안 낸 것)
+              <AlertCircle size={15} /> 삼촌 대납 매입 (부가세 안 낸 것)
             </div>
             <div className="mt-2 text-3xl font-bold tabular-nums text-rose-900">
               {won(totals.samchon)}
@@ -280,16 +258,15 @@ export default function App() {
         </div>
 
         {view === "daily" ? (
-          <DailyView
-            days={days}
-            onToggleMethod={toggleMethod}
-            onToggleInvoice={toggleInvoice}
-            onEdit={editTx}
-            onDelete={deleteTx}
-            emptyAction={addButton}
-          />
+          <DailyView days={days} emptyAction={addButton} {...rowProps} />
         ) : (
-          <VendorView vendors={vendors} taxType={taxType} emptyAction={addButton} />
+          <VendorView
+            vendors={vendors}
+            rows={rows}
+            taxType={taxType}
+            emptyAction={addButton}
+            {...rowProps}
+          />
         )}
 
         <footer className="mt-10 border-t border-stone-200 pt-4 text-xs text-stone-400">

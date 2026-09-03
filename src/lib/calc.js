@@ -7,6 +7,9 @@
 
 export const VAT_RATE = 0.1;
 
+/** 거래 건에 붙지만 실제로는 거래처를 설명하는 값들 — 장끼에서 같이 읽어온다 */
+export const VENDOR_INFO_FIELDS = ["address", "phone", "account", "bizNo"];
+
 /** 간이과세 기간에 세금계산서를 챙길 만한 거래처인지 가르는 총매입 기준선 */
 export const INVOICE_THRESHOLD = 300000;
 
@@ -87,6 +90,14 @@ export function groupByVendor(rows, taxType) {
         transferSupply: 0,
         samchonSupply: 0,
         invoiceCount: 0,
+        lastDate: "",
+        items: [],
+        // 거래처 정보(주소·전화·계좌·사업자번호)는 건마다 저장되지만
+        // 화면에는 가장 최근 건의 값을 하나로 보여준다.
+        address: "",
+        phone: "",
+        account: "",
+        bizNo: "",
       });
     }
     const v = m.get(t.vendor);
@@ -95,6 +106,15 @@ export function groupByVendor(rows, taxType) {
     if (t.method === "transfer") v.transferSupply += t.supply;
     else v.samchonSupply += t.supply;
     if (t.invoice) v.invoiceCount += 1;
+    if (t.items) v.items.push(t.items);
+
+    // 더 최근 건이 비어 있으면 예전 값을 유지한다
+    if (t.date >= v.lastDate) {
+      v.lastDate = t.date;
+      for (const k of VENDOR_INFO_FIELDS) if (t[k]) v[k] = t[k];
+    } else {
+      for (const k of VENDOR_INFO_FIELDS) if (!v[k] && t[k]) v[k] = t[k];
+    }
   }
 
   return [...m.values()]
@@ -112,9 +132,14 @@ export function groupByVendor(rows, taxType) {
           : v.samchonSupply > 0
             ? "samchon"
             : "transfer";
-      return { ...v, switchCost, flag, status };
+      return { ...v, items: [...new Set(v.items)], switchCost, flag, status };
     })
     .sort((a, b) => b.supply - a.supply);
+}
+
+/** 거래처 하나의 거래를 날짜별로 묶어 최신순으로 */
+export function vendorHistory(rows, vendor) {
+  return groupByDay(rows.filter((t) => t.vendor === vendor));
 }
 
 /** 상단 KPI용 월 합계 */

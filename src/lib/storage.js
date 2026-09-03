@@ -11,13 +11,22 @@ const isTx = (t) =>
   Number.isFinite(t.supply) &&
   (t.method === "transfer" || t.method === "samchon");
 
+/** 나중에 추가된 항목이 없는 예전 기록도 빈 문자열로 채워 형태를 맞춘다 */
+const TEXT_FIELDS = ["memo", "items", "address", "phone", "account", "bizNo"];
+
+const normalize = (t) => {
+  const out = { ...t, invoice: !!t.invoice };
+  for (const k of TEXT_FIELDS) out[k] = t[k] || "";
+  return out;
+};
+
 export function loadTx() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isTx).map((t) => ({ ...t, invoice: !!t.invoice, memo: t.memo || "" }));
+    return parsed.filter(isTx).map(normalize);
   } catch {
     return [];
   }
