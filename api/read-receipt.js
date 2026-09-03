@@ -58,11 +58,19 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "method", message: "POST만 받습니다." });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    // 키가 아직 없으면 프론트가 수동 입력 폼으로 넘어갈 수 있게 알린다.
+  // 키가 없거나 형태가 이상하면(플레이스홀더가 그대로 남는 등) 프론트가
+  // 수동 입력 폼으로 넘어갈 수 있게, 502가 아니라 알아들을 수 있는 안내를 준다.
+  const key = (process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!key) {
     return res.status(503).json({
       error: "not_configured",
       message: "장끼 자동 읽기가 아직 켜져 있지 않아요. 직접 입력해 주세요.",
+    });
+  }
+  if (!/^sk-ant-[\x21-\x7e]+$/.test(key)) {
+    return res.status(503).json({
+      error: "bad_key",
+      message: "API 키 형태가 이상해요. .env의 ANTHROPIC_API_KEY를 확인해 주세요.",
     });
   }
 
@@ -124,10 +132,17 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
-      return res.status(503).json({ error: "auth", message: "장끼 읽기 설정(API 키)을 확인해 주세요." });
+      return res.status(503).json({ error: "auth", message: "API 키가 맞지 않아요. 키를 다시 확인해 주세요." });
     }
     if (err instanceof Anthropic.RateLimitError) {
       return res.status(429).json({ error: "rate_limit", message: "잠시 뒤 다시 시도해 주세요." });
+    }
+    // 잔액 부족은 400으로 오는데, 원인을 모르면 고칠 수가 없으니 그대로 알려준다.
+    if (/credit balance/i.test(err?.message || "")) {
+      return res.status(402).json({
+        error: "no_credit",
+        message: "Anthropic 계정에 크레딧이 없어요. console.anthropic.com → Billing에서 충전하면 켜집니다.",
+      });
     }
     console.error("read-receipt failed:", err);
     return res.status(502).json({ error: "upstream", message: "사진을 읽지 못했어요. 직접 입력해 주세요." });
