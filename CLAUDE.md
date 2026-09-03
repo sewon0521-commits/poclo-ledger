@@ -97,13 +97,20 @@ Transaction {
   한 곳에만 있으므로 M2에서 Supabase로 갈아끼울 때 이 파일만 바꾸면 된다.
 - 도메인 계산(`derive` / `groupByDay` / `groupByVendor` / `totals`)은 전부
   `src/lib/calc.js`에 모여 있고 UI와 분리돼 있다.
-- 영수증 OCR: `api/read-receipt.js` (Vercel Serverless Function). `claude-opus-5` +
-  structured outputs. **`ANTHROPIC_API_KEY`는 이 함수의 환경변수로만 존재한다.**
-  키가 없으면 503을 돌려주고 프론트는 수동 입력 폼으로 넘어간다.
-  프론트는 `/api/read-receipt`만 호출한다(`src/lib/receipt.js`).
+- 장끼(영수증) OCR: `api/read-receipt.js` (Vercel Serverless Function). `claude-opus-5`
+  + structured outputs, effort high. **`ANTHROPIC_API_KEY`는 이 함수의 환경변수로만
+  존재한다.** 프론트는 `/api/read-receipt`만 호출한다(`src/lib/receipt.js`).
+  로컬 `npm run dev`에서는 `vite.config.js`의 devApi 플러그인이 같은 handler를
+  미들웨어로 물리고 루트 `.env`에서 키를 읽는다.
+- 장끼에서 읽는 항목: 거래처명·위치·전화번호·계좌번호·사업자번호·상품명·날짜·금액.
+  프롬프트에 두 가지 함정이 박혀 있다 — (1) 장끼의 "거래처명: 포클로"는 매입자인
+  우리이므로 vendor로 잡으면 안 되고 판 가게 상호를 찾아야 한다, (2) 종이 바깥
+  배경(상표택·다른 서류)은 읽지 않는다. 프롬프트를 고칠 때 이 둘을 깨뜨리지 말 것.
+- 실패 원인은 상태코드로 갈라 화면에 그대로 보여준다: 키 없음/형식오류 503,
+  잔액 부족 402, 인식 실패 422. 뭉뚱그리면 사용자가 고칠 수가 없다.
 - 씨앗 데이터 없음 — 실제 장부이므로 빈 상태로 시작한다.
 
 ### 아직 안 한 것
 
 - M2: Supabase 공유 저장 + 로그인 (지금은 기기별로 데이터가 따로 논다).
-- M4: CSV 일괄등록 / 삼촌 송금 정산 / 매출·예상 부가세.
+- M4: CSV 일괄등록 / 삼촌 대납 정산 / 매출·예상 부가세.
