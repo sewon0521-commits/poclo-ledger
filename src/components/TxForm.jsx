@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { X, Check, Plus, Trash2, ChevronDown, Camera, ImageOff } from "lucide-react";
+import { X, Check, Plus, Trash2, ChevronDown, ChevronUp, Camera, ImageOff } from "lucide-react";
 import { won, VAT_RATE, itemsTotal } from "../lib/calc";
 import { makeAccount, makeItem } from "../lib/store";
 import VendorPicker from "./VendorPicker";
@@ -14,15 +14,53 @@ const numOf = (s) => Number(digits(s) || 0);
 const FIELD =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-rose-600";
 
-function Money({ value, onChange, className = "", ...rest }) {
+/** 품목 줄용 — 한 줄에 들어가야 해서 낮고 좁다 */
+const COMPACT =
+  "rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-rose-600";
+
+function Money({ value, onChange, className = "", compact = false, ...rest }) {
   return (
     <input
       value={comma(value)}
       onChange={(e) => onChange(digits(e.target.value))}
       inputMode="numeric"
-      className={FIELD + " text-right tabular-nums " + className}
+      className={(compact ? COMPACT : FIELD) + " text-right tabular-nums " + className}
       {...rest}
     />
+  );
+}
+
+/** 수량 — 화살표로 1씩 올리고 내린다. 0 아래로는 안 내려간다. */
+function Qty({ value, onChange }) {
+  const step = (d) => onChange(Math.max(0, (Number(value) || 0) + d));
+  return (
+    <div className="flex shrink-0 items-stretch">
+      <input
+        value={value}
+        onChange={(e) => onChange(Number(digits(e.target.value) || 0))}
+        inputMode="numeric"
+        aria-label="수량"
+        className={COMPACT + " w-10 rounded-r-none text-center tabular-nums"}
+      />
+      <div className="flex flex-col">
+        <button
+          type="button"
+          onClick={() => step(1)}
+          aria-label="수량 1 올리기"
+          className="flex h-[17px] w-5 items-center justify-center rounded-tr-md border border-b-0 border-l-0 border-stone-300 bg-stone-50 text-stone-500 hover:bg-stone-100 active:bg-stone-200"
+        >
+          <ChevronUp size={11} />
+        </button>
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          aria-label="수량 1 내리기"
+          className="flex h-[17px] w-5 items-center justify-center rounded-br-md border border-l-0 border-stone-300 bg-stone-50 text-stone-500 hover:bg-stone-100 active:bg-stone-200"
+        >
+          <ChevronDown size={11} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -194,38 +232,34 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
 
         <div className="space-y-2">
           {items.map((it) => (
-            <div key={it.id} className="flex flex-wrap items-center gap-1.5">
+            <div key={it.id} className="flex flex-wrap items-center gap-1 sm:flex-nowrap">
               <input
                 value={it.name}
                 onChange={(e) => patchItem(it.id, { name: e.target.value })}
                 placeholder="품목명"
-                className={FIELD + " min-w-0 flex-1 basis-full text-sm sm:basis-0"}
+                className={COMPACT + " min-w-0 flex-1 basis-full sm:basis-0"}
               />
               <Money
                 value={it.unitPrice || ""}
                 onChange={(v) => patchItem(it.id, { unitPrice: Number(v || 0) })}
                 placeholder="단가"
-                className="w-24 text-sm"
+                className="w-[4.5rem] shrink-0"
+                compact
               />
-              <input
-                value={it.qty}
-                onChange={(e) => patchItem(it.id, { qty: Number(digits(e.target.value) || 0) })}
-                inputMode="numeric"
-                placeholder="수량"
-                className={FIELD + " w-14 text-center text-sm tabular-nums"}
-              />
+              <Qty value={it.qty} onChange={(q) => patchItem(it.id, { qty: q })} />
               <Money
                 value={it.amount || ""}
                 onChange={(v) => patchItem(it.id, { amount: Number(v || 0) })}
                 placeholder="금액"
-                className="w-28 text-sm"
+                className="w-[5.5rem] shrink-0"
+                compact
               />
               <button
                 type="button"
                 onClick={() => patchItem(it.id, { pending: !it.pending })}
                 title="미송 (아직 안 온 물건)"
                 className={
-                  "shrink-0 rounded-md border px-2 py-2 text-xs font-medium transition " +
+                  "shrink-0 rounded-md border px-1.5 py-1.5 text-xs font-medium transition " +
                   (it.pending
                     ? "border-amber-500 bg-amber-500 text-white"
                     : "border-stone-300 bg-white text-stone-500")
@@ -237,9 +271,9 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
                 type="button"
                 onClick={() => setItems(items.filter((x) => x.id !== it.id))}
                 aria-label="품목 줄 삭제"
-                className="shrink-0 p-1.5 text-stone-300 hover:text-rose-600"
+                className="shrink-0 p-1 text-stone-300 hover:text-rose-600"
               >
-                <Trash2 size={16} />
+                <Trash2 size={15} />
               </button>
             </div>
           ))}

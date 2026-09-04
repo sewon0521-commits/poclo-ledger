@@ -42,7 +42,8 @@ export function makeAccount(a = {}) {
 }
 
 export function makeItem(i = {}) {
-  const qty = Number(i.qty) || 1;
+  // 빈 줄은 수량 0으로 시작한다. 장끼에서 읽어온 값은 그대로 쓴다.
+  const qty = Number(i.qty) || 0;
   const unitPrice = Number(i.unitPrice) || 0;
   return {
     id: i.id || newId("i"),
