@@ -19,11 +19,28 @@ const ReceiptSchema = z.object({
   vendor: z.string().describe(`물건을 판 가게(판매자) 상호. ${blank}`),
   address: z.string().describe(`판매자 위치/주소. 건물·층·호수까지. ${blank}`),
   phone: z.string().describe(`판매자 전화번호. ${blank}`),
-  account: z.string().describe(`계좌번호. 은행명이 있으면 같이. ${blank}`),
-  bizNo: z.string().describe(`판매자 사업자등록번호. ${blank}`),
-  items: z.string().describe(`상품명. 여러 개면 쉼표로 이어서. ${blank}`),
+  bizNo: z.string().describe(`판매자 사업자등록번호(3-2-5자리). ${blank}`),
+  accounts: z
+    .array(
+      z.object({
+        bank: z.string().describe(`은행명. ${blank}`),
+        number: z.string().describe("계좌번호"),
+        holder: z.string().describe(`예금주. ${blank}`),
+      }),
+    )
+    .describe("장끼에 적힌 계좌 전부. 사업자계좌와 일반계좌가 따로 있으면 각각 한 줄씩. 없으면 빈 배열"),
+  items: z
+    .array(
+      z.object({
+        name: z.string().describe("품목명"),
+        unitPrice: z.number().describe("단가. 없으면 0"),
+        qty: z.number().describe("수량. 없으면 1"),
+        amount: z.number().describe("그 줄의 금액. 없으면 0"),
+      }),
+    )
+    .describe("품목 줄 전부. 여러 줄이면 각각. 없으면 빈 배열"),
   date: z.string().describe(`거래 날짜 YYYY-MM-DD. ${blank}`),
-  supply: z.number().describe("금액(원 단위 정수). 못 읽으면 0"),
+  supply: z.number().describe("당일합계(그 날 총 거래금액, 원 단위 정수). 못 읽으면 0"),
   vatSeparate: z
     .boolean()
     .describe("금액이 부가세 별도(VAT별도)로 표기돼 있으면 true, 총액이면 false"),
@@ -49,12 +66,20 @@ vendor에 넣지 마라. 하지만 그렇다고 비워두지도 마라 — 장�
 재발행 날짜가 따로 괄호로 붙어 있으면 원래 거래 날짜를 쓴다.
 연도가 없으면 나머지만으로 추측하지 말고 비워라.
 
-**account / bizNo 구분.**
+**accounts / bizNo 구분.**
 계좌번호는 은행명과 예금주가 붙어 있고 자릿수가 자유롭다("신한 110-513-300830 김가영").
 사업자등록번호는 반드시 3-2-5 자리다("123-45-67890"). 형태로 판단하고, 헷갈리면
-계좌번호 쪽에 넣어라.
+계좌 쪽에 넣어라.
+계좌가 여러 개 적혀 있으면(사업자계좌 / 일반계좌) **하나도 빠뜨리지 말고 각각 한 줄씩**
+넣어라. 어느 계좌로 보냈는지는 사장님이 나중에 고르므로 판단하지 마라.
+
+**items — 품목 줄.**
+품목이 여러 줄이면 각각 한 줄씩 넣어라. 한 줄에 품목명·단가·수량·금액이 있으면
+그대로 채우고, 없는 값은 0으로 둬라(수량이 안 적혀 있으면 1).
 
 **금액.**
+supply는 그 날 총 거래금액(당일합계·Total)이다. 품목 줄의 합과 다를 수 있는데
+(에누리 등) 그럴 때는 적힌 합계를 그대로 따른다.
 "VAT별도", "부가세 별도"라고 적혀 있으면 vatSeparate를 true로 하고 적힌 금액을
 supply에 넣어라. 그런 표기가 없으면 vatSeparate를 false로 하고 합계 금액을 넣어라.
 
@@ -134,15 +159,26 @@ export default async function handler(req, res) {
     }
 
     const g = response.parsed_output;
+    const num = (n) => (Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
+
     return res.status(200).json({
       vendor: g.vendor || "",
       address: g.address || "",
       phone: g.phone || "",
-      account: g.account || "",
       bizNo: g.bizNo || "",
-      items: g.items || "",
+      accounts: (g.accounts || [])
+        .filter((a) => a && a.number)
+        .map((a) => ({ bank: a.bank || "", number: a.number, holder: a.holder || "" })),
+      items: (g.items || [])
+        .filter((i) => i && (i.name || i.amount))
+        .map((i) => ({
+          name: i.name || "",
+          unitPrice: num(i.unitPrice),
+          qty: num(i.qty) || 1,
+          amount: num(i.amount) || num(i.unitPrice) * (num(i.qty) || 1),
+        })),
       date: /^\d{4}-\d{2}-\d{2}$/.test(g.date) ? g.date : "",
-      supply: Number.isFinite(g.supply) && g.supply > 0 ? Math.round(g.supply) : 0,
+      supply: num(g.supply),
       vatSeparate: !!g.vatSeparate,
     });
   } catch (err) {

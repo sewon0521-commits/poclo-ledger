@@ -1,29 +1,26 @@
 // 포클로 매입 장부 — 도메인 계산
 //
-// 거래는 '거래처'가 아니라 '거래 건' 단위로 저장한다. 한 거래처 안에
-// 이체 건과 삼촌(현금) 건이 섞일 수 있기 때문이다.
-//   transfer(이체)  = 부가세 포함 지급 → 부가세를 이미 낸 것
-//   samchon(삼촌송금) = 부가세 미포함 현금 지급 → 부가세를 아직 안 낸 것("미증빙")
+// 거래는 '거래 건' 단위로 저장한다. 한 거래처 안에 이체 건과 삼촌 대납 건이
+// 섞일 수 있기 때문이다.
+//   transfer(이체)     = 부가세 포함 지급 → 부가세를 이미 낸 것
+//   samchon(삼촌 대납) = 부가세 미포함 현금 지급 → 아직 안 낸 것("미증빙")
+//
+// 장부 금액은 품목 합계가 아니라 거래의 supply(당일합계)다. 에누리 등으로
+// 둘이 다를 수 있고, 실제로 주고받은 쪽은 당일합계다.
 
 export const VAT_RATE = 0.1;
-
-/** 거래 건에 붙지만 실제로는 거래처를 설명하는 값들 — 장끼에서 같이 읽어온다 */
-export const VENDOR_INFO_FIELDS = ["address", "phone", "account", "bizNo"];
 
 /** 간이과세 기간에 세금계산서를 챙길 만한 거래처인지 가르는 총매입 기준선 */
 export const INVOICE_THRESHOLD = 300000;
 
-export const won = (n) =>
-  "₩" + new Intl.NumberFormat("ko-KR").format(Math.round(n || 0));
+export const won = (n) => "₩" + new Intl.NumberFormat("ko-KR").format(Math.round(n || 0));
 
 export const monthOf = (d) => (d || "").slice(0, 7);
 
-export const todayISO = () => {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
+const pad = (n) => String(n).padStart(2, "0");
+const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+export const todayISO = () => iso(new Date());
 export const thisMonth = () => monthOf(todayISO());
 
 const DOW = ["일", "월", "화", "수", "목", "금", "토"];
@@ -39,6 +36,38 @@ export const monthLabel = (m) => {
   return y && mm ? `${y}년 ${Number(mm)}월` : m;
 };
 
+// ------------------------------------------------------------------ 날짜 범위
+
+/** 오늘 / 이번달 / 저번달 / 임의 기간 */
+export function rangeOf(preset, custom) {
+  const now = new Date();
+  if (preset === "today") return { from: todayISO(), to: todayISO() };
+  if (preset === "month") {
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { from: iso(first), to: iso(last) };
+  }
+  if (preset === "lastMonth") {
+    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const last = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { from: iso(first), to: iso(last) };
+  }
+  return { from: custom?.from || "", to: custom?.to || "" };
+}
+
+export const rangeLabel = ({ from, to }) => {
+  if (!from && !to) return "전체 기간";
+  if (from === to) return dayLabel(from);
+  return `${from || "처음"} ~ ${to || "오늘"}`;
+};
+
+export const inRange = (date, { from, to }) =>
+  (!from || date >= from) && (!to || date <= to);
+
+export const filterRange = (rows, range) => rows.filter((t) => inRange(t.date, range));
+
+// -------------------------------------------------------------------- 파생값
+
 /** 거래 한 건에서 파생되는 금액들 */
 export function derive(t) {
   const supply = t.supply || 0;
@@ -51,6 +80,13 @@ export function derive(t) {
     actualPaid: isTransfer ? supply + vat : supply,
   };
 }
+
+/** 품목 행 합계 — 당일합계와 다를 수 있어 참고용으로만 보여준다 */
+export const itemsTotal = (items = []) => items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+export const hasPending = (t) => (t.items || []).some((i) => i.pending);
+
+// ------------------------------------------------------------------ 묶어보기
 
 /** 날짜별로 묶어 최신순으로 */
 export function groupByDay(rows) {
@@ -76,73 +112,76 @@ export function groupByDay(rows) {
 /**
  * 거래처별 집계 + 세금계산서 우선순위 하이라이트.
  * 과세 유형에 따라 하이라이트 규칙이 달라진다.
- *  - simple(간이): 총매입 ≥ 30만원 이면서 삼촌분이 있거나 계산서 미수취 건이 있을 때
- *  - general(일반): 삼촌분이 있거나 계산서 미수취 건이 있는 거래처 전부
+ *  - simple(간이): 총매입 ≥ 30만원 이면서 대납분이 있거나 계산서 미수취 건이 있을 때
+ *  - general(일반): 대납분이 있거나 계산서 미수취 건이 있는 거래처 전부
  */
-export function groupByVendor(rows, taxType) {
+export function summarizeVendors(rows, vendors, taxType) {
   const m = new Map();
-  for (const t of rows) {
-    if (!m.has(t.vendor)) {
-      m.set(t.vendor, {
-        vendor: t.vendor,
-        count: 0,
-        supply: 0,
-        transferSupply: 0,
-        samchonSupply: 0,
-        invoiceCount: 0,
-        lastDate: "",
-        items: [],
-        // 거래처 정보(주소·전화·계좌·사업자번호)는 건마다 저장되지만
-        // 화면에는 가장 최근 건의 값을 하나로 보여준다.
-        address: "",
-        phone: "",
-        account: "",
-        bizNo: "",
-      });
-    }
-    const v = m.get(t.vendor);
-    v.count += 1;
-    v.supply += t.supply;
-    if (t.method === "transfer") v.transferSupply += t.supply;
-    else v.samchonSupply += t.supply;
-    if (t.invoice) v.invoiceCount += 1;
-    if (t.items) v.items.push(t.items);
-
-    // 더 최근 건이 비어 있으면 예전 값을 유지한다
-    if (t.date >= v.lastDate) {
-      v.lastDate = t.date;
-      for (const k of VENDOR_INFO_FIELDS) if (t[k]) v[k] = t[k];
-    } else {
-      for (const k of VENDOR_INFO_FIELDS) if (!v[k] && t[k]) v[k] = t[k];
-    }
+  for (const v of vendors) {
+    m.set(v.id, {
+      ...v,
+      count: 0,
+      supply: 0,
+      transferSupply: 0,
+      samchonSupply: 0,
+      invoiceCount: 0,
+      pendingCount: 0,
+      noPhotoCount: 0,
+      lastDate: "",
+    });
   }
 
-  return [...m.values()]
-    .map((v) => {
-      // 삼촌(미증빙) 건을 세금계산서로 돌리면 추가로 낼 부가세
-      const switchCost = v.samchonSupply * VAT_RATE;
-      const needsWork = v.samchonSupply > 0 || v.invoiceCount < v.count;
-      const flag =
-        taxType === "general"
+  for (const t of rows) {
+    const s = m.get(t.vendorId);
+    if (!s) continue; // 거래처가 지워진 고아 거래
+    s.count += 1;
+    s.supply += t.supply;
+    if (t.method === "transfer") s.transferSupply += t.supply;
+    else s.samchonSupply += t.supply;
+    if (t.invoice) s.invoiceCount += 1;
+    if (hasPending(t)) s.pendingCount += 1;
+    if (!t.hasPhoto) s.noPhotoCount += 1;
+    if (t.date > s.lastDate) s.lastDate = t.date;
+  }
+
+  return [...m.values()].map((s) => {
+    // 대납(미증빙) 건을 세금계산서로 돌리면 추가로 낼 부가세
+    const switchCost = s.samchonSupply * VAT_RATE;
+    const needsWork = s.samchonSupply > 0 || s.invoiceCount < s.count;
+    const flag =
+      s.count === 0
+        ? false
+        : taxType === "general"
           ? needsWork
-          : v.supply >= INVOICE_THRESHOLD && needsWork;
-      const status =
-        v.transferSupply > 0 && v.samchonSupply > 0
-          ? "mixed"
-          : v.samchonSupply > 0
-            ? "samchon"
-            : "transfer";
-      return { ...v, items: [...new Set(v.items)], switchCost, flag, status };
-    })
+          : s.supply >= INVOICE_THRESHOLD && needsWork;
+    const status =
+      s.transferSupply > 0 && s.samchonSupply > 0
+        ? "mixed"
+        : s.samchonSupply > 0
+          ? "samchon"
+          : s.count > 0
+            ? "transfer"
+            : "none";
+    return { ...s, switchCost, flag, status };
+  });
+}
+
+/** 거래·순위 — 기간 안에서 거래액 높은 순 */
+export function ranking(rows, vendors, range) {
+  const inside = filterRange(rows, range);
+  const summary = summarizeVendors(inside, vendors, "simple")
+    .filter((v) => v.count > 0)
     .sort((a, b) => b.supply - a.supply);
+  return {
+    rows: inside,
+    vendors: summary,
+    totalSupply: summary.reduce((s, v) => s + v.supply, 0),
+    vendorCount: summary.length,
+    txCount: inside.length,
+  };
 }
 
-/** 거래처 하나의 거래를 날짜별로 묶어 최신순으로 */
-export function vendorHistory(rows, vendor) {
-  return groupByDay(rows.filter((t) => t.vendor === vendor));
-}
-
-/** 상단 KPI용 월 합계 */
+/** 상단 KPI용 합계 */
 export function totals(rows) {
   let supply = 0;
   let samchon = 0;

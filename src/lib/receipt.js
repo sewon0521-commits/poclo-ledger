@@ -1,34 +1,21 @@
-// 영수증 사진 → 서버리스 함수(/api/read-receipt) → 입력 폼 프리필.
+// 장끼 사진 → 서버리스 함수(/api/read-receipt) → 입력 폼 프리필.
 // API 키는 서버 쪽에만 있으므로 여기서는 절대 다루지 않는다.
 
-const MAX_EDGE = 1600;
-const JPEG_QUALITY = 0.82;
+import { shrink } from "./photos";
 
-/** 업로드 전에 긴 변 1600px로 줄여 요청 크기와 실패율을 낮춘다 */
-async function downscale(file) {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
-  const w = Math.round(bitmap.width * scale);
-  const h = Math.round(bitmap.height * scale);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
-  bitmap.close?.();
-
-  const dataUrl = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-  return { image: dataUrl.split(",")[1], mediaType: "image/jpeg" };
-}
-
-async function toBase64(file) {
-  const dataUrl = await new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
-    r.readAsDataURL(file);
-  });
-  return { image: dataUrl.split(",")[1], mediaType: file.type || "image/jpeg" };
+async function toPayload(file) {
+  try {
+    // 저장할 때와 같은 크기로 줄여 보낸다 — 요청 크기와 실패율을 낮춘다
+    return { image: (await shrink(file)).split(",")[1], mediaType: "image/jpeg" };
+  } catch {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
+      r.readAsDataURL(file);
+    });
+    return { image: dataUrl.split(",")[1], mediaType: file.type || "image/jpeg" };
+  }
 }
 
 /**
@@ -38,13 +25,9 @@ async function toBase64(file) {
 export async function readReceipt(file) {
   let payload;
   try {
-    payload = await downscale(file);
+    payload = await toPayload(file);
   } catch {
-    try {
-      payload = await toBase64(file);
-    } catch {
-      return { ok: false, message: "사진을 열지 못했어요. 직접 입력해 주세요." };
-    }
+    return { ok: false, message: "사진을 열지 못했어요. 직접 입력해 주세요." };
   }
 
   try {
@@ -56,10 +39,7 @@ export async function readReceipt(file) {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      return {
-        ok: false,
-        message: body.message || "사진을 읽지 못했어요. 직접 입력해 주세요.",
-      };
+      return { ok: false, message: body.message || "장끼를 읽지 못했어요. 직접 입력해 주세요." };
     }
     return { ok: true, data: await res.json() };
   } catch {
