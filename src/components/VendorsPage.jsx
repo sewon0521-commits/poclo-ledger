@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Search, List, BarChart3, Pencil, Trash2, Link2, CalendarDays } from "lucide-react";
+import { Plus, Search, List, BarChart3, Pencil, Trash2, Link2 } from "lucide-react";
 import { won, rangeOf, rangeLabel, ranking, summarizeVendors } from "../lib/calc";
 import { searchVendors } from "../lib/match";
 import { Badge, Empty } from "./ui";
@@ -13,14 +13,26 @@ const SORTS = [
   ["recent", "최근 거래순"],
 ];
 
+/**
+ * 거래처 카드.
+ * 들어가는 문은 '이름' 하나뿐이다 — 카드 전체가 눌리면 수정·삭제를 누르려다
+ * 잘못 들어가기 쉽다. 이름에는 커서를 올렸을 때 색이 바뀌어 누를 수 있음을 알린다.
+ */
 function VendorCard({ v, onOpen, onEdit, onDelete, onMerge }) {
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
       <div className="flex items-start justify-between gap-2">
-        <button type="button" onClick={() => onOpen(v)} className="min-w-0 flex-1 text-left">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             {v.flag && <span className="h-2 w-2 shrink-0 rounded-full bg-rose-600" aria-label="우선순위" />}
-            <span className="font-semibold text-stone-900">{v.name}</span>
+            <button
+              type="button"
+              onClick={() => onOpen(v)}
+              title="눌러서 거래내역 보기"
+              className="rounded font-semibold text-stone-900 underline-offset-4 transition hover:text-rose-700 hover:underline focus-visible:text-rose-700 focus-visible:underline"
+            >
+              {v.name}
+            </button>
             {v.status === "mixed" && <Badge tone="amber">혼합</Badge>}
           </div>
           {v.address && <div className="mt-1 text-sm text-stone-500">{v.address}</div>}
@@ -38,12 +50,9 @@ function VendorCard({ v, onOpen, onEdit, onDelete, onMerge }) {
               </div>
             ))}
           </div>
-        </button>
+        </div>
 
         <div className="flex shrink-0 items-center gap-0.5 text-stone-400">
-          <button type="button" onClick={() => onOpen(v)} title="거래내역" className="p-1.5 hover:text-stone-700">
-            <CalendarDays size={16} />
-          </button>
           <button type="button" onClick={() => onMerge(v)} title="다른 거래처와 합치기" className="p-1.5 hover:text-stone-700">
             <Link2 size={16} />
           </button>

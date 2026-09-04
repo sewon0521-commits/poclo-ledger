@@ -76,6 +76,27 @@ export function useLedger() {
     }
   };
 
+  /**
+   * 저장 실패를 왜 실패했는지 알 수 있게 옮긴다.
+   * "인터넷을 확인해 주세요"로 뭉뚱그리면 엉뚱한 곳을 보게 된다 —
+   * 실제로는 DB에 칸이 없거나 권한이 없어서인 경우가 많다.
+   */
+  const explain = (err) => {
+    const code = err?.code || "";
+    const msg = err?.message || "";
+    if (code === "42703" || code === "PGRST204") {
+      return `장부 표에 칸이 없어요. Supabase SQL Editor에서 supabase/schema.sql을 다시 실행해 주세요. (${msg})`;
+    }
+    if (code === "42501" || code === "PGRST301") {
+      return "저장 권한이 없어요. 로그아웃했다가 다시 로그인해 주세요.";
+    }
+    if (code === "23503") {
+      return "거래처가 먼저 저장되지 않았어요. 새로고침 후 다시 시도해 주세요.";
+    }
+    if (!navigator.onLine) return "인터넷이 끊겼어요. 연결되면 다시 저장해 주세요.";
+    return `저장하지 못했어요. ${msg || "잠시 뒤 다시 시도해 주세요."}`;
+  };
+
   /** 화면은 먼저 바꾸고(기다리지 않게) 저장은 뒤따른다. 실패하면 알려준다. */
   const apply = async (nextVendors, nextTx, remoteWrite) => {
     setVendors(nextVendors);
@@ -84,7 +105,7 @@ export function useLedger() {
     try {
       await remoteWrite();
     } catch (err) {
-      setNotice("저장하지 못했어요. 인터넷을 확인해 주세요.");
+      setNotice(explain(err));
       console.error(err);
       reload();
     }
