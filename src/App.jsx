@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
-import { Menu } from "lucide-react";
+import { Menu, Loader2, LogOut, UploadCloud } from "lucide-react";
 import { monthOf, thisMonth, todayISO, groupByDay, totals as sumTotals } from "./lib/calc";
-import { loadAll, saveVendors, saveTx, makeVendor, makeTx, makeAccount } from "./lib/store";
+import { makeVendor, makeTx, makeAccount } from "./lib/store";
 import { matchVendor, searchVendors } from "./lib/match";
 import { readReceipt } from "./lib/receipt";
-import { putPhoto, getPhoto, deletePhoto } from "./lib/photos";
+import { useLedger } from "./lib/useLedger";
 import Sidebar from "./components/Sidebar";
 import LedgerPage from "./components/LedgerPage";
 import VendorsPage from "./components/VendorsPage";
 import TxForm from "./components/TxForm";
+import Login from "./components/Login";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
 
@@ -20,30 +21,16 @@ function loadTaxType() {
   }
 }
 
-const initial = loadAll();
-
 export default function App() {
-  const [vendors, setVendors] = useState(initial.vendors);
-  const [tx, setTx] = useState(initial.tx);
+  const L = useLedger();
+  const { vendors, tx } = L;
+
   const [page, setPage] = useState("ledger");
   const [menuOpen, setMenuOpen] = useState(false);
   const [month, setMonth] = useState(thisMonth);
   const [taxType, setTaxType] = useState(loadTaxType);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
-
-  const warnIfUnsaved = (ok) => {
-    if (!ok) setNotice("이 브라우저에 저장하지 못했어요. 시크릿 창이면 일반 창에서 열어주세요.");
-  };
-  const putVendors = (list) => {
-    setVendors(list);
-    warnIfUnsaved(saveVendors(list));
-  };
-  const putTx = (list) => {
-    setTx(list);
-    warnIfUnsaved(saveTx(list));
-  };
 
   const pickTaxType = (t) => {
     setTaxType(t);
@@ -71,14 +58,6 @@ export default function App() {
 
   // ------------------------------------------------------------ 거래처
 
-  const saveVendor = (data) => {
-    if (data.id) {
-      putVendors(vendors.map((v) => (v.id === data.id ? makeVendor({ ...v, ...data }) : v)));
-    } else {
-      putVendors([...vendors, makeVendor(data)]);
-    }
-  };
-
   const deleteVendor = (v) => {
     const used = tx.filter((t) => t.vendorId === v.id).length;
     if (used > 0) {
@@ -86,13 +65,10 @@ export default function App() {
       return;
     }
     if (!window.confirm(`${v.name} 거래처를 지울까요?`)) return;
-    putVendors(vendors.filter((x) => x.id !== v.id));
+    L.removeVendor(v);
   };
 
-  /**
-   * 같은 가게가 이름이 다르게 읽혀 둘로 나뉜 경우를 하나로 합친다.
-   * 거래가 따라 옮겨가야 하므로 거래처 삭제와 다르다.
-   */
+  /** 같은 가게가 이름이 다르게 읽혀 둘로 나뉜 경우를 하나로 합친다 */
   const mergeVendor = (from) => {
     const others = vendors.filter((v) => v.id !== from.id);
     if (others.length === 0) {
@@ -112,7 +88,6 @@ export default function App() {
     }
     if (!window.confirm(`“${from.name}”의 거래를 전부 “${target.name}”으로 옮기고 합칠까요?`)) return;
 
-    // 남길 쪽에 비어 있는 정보와 없는 계좌를 채워 넣는다
     const merged = makeVendor({
       ...target,
       address: target.address || from.address,
@@ -121,12 +96,12 @@ export default function App() {
       accounts: [
         ...target.accounts,
         ...from.accounts.filter(
-          (a) => !target.accounts.some((b) => b.number.replace(/\D/g, "") === a.number.replace(/\D/g, "")),
+          (a) =>
+            !target.accounts.some((b) => b.number.replace(/\D/g, "") === a.number.replace(/\D/g, "")),
         ),
       ],
     });
-    putVendors(vendors.filter((v) => v.id !== from.id).map((v) => (v.id === target.id ? merged : v)));
-    putTx(tx.map((t) => (t.vendorId === from.id ? { ...t, vendorId: target.id } : t)));
+    L.mergeVendors(from, target, merged);
   };
 
   // -------------------------------------------------------------- 거래
@@ -134,7 +109,7 @@ export default function App() {
   const openBlank = () => setForm({ _k: Date.now(), date: defaultDate() });
 
   const editTx = async (t) => {
-    const photoUrl = t.hasPhoto ? await getPhoto(t.id) : "";
+    const photoUrl = t.hasPhoto ? await L.getPhoto(t.id) : "";
     const v = vendors.find((x) => x.id === t.vendorId);
     setForm({
       ...t,
@@ -149,58 +124,46 @@ export default function App() {
 
   const deleteTx = (t) => {
     if (!window.confirm(`${vendorName(t.vendorId)} 거래를 지울까요?`)) return;
-    putTx(tx.filter((x) => x.id !== t.id));
-    deletePhoto(t.id);
+    L.removeTx(t);
     if (form?.id === t.id) setForm(null);
   };
 
-  const toggleMethod = (id) =>
-    putTx(
-      tx.map((t) =>
-        t.id === id ? { ...t, method: t.method === "transfer" ? "samchon" : "transfer" } : t,
-      ),
-    );
-
-  const toggleInvoice = (id) =>
-    putTx(tx.map((t) => (t.id === id ? { ...t, invoice: !t.invoice } : t)));
-
   const submitForm = async ({ vendorId, newVendorName, vendorInfo, tx: data, photoFile }) => {
     // 1) 거래처를 정한다 — 새로 만들거나, 고른 거래처에 새 정보를 채운다
-    let list = vendors;
     let id = vendorId;
+    let nextVendors = vendors;
     if (!id) {
       const created = makeVendor({ name: newVendorName, ...vendorInfo });
-      list = [...vendors, created];
+      nextVendors = [...vendors, created];
       id = created.id;
+      L.saveVendor(created);
     } else {
-      list = vendors.map((v) => {
-        if (v.id !== id) return v;
-        const known = new Set(v.accounts.map((a) => a.number.replace(/\D/g, "")));
-        return makeVendor({
-          ...v,
-          address: vendorInfo.address || v.address,
-          phone: vendorInfo.phone || v.phone,
-          bizNo: vendorInfo.bizNo || v.bizNo,
-          accounts: [
-            ...v.accounts,
-            ...vendorInfo.accounts.filter((a) => !known.has(a.number.replace(/\D/g, ""))).map(makeAccount),
-          ],
-        });
+      const v = vendors.find((x) => x.id === id);
+      const known = new Set(v.accounts.map((a) => a.number.replace(/\D/g, "")));
+      const merged = makeVendor({
+        ...v,
+        address: vendorInfo.address || v.address,
+        phone: vendorInfo.phone || v.phone,
+        bizNo: vendorInfo.bizNo || v.bizNo,
+        accounts: [
+          ...v.accounts,
+          ...vendorInfo.accounts.filter((a) => !known.has(a.number.replace(/\D/g, ""))).map(makeAccount),
+        ],
       });
+      nextVendors = vendors.map((x) => (x.id === id ? merged : x));
+      L.saveVendor(merged);
     }
-    putVendors(list);
 
     // 2) 거래를 저장한다
     const record = makeTx({ ...data, vendorId: id, hasPhoto: !!photoFile || !!form?.hasPhoto });
-    const next = data.id ? tx.map((t) => (t.id === data.id ? { ...record, id: data.id } : t)) : [...tx, record];
-    putTx(next);
+    L.saveTxRecord(record, nextVendors);
 
-    // 3) 사진은 IndexedDB에 따로 — 실패해도 거래는 남는다
+    // 3) 사진은 따로 — 실패해도 거래는 남는다
     if (photoFile) {
-      const saved = await putPhoto(record.id, photoFile);
+      const saved = await L.putPhoto(record.id, photoFile);
       if (!saved) {
-        setNotice("장끼 사진을 저장하지 못했어요. 거래는 저장됐습니다.");
-        putTx(next.map((t) => (t.id === record.id ? { ...t, hasPhoto: false } : t)));
+        L.setNotice("장끼 사진을 저장하지 못했어요. 거래는 저장됐습니다.");
+        L.patchTx(record.id, { hasPhoto: false });
       }
     }
 
@@ -212,12 +175,12 @@ export default function App() {
 
   const onReceipt = async (file) => {
     setBusy(true);
-    setNotice("");
+    L.setNotice("");
     const result = await readReceipt(file);
     setBusy(false);
 
     if (!result.ok) {
-      setNotice(result.message);
+      L.setNotice(result.message);
       setForm({ _k: Date.now(), date: defaultDate(), fromReceipt: true, failed: true, photoFile: file });
       return;
     }
@@ -245,11 +208,26 @@ export default function App() {
   };
 
   const rowProps = {
-    onToggleMethod: toggleMethod,
-    onToggleInvoice: toggleInvoice,
+    onToggleMethod: (id) =>
+      L.patchTx(id, {
+        method: tx.find((t) => t.id === id)?.method === "transfer" ? "samchon" : "transfer",
+      }),
+    onToggleInvoice: (id) => L.patchTx(id, { invoice: !tx.find((t) => t.id === id)?.invoice }),
     onEdit: editTx,
     onDelete: deleteTx,
   };
+
+  // ------------------------------------------------------------ 그리기
+
+  if (!L.authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-stone-50 text-stone-400">
+        <Loader2 size={22} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (L.mode === "remote" && !L.session) return <Login />;
 
   return (
     <div className="flex min-h-screen bg-stone-50 text-stone-800">
@@ -264,56 +242,88 @@ export default function App() {
         </header>
 
         <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
-          {notice && (
+          {L.notice && (
             <div className="mb-4 flex items-start gap-3 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-600">
-              <span className="flex-1">{notice}</span>
-              <button type="button" onClick={() => setNotice("")} className="shrink-0 text-stone-400">
+              <span className="flex-1">{L.notice}</span>
+              <button type="button" onClick={() => L.setNotice("")} className="shrink-0 text-stone-400">
                 닫기
               </button>
             </div>
           )}
 
-          {form && (
-            <TxForm
-              key={form._k}
-              seed={form}
-              vendors={vendors}
-              onSubmit={(payload) =>
-                submitForm({ ...payload, photoFile: payload.photoFile || form.photoFile || null })
-              }
-              onCancel={() => setForm(null)}
-            />
+          {L.canUpload && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm">
+              <span className="flex-1 text-rose-900">
+                이 기기에만 저장된 거래가 {L.uploadLocalCount}건 있어요. 공유 장부로 옮길까요?
+              </span>
+              <button
+                type="button"
+                onClick={L.uploadLocal}
+                className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 font-medium text-white"
+              >
+                <UploadCloud size={15} /> 옮기기
+              </button>
+            </div>
           )}
 
-          {page === "ledger" ? (
-            <LedgerPage
-              days={days}
-              totals={totals}
-              months={months}
-              month={month}
-              onMonth={setMonth}
-              taxType={taxType}
-              onTaxType={pickTaxType}
-              busy={busy}
-              onReceipt={onReceipt}
-              onAddBlank={openBlank}
-              vendorName={vendorName}
-              rowProps={rowProps}
-            />
+          {L.loading ? (
+            <div className="flex justify-center py-20 text-stone-400">
+              <Loader2 size={22} className="animate-spin" />
+            </div>
           ) : (
-            <VendorsPage
-              vendors={vendors}
-              rows={tx}
-              taxType={taxType}
-              onSaveVendor={saveVendor}
-              onDeleteVendor={deleteVendor}
-              onMergeVendor={mergeVendor}
-              rowProps={rowProps}
-            />
+            <>
+              {form && (
+                <TxForm
+                  key={form._k}
+                  seed={form}
+                  vendors={vendors}
+                  onSubmit={(payload) =>
+                    submitForm({ ...payload, photoFile: payload.photoFile || form.photoFile || null })
+                  }
+                  onCancel={() => setForm(null)}
+                />
+              )}
+
+              {page === "ledger" ? (
+                <LedgerPage
+                  days={days}
+                  totals={totals}
+                  months={months}
+                  month={month}
+                  onMonth={setMonth}
+                  taxType={taxType}
+                  onTaxType={pickTaxType}
+                  busy={busy}
+                  onReceipt={onReceipt}
+                  onAddBlank={openBlank}
+                  vendorName={vendorName}
+                  rowProps={rowProps}
+                />
+              ) : (
+                <VendorsPage
+                  vendors={vendors}
+                  rows={tx}
+                  taxType={taxType}
+                  onSaveVendor={L.saveVendor}
+                  onDeleteVendor={deleteVendor}
+                  onMergeVendor={mergeVendor}
+                  rowProps={rowProps}
+                />
+              )}
+            </>
           )}
 
-          <footer className="mt-10 border-t border-stone-200 pt-4 text-xs text-stone-400">
-            기록·집계·확인용 장부예요. 신고 판단은 세무 담당자와 확인하세요.
+          <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 pt-4 text-xs text-stone-400">
+            <span>기록·집계·확인용 장부예요. 신고 판단은 세무 담당자와 확인하세요.</span>
+            {L.session && (
+              <button
+                type="button"
+                onClick={L.signOut}
+                className="flex items-center gap-1 hover:text-stone-600"
+              >
+                <LogOut size={13} /> {L.session.user.email} 로그아웃
+              </button>
+            )}
           </footer>
         </main>
       </div>

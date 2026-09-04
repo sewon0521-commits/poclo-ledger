@@ -141,9 +141,22 @@ Tx     { id, vendorId, date, items:[{id,name,unitPrice,qty,amount,pending}],
 이름 비교는 괄호 안팎을 각각 조각으로 떼어 비교한다. "ONE PICK (원픽)"에서
 괄호를 통째로 버리면 "원픽"과 못 만난다.
 
-### 아직 안 한 것
+### M2 — 공유 저장 (Supabase)
 
-- M2: Supabase 공유 저장 + 로그인 (지금은 기기별로 데이터가 따로 논다).
+`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`가 있으면 **remote 모드**로 돌고,
+없으면 예전처럼 이 기기에만 저장하는 **local 모드**로 돈다. 화면 코드는 어느
+쪽인지 모른다 — `src/lib/useLedger.js`가 그 차이를 전부 흡수한다.
+
+- anon 키는 브라우저에 노출돼도 되는 값이다. 실제 통제는 RLS가 한다
+  (로그인 안 하면 아무것도 못 읽음). **service_role 키는 클라이언트에 절대 쓰지 않는다.**
+- 한 쪽이 고치면 realtime으로 다른 쪽이 따라 바뀐다. 어느 행이 바뀌었는지
+  따지지 않고 통째로 다시 읽는다 — 장부가 작아 그게 더 단순하고 틀릴 일이 없다.
+- 스키마와 권한은 `supabase/schema.sql` 한 파일에 있다. 여러 번 실행해도 안전하다.
+- 장끼 사진은 Storage의 `receipts` 버킷. local 모드에서는 IndexedDB.
+- 로그인은 이메일+비밀번호. 계정은 Supabase 대시보드에서 미리 만든다(가입 화면 없음).
+- 이 기기에만 있던 장부는 로그인 후 배너를 눌러 공유 장부로 올린다.
+
+### 아직 안 한 것
 - M4: CSV 일괄등록 / 삼촌 대납 정산 / 매출·예상 부가세.
 - 거래처 합치기가 지금은 이름을 쳐서 고르는 방식(`window.prompt`)이다. 목록에서
   골라 합치는 화면이 있으면 낫다.
