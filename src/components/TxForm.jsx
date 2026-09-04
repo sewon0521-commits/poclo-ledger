@@ -11,6 +11,14 @@ const comma = (s) => {
 };
 const numOf = (s) => Number(digits(s) || 0);
 
+/** 수량용 — 마이너스를 허용한다(반품·교환) */
+const intOf = (s) => {
+  const cleaned = String(s ?? "").replace(/[^0-9-]/g, "");
+  const neg = cleaned.startsWith("-");
+  const n = Number(cleaned.replace(/-/g, "") || 0);
+  return neg ? -n : n;
+};
+
 const FIELD =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-rose-600";
 
@@ -30,32 +38,39 @@ function Money({ value, onChange, className = "", compact = false, ...rest }) {
   );
 }
 
-/** 수량 — 화살표로 1씩 올리고 내린다. 0 아래로는 안 내려간다. */
+/**
+ * 수량 — 화살표로 1씩 올리고 내린다.
+ * 마이너스를 허용한다. 반품·교환은 수량이 빠지는 일이므로 음수로 적는다.
+ *
+ * 화살표는 높이를 고정하지 않고 입력칸을 따라 늘어난다(flex-1). 그래야 글꼴이나
+ * 여백이 바뀌어도 칸과 어긋나지 않는다.
+ */
 function Qty({ value, onChange }) {
-  const step = (d) => onChange(Math.max(0, (Number(value) || 0) + d));
+  const arrow =
+    "flex flex-1 w-5 items-center justify-center border-l-0 border-stone-300 bg-stone-50 text-stone-500 hover:bg-stone-100 active:bg-stone-200";
   return (
     <div className="flex shrink-0 items-stretch">
       <input
         value={value}
-        onChange={(e) => onChange(Number(digits(e.target.value) || 0))}
+        onChange={(e) => onChange(intOf(e.target.value))}
         inputMode="numeric"
         aria-label="수량"
-        className={COMPACT + " w-10 rounded-r-none text-center tabular-nums"}
+        className={COMPACT + " w-11 rounded-r-none text-center tabular-nums"}
       />
       <div className="flex flex-col">
         <button
           type="button"
-          onClick={() => step(1)}
+          onClick={() => onChange((Number(value) || 0) + 1)}
           aria-label="수량 1 올리기"
-          className="flex h-[17px] w-5 items-center justify-center rounded-tr-md border border-b-0 border-l-0 border-stone-300 bg-stone-50 text-stone-500 hover:bg-stone-100 active:bg-stone-200"
+          className={arrow + " rounded-tr-md border border-b-0"}
         >
           <ChevronUp size={11} />
         </button>
         <button
           type="button"
-          onClick={() => step(-1)}
+          onClick={() => onChange((Number(value) || 0) - 1)}
           aria-label="수량 1 내리기"
-          className="flex h-[17px] w-5 items-center justify-center rounded-br-md border border-l-0 border-stone-300 bg-stone-50 text-stone-500 hover:bg-stone-100 active:bg-stone-200"
+          className={arrow + " rounded-br-md border"}
         >
           <ChevronDown size={11} />
         </button>
@@ -163,19 +178,27 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
       : "거래 추가";
 
   return (
-    <div className="mb-5 rounded-2xl border border-stone-300 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <span className="font-semibold text-stone-900">{title}</span>
+    <div className="flex max-h-[90vh] flex-col">
+      <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3.5">
+        <div>
+          <h2 id="tx-form-title" className="font-semibold text-stone-900">
+            {title}
+          </h2>
+          <p className="mt-0.5 text-xs text-stone-500">
+            결제방식은 꼭 골라주세요. 나머지는 나중에 고쳐도 돼요.
+          </p>
+        </div>
         <button
           type="button"
           onClick={onCancel}
           aria-label="닫기"
-          className="-m-1 p-1 text-stone-400 hover:text-stone-700"
+          className="-m-1 shrink-0 p-1 text-stone-400 hover:text-stone-700"
         >
           <X size={20} />
         </button>
-      </div>
+      </header>
 
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
       {seed.matchNote && (
         <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
           {seed.matchNote} 아니면 아래에서 다른 거래처로 바꾸세요.
@@ -536,14 +559,24 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
       {touched && missing.length > 0 && (
         <p className="mt-3 text-sm text-rose-700">{missing.join(", ")}을(를) 채워주세요.</p>
       )}
+      </div>
 
-      <button
-        type="button"
-        onClick={submit}
-        className="mt-3 w-full rounded-xl bg-rose-700 py-3.5 font-semibold text-white transition hover:bg-rose-800 active:scale-[0.99]"
-      >
-        저장
-      </button>
+      <footer className="flex shrink-0 gap-2 border-t border-stone-200 px-4 py-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-xl border border-stone-300 px-5 py-3 font-medium text-stone-600 transition hover:bg-stone-100"
+        >
+          취소
+        </button>
+        <button
+          type="button"
+          onClick={submit}
+          className="flex-1 rounded-xl bg-rose-700 py-3 font-semibold text-white transition hover:bg-rose-800 active:scale-[0.99]"
+        >
+          저장
+        </button>
+      </footer>
     </div>
   );
 }

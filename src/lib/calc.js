@@ -13,7 +13,11 @@ export const VAT_RATE = 0.1;
 /** 간이과세 기간에 세금계산서를 챙길 만한 거래처인지 가르는 총매입 기준선 */
 export const INVOICE_THRESHOLD = 300000;
 
-export const won = (n) => "₩" + new Intl.NumberFormat("ko-KR").format(Math.round(n || 0));
+// 반품·교환은 수량이 음수라 금액도 음수가 된다. 부호는 통화기호 앞에 붙인다.
+export const won = (n) => {
+  const v = Math.round(n || 0);
+  return (v < 0 ? "-₩" : "₩") + new Intl.NumberFormat("ko-KR").format(Math.abs(v));
+};
 
 export const monthOf = (d) => (d || "").slice(0, 7);
 

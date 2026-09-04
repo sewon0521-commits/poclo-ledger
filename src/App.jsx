@@ -10,6 +10,7 @@ import LedgerPage from "./components/LedgerPage";
 import VendorsPage from "./components/VendorsPage";
 import TxForm from "./components/TxForm";
 import Login from "./components/Login";
+import Modal from "./components/Modal";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
 
@@ -272,17 +273,19 @@ export default function App() {
             </div>
           ) : (
             <>
-              {form && (
-                <TxForm
-                  key={form._k}
-                  seed={form}
-                  vendors={vendors}
-                  onSubmit={(payload) =>
-                    submitForm({ ...payload, photoFile: payload.photoFile || form.photoFile || null })
-                  }
-                  onCancel={() => setForm(null)}
-                />
-              )}
+              <Modal open={!!form} onClose={() => setForm(null)} labelledBy="tx-form-title">
+                {form && (
+                  <TxForm
+                    key={form._k}
+                    seed={form}
+                    vendors={vendors}
+                    onSubmit={(payload) =>
+                      submitForm({ ...payload, photoFile: payload.photoFile || form.photoFile || null })
+                    }
+                    onCancel={() => setForm(null)}
+                  />
+                )}
+              </Modal>
 
               {page === "ledger" ? (
                 <LedgerPage
