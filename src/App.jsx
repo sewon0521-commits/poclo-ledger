@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import { Menu, Loader2, LogOut, UploadCloud } from "lucide-react";
-import { monthOf, thisMonth, todayISO, groupByDay, totals as sumTotals } from "./lib/calc";
+import {
+  monthOf,
+
+  todayISO,
+  groupByDay,
+  filterRange,
+  rangeOf,
+  nextMode,
+  totals as sumTotals,
+} from "./lib/calc";
 import { makeVendor, makeTx, makeAccount } from "./lib/store";
 import { matchVendor, searchVendors } from "./lib/match";
 import { readReceipt } from "./lib/receipt";
@@ -11,6 +20,7 @@ import VendorsPage from "./components/VendorsPage";
 import TxForm from "./components/TxForm";
 import Login from "./components/Login";
 import Modal from "./components/Modal";
+import InvoicePage, { RequestMessage } from "./components/InvoicePage";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
 
@@ -28,7 +38,9 @@ export default function App() {
 
   const [page, setPage] = useState("ledger");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [month, setMonth] = useState(thisMonth);
+  const [preset, setPreset] = useState("month");
+  const [custom, setCustom] = useState(() => rangeOf("month"));
+  const [request, setRequest] = useState(null);
   const [taxType, setTaxType] = useState(loadTaxType);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -44,18 +56,17 @@ export default function App() {
 
   const vendorName = (id) => vendors.find((v) => v.id === id)?.name || "";
 
-  const months = useMemo(() => {
-    const s = new Set(tx.map((t) => monthOf(t.date)).filter(Boolean));
-    s.add(month);
-    s.add(thisMonth());
-    return [...s].sort().reverse();
-  }, [tx, month]);
+  const range = preset === "custom" ? custom : rangeOf(preset);
+  const shown = useMemo(() => filterRange(tx, range), [tx, range]);
+  const days = useMemo(() => groupByDay(shown), [shown]);
+  const totals = useMemo(() => sumTotals(shown), [shown]);
 
-  const monthRows = useMemo(() => tx.filter((t) => monthOf(t.date) === month), [tx, month]);
-  const days = useMemo(() => groupByDay(monthRows), [monthRows]);
-  const totals = useMemo(() => sumTotals(monthRows), [monthRows]);
-
-  const defaultDate = () => (month === thisMonth() ? todayISO() : month + "-01");
+  // 새 거래의 기본 날짜 — 보고 있는 기간 안이면 오늘, 아니면 기간 시작일
+  const defaultDate = () => {
+    const today = todayISO();
+    if ((!range.from || today >= range.from) && (!range.to || today <= range.to)) return today;
+    return range.from || today;
+  };
 
   // ------------------------------------------------------------ 거래처
 
@@ -168,7 +179,11 @@ export default function App() {
       }
     }
 
-    if (monthOf(data.date) !== month) setMonth(monthOf(data.date));
+    // 저장한 날짜가 보고 있는 기간 밖이면 안 보이므로 그 달로 옮겨준다
+    if (!filterRange([{ date: data.date }], range).length) {
+      setPreset("custom");
+      setCustom({ from: monthOf(data.date) + "-01", to: data.date });
+    }
     setForm(null);
   };
 
@@ -209,10 +224,11 @@ export default function App() {
   };
 
   const rowProps = {
-    onToggleMethod: (id) =>
-      L.patchTx(id, {
-        method: tx.find((t) => t.id === id)?.method === "transfer" ? "samchon" : "transfer",
-      }),
+    // 이체(부가세O) → 이체(부가세X) → 삼촌 순으로 돈다
+    onToggleMethod: (id) => {
+      const t = tx.find((x) => x.id === id);
+      if (t) L.patchTx(id, nextMode(t));
+    },
     onToggleInvoice: (id) => L.patchTx(id, { invoice: !tx.find((t) => t.id === id)?.invoice }),
     onEdit: editTx,
     onDelete: deleteTx,
@@ -287,13 +303,28 @@ export default function App() {
                 )}
               </Modal>
 
+              <Modal open={!!request} onClose={() => setRequest(null)} labelledBy="tx-form-title">
+                {request && (
+                  <RequestMessage
+                    key={request._k}
+                    vendor={request.vendor}
+                    text={request.text}
+                    onClose={() => setRequest(null)}
+                  />
+                )}
+              </Modal>
+
               {page === "ledger" ? (
                 <LedgerPage
                   days={days}
                   totals={totals}
-                  months={months}
-                  month={month}
-                  onMonth={setMonth}
+                  range={range}
+                  preset={preset}
+                  custom={custom}
+                  onRange={({ preset: p, custom: c }) => {
+                    setPreset(p);
+                    setCustom(c);
+                  }}
                   taxType={taxType}
                   onTaxType={pickTaxType}
                   busy={busy}
@@ -302,7 +333,7 @@ export default function App() {
                   vendorName={vendorName}
                   rowProps={rowProps}
                 />
-              ) : (
+              ) : page === "vendors" ? (
                 <VendorsPage
                   vendors={vendors}
                   rows={tx}
@@ -311,6 +342,12 @@ export default function App() {
                   onDeleteVendor={deleteVendor}
                   onMergeVendor={mergeVendor}
                   rowProps={rowProps}
+                />
+              ) : (
+                <InvoicePage
+                  vendors={vendors}
+                  rows={tx}
+                  onRequestMessage={(vendor, text) => setRequest({ vendor, text, _k: Date.now() })}
                 />
               )}
             </>

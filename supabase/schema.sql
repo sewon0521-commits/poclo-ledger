@@ -31,11 +31,23 @@ create table if not exists public.transactions (
   supply      bigint not null default 0,   -- 당일합계 = 장부 금액
   method      text not null default 'samchon' check (method in ('transfer','samchon')),
   invoice     boolean not null default false,
+  -- 이체를 했어도 부가세는 안 보낸 경우가 있다. 결제수단과 부가세 납부를 따로 둔다.
+  vat_paid    boolean not null default false,
   account_id  text not null default '',    -- 실제 송금한 계좌
   memo        text not null default '',
   has_photo   boolean not null default false,
   updated_at  timestamptz not null default now()
 );
+
+-- 이미 만들어진 표에도 칸을 더한다. 예전 기록은 이체=부가세 포함이었으므로 그렇게 채운다.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema='public' and table_name='transactions' and column_name='vat_paid') then
+    alter table public.transactions add column vat_paid boolean not null default false;
+    update public.transactions set vat_paid = true where method = 'transfer';
+  end if;
+end $$;
 
 create index if not exists transactions_date_idx on public.transactions (date desc);
 create index if not exists transactions_vendor_idx on public.transactions (vendor_id);

@@ -1,4 +1,4 @@
-import { Store, BookOpen, X } from "lucide-react";
+import { Store, BookOpen, Scale, X } from "lucide-react";
 
 const MENU = [
   {
@@ -7,6 +7,10 @@ const MENU = [
       { key: "vendors", label: "거래처", icon: Store },
       { key: "ledger", label: "포클로 매입 장부", icon: BookOpen },
     ],
+  },
+  {
+    group: "정산·세무",
+    items: [{ key: "invoice", label: "세금계산서 대조", icon: Scale }],
   },
 ];
 

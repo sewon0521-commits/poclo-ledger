@@ -118,8 +118,15 @@ Transaction {
 ```
 Vendor { id, name, address, phone, bizNo, accounts:[{id,bank,number,holder}], memo }
 Tx     { id, vendorId, date, items:[{id,name,unitPrice,qty,amount,pending}],
-         supply, method, invoice, accountId, memo, hasPhoto }
+         supply, method, vatPaid, invoice, accountId, memo, hasPhoto }
 ```
+
+- **결제 상태는 세 가지다** (`MODES` in calc.js). 이체를 했어도 부가세는 안 보낸
+  경우가 있어서 이체가 둘로 갈린다:
+  `이체+vatPaid` / `이체+!vatPaid` / `삼촌 대납`. 칩을 누르면 이 순서로 돈다.
+  부가세를 냈는지는 `method`가 아니라 **`derive(t).paidVat > 0`으로 판단**할 것.
+- `items[].qty`는 음수가 될 수 있다(반품·교환). 금액도 따라 음수가 되므로 `won()`은
+  부호를 통화기호 앞에 붙인다.
 
 - `supply`는 **당일합계**이고 이것이 장부 금액이다. 품목 합계와 다를 수 있으며
   (에누리 등) 그때는 당일합계를 따른다. 품목 합계는 참고용으로만 보여준다.
@@ -155,6 +162,13 @@ Tx     { id, vendorId, date, items:[{id,name,unitPrice,qty,amount,pending}],
 - 장끼 사진은 Storage의 `receipts` 버킷. local 모드에서는 IndexedDB.
 - 로그인은 이메일+비밀번호. 계정은 Supabase 대시보드에서 미리 만든다(가입 화면 없음).
 - 이 기기에만 있던 장부는 로그인 후 배너를 눌러 공유 장부로 올린다.
+
+### 실시간 갱신과 화면 상태
+
+remote 모드에서는 저장할 때마다 realtime이 울려 전체를 다시 읽는다. 이때 화면을
+통째로 "불러오는 중"으로 바꾸면 보고 있던 거래처 상세가 사라졌다 다시 그려지면서
+목록으로 튕긴다. 그래서 **스피너는 첫 로딩 한 번만** 띄운다
+(`useLedger.js`의 `loadedOnce`). 이 부분을 고칠 때 그 이유를 잊지 말 것.
 
 ### 아직 안 한 것
 - M4: CSV 일괄등록 / 삼촌 대납 정산 / 매출·예상 부가세.

@@ -99,9 +99,10 @@ export default function VendorDetail({ vendor, rows, onBack, onEditVendor, rowPr
       <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         {[
           ["거래액 (공급가)", won(t.supply), "text-stone-900"],
-          ["이체(증빙)", won(t.supply - t.samchon), "text-emerald-700"],
-          ["삼촌 대납(미증빙)", won(t.samchon), "text-amber-700"],
-          ["전환 +부가세", won(t.switchCost), "text-stone-600"],
+          // 이체 칸은 실제로 나간 돈이다. 부가세를 같이 보냈으면 포함된 금액이 뜬다.
+          ["이체 (실제 나간 돈)", won(t.transferPaid), "text-emerald-700"],
+          ["부가세 안 낸 매입", won(t.unpaid), "text-amber-700"],
+          ["더 낼 부가세", won(t.switchCost), "text-stone-600"],
         ].map(([label, value, tone]) => (
           <div key={label} className="rounded-xl border border-stone-200 bg-white p-3">
             <div className="text-xs text-stone-500">{label}</div>

@@ -72,16 +72,37 @@ export const filterRange = (rows, range) => rows.filter((t) => inRange(t.date, r
 
 // -------------------------------------------------------------------- 파생값
 
+/**
+ * 결제 상태 세 가지.
+ * 이체를 했어도 부가세는 안 보낸 경우가 있어서 이체가 둘로 갈린다.
+ */
+export const MODES = [
+  { key: "transfer-vat", method: "transfer", vatPaid: true, label: "이체", sub: "부가세O" },
+  { key: "transfer-novat", method: "transfer", vatPaid: false, label: "이체", sub: "부가세X" },
+  { key: "samchon", method: "samchon", vatPaid: false, label: "삼촌", sub: "대납" },
+];
+
+export const modeOf = (t) =>
+  t.method === "samchon" ? MODES[2] : t.vatPaid ? MODES[0] : MODES[1];
+
+/** 칩을 누를 때마다 이체(부가세O) → 이체(부가세X) → 삼촌 순으로 돈다 */
+export function nextMode(t) {
+  const i = MODES.indexOf(modeOf(t));
+  const n = MODES[(i + 1) % MODES.length];
+  return { method: n.method, vatPaid: n.vatPaid };
+}
+
 /** 거래 한 건에서 파생되는 금액들 */
 export function derive(t) {
   const supply = t.supply || 0;
   const vat = supply * VAT_RATE;
-  const isTransfer = t.method === "transfer";
+  const paid = t.method === "transfer" && t.vatPaid;
   return {
     vat,
-    paidVat: isTransfer ? vat : 0,
-    pendingVat: isTransfer ? 0 : vat,
-    actualPaid: isTransfer ? supply + vat : supply,
+    paidVat: paid ? vat : 0,
+    pendingVat: paid ? 0 : vat,
+    // 실제로 나간 돈. 부가세를 같이 보냈으면 그만큼 더 나갔다.
+    actualPaid: paid ? supply + vat : supply,
   };
 }
 
@@ -126,8 +147,10 @@ export function summarizeVendors(rows, vendors, taxType) {
       ...v,
       count: 0,
       supply: 0,
-      transferSupply: 0,
+      transferSupply: 0, // 이체 건의 공급가
+      transferPaid: 0, // 이체 건에 실제로 나간 돈 (부가세 보냈으면 포함)
       samchonSupply: 0,
+      unpaidVatSupply: 0, // 부가세를 아직 안 낸 공급가 (삼촌 + 이체·부가세X)
       invoiceCount: 0,
       pendingCount: 0,
       noPhotoCount: 0,
@@ -138,10 +161,16 @@ export function summarizeVendors(rows, vendors, taxType) {
   for (const t of rows) {
     const s = m.get(t.vendorId);
     if (!s) continue; // 거래처가 지워진 고아 거래
+    const d = derive(t);
     s.count += 1;
     s.supply += t.supply;
-    if (t.method === "transfer") s.transferSupply += t.supply;
-    else s.samchonSupply += t.supply;
+    if (t.method === "transfer") {
+      s.transferSupply += t.supply;
+      s.transferPaid += d.actualPaid;
+    } else {
+      s.samchonSupply += t.supply;
+    }
+    if (d.pendingVat > 0) s.unpaidVatSupply += t.supply;
     if (t.invoice) s.invoiceCount += 1;
     if (hasPending(t)) s.pendingCount += 1;
     if (!t.hasPhoto) s.noPhotoCount += 1;
@@ -149,9 +178,9 @@ export function summarizeVendors(rows, vendors, taxType) {
   }
 
   return [...m.values()].map((s) => {
-    // 대납(미증빙) 건을 세금계산서로 돌리면 추가로 낼 부가세
-    const switchCost = s.samchonSupply * VAT_RATE;
-    const needsWork = s.samchonSupply > 0 || s.invoiceCount < s.count;
+    // 부가세를 안 낸 건을 세금계산서로 돌리면 추가로 낼 부가세
+    const switchCost = s.unpaidVatSupply * VAT_RATE;
+    const needsWork = s.unpaidVatSupply > 0 || s.invoiceCount < s.count;
     const flag =
       s.count === 0
         ? false
@@ -189,6 +218,8 @@ export function ranking(rows, vendors, range) {
 export function totals(rows) {
   let supply = 0;
   let samchon = 0;
+  let transferNoVat = 0;
+  let transferPaid = 0; // 이체 건에 실제로 나간 돈 (부가세 보냈으면 포함)
   let paidVat = 0;
   let actualPaid = 0;
   let invoiced = 0;
@@ -197,15 +228,25 @@ export function totals(rows) {
     supply += t.supply;
     paidVat += d.paidVat;
     actualPaid += d.actualPaid;
-    if (t.method === "samchon") samchon += t.supply;
+    if (t.method === "samchon") {
+      samchon += t.supply;
+    } else {
+      transferPaid += d.actualPaid;
+      if (!t.vatPaid) transferNoVat += t.supply;
+    }
     if (t.invoice) invoiced += 1;
   }
+  // 부가세를 아직 안 낸 매입 — 삼촌 대납과, 이체했지만 부가세는 안 보낸 건
+  const unpaid = samchon + transferNoVat;
   return {
     supply,
     samchon,
+    transferNoVat,
+    transferPaid,
+    unpaid,
     paidVat,
     actualPaid,
-    switchCost: samchon * VAT_RATE,
+    switchCost: unpaid * VAT_RATE,
     invoiced,
     count: rows.length,
     invoiceRate: rows.length ? invoiced / rows.length : 0,

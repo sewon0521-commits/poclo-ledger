@@ -15,15 +15,15 @@ export default function TxRow({
   onEdit,
   onDelete,
 }) {
-  const { vat } = derive(tx);
-  const isTransfer = tx.method === "transfer";
+  const { vat, paidVat } = derive(tx);
+  const vatIsPaid = paidVat > 0;
   const itemNames = (tx.items || []).map((i) => i.name).filter(Boolean).join(", ");
   const title = showVendor ? vendorName || "(거래처 없음)" : itemNames || "품목 없음";
   const sub = showVendor ? [itemNames, tx.memo].filter(Boolean).join(" · ") : tx.memo;
 
   return (
     <li className="flex items-center gap-2.5 px-3 py-3">
-      <MethodChip method={tx.method} onClick={() => onToggleMethod(tx.id)} />
+      <MethodChip tx={tx} onClick={() => onToggleMethod(tx.id)} />
 
       <button type="button" onClick={() => onEdit(tx)} className="min-w-0 flex-1 text-left" title="눌러서 수정">
         <div className="flex items-center gap-1 truncate font-medium text-stone-900">
@@ -37,8 +37,8 @@ export default function TxRow({
 
       <div className="shrink-0 text-right">
         <div className="font-medium tabular-nums">{won(tx.supply)}</div>
-        <div className={"text-xs tabular-nums " + (isTransfer ? "text-emerald-600" : "text-amber-600")}>
-          {isTransfer ? "+부가세 " : "미증빙 "}
+        <div className={"text-xs tabular-nums " + (vatIsPaid ? "text-emerald-600" : "text-amber-600")}>
+          {vatIsPaid ? "+부가세 " : "미납 부가세 "}
           {won(vat)}
         </div>
       </div>

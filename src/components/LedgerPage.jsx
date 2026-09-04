@@ -1,16 +1,18 @@
 import { AlertCircle, Plus } from "lucide-react";
-import { won, dayLabel, monthLabel } from "../lib/calc";
+import { won, dayLabel, rangeLabel } from "../lib/calc";
 import { Kpi, Empty } from "./ui";
 import TxRow from "./TxRow";
 import ReceiptDrop from "./ReceiptDrop";
+import DateRange from "./DateRange";
 
 /** 포클로 매입 장부 — 장끼 올리기 + KPI + 날짜별 거래 */
 export default function LedgerPage({
   days,
   totals,
-  months,
-  month,
-  onMonth,
+  range,
+  preset,
+  custom,
+  onRange,
   taxType,
   onTaxType,
   busy,
@@ -47,19 +49,12 @@ export default function LedgerPage({
               </button>
             ))}
           </div>
-          <select
-            value={month}
-            onChange={(e) => onMonth(e.target.value)}
-            aria-label="월 선택"
-            className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm"
-          >
-            {months.map((m) => (
-              <option key={m} value={m}>
-                {monthLabel(m)}
-              </option>
-            ))}
-          </select>
         </div>
+      </div>
+
+      <div className="mb-4">
+        <DateRange preset={preset} custom={custom} onChange={onRange} />
+        <p className="mt-1.5 text-xs text-stone-400">{rangeLabel(range)}</p>
       </div>
 
       <ReceiptDrop busy={busy} onFile={onReceipt} />
@@ -75,10 +70,10 @@ export default function LedgerPage({
       <section className="mb-5 space-y-3">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
           <div className="flex items-center gap-1.5 text-sm font-semibold text-rose-800">
-            <AlertCircle size={15} /> 삼촌 대납 매입 (부가세 안 낸 것)
+            <AlertCircle size={15} /> 부가세 안 낸 매입 (삼촌 대납 + 이체·부가세X)
           </div>
           <div className="mt-2 text-3xl font-bold tabular-nums text-rose-900">
-            {won(totals.samchon)}
+            {won(totals.unpaid)}
           </div>
           <div className="mt-1.5 text-sm text-rose-700">
             세금계산서로 돌리려면 추가 부가세{" "}

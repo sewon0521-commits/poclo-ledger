@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { X, Check, Plus, Trash2, ChevronDown, ChevronUp, Camera, ImageOff } from "lucide-react";
-import { won, VAT_RATE, itemsTotal } from "../lib/calc";
+import { won, VAT_RATE, itemsTotal, MODES } from "../lib/calc";
 import { makeAccount, makeItem } from "../lib/store";
 import VendorPicker from "./VendorPicker";
 
@@ -99,6 +99,7 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
   const [supply, setSupply] = useState(seed.supply ? String(seed.supply) : "");
   const [supplyTouched, setSupplyTouched] = useState(!!seed.supply);
   const [method, setMethod] = useState(seed.method || null);
+  const [vatPaid, setVatPaid] = useState(seed.method === "transfer" ? seed.vatPaid !== false : false);
   const [invoice, setInvoice] = useState(!!seed.invoice);
   const [memo, setMemo] = useState(seed.memo || "");
   const [accountId, setAccountId] = useState(seed.accountId || "");
@@ -117,6 +118,7 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
   });
   const [openInfo, setOpenInfo] = useState(!!(seed.address || seed.phone || seed.bizNo));
 
+  const mode = method ? MODES.find((m) => m.method === method && m.vatPaid === vatPaid) : null;
   const itemSum = useMemo(() => itemsTotal(items), [items]);
   const amount = supplyTouched ? numOf(supply) : itemSum;
   const filledAccounts = accounts.filter((a) => a.number.trim());
@@ -161,6 +163,7 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
         items: items.filter((i) => i.name.trim() || i.amount),
         supply: amount,
         method,
+        vatPaid: method === "transfer" ? vatPaid : false,
         invoice,
         accountId: method === "transfer" ? effectiveAccountId : "",
         memo: memo.trim(),
@@ -335,37 +338,49 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
         )}
       </div>
 
-      {/* 결제방식 */}
+      {/* 결제방식 — 이체를 했어도 부가세는 안 보낸 경우가 있어 이체가 둘로 갈린다 */}
       <div className="mt-3 text-sm">
         <span className="mb-1.5 block text-stone-500">
           결제방식 <span className="text-rose-600">· 장끼로는 알 수 없어요. 꼭 골라주세요</span>
         </span>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setMethod("samchon")}
-            className={
-              "rounded-lg border py-3 font-medium transition " +
-              (method === "samchon"
-                ? "border-amber-500 bg-amber-500 text-white"
-                : "border-stone-300 bg-white text-stone-600")
-            }
-          >
-            삼촌 대납 <span className="text-xs opacity-80">부가세 X</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMethod("transfer")}
-            className={
-              "rounded-lg border py-3 font-medium transition " +
-              (method === "transfer"
-                ? "border-emerald-600 bg-emerald-600 text-white"
-                : "border-stone-300 bg-white text-stone-600")
-            }
-          >
-            이체 <span className="text-xs opacity-80">부가세 O</span>
-          </button>
+        <div className="grid grid-cols-3 gap-2">
+          {MODES.map((m) => {
+            const on = mode?.key === m.key;
+            const tone = m.key === "transfer-vat" ? "emerald" : "amber";
+            return (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => {
+                  setMethod(m.method);
+                  setVatPaid(m.vatPaid);
+                }}
+                className={
+                  "flex flex-col items-center rounded-lg border py-2.5 leading-tight font-medium transition " +
+                  (on
+                    ? tone === "emerald"
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : "border-amber-500 bg-amber-500 text-white"
+                    : "border-stone-300 bg-white text-stone-600")
+                }
+              >
+                <span>{m.key === "samchon" ? "삼촌 대납" : "이체"}</span>
+                <span className="text-xs opacity-80">
+                  {m.key === "transfer-vat" ? "부가세 보냄" : m.key === "transfer-novat" ? "부가세 안 보냄" : "부가세 X"}
+                </span>
+              </button>
+            );
+          })}
         </div>
+        {amount > 0 && (
+          <p className="mt-2 text-xs tabular-nums text-stone-500">
+            {mode?.key === "transfer-vat"
+              ? `실제 지출 ${won(amount + amount * VAT_RATE)} (금액 ${won(amount)} + 부가세 ${won(amount * VAT_RATE)})`
+              : mode
+                ? `실제 지출 ${won(amount)} · 아직 안 낸 부가세 ${won(amount * VAT_RATE)}`
+                : `부가세 ${won(amount * VAT_RATE)}`}
+          </p>
+        )}
       </div>
 
       {/* 계좌 — 여러 개면 실제 송금한 것을 고른다 */}

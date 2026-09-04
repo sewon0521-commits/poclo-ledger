@@ -69,13 +69,18 @@ export function makeVendor(v = {}) {
 }
 
 export function makeTx(t = {}) {
+  const method = t.method === "transfer" ? "transfer" : "samchon";
   return {
     id: t.id || newId("t"),
     vendorId: t.vendorId || "",
     date: t.date || "",
     items: (t.items || []).map(makeItem),
     supply: Number(t.supply) || 0, // 당일합계 = 장부 금액
-    method: t.method === "transfer" ? "transfer" : "samchon",
+    method,
+    // 이체를 했어도 부가세는 안 보낸 경우가 있다. 그래서 결제수단과 부가세 납부를
+    // 따로 둔다. 삼촌 대납은 언제나 부가세를 안 낸 것이다.
+    // 예전 기록에는 이 값이 없는데, 그때는 이체=부가세 포함이었으므로 그렇게 읽는다.
+    vatPaid: method === "transfer" ? t.vatPaid !== false : false,
     invoice: !!t.invoice,
     accountId: t.accountId || "", // 실제 송금한 계좌
     memo: t.memo || "",

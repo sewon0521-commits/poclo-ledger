@@ -44,21 +44,39 @@ export function Badge({ tone = "stone", children }) {
   );
 }
 
-export function MethodChip({ method, onClick, size = "md" }) {
-  const isTransfer = method === "transfer";
-  const pad = size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1.5 text-xs";
+import { modeOf } from "../lib/calc";
+
+/**
+ * 이체(부가세O) / 이체(부가세X) / 삼촌 대납 세 가지를 한 칩으로 보여준다.
+ * 누르면 다음 상태로 돈다.
+ *
+ * 색은 부가세를 냈는지로 가른다 — 초록이면 낸 것, 앰버면 아직 안 낸 것.
+ */
+export function MethodChip({ tx, onClick }) {
+  const mode = modeOf(tx);
+  const paid = mode.key === "transfer-vat";
   const cls =
-    "shrink-0 rounded-full border font-medium transition " +
-    pad +
-    " " +
-    (isTransfer
+    "flex w-14 shrink-0 flex-col items-center rounded-lg border px-1 py-1 leading-tight font-medium transition " +
+    (paid
       ? "border-emerald-300 bg-emerald-50 text-emerald-700"
       : "border-amber-300 bg-amber-50 text-amber-700");
-  const label = isTransfer ? "이체" : "삼촌";
-  if (!onClick) return <span className={cls}>{label}</span>;
+
+  const inner = (
+    <>
+      <span className="text-xs">{mode.label}</span>
+      <span className="text-[10px] opacity-75">{mode.sub}</span>
+    </>
+  );
+
+  if (!onClick) return <span className={cls}>{inner}</span>;
   return (
-    <button type="button" onClick={onClick} title="눌러서 이체/삼촌 바꾸기" className={cls + " active:scale-95"}>
-      {label}
+    <button
+      type="button"
+      onClick={onClick}
+      title="눌러서 이체(부가세O) → 이체(부가세X) → 삼촌 순으로 바꾸기"
+      className={cls + " active:scale-95"}
+    >
+      {inner}
     </button>
   );
 }

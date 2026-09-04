@@ -39,12 +39,18 @@ export function useLedger() {
 
   // ------------------------------------------------------- 데이터 읽기 + 실시간
 
+  // 실시간 갱신 때마다 화면을 통째로 "불러오는 중"으로 바꾸면, 보고 있던 거래처
+  // 상세 화면이 사라졌다 다시 그려지면서 목록으로 튕긴다. 그래서 스피너는 맨 처음
+  // 한 번만 띄우고, 그다음 갱신은 조용히 갈아끼운다.
+  const loadedOnce = useRef(false);
+
   const reload = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!loadedOnce.current) setLoading(true);
       const data = await remote.fetchAll();
       setVendors(data.vendors);
       setTx(data.tx);
+      loadedOnce.current = true;
     } catch (err) {
       setNotice("장부를 불러오지 못했어요. 인터넷을 확인하고 새로고침해 주세요.");
       console.error(err);
