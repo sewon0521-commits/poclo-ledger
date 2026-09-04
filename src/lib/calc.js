@@ -219,6 +219,7 @@ export function totals(rows) {
   let supply = 0;
   let samchon = 0;
   let transferNoVat = 0;
+  let transferVat = 0; // 부가세까지 보낸 이체 건의 공급가
   let transferPaid = 0; // 이체 건에 실제로 나간 돈 (부가세 보냈으면 포함)
   let paidVat = 0;
   let actualPaid = 0;
@@ -232,7 +233,8 @@ export function totals(rows) {
       samchon += t.supply;
     } else {
       transferPaid += d.actualPaid;
-      if (!t.vatPaid) transferNoVat += t.supply;
+      if (t.vatPaid) transferVat += t.supply;
+      else transferNoVat += t.supply;
     }
     if (t.invoice) invoiced += 1;
   }
@@ -242,10 +244,13 @@ export function totals(rows) {
     supply,
     samchon,
     transferNoVat,
+    transferVat,
     transferPaid,
     unpaid,
     paidVat,
     actualPaid,
+    // 부가세를 낸 매입은 실제로 나간 돈(공급가 + 부가세)으로 본다
+    paidWithVat: transferVat + paidVat,
     switchCost: unpaid * VAT_RATE,
     invoiced,
     count: rows.length,

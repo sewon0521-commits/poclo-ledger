@@ -71,7 +71,11 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
 
   const range = preset === "custom" ? custom : rangeOf(preset);
   const inside = useMemo(() => filterRange(rows, range), [rows, range]);
-  const t = useMemo(() => sumTotals(inside), [inside]);
+  // 위 다섯 칸은 아래에서 체크한 거래처만 합산한다. 하나도 안 고르면 전부 0.
+  const t = useMemo(
+    () => sumTotals(inside.filter((x) => picked.has(x.vendorId))),
+    [inside, picked],
+  );
 
   const pending = useMemo(
     () =>
@@ -100,7 +104,7 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
       <div className="mb-4">
         <h2 className="text-xl font-bold text-stone-900">세금계산서 대조</h2>
         <p className="mt-0.5 text-sm text-stone-500">
-          부가세를 아직 안 낸 거래를 모아서 보여줘요. 고른 곳의 추가 부가세를 합쳐서 알려줍니다.
+          부가세를 아직 안 낸 거래처를 모아서 보여줘요. 체크한 곳만 위에서 합산됩니다.
         </p>
       </div>
 
@@ -115,11 +119,15 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
       />
       <p className="mt-1.5 text-xs text-stone-400">{rangeLabel(range)}</p>
 
-      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
         {[
           ["총매입 (공급가)", won(t.supply), "text-stone-900"],
-          ["부가세 낸 매입", won(t.supply - t.unpaid), "text-emerald-700"],
-          ["부가세 안 낸 매입", won(t.unpaid), "text-amber-700"],
+          // 부가세까지 보낸 이체는 실제로 나간 돈(공급가 + 부가세)으로 본다
+          ["부가세 낸 매입", won(t.paidWithVat), "text-emerald-700"],
+          // 삼촌 대납은 옆 칸으로 따로 뺐다
+          ["부가세 안 낸 매입", won(t.transferNoVat), "text-amber-700"],
+          ["삼촌 대납", won(t.samchon), "text-amber-700"],
+          // 위 두 칸(이체·부가세X + 삼촌 대납)을 더한 값의 10%
           ["더 낼 부가세", won(t.switchCost), "text-rose-700"],
         ].map(([label, value, tone]) => (
           <div key={label} className="rounded-xl border border-stone-200 bg-white p-3">
@@ -128,6 +136,12 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
           </div>
         ))}
       </div>
+
+      <p className="mt-2 text-xs text-stone-400">
+        {chosen.length > 0
+          ? `아래에서 고른 ${chosen.length}곳만 합산했어요.`
+          : "아래에서 거래처를 체크하면 위 칸에 합산돼요."}
+      </p>
 
       {pending.length === 0 ? (
         <div className="mt-4">
@@ -180,7 +194,7 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
                 <span className="text-sm text-rose-700">를 더 내야 해요</span>
               </div>
               <div className="mt-1 text-xs tabular-nums text-rose-700">
-                공급가 {won(chosenSupply)} · 합계 {won(chosenSupply + chosenVat)}
+                부가세 안 낸 공급가 {won(chosenSupply)} · 합계 {won(chosenSupply + chosenVat)}
               </div>
               <button
                 type="button"
