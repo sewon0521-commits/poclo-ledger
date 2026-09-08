@@ -4,7 +4,9 @@ export function Kpi({ label, value, sub, tone }) {
       ? "text-emerald-700"
       : tone === "amber"
         ? "text-amber-700"
-        : "text-stone-900";
+        : tone === "rose"
+          ? "text-rose-700"
+          : "text-stone-900";
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-3.5">
       <div className="text-xs font-medium text-stone-500">{label}</div>

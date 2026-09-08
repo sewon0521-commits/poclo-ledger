@@ -248,7 +248,7 @@ export default function SalesPage({
       (r) => (!range.from || r.date >= range.from) && (!range.to || r.date <= range.to),
     );
     return buildDays(
-      inRange.map(({ ads, ...rest }) => ({ ...rest, ads })),
+      inRange,
       Object.fromEntries(inRange.map((r) => [r.date, r.ads])),
       costs,
       conf.fixed,
@@ -360,7 +360,7 @@ export default function SalesPage({
               <Kpi
                 label="영업이익"
                 value={(total.profit >= 0 ? "+" : "−") + won(Math.abs(total.profit))}
-                tone={total.profit >= 0 ? "emerald" : undefined}
+                tone={total.profit >= 0 ? "emerald" : "rose"}
                 sub={`순매출의 ${pct(total.margin)}%`}
               />
               <Kpi
