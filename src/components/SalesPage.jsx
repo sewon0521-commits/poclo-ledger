@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Megaphone, Target, Upload, Settings2, Trash2, Info } from "lucide-react";
-import { rangeLabel, dayLabel } from "../lib/calc";
+import { Megaphone, Target, Upload, Settings2, Trash2, Info, Plus } from "lucide-react";
+import { rangeLabel, dayLabel, todayISO } from "../lib/calc";
 import {
   won,
   pct,
@@ -9,11 +9,13 @@ import {
   parseCafe,
   parseAds,
   DEFAULT_COSTS,
+  MONTH_FIELDS,
   TARGET_AD_RATE,
 } from "../lib/sales";
 import { adTone, TONE_TEXT, useDays } from "../lib/view";
 import { Kpi, Empty } from "./ui";
 import DateRange from "./DateRange";
+import EditNum from "./EditNum";
 
 /** 목표 18%까지 얼마나 왔는지 */
 function AdGauge({ total }) {
@@ -73,7 +75,6 @@ function AdGauge({ total }) {
 function Importer({ label, hint, onText }) {
   const [text, setText] = useState("");
   const [msg, setMsg] = useState("");
-
   const take = async (value) => setMsg(await onText(value));
 
   return (
@@ -115,15 +116,76 @@ function Importer({ label, hint, onText }) {
   );
 }
 
+/** 광고비 한 건을 날짜 골라서 직접 넣는다 */
+function AdEntry({ onAdd }) {
+  const [date, setDate] = useState(todayISO);
+  const [amount, setAmount] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const add = async () => {
+    const n = Math.round(Number(String(amount).replace(/[^\d.-]/g, "")) || 0);
+    if (!date || !n) {
+      setMsg("날짜와 금액을 넣어주세요.");
+      return;
+    }
+    await onAdd({ [date]: n });
+    setMsg(`${date} 광고비 ${won(n)}원 넣었어요.`);
+    setAmount("");
+  };
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white p-4">
+      <div className="text-sm font-semibold text-stone-800">광고비 직접 넣기</div>
+      <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-stone-400">
+        CSV 없이 하루치만 넣을 때. 이미 있는 날이면 이 값으로 덮어써요.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm"
+        />
+        <input
+          value={amount}
+          inputMode="numeric"
+          placeholder="금액"
+          onChange={(e) => setAmount(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          className="w-32 rounded-lg border border-stone-300 bg-white px-3 py-2 text-right text-sm tabular-nums"
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white"
+        >
+          <Plus size={14} /> 넣기
+        </button>
+        {msg && <span className="text-xs text-stone-500">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
 const FIELDS = [
   ["shipCost", "택배비 / 건", "우리가 내는 돈"],
   ["material", "부자재 / 개", ""],
   ["pg", "결제 수수료 (%)", "네이버 외"],
   ["naver", "네이버페이 (%)", "부가세 포함"],
-  ["fixed", "월 고정비", "임대·앱·삼촌"],
+  ["fixed", "월 고정비", "관리비 + 앱"],
+  ["samchon", "월 삼촌비", "달마다 다르면 아래에서"],
 ];
 
-function CostFields({ costs, onChange }) {
+function CostFields({ conf, onConf, months }) {
+  const costs = { ...DEFAULT_COSTS, ...conf.costs };
+  const monthly = conf.monthly || {};
+
+  const setMonth = (ym, key, v) =>
+    onConf({
+      ...conf,
+      monthly: { ...monthly, [ym]: { ...(monthly[ym] || {}), [key]: v === "" ? undefined : v } },
+    });
+
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
       <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-stone-800">
@@ -138,12 +200,60 @@ function CostFields({ costs, onChange }) {
               type="number"
               step="any"
               value={costs[key]}
-              onChange={(e) => onChange({ ...costs, [key]: Number(e.target.value) || 0 })}
+              onChange={(e) =>
+                onConf({ ...conf, costs: { ...costs, [key]: Number(e.target.value) || 0 } })
+              }
               className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-right tabular-nums"
             />
           </label>
         ))}
       </div>
+
+      {months.length > 0 && (
+        <>
+          <div className="mt-5 mb-2 text-sm font-semibold text-stone-800">달마다 다른 값</div>
+          <p className="mb-2.5 text-xs leading-relaxed text-stone-400">
+            비워두면 위의 기본값을 씁니다. 택배비 총액을 넣으면 건당 계산 대신 그 금액을 건수
+            비율대로 나눠 담아요.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead>
+                <tr className="text-xs text-stone-400">
+                  <th className="px-2 py-1.5 text-left font-medium">달</th>
+                  {MONTH_FIELDS.map(([, label, hint]) => (
+                    <th key={label} className="px-2 py-1.5 text-right font-medium">
+                      {label}
+                      {hint && <div className="text-[10px] font-normal">{hint}</div>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {months.map((ym) => (
+                  <tr key={ym}>
+                    <td className="px-2 py-1 text-left tabular-nums text-stone-600">{ym}</td>
+                    {MONTH_FIELDS.map(([key]) => (
+                      <td key={key} className="px-2 py-1">
+                        <input
+                          type="number"
+                          step="any"
+                          value={monthly[ym]?.[key] ?? ""}
+                          placeholder="기본값"
+                          onChange={(e) =>
+                            setMonth(ym, key, e.target.value === "" ? "" : Number(e.target.value))
+                          }
+                          className="w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-right tabular-nums"
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -157,6 +267,7 @@ export default function SalesPage({
   onDaily,
   onCafe,
   onAds,
+  onEdit,
   onClear,
   range,
   preset,
@@ -166,7 +277,10 @@ export default function SalesPage({
   const [open, setOpen] = useState(false);
   const days = useDays(rows, range, conf);
   const total = useMemo(() => totalPnl(days), [days]);
-  const costs = { ...DEFAULT_COSTS, ...conf.costs };
+  const months = useMemo(
+    () => [...new Set(days.map((d) => d.date.slice(0, 7)))].sort(),
+    [days],
+  );
 
   const takeCafe = async (text) => {
     const parsed = parseCafe(text);
@@ -196,7 +310,7 @@ export default function SalesPage({
         <div>
           <h2 className="text-xl font-bold text-stone-900">포클로 매출 장부</h2>
           <p className="mt-0.5 text-sm text-stone-500">
-            이 광고비로 얼마가 나왔나. 남은 돈은{" "}
+            광고비 대비 매출을 보는 곳이에요. 남은 돈은{" "}
             <b className="font-semibold text-stone-700">손익</b>에서 봐요.
           </p>
         </div>
@@ -218,9 +332,10 @@ export default function SalesPage({
 
       {open && (
         <div className="mb-5 space-y-3">
+          <AdEntry onAdd={onAds} />
           <Importer
             label="총매출 (카페24 애널리틱스)"
-            hint="카페24 › 애널리틱스 › 매출분석 › 일별 CSV. 여기 '결제합계'가 총매출이 됩니다."
+            hint="카페24 › 애널리틱스 › 매출분석 › 일별 CSV. '결제합계'가 총매출, '환불합계'를 빼면 순매출이 됩니다."
             onText={takeCafe}
           />
           <Importer
@@ -229,11 +344,11 @@ export default function SalesPage({
             onText={takeDaily}
           />
           <Importer
-            label="광고비"
+            label="광고비 (CSV로 한꺼번에)"
             hint="메타 광고 관리자 › 보고서에서 '일' 단위로 내보낸 CSV. 광고세트가 여러 줄이어도 날짜로 합칩니다."
             onText={takeAds}
           />
-          <CostFields costs={costs} onChange={(c) => onConf({ ...conf, costs: c })} />
+          <CostFields conf={conf} onConf={onConf} months={months} />
           <button
             type="button"
             onClick={() => {
@@ -265,14 +380,14 @@ export default function SalesPage({
               <Kpi label="ROAS" value={pct(total.roas, 2)} sub="광고 1원당 매출" />
               <Kpi
                 label="환불"
-                value={total.refundShown ? "−" + won(total.refundShown) : "—"}
+                value={total.refund ? "−" + won(total.refund) : "—"}
                 sub={`${pct(total.refundRate)}%`}
               />
             </div>
           </section>
 
           <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[600px] text-sm">
               <thead>
                 <tr className="border-b border-stone-200 text-xs text-stone-400">
                   {HEAD.map((h, i) => (
@@ -288,28 +403,35 @@ export default function SalesPage({
               <tbody className="divide-y divide-stone-100 tabular-nums">
                 {days.map((d) => (
                   <tr key={d.date} className="hover:bg-stone-50">
-                    <td className="px-3 py-2 text-left whitespace-nowrap text-stone-600">
+                    <td className="px-3 py-1.5 text-left whitespace-nowrap text-stone-600">
                       {dayLabel(d.date)}
                     </td>
-                    <td className="px-3 py-2 text-right font-medium text-stone-900">
-                      {won(d.revenue)}
+                    <td className="px-1 py-1.5">
+                      <EditNum
+                        value={d.revenue}
+                        tone="font-medium text-stone-900"
+                        onSave={(v) => onEdit(d.date, { cafeGross: v })}
+                      />
                     </td>
-                    <td className="px-3 py-2 text-right text-stone-600">
-                      {d.ads ? won(d.ads) : "—"}
+                    <td className="px-1 py-1.5">
+                      <EditNum value={d.ads} onSave={(v) => onEdit(d.date, { ads: v })} />
                     </td>
                     <td
                       className={
-                        "px-3 py-2 text-right font-medium " +
+                        "px-3 py-1.5 text-right font-medium " +
                         (d.ads ? TONE_TEXT[adTone(d.adRate)] : "text-stone-300")
                       }
                     >
                       {d.ads ? pct(d.adRate) + "%" : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right text-stone-500">
+                    <td className="px-3 py-1.5 text-right text-stone-500">
                       {d.ads ? pct(d.roas, 2) : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right text-stone-400">
-                      {d.cafeRefund || d.refund ? "−" + won(d.cafeRefund || d.refund) : "—"}
+                    <td className="px-1 py-1.5">
+                      <EditNum
+                        value={d.refund}
+                        onSave={(v) => onEdit(d.date, { cafeRefund: v })}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -320,9 +442,9 @@ export default function SalesPage({
           <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-500">
             <Info size={13} className="mt-0.5 shrink-0" />
             <span>
-              총매출은 <b className="font-semibold">카페24 애널리틱스 › 매출분석의 결제합계</b>와
-              같은 숫자예요. 반품될 주문도 광고가 만든 매출이라 여기 그대로 둡니다. 취소·반품을 뺀
-              실제 남은 돈은 <b className="font-semibold">손익</b> 화면에서 봐요.
+              <b className="font-semibold">숫자를 눌러 직접 고칠 수 있어요.</b> 총매출은 카페24 ›
+              애널리틱스 › 매출분석의 <b className="font-semibold">결제합계</b>와 같은 값이에요
+              (배송비 포함). 반품될 주문도 광고가 만든 매출이라 여기서 빼지 않습니다.
             </span>
           </p>
         </>

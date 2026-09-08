@@ -123,13 +123,26 @@ export async function moveTxVendor(fromId, toId) {
  * 어느 행이 바뀌었는지 따지지 않고 통째로 다시 읽는다 — 장부 규모가 작아
  * 그게 더 단순하고 틀릴 일이 없다.
  */
-export function subscribe(onChange) {
+export function subscribe(onChange, onStatus) {
   const channel = supabase
     .channel("poclo-ledger")
     .on("postgres_changes", { event: "*", schema: "public", table: "vendors" }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, onChange)
-    .subscribe();
-  return () => supabase.removeChannel(channel);
+    .subscribe((status) => onStatus?.(status));
+
+  // 실시간이 조용히 끊겨도 화면에는 아무 표시가 없다. 그러면 상대가 고친 게 안 보이는데
+  // 이유를 알 수가 없다. 그래서 (1) 상태를 밖으로 알리고 (2) 탭을 다시 볼 때 한 번 읽는다.
+  const onVisible = () => {
+    if (document.visibilityState === "visible") onChange();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("focus", onVisible);
+
+  return () => {
+    document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("focus", onVisible);
+    supabase.removeChannel(channel);
+  };
 }
 
 // ---------------------------------------------------------------- 장끼 사진

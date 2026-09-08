@@ -32,7 +32,7 @@ export const SECTIONS = [
     icon: Wallet,
     groups: [
       {
-        group: "파는 쪽",
+        group: "매출",
         items: [
           { key: "sales", label: "포클로 매출 장부", icon: TrendingUp },
           { key: "pnl", label: "손익", icon: Scale },
@@ -40,7 +40,7 @@ export const SECTIONS = [
         ],
       },
       {
-        group: "사는 쪽",
+        group: "매입",
         items: [
           { key: "ledger", label: "포클로 매입 장부", icon: BookOpen },
           { key: "vendors", label: "거래처", icon: Store },

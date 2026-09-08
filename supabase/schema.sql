@@ -180,3 +180,4 @@ end $$;
 -- 이미 sales_daily 를 만들어 둔 프로젝트라면 칸만 더한다
 alter table public.sales_daily add column if not exists cafe_gross  bigint not null default 0;
 alter table public.sales_daily add column if not exists cafe_refund bigint not null default 0;
+alter table public.sales_daily add column if not exists cafe_ship bigint not null default 0;

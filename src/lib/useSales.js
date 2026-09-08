@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isRemote, supabase } from "./supabase";
 import { DEFAULT_COSTS } from "./sales";
-import { SEED_DAYS } from "./seed";
+import { SEED_DAYS, SEED_MONTHLY } from "./seed";
 
 const ROWS_KEY = "poclo_sales_rows";
 const CONF_KEY = "poclo_sales_conf";
@@ -34,6 +34,7 @@ const toRow = (r) => ({
   date: r.date,
   cafeGross: Number(r.cafe_gross ?? r.cafeGross) || 0,
   cafeRefund: Number(r.cafe_refund ?? r.cafeRefund) || 0,
+  cafeShip: Number(r.cafe_ship ?? r.cafeShip) || 0,
   gross: Number(r.gross) || 0,
   refund: Number(r.refund) || 0,
   net: Number(r.net) || 0,
@@ -49,6 +50,7 @@ const toDb = (r) => ({
   date: r.date,
   cafe_gross: Math.round(r.cafeGross || 0),
   cafe_refund: Math.round(r.cafeRefund || 0),
+  cafe_ship: Math.round(r.cafeShip || 0),
   gross: Math.round(r.gross || 0),
   refund: Math.round(r.refund || 0),
   net: Math.round(r.net || 0),
@@ -70,7 +72,7 @@ export function useSales(session) {
   });
   const [conf, setConf] = useState(() => ({
     costs: DEFAULT_COSTS,
-    fixed: {},
+    monthly: SEED_MONTHLY,
     ...readLocal(CONF_KEY, {}),
   }));
   const [notice, setNotice] = useState("");
@@ -161,7 +163,10 @@ export function useSales(session) {
   /** 주문 CSV — 매출·원가·건수를 덮는다. 그날 광고비는 건드리지 않는다. */
   const putDaily = useCallback((daily) => merge(daily), [merge]);
 
-  /** 카페24 애널리틱스 CSV — 총매출·환불만 덮는다. 주문 쪽 숫자는 안 건드린다. */
+  /** 하루 한 줄을 손으로 고친다. 화면 표에서 숫자를 직접 눌러 바꿀 때 쓴다. */
+  const editRow = useCallback((date, patch) => merge([{ date, ...patch }]), [merge]);
+
+  /** 카페24 애널리틱스 CSV — 총매출·환불·배송비만 덮는다. 주문 쪽 숫자는 안 건드린다. */
   const putCafe = useCallback((list) => merge(list), [merge]);
 
   /** 광고 CSV — 광고비만 덮는다. 매출이 없는 날짜도 줄을 만들어 둔다. */
@@ -172,6 +177,7 @@ export function useSales(session) {
         (prev) => ({
           cafeGross: prev.cafeGross || 0,
           cafeRefund: prev.cafeRefund || 0,
+          cafeShip: prev.cafeShip || 0,
           gross: prev.gross || 0,
           refund: prev.refund || 0,
           net: prev.net || 0,
@@ -204,5 +210,17 @@ export function useSales(session) {
     }
   }, [online]);
 
-  return { rows, conf, saveConf, putDaily, putCafe, putAds, clearAll, notice, setNotice, ready };
+  return {
+    rows,
+    conf,
+    saveConf,
+    putDaily,
+    putCafe,
+    putAds,
+    editRow,
+    clearAll,
+    notice,
+    setNotice,
+    ready,
+  };
 }

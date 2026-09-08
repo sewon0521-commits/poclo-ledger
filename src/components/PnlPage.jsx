@@ -9,26 +9,28 @@ import DateRange from "./DateRange";
 const HEAD = [
   "일자",
   "총매출",
-  "취소·반품",
+  "환불",
   "순매출",
   "매출원가",
   "택배·부자재·수수료",
   "광고비",
-  "고정비",
+  "삼촌·고정비",
   "영업이익",
 ];
 
-/** 기간 전체를 위에서 아래로 한 번 흘려 보여준다 — 어디서 돈이 빠지는지가 보이게 */
+/** 위에서 아래로 한 번 흘려 보여준다 — 어디서 돈이 빠지는지가 보이게 */
 function Waterfall({ t }) {
   const lines = [
-    ["순매출", t.net, "plus", "취소·반품을 뺀 실제 팔린 돈"],
-    ["배송비 수입", t.shipIncome, "plus", "고객이 낸 배송비"],
-    ["매출원가", -t.cogs, "minus", `원가율 ${pct(t.cogsRate)}%`],
+    ["총매출", t.revenue, "plus", "카페24 결제합계"],
+    ["환불", -t.refund, "minus", `${pct(t.refundRate)}%`],
+    ["순매출", t.net, "sum", "여기서부터 비용을 뺀다"],
+    ["매출원가", -t.cogs, "minus", `상품매출 대비 ${pct(t.cogsRate)}%`],
     ["택배비", -t.shipping, "minus", `${won(t.orders)}건`],
     ["부자재", -t.material, "minus", `${won(t.qty)}개`],
     ["결제 수수료", -t.fee, "minus", "네이버페이 + PG"],
     ["광고비", -t.ads, "minus", `총매출의 ${pct(t.adRate)}%`],
-    ["고정비", -t.fixedDay, "minus", "임대·앱·삼촌"],
+    ["삼촌비", -t.samchonDay, "minus", ""],
+    ["고정비", -t.fixedDay, "minus", "관리비 + 앱"],
   ];
 
   return (
@@ -38,11 +40,16 @@ function Waterfall({ t }) {
         {lines.map(([label, value, kind, note]) => (
           <div
             key={label}
-            className="flex items-baseline justify-between gap-3 border-b border-stone-100 py-2"
+            className={
+              "flex items-baseline justify-between gap-3 py-2 " +
+              (kind === "sum"
+                ? "border-y border-stone-200 bg-stone-50/60 font-semibold"
+                : "border-b border-stone-100")
+            }
           >
-            <span className="text-sm text-stone-600">
+            <span className={kind === "sum" ? "text-sm text-stone-900" : "text-sm text-stone-600"}>
               {label}
-              <span className="ml-1.5 text-xs text-stone-400">{note}</span>
+              {note && <span className="ml-1.5 text-xs font-normal text-stone-400">{note}</span>}
             </span>
             <span
               className={
@@ -50,7 +57,7 @@ function Waterfall({ t }) {
                 (kind === "minus" ? "text-stone-400" : "text-stone-900")
               }
             >
-              {value < 0 ? "−" : "+"}
+              {kind === "sum" ? "" : value < 0 ? "−" : "+"}
               {won(Math.abs(value))}
             </span>
           </div>
@@ -77,15 +84,15 @@ export default function PnlPage({ rows, conf, range, preset, custom, onRange, on
   // 원가를 아는 날만 손익을 낸다. 매출만 있고 주문 데이터가 없는 날을 섞으면 이익이 부풀려진다.
   const withOrders = useMemo(() => days.filter((d) => d.hasOrders), [days]);
   const total = useMemo(() => totalPnl(withOrders), [withOrders]);
-  const skipped = days.length - withOrders.length;
+  const skipped = days.filter((d) => d.revenue > 0).length - withOrders.length;
 
   return (
     <div>
       <div className="mb-4">
         <h2 className="text-xl font-bold text-stone-900">손익</h2>
         <p className="mt-0.5 text-sm text-stone-500">
-          취소·반품을 뺀 <b className="font-semibold text-stone-700">순매출</b>에서 실제로 얼마가
-          남았나.
+          총매출에서 환불을 뺀 <b className="font-semibold text-stone-700">순매출</b>로 실제 남은
+          돈을 봐요.
         </p>
       </div>
 
@@ -127,7 +134,7 @@ export default function PnlPage({ rows, conf, range, preset, custom, onRange, on
               <Kpi
                 label="순매출"
                 value={won(total.net)}
-                sub={`취소·반품 −${won(total.refundShown)}`}
+                sub={`환불 −${won(total.refund)} (${pct(total.refundRate)}%)`}
               />
               <Kpi
                 label="영업이익"
@@ -182,7 +189,7 @@ export default function PnlPage({ rows, conf, range, preset, custom, onRange, on
                     </td>
                     <td className="px-3 py-2 text-right text-stone-500">{won(d.revenue)}</td>
                     <td className="px-3 py-2 text-right text-stone-400">
-                      {d.cafeRefund || d.refund ? "−" + won(d.cafeRefund || d.refund) : "—"}
+                      {d.refund ? "−" + won(d.refund) : "—"}
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-stone-900">
                       {won(d.net)}
@@ -197,7 +204,9 @@ export default function PnlPage({ rows, conf, range, preset, custom, onRange, on
                     <td className="px-3 py-2 text-right text-stone-500">
                       {d.ads ? won(d.ads) : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right text-stone-400">{won(d.fixedDay)}</td>
+                    <td className="px-3 py-2 text-right text-stone-400">
+                      {won(d.samchonDay + d.fixedDay)}
+                    </td>
                     <td
                       className={
                         "px-3 py-2 text-right font-semibold " +
@@ -213,13 +222,26 @@ export default function PnlPage({ rows, conf, range, preset, custom, onRange, on
             </table>
           </div>
 
-          <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-500">
-            <Info size={13} className="mt-0.5 shrink-0" />
-            <span>
-              매출원가는 <b className="font-semibold">주문에 붙어 온 공급가</b>라 가정이 아니에요.
-              코디 세트는 카페24가 공급가를 0으로 주기 때문에 구성품 공급가를 합쳐서 채웁니다.
-            </span>
-          </p>
+          <div className="mt-3 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-500">
+            <p className="flex items-start gap-1.5">
+              <Info size={13} className="mt-0.5 shrink-0" />
+              <span>
+                <b className="font-semibold">매출원가는 어떻게 나오나</b> — 단가표에서 가져오는 게
+                아니라, <b className="font-semibold">주문 하나하나에 붙어 온 공급가</b>를
+                수량만큼 더한 값이에요. 그날 무엇이 팔렸는지에 따라 저절로 달라지므로 평균
+                원가율을 쓰지 않습니다. 코디 세트는 카페24가 공급가를 0으로 주기 때문에 구성품
+                공급가를 합쳐서 채웁니다. 원가율은 배송비를 뺀{" "}
+                <b className="font-semibold">상품매출</b>에 대고 잽니다.
+              </span>
+            </p>
+            <p className="mt-2 flex items-start gap-1.5">
+              <Info size={13} className="mt-0.5 shrink-0" />
+              <span>
+                택배비·삼촌비·고정비는 매출 장부 › 데이터 넣기 › 비용 가정값에서{" "}
+                <b className="font-semibold">달마다 따로</b> 넣을 수 있어요.
+              </span>
+            </p>
+          </div>
         </>
       )}
     </div>

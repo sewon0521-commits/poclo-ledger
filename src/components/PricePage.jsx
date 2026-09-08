@@ -4,13 +4,13 @@ import { won, pct } from "../lib/sales";
 import { SEED_PRICES } from "../lib/seed";
 import { Kpi, Empty } from "./ui";
 
-// [고유네임, 상품명, 거래처, 공급가, 판매가, 판매중]
 const rateOf = (p) => (p[4] ? (p[3] / p[4]) * 100 : 0);
 
+// [고유네임, 거래처, 위치, 공급가, 판매가, 판매중] + [원가율, 남는 돈]
 const COLS = [
   ["고유네임", 0],
-  ["상품명", 1],
-  ["거래처", 2],
+  ["거래처", 1],
+  ["위치", 2],
   ["공급가", 3],
   ["판매가", 4],
   ["원가율", 6],
@@ -98,7 +98,7 @@ export default function PricePage() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="상품명 · 고유네임 · 거래처 검색"
+            placeholder="고유네임 · 거래처 · 위치 검색"
             className="w-full rounded-lg border border-stone-300 bg-white py-2 pr-3 pl-9 text-sm"
           />
         </div>
@@ -145,7 +145,7 @@ export default function PricePage() {
               {list.map((p, i) => (
                 <tr key={p[0] + i} className="hover:bg-stone-50">
                   <td className="px-3 py-2 font-medium whitespace-nowrap text-stone-700">{p[0]}</td>
-                  <td className="max-w-[280px] truncate px-3 py-2 text-stone-600">{p[1]}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-stone-600">{p[1] || "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-stone-400">{p[2] || "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-stone-600">{won(p[3])}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-stone-900">{won(p[4])}</td>

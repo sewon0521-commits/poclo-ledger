@@ -21,6 +21,7 @@ export function useLedger() {
   const [tx, setTx] = useState(() => (isRemote ? [] : loadAll().tx));
   const [loading, setLoading] = useState(isRemote);
   const [notice, setNotice] = useState("");
+  const [live, setLive] = useState("connecting"); // 실시간 연결 상태
 
   const localRef = useRef({ vendors: [], tx: [] });
   const online = isRemote && !!session;
@@ -64,7 +65,9 @@ export function useLedger() {
     // 서버에서 받아오는 동안 로딩 표시 — 바깥 시스템과 맞추는 일이라 여기가 맞다
     // oxlint-disable-next-line react/set-state-in-effect
     reload();
-    return remote.subscribe(reload);
+    return remote.subscribe(reload, (status) =>
+      setLive(status === "SUBSCRIBED" ? "on" : status === "CLOSED" ? "connecting" : "off"),
+    );
   }, [online, reload]);
 
   // -------------------------------------------------------------- 저장 도우미
@@ -216,6 +219,8 @@ export function useLedger() {
 
   return {
     mode: isRemote ? "remote" : "local",
+    live: online ? live : "local",
+    reload,
     authReady,
     session,
     loading,

@@ -51,12 +51,7 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage 
   // 원가를 모르는 날을 손익에 섞으면 광고비만 빠져서 적자로 보인다.
   const { sales, pnl } = useMemo(() => {
     const rows = salesRows.filter((r) => r.date.startsWith(month));
-    const days = buildDays(
-      rows,
-      Object.fromEntries(rows.map((r) => [r.date, r.ads])),
-      { ...DEFAULT_COSTS, ...salesConf.costs },
-      salesConf.fixed,
-    );
+    const days = buildDays(rows, { ...DEFAULT_COSTS, ...salesConf.costs }, salesConf.monthly);
     return { sales: totalPnl(days), pnl: totalPnl(days.filter((d) => d.hasOrders)) };
   }, [salesRows, salesConf, month]);
 
@@ -72,7 +67,7 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage 
 
       <div className="grid gap-3 lg:grid-cols-2">
         <Card
-          title="파는 쪽"
+          title="매출"
           icon={TrendingUp}
           goLabel="매출 장부"
           onGo={() => onPage("sales")}
@@ -114,7 +109,7 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage 
           )}
         </Card>
 
-        <Card title="사는 쪽" icon={BookOpen} goLabel="매입 장부" onGo={() => onPage("ledger")}>
+        <Card title="매입" icon={BookOpen} goLabel="매입 장부" onGo={() => onPage("ledger")}>
           <Line label="총매입" value={wonKrw(purchaseTotals.supply)} sub={`${purchaseTotals.count}건`} />
           <Line label="실지출" value={wonKrw(purchaseTotals.actualPaid)} />
           <Line label="낸 부가세" value={wonKrw(purchaseTotals.paidVat)} tone="emerald" />

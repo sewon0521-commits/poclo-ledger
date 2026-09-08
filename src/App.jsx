@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Menu, Loader2, LogOut, UploadCloud } from "lucide-react";
+import { Menu, Loader2, LogOut } from "lucide-react";
 import {
   monthOf,
 
@@ -26,6 +26,7 @@ import PnlPage from "./components/PnlPage";
 import PricePage from "./components/PricePage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
+import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
@@ -271,6 +272,14 @@ export default function App() {
         </header>
 
         <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
+          <div className="mb-4 flex justify-end">
+            <SyncBadge
+              live={L.live}
+              email={L.session?.user?.email}
+              onReload={L.live === "local" ? null : L.reload}
+            />
+          </div>
+
           {(L.notice || S.notice) && (
             <div className="mb-4 flex items-start gap-3 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-600">
               <span className="flex-1">{L.notice || S.notice}</span>
@@ -288,18 +297,11 @@ export default function App() {
           )}
 
           {L.canUpload && (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm">
-              <span className="flex-1 text-rose-900">
-                이 기기에만 저장된 거래가 {L.uploadLocalCount}건 있어요. 공유 장부로 옮길까요?
-              </span>
-              <button
-                type="button"
-                onClick={L.uploadLocal}
-                className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 font-medium text-white"
-              >
-                <UploadCloud size={15} /> 옮기기
-              </button>
-            </div>
+            <UploadBanner
+              count={L.uploadLocalCount}
+              email={L.session?.user?.email}
+              onUpload={L.uploadLocal}
+            />
           )}
 
           {L.loading ? (
@@ -348,6 +350,7 @@ export default function App() {
                   onDaily={S.putDaily}
                   onCafe={S.putCafe}
                   onAds={S.putAds}
+                  onEdit={S.editRow}
                   onClear={S.clearAll}
                   range={salesRange}
                   preset={salesPreset}
