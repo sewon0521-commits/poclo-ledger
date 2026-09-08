@@ -102,15 +102,52 @@ export async function deleteVendor(id) {
   if (error) throw error;
 }
 
-export async function upsertTx(tx) {
-  const { error } = await supabase.from("transactions").upsert(txToRow(tx));
+/**
+ * 나중에 더한 칸들. 표에 아직 없을 수 있다.
+ *
+ * 스키마를 안 올린 상태에서 이 칸을 같이 보내면 **거래 전체가 거절된다.**
+ * 실제로 그래서 장끼가 하루 동안 저장이 안 됐다. 새 칸 때문에 예전부터 되던
+ * 일이 막히면 안 된다 — 표가 거절하면 이 칸만 빼고 다시 보내고, 무엇이 빠졌는지
+ * 화면에 알린다. 스키마를 올리면 그때부터 저절로 같이 저장된다.
+ *
+ * 품목의 성격(매입/미송/출고/불량)은 items jsonb 안이라 여기 없다 —
+ * 미송·불량은 스키마를 안 올려도 그대로 저장된다.
+ */
+const LATER_COLUMNS = ["cash_paid", "credit_add", "credit_use", "credit_expiry", "credit_note"];
+
+// 한 번 없다고 확인되면 그 세션 동안 다시 시도하지 않는다
+let tableHasLaterColumns = true;
+
+const withoutLater = (row) => {
+  const r = { ...row };
+  for (const k of LATER_COLUMNS) delete r[k];
+  return r;
+};
+
+/** 표에 칸이 없어서 난 오류인가 */
+const isMissingColumn = (e) =>
+  e?.code === "PGRST204" ||
+  e?.code === "42703" ||
+  LATER_COLUMNS.some((k) => String(e?.message || "").includes(k));
+
+/** @returns {Promise<{degraded: boolean}>} degraded=true 면 새 칸은 못 담고 저장됐다 */
+async function upsertTxRows(rows) {
+  if (tableHasLaterColumns) {
+    const { error } = await supabase.from("transactions").upsert(rows);
+    if (!error) return { degraded: false };
+    if (!isMissingColumn(error)) throw error;
+    tableHasLaterColumns = false;
+  }
+  const { error } = await supabase.from("transactions").upsert(rows.map(withoutLater));
   if (error) throw error;
+  return { degraded: true };
 }
 
+export const upsertTx = (tx) => upsertTxRows([txToRow(tx)]);
+
 export async function upsertTxs(list) {
-  if (!list.length) return;
-  const { error } = await supabase.from("transactions").upsert(list.map(txToRow));
-  if (error) throw error;
+  if (!list.length) return { degraded: false };
+  return upsertTxRows(list.map(txToRow));
 }
 
 export async function deleteTx(id) {

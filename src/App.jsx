@@ -287,21 +287,26 @@ export default function App() {
             />
           </div>
 
-          {(L.notice || S.notice) && (
-            <div className="mb-4 flex items-start gap-3 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-600">
-              <span className="flex-1">{L.notice || S.notice}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  L.setNotice("");
-                  S.setNotice("");
-                }}
-                className="shrink-0 text-stone-400"
+          {/* 매입 쪽과 매출 쪽 안내를 같이 띄운다. 하나만 보여주면 다른 쪽이 가려져서
+              엉뚱한 곳을 고치게 된다 — 실제로 매출 안내가 매입 저장 실패를 가렸다. */}
+          {[
+            ["매입 장부", L.notice, () => L.setNotice("")],
+            ["매출 장부", S.notice, () => S.setNotice("")],
+          ]
+            .filter(([, text]) => text)
+            .map(([where, text, clear]) => (
+              <div
+                key={where}
+                className="mb-3 flex items-start gap-3 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-600"
               >
-                닫기
-              </button>
-            </div>
-          )}
+                <span className="flex-1">
+                  <b className="font-semibold text-stone-800">{where}</b> · {text}
+                </span>
+                <button type="button" onClick={clear} className="shrink-0 text-stone-400">
+                  닫기
+                </button>
+              </div>
+            ))}
 
           {L.canUpload && (
             <UploadBanner

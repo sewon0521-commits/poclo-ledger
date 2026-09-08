@@ -88,7 +88,7 @@ export function useLedger() {
     const code = err?.code || "";
     const msg = err?.message || "";
     if (code === "42703" || code === "PGRST204") {
-      return `장부 표에 칸이 없어요. Supabase SQL Editor에서 supabase/schema.sql을 다시 실행해 주세요. (${msg})`;
+      return `공유 장부(매입) 표에 칸이 없어서 저장하지 못했어요. Supabase SQL Editor에서 supabase/schema.sql을 실행해 주세요. (${msg})`;
     }
     if (code === "42501" || code === "PGRST301") {
       return "저장 권한이 없어요. 로그아웃했다가 다시 로그인해 주세요.";
@@ -100,13 +100,21 @@ export function useLedger() {
     return `저장하지 못했어요. ${msg || "잠시 뒤 다시 시도해 주세요."}`;
   };
 
+  // 새 칸(현금입금·매입금)이 아직 표에 없어서 그것만 빼고 저장했을 때.
+  // 거래 자체는 저장됐다는 것부터 말한다 — 안 그러면 다시 적게 된다.
+  const DEGRADED =
+    "거래는 저장했어요. 다만 현금입금·매입금은 공유 장부에 아직 칸이 없어서 못 담았어요. " +
+    "Supabase SQL Editor에서 supabase/schema.sql을 한 번 실행하면 그때부터 같이 저장돼요. " +
+    "(미송·불량은 지금도 그대로 저장됩니다.)";
+
   /** 화면은 먼저 바꾸고(기다리지 않게) 저장은 뒤따른다. 실패하면 알려준다. */
   const apply = async (nextVendors, nextTx, remoteWrite) => {
     setVendors(nextVendors);
     setTx(nextTx);
     if (!online) return persistLocal(nextVendors, nextTx);
     try {
-      await remoteWrite();
+      const result = await remoteWrite();
+      if (result?.degraded) setNotice(DEGRADED);
     } catch (err) {
       setNotice(explain(err));
       console.error(err);
@@ -157,7 +165,7 @@ export function useLedger() {
       // 거래처가 먼저 있어야 거래를 붙일 수 있다
       const changed = vs.filter((v) => !vendors.some((o) => o === v));
       await remote.upsertVendors(changed);
-      await remote.upsertTx(record);
+      return await remote.upsertTx(record);
     });
   };
 
