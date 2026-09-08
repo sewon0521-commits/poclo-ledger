@@ -314,11 +314,17 @@ Supabase의 `sales_daily` + `settings`, 없으면 localStorage.
 `.env`에 `SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_EMAIL / SUPABASE_PASSWORD`가
 있어야 올라간다. 없으면 CSV만 만들고 끝난다(앱에서 손으로 올리면 된다).
 
-매출 통계는 **`mall.read_store`(상점 읽기권한)** 이다. `mall.read_salesreport` 는
-**존재하지 않는 스코프**여서 그걸 넣으면 인증 자체가 `invalid_scope` 로 튕긴다
-(한 번 밟았다). `daily.py` 는 `/reports/salesvolume` 을 먼저 보고 막히면
-`/financials/dailysales` 로 넘어간다. 둘 다 같은 권한이다.
-권한이 없으면 그 부분만 건너뛰고 원가·건수는 정상으로 올라간다.
+**총매출·환불도 이제 자동이다.** 매출 통계 API는 끝내 안 열렸지만
+(`mall.read_salesreport` 는 없는 스코프, `mall.read_store` 로도 403),
+`poclo-cafe24/revenue.py` 가 **주문 API로 같은 숫자를 되살린다.**
+
+    총매출(그날) = Σ (initial_order_amount.payment_amount + naver_point)
+                   결제일이 그날인 주문 전부
+
+네이버페이가 `payment_amount` 0 / `naver_point` 에 금액을 넣는 것과, 취소되면
+`actual_order_amount` 가 0으로 덮이는 것 — 이 둘만 피하면 된다. 2026-08 검증에서
+42,965,713원으로 **카페24 화면과 1원도 안 틀렸다.** 환불만 0.19% 모자라므로
+손익을 확정할 때는 애널리틱스 CSV로 한 번 덮는 게 맞다.
 **광고비는 자동이 아니다** — 메타는 계정 연동이 따로 필요해서 앱에서 넣는 쪽이 빠르다.
 
 
