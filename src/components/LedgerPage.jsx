@@ -1,4 +1,4 @@
-import { AlertCircle, Plus } from "lucide-react";
+import { AlertCircle, Plus, Clock, ChevronRight } from "lucide-react";
 import { won, dayLabel, rangeLabel } from "../lib/calc";
 import { Kpi, Empty } from "./ui";
 import TxRow from "./TxRow";
@@ -20,6 +20,8 @@ export default function LedgerPage({
   onAddBlank,
   vendorName,
   rowProps,
+  pending,
+  onPage,
 }) {
   return (
     <div>
@@ -80,6 +82,24 @@ export default function LedgerPage({
             <span className="font-semibold tabular-nums">{won(totals.switchCost)}</span>
           </div>
         </div>
+
+        {pending?.totalLeft > 0 && (
+          <button
+            type="button"
+            onClick={() => onPage("pending")}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3.5 text-left transition hover:bg-amber-100"
+          >
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+                <Clock size={15} /> 아직 안 받은 미송 {pending.totalLeft}장
+              </span>
+              <span className="mt-0.5 block text-xs text-amber-700">
+                {pending.open.length}곳 · 값어치 {won(pending.totalAmount)} — 이미 낸 돈이에요
+              </span>
+            </span>
+            <ChevronRight size={18} className="shrink-0 text-amber-500" />
+          </button>
+        )}
 
         <div className="grid grid-cols-3 gap-2.5">
           <Kpi label="총매입" value={won(totals.supply)} sub={`실지출 ${won(totals.actualPaid)}`} />

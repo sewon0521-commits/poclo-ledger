@@ -13,6 +13,7 @@ import {
   TARGET_AD_RATE,
 } from "../lib/sales";
 import { adTone, TONE_TEXT, useDays } from "../lib/view";
+import { fileToCsv, fileFromDrop } from "../lib/tabular";
 import { Kpi, Empty } from "./ui";
 import DateRange from "./DateRange";
 import EditNum from "./EditNum";
@@ -71,47 +72,108 @@ function AdGauge({ total }) {
   );
 }
 
-/** CSV 붙여넣기 / 파일 올리기 한 벌 */
+/**
+ * CSV 넣기 한 벌 — 끌어다 놓기 · 파일 고르기 · 붙여넣기 셋 다 받는다.
+ *
+ * 파일을 읽는 건 `fileToCsv`가 한다. 카페24 CSV는 EUC-KR이고 엑셀 파일은 아예
+ * 텍스트가 아니어서, 그냥 읽으면 머리글이 깨져 "못 읽었어요"만 뜬다.
+ */
 function Importer({ label, hint, onText }) {
   const [text, setText] = useState("");
   const [msg, setMsg] = useState("");
-  const take = async (value) => setMsg(await onText(value));
+  const [over, setOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const apply = async (csv, from) => {
+    if (!String(csv || "").trim()) {
+      setMsg(
+        from
+          ? `${from} 에서 읽을 내용이 없어요. 엑셀이면 '다른 이름으로 저장 → CSV'로 바꿔 보세요.`
+          : "내용이 비어 있어요.",
+      );
+      return;
+    }
+    setBusy(true);
+    const result = await onText(csv);
+    setBusy(false);
+    setMsg(from ? `${from} · ${result}` : result);
+  };
+
+  const takeFile = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    setMsg(`${file.name} 읽는 중…`);
+    const csv = await fileToCsv(file);
+    setBusy(false);
+    await apply(csv, file.name);
+  };
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-4">
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setOver(false);
+        takeFile(fileFromDrop(e.dataTransfer));
+      }}
+      className={
+        "rounded-xl border p-4 transition " +
+        (over ? "border-rose-500 bg-rose-50" : "border-stone-200 bg-white")
+      }
+    >
       <div className="text-sm font-semibold text-stone-800">{label}</div>
       <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-stone-400">{hint}</p>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="CSV를 통째로 붙여넣으세요"
-        className="h-20 w-full resize-y rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 font-mono text-xs"
-      />
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+
+      <label
+        className={
+          "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-3 py-5 text-center transition " +
+          (over ? "border-rose-500 bg-white" : "border-stone-300 bg-stone-50 hover:bg-stone-100")
+        }
+      >
+        <Upload size={18} className={over ? "text-rose-600" : "text-stone-400"} />
+        <span className="text-sm font-medium text-stone-600">
+          {over ? "여기에 놓으세요" : "파일을 끌어다 놓거나 눌러서 고르기"}
+        </span>
+        <span className="text-[11px] text-stone-400">csv · xlsx · xls · 한글 깨짐 걱정 없어요</span>
+        <input
+          type="file"
+          accept=".csv,.xlsx,.xls,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            await takeFile(f);
+          }}
+        />
+      </label>
+
+      <details className="mt-2">
+        <summary className="cursor-pointer text-xs text-stone-400">아니면 붙여넣기</summary>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="CSV를 통째로 붙여넣으세요"
+          className="mt-2 h-20 w-full resize-y rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 font-mono text-xs"
+        />
         <button
           type="button"
           onClick={() => {
-            take(text);
+            apply(text);
             setText("");
           }}
-          className="rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white"
+          className="mt-2 rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white"
         >
           적용
         </button>
-        <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-600">
-          <Upload size={14} /> 파일 고르기
-          <input
-            type="file"
-            accept=".csv,text/csv,text/plain"
-            className="hidden"
-            onChange={async (e) => {
-              const f = e.target.files?.[0];
-              if (f) take(await f.text());
-            }}
-          />
-        </label>
-        {msg && <span className="text-xs text-stone-500">{msg}</span>}
-      </div>
+      </details>
+
+      {(msg || busy) && (
+        <p className="mt-2 text-xs text-stone-500">{busy ? "읽는 중…" : msg}</p>
+      )}
     </div>
   );
 }
@@ -274,7 +336,9 @@ export default function SalesPage({
   custom,
   onRange,
 }) {
-  const [open, setOpen] = useState(false);
+  // 두 패널을 따로 연다 — 광고비는 매일 넣는 것이라 데이터 넣기 안에 묻으면 안 보인다
+  const [panel, setPanel] = useState(null); // null | "ads" | "data"
+  const toggle = (key) => setPanel((p) => (p === key ? null : key));
   const days = useDays(rows, range, conf);
   const total = useMemo(() => totalPnl(days), [days]);
   const months = useMemo(
@@ -314,13 +378,32 @@ export default function SalesPage({
             <b className="font-semibold text-stone-700">손익</b>에서 봐요.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="rounded-lg border border-stone-300 bg-white px-3.5 py-2 text-sm font-medium text-stone-600"
-        >
-          데이터 넣기
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => toggle("ads")}
+            className={
+              "flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition " +
+              (panel === "ads"
+                ? "bg-rose-700 text-white"
+                : "border border-rose-300 bg-white text-rose-800 hover:bg-rose-50")
+            }
+          >
+            <Megaphone size={14} /> 광고비 넣기
+          </button>
+          <button
+            type="button"
+            onClick={() => toggle("data")}
+            className={
+              "rounded-lg px-3.5 py-2 text-sm font-medium transition " +
+              (panel === "data"
+                ? "bg-stone-800 text-white"
+                : "border border-stone-300 bg-white text-stone-600 hover:bg-stone-50")
+            }
+          >
+            데이터 넣기
+          </button>
+        </div>
       </div>
 
       <div className="mb-4">
@@ -330,9 +413,22 @@ export default function SalesPage({
         </p>
       </div>
 
-      {open && (
+      {panel === "ads" && (
         <div className="mb-5 space-y-3">
           <AdEntry onAdd={onAds} />
+          <Importer
+            label="광고비 (CSV로 한꺼번에)"
+            hint="메타 광고 관리자 › 보고서에서 '일' 단위로 내보낸 파일. 광고세트가 여러 줄이어도 날짜로 합칩니다."
+            onText={takeAds}
+          />
+          <p className="text-xs leading-relaxed text-stone-400">
+            표에서 광고비 숫자를 눌러 바로 고칠 수도 있어요.
+          </p>
+        </div>
+      )}
+
+      {panel === "data" && (
+        <div className="mb-5 space-y-3">
           <Importer
             label="총매출 (카페24 애널리틱스)"
             hint="카페24 › 애널리틱스 › 매출분석 › 일별 CSV. '결제합계'가 총매출, '환불합계'를 빼면 순매출이 됩니다."
@@ -342,11 +438,6 @@ export default function SalesPage({
             label="주문 데이터 (원가·건수)"
             hint="poclo-cafe24 폴더에서 4_주문불러오기.bat 을 돌리면 나오는 orders_일별.csv"
             onText={takeDaily}
-          />
-          <Importer
-            label="광고비 (CSV로 한꺼번에)"
-            hint="메타 광고 관리자 › 보고서에서 '일' 단위로 내보낸 CSV. 광고세트가 여러 줄이어도 날짜로 합칩니다."
-            onText={takeAds}
           />
           <CostFields conf={conf} onConf={onConf} months={months} />
           <button

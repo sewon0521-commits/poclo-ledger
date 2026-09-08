@@ -106,10 +106,45 @@ export function derive(t) {
   };
 }
 
-/** 품목 행 합계 — 당일합계와 다를 수 있어 참고용으로만 보여준다 */
-export const itemsTotal = (items = []) => items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+// ------------------------------------------------------------- 품목의 성격
 
-export const hasPending = (t) => (t.items || []).some((i) => i.pending);
+/**
+ * 품목 한 줄이 무엇인지. 칩 하나를 눌러 이 순서로 돈다.
+ * 색은 "돈이 지금 나가나"로 가른다 — 회색·앰버는 나가고, 초록은 이미 냈고,
+ * 로즈는 돌려준 것.
+ */
+export const KINDS = [
+  { key: "buy", label: "매입", help: "산 물건 · 돈이 나가요" },
+  { key: "pending", label: "미송", help: "돈은 냈고 물건은 나중에" },
+  { key: "pendingOut", label: "출고", help: "미송분 도착 · 이미 낸 돈이라 합계에 안 들어가요" },
+  { key: "defect", label: "불량", help: "돌려준 것 · 무엇으로 바꿨는지 적어두세요" },
+];
+
+export const KIND_TONE = {
+  buy: "border-stone-300 bg-white text-stone-500",
+  pending: "border-amber-500 bg-amber-500 text-white",
+  pendingOut: "border-emerald-600 bg-emerald-600 text-white",
+  defect: "border-rose-600 bg-rose-600 text-white",
+};
+
+export const kindOf = (i) => KINDS.find((k) => k.key === (i?.kind || "buy")) || KINDS[0];
+
+export const nextKind = (kind) => {
+  const i = KINDS.findIndex((k) => k.key === (kind || "buy"));
+  return KINDS[(i + 1) % KINDS.length].key;
+};
+
+/**
+ * 품목 행 합계 — 당일합계와 다를 수 있어 참고용으로만 보여준다.
+ *
+ * **미송 출고는 더하지 않는다.** 그 물건 값은 미송을 잡던 날 이미 냈다.
+ * 여기서 안 빼면 같은 물건을 두 번 사는 셈이 된다.
+ */
+export const itemsTotal = (items = []) =>
+  items.reduce((s, i) => s + (i.kind === "pendingOut" ? 0 : Number(i.amount) || 0), 0);
+
+export const hasPending = (t) => (t.items || []).some((i) => (i.kind || "") === "pending" || i.pending);
+export const hasKind = (t, kind) => (t.items || []).some((i) => (i.kind || "buy") === kind);
 
 // ------------------------------------------------------------------ 묶어보기
 

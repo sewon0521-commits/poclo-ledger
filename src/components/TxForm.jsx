@@ -1,7 +1,10 @@
 import { useMemo, useRef, useState } from "react";
-import { X, Check, Plus, Trash2, ChevronDown, ChevronUp, Camera, ImageOff } from "lucide-react";
-import { won, VAT_RATE, itemsTotal, MODES } from "../lib/calc";
+import {
+  X, Check, Plus, Trash2, ChevronDown, ChevronUp, Camera, ImageOff, Clock, Wallet,
+} from "lucide-react";
+import { won, VAT_RATE, itemsTotal, MODES, KIND_TONE, kindOf, nextKind } from "../lib/calc";
 import { makeAccount, makeItem } from "../lib/store";
+import { pendingOf, balanceBefore, balanceText } from "../lib/pending";
 import VendorPicker from "./VendorPicker";
 
 const digits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
@@ -89,7 +92,7 @@ function Qty({ value, onChange }) {
  * 결제방식은 장끼로 알 수 없으므로 기본값 없이 반드시 고르게 한다.
  * 호출부가 key={seed._k}로 다시 마운트시키므로 초기값만 잡으면 된다.
  */
-export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
+export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }) {
   const [vendorId, setVendorId] = useState(seed.vendorId || "");
   const [newVendorName, setNewVendorName] = useState(seed.newVendorName || "");
   const [date, setDate] = useState(seed.date || "");
@@ -98,6 +101,20 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
   );
   const [supply, setSupply] = useState(seed.supply ? String(seed.supply) : "");
   const [supplyTouched, setSupplyTouched] = useState(!!seed.supply);
+  // 실제로 건넨 돈. 안 적으면 당일합계와 같다고 본다.
+  const [cash, setCash] = useState(
+    seed.cashPaid === null || seed.cashPaid === undefined ? "" : String(seed.cashPaid),
+  );
+  const [cashTouched, setCashTouched] = useState(
+    seed.cashPaid !== null && seed.cashPaid !== undefined,
+  );
+  const [creditAdd, setCreditAdd] = useState(seed.creditAdd ? String(seed.creditAdd) : "");
+  const [creditUse, setCreditUse] = useState(seed.creditUse ? String(seed.creditUse) : "");
+  const [creditExpiry, setCreditExpiry] = useState(seed.creditExpiry || "");
+  const [creditNote, setCreditNote] = useState(seed.creditNote || "");
+  const [openCredit, setOpenCredit] = useState(
+    !!(seed.creditAdd || seed.creditUse || seed.creditExpiry),
+  );
   const [method, setMethod] = useState(seed.method || null);
   const [vatPaid, setVatPaid] = useState(seed.method === "transfer" ? seed.vatPaid !== false : false);
   const [invoice, setInvoice] = useState(!!seed.invoice);
@@ -121,18 +138,41 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
   const mode = method ? MODES.find((m) => m.method === method && m.vatPaid === vatPaid) : null;
   const itemSum = useMemo(() => itemsTotal(items), [items]);
   const amount = supplyTouched ? numOf(supply) : itemSum;
+  const cashAmount = cashTouched ? numOf(cash) : amount;
+
+  // 이 거래처에 아직 남아 있는 미송 — 장끼를 넣는 자리에서 바로 보이게
+  const vendorNameOf = (id) => vendors.find((v) => v.id === id)?.name || "";
+  const openPending = useMemo(
+    () => (vendorId ? pendingOf(allTx, vendorId, vendorNameOf) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allTx, vendorId, vendors],
+  );
+
+  // 전잔 → 당잔. 잔액 = 낸 돈 − 살 돈 (양수면 우리가 더 낸 것)
+  const before = useMemo(
+    () => balanceBefore(allTx, vendorId, date, seed.id),
+    [allTx, vendorId, date, seed.id],
+  );
+  const after = before + cashAmount - amount;
+  // 동대문은 천원 단위로 맞춰 주고받는다. 천원을 넘게 어긋나면 적은 값이 틀렸을 가능성이 크다.
+  const balanceOdd = Math.abs(after) >= 1000;
   const filledAccounts = accounts.filter((a) => a.number.trim());
 
   // 계좌가 하나뿐이면 고를 것도 없이 그것이 송금 계좌다
   const effectiveAccountId =
     filledAccounts.length === 1 ? filledAccounts[0].id : accountId;
 
+  // 미송 출고분만 받은 날은 낼 돈이 0원이다. 그런 장끼도 남겨야 하므로
+  // 금액과 결제방식을 강요하지 않는다 — 0원에는 부가세도 없다.
+  const onlyPrepaid =
+    amount === 0 && items.some((i) => i.kind === "pendingOut" && (i.name.trim() || i.qty));
+
   const [touched, setTouched] = useState(false);
   const missing = [];
   if (!vendorId && !newVendorName.trim()) missing.push("거래처");
-  if (!amount) missing.push("금액");
+  if (!amount && !onlyPrepaid) missing.push("금액");
   if (!date) missing.push("날짜");
-  if (!method) missing.push("결제방식");
+  if (!method && !onlyPrepaid) missing.push("결제방식");
 
   const patchItem = (id, patch) =>
     setItems((list) =>
@@ -162,7 +202,12 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
         date,
         items: items.filter((i) => i.name.trim() || i.amount),
         supply: amount,
-        method,
+        cashPaid: cashTouched ? cashAmount : onlyPrepaid ? 0 : null,
+        creditAdd: numOf(creditAdd),
+        creditUse: numOf(creditUse),
+        creditExpiry,
+        creditNote: creditNote.trim(),
+        method: method || "samchon",
         vatPaid: method === "transfer" ? vatPaid : false,
         invoice,
         accountId: method === "transfer" ? effectiveAccountId : "",
@@ -243,6 +288,46 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
         </label>
       </div>
 
+      {/* 이 거래처에 남아 있는 미송 — 누르면 출고 줄이 바로 만들어진다 */}
+      {openPending.length > 0 && (
+        <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+            <Clock size={14} /> 이 거래처에 미송 {openPending.reduce((n, r) => n + r.left, 0)}장이
+            남아 있어요
+          </div>
+          <p className="mt-0.5 mb-2 text-[11px] leading-relaxed text-amber-800">
+            오늘 받은 게 있으면 눌러서 <b className="font-semibold">출고</b> 줄로 넣으세요. 돈은 이미
+            냈으므로 합계에는 안 더해집니다.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {openPending.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() =>
+                  setItems((list) => [
+                    ...list.filter((i) => i.name.trim() || i.amount),
+                    makeItem({
+                      name: r.name,
+                      qty: r.left,
+                      unitPrice: r.unitPrice,
+                      amount: r.left * r.unitPrice,
+                      kind: "pendingOut",
+                    }),
+                  ])
+                }
+                className="rounded-lg border border-amber-400 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+              >
+                {r.name} <span className="tabular-nums">{r.left}장</span>
+                {r.unitPrice > 0 && (
+                  <span className="ml-1 font-normal text-amber-600">{won(r.amount)}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 품목 */}
       <div className="mt-4">
         <div className="mb-1.5 flex items-center justify-between">
@@ -257,56 +342,89 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
         </div>
 
         <div className="space-y-2">
-          {items.map((it) => (
-            <div key={it.id} className="flex flex-wrap items-center gap-1 sm:flex-nowrap">
-              <input
-                value={it.name}
-                onChange={(e) => patchItem(it.id, { name: e.target.value })}
-                placeholder="품목명"
-                className={COMPACT + " min-w-0 flex-1 basis-full sm:basis-0"}
-              />
-              <Money
-                value={it.unitPrice || ""}
-                onChange={(v) => patchItem(it.id, { unitPrice: Number(v || 0) })}
-                placeholder="단가"
-                className="w-[4.5rem] shrink-0"
-                compact
-              />
-              <Qty value={it.qty} onChange={(q) => patchItem(it.id, { qty: q })} />
-              <Money
-                value={it.amount || ""}
-                onChange={(v) => patchItem(it.id, { amount: Number(v || 0) })}
-                placeholder="금액"
-                className="w-[5.5rem] shrink-0"
-                compact
-              />
-              <button
-                type="button"
-                onClick={() => patchItem(it.id, { pending: !it.pending })}
-                title="미송 (아직 안 온 물건)"
-                className={
-                  "shrink-0 rounded-md border px-1.5 py-1.5 text-xs font-medium transition " +
-                  (it.pending
-                    ? "border-amber-500 bg-amber-500 text-white"
-                    : "border-stone-300 bg-white text-stone-500")
-                }
-              >
-                미송
-              </button>
-              <button
-                type="button"
-                onClick={() => setItems(items.filter((x) => x.id !== it.id))}
-                aria-label="품목 줄 삭제"
-                className="shrink-0 p-1 text-stone-300 hover:text-rose-600"
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
+          {items.map((it) => {
+            const kind = kindOf(it);
+            return (
+              <div key={it.id}>
+                <div className="flex flex-wrap items-center gap-1 sm:flex-nowrap">
+                  <input
+                    value={it.name}
+                    onChange={(e) => patchItem(it.id, { name: e.target.value })}
+                    placeholder="품목명"
+                    className={COMPACT + " min-w-0 flex-1 basis-full sm:basis-0"}
+                  />
+                  <Money
+                    value={it.unitPrice || ""}
+                    onChange={(v) => patchItem(it.id, { unitPrice: Number(v || 0) })}
+                    placeholder="단가"
+                    className="w-[4.5rem] shrink-0"
+                    compact
+                  />
+                  <Qty value={it.qty} onChange={(q) => patchItem(it.id, { qty: q })} />
+                  <Money
+                    value={it.amount || ""}
+                    onChange={(v) => patchItem(it.id, { amount: Number(v || 0) })}
+                    placeholder="금액"
+                    className={
+                      "w-[5.5rem] shrink-0 " + (kind.key === "pendingOut" ? "text-stone-400" : "")
+                    }
+                    compact
+                  />
+                  {/* 매입 → 미송 → 출고 → 불량 순으로 돈다 */}
+                  <button
+                    type="button"
+                    onClick={() => patchItem(it.id, { kind: nextKind(it.kind) })}
+                    title={kind.help}
+                    className={
+                      "w-11 shrink-0 rounded-md border px-1 py-1.5 text-xs font-medium transition " +
+                      KIND_TONE[kind.key]
+                    }
+                  >
+                    {kind.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setItems(items.filter((x) => x.id !== it.id))}
+                    aria-label="품목 줄 삭제"
+                    className="shrink-0 p-1 text-stone-300 hover:text-rose-600"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+
+                {kind.key !== "buy" && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-1 text-[11px]">
+                    <span
+                      className={
+                        kind.key === "pendingOut"
+                          ? "text-emerald-700"
+                          : kind.key === "defect"
+                            ? "text-rose-700"
+                            : "text-amber-700"
+                      }
+                    >
+                      {kind.help}
+                    </span>
+                    {kind.key === "defect" && (
+                      <input
+                        value={it.note}
+                        onChange={(e) => patchItem(it.id, { note: e.target.value })}
+                        placeholder="무엇으로 바꿔 받았나요"
+                        className={COMPACT + " min-w-0 flex-1 text-xs"}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <p className="mt-2 text-right text-xs tabular-nums text-stone-500">
           품목 합계 {won(itemSum)}
+          {items.some((i) => i.kind === "pendingOut") && (
+            <span className="ml-1 text-emerald-700">· 미송 출고분은 뺐어요</span>
+          )}
         </p>
       </div>
 
@@ -315,7 +433,9 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium text-stone-700">당일합계</div>
-            <div className="text-[11px] text-stone-400">이 금액이 장부에 남아요</div>
+            <div className="text-[11px] text-stone-400">
+              {onlyPrepaid ? "출고분만 받은 날이라 0원이에요" : "이 금액이 장부에 남아요"}
+            </div>
           </div>
           <Money
             value={supplyTouched ? supply : String(itemSum || "")}
@@ -336,12 +456,74 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
             )}
           </div>
         )}
+
+        {/* 현금입금 — 실제로 건넨 돈. 천원 단위로 맞춰 주고받으므로 당일합계와 다를 수 있다 */}
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-stone-200 pt-3">
+          <div>
+            <div className="text-sm font-medium text-stone-700">현금입금</div>
+            <div className="text-[11px] text-stone-400">실제로 건넨 돈. 같으면 비워두세요</div>
+          </div>
+          <Money
+            value={cashTouched ? cash : String(amount || "")}
+            onChange={(v) => {
+              setCash(v);
+              setCashTouched(true);
+            }}
+            placeholder="0"
+            className={"w-36 " + (cashTouched ? "font-semibold" : "text-stone-400")}
+          />
+        </div>
+
+        {/* 전잔 → 당잔 */}
+        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+          {[
+            ["전잔", before, "지난 거래까지"],
+            ["당일합계", amount, "산 물건"],
+            ["당잔", after, balanceOdd ? "확인해 보세요" : "다음으로 넘어가요"],
+          ].map(([label, value, note], i) => (
+            <div
+              key={label}
+              className={
+                "rounded-lg border px-2 py-1.5 " +
+                (i === 2 && balanceOdd
+                  ? "border-amber-400 bg-amber-50"
+                  : "border-stone-200 bg-white")
+              }
+            >
+              <div className="text-[11px] text-stone-400">{label}</div>
+              <div
+                className={
+                  "text-sm font-semibold tabular-nums " +
+                  (i === 2 && balanceOdd ? "text-amber-800" : "text-stone-800")
+                }
+              >
+                {won(value)}
+              </div>
+              <div className="text-[10px] text-stone-400">{note}</div>
+            </div>
+          ))}
+        </div>
+        {after !== 0 && (
+          <p
+            className={
+              "mt-1.5 text-xs " + (balanceOdd ? "font-medium text-amber-800" : "text-stone-500")
+            }
+          >
+            당잔 {balanceText(after)}
+            {balanceOdd && " — 천원 단위를 넘어요. 금액을 다시 보거나 거래처에 확인해 보세요."}
+          </p>
+        )}
       </div>
 
       {/* 결제방식 — 이체를 했어도 부가세는 안 보낸 경우가 있어 이체가 둘로 갈린다 */}
       <div className="mt-3 text-sm">
         <span className="mb-1.5 block text-stone-500">
-          결제방식 <span className="text-rose-600">· 장끼로는 알 수 없어요. 꼭 골라주세요</span>
+          결제방식{" "}
+          {onlyPrepaid ? (
+            <span className="text-emerald-700">· 낼 돈이 0원이라 안 골라도 돼요</span>
+          ) : (
+            <span className="text-rose-600">· 장끼로는 알 수 없어요. 꼭 골라주세요</span>
+          )}
         </span>
         <div className="grid grid-cols-3 gap-2">
           {MODES.map((m) => {
@@ -467,6 +649,67 @@ export default function TxForm({ seed, vendors, onSubmit, onCancel }) {
             <p className="text-xs text-stone-400">계좌가 없어요. 장끼를 올리면 자동으로 채워집니다.</p>
           )}
         </div>
+      </div>
+
+      {/* 매입금(차감권) — 샘플 반납·불량 매입처럼 '돈이 거래처에 남는' 일 */}
+      <div className="mt-3 rounded-xl border border-stone-200">
+        <button
+          type="button"
+          onClick={() => setOpenCredit(!openCredit)}
+          className="flex w-full items-center justify-between px-3 py-2.5 text-sm text-stone-600"
+        >
+          <span className="flex items-center gap-1.5">
+            <Wallet size={14} /> 매입금 (잡은 돈 · 깎아 쓴 돈)
+            {(numOf(creditAdd) > 0 || numOf(creditUse) > 0) && (
+              <span className="rounded bg-stone-100 px-1.5 py-0.5 text-[11px] font-medium text-stone-600 tabular-nums">
+                {numOf(creditAdd) > 0 && "+" + won(numOf(creditAdd))}
+                {numOf(creditAdd) > 0 && numOf(creditUse) > 0 && " / "}
+                {numOf(creditUse) > 0 && "−" + won(numOf(creditUse))}
+              </span>
+            )}
+          </span>
+          <ChevronDown size={16} className={"transition " + (openCredit ? "rotate-180" : "")} />
+        </button>
+        {openCredit && (
+          <div className="border-t border-stone-200 p-3">
+            <p className="mb-2.5 text-xs leading-relaxed text-stone-500">
+              샘플을 반납했거나, 불량을 매입으로 잡았거나, 안 하기로 한 상품 값이 남았을 때{" "}
+              <b className="font-semibold">잡은 돈</b>에 적어요. 다음 거래에서 그만큼 덜 냈으면{" "}
+              <b className="font-semibold">깎아 쓴 돈</b>에 적으면 잔액이 줄어요.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                <span className="mb-1 block text-stone-500">잡은 돈 (+)</span>
+                <Money value={creditAdd} onChange={setCreditAdd} placeholder="0" />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-stone-500">깎아 쓴 돈 (−)</span>
+                <Money value={creditUse} onChange={setCreditUse} placeholder="0" />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-stone-500">쓸 수 있는 기한</span>
+                <input
+                  type="date"
+                  value={creditExpiry}
+                  onChange={(e) => setCreditExpiry(e.target.value)}
+                  className={FIELD}
+                />
+                <span className="mt-1 block text-[11px] text-stone-400">
+                  기한이 없으면 비워두세요. 넣으면 남은 날짜를 세어 줘요.
+                </span>
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-stone-500">무엇 때문에</span>
+                <input
+                  value={creditNote}
+                  onChange={(e) => setCreditNote(e.target.value)}
+                  placeholder="예: 샘플 반납 · 불량 3장"
+                  className={FIELD}
+                />
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 거래처 정보 */}

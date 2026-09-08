@@ -41,17 +41,32 @@ export function makeAccount(a = {}) {
   };
 }
 
+/**
+ * 품목 한 줄의 성격. 이게 갈려야 '이미 낸 돈'과 '지금 낼 돈'이 안 섞인다.
+ *
+ *   buy         산 물건. 돈이 나간다.
+ *   pending     미송 — 돈은 냈고 물건은 나중에 온다. 돈은 buy와 똑같이 나간 것이다.
+ *   pendingOut  미송 출고 — 미송분이 도착했다. **돈은 이미 냈으므로 장부 금액에 안 더한다.**
+ *               여기서 안 빼면 같은 물건 값을 두 번 내게 된다.
+ *   defect      불량 — 돌려준 것. 무엇으로 바꿔 받았는지는 note에 적는다.
+ */
+export const ITEM_KINDS = ["buy", "pending", "pendingOut", "defect"];
+
 export function makeItem(i = {}) {
   // 빈 줄은 수량 0으로 시작한다. 장끼에서 읽어온 값은 그대로 쓴다.
   const qty = Number(i.qty) || 0;
   const unitPrice = Number(i.unitPrice) || 0;
+  // 예전 기록에는 kind가 없고 pending 불리언만 있었다. 그때 값을 그대로 읽는다.
+  const kind = ITEM_KINDS.includes(i.kind) ? i.kind : i.pending ? "pending" : "buy";
   return {
     id: i.id || newId("i"),
     name: i.name || "",
     qty,
     unitPrice,
     amount: Number.isFinite(Number(i.amount)) && i.amount !== "" ? Number(i.amount) : unitPrice * qty,
-    pending: !!i.pending, // 미송
+    kind,
+    pending: kind === "pending", // 예전 코드와 예전 저장분을 위해 남겨 둔다
+    note: i.note || "", // 불량을 무엇으로 바꿔 받았는지 등
   };
 }
 
@@ -68,6 +83,9 @@ export function makeVendor(v = {}) {
   };
 }
 
+/** 빈 칸과 0을 가른다 — 현금입금 0원(출고만 받은 날)과 '안 적음'은 다른 뜻이다. */
+const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v) || 0);
+
 export function makeTx(t = {}) {
   const method = t.method === "transfer" ? "transfer" : "samchon";
   return {
@@ -83,6 +101,15 @@ export function makeTx(t = {}) {
     vatPaid: method === "transfer" ? t.vatPaid !== false : false,
     invoice: !!t.invoice,
     accountId: t.accountId || "", // 실제 송금한 계좌
+    // 실제로 건넨 돈. 동대문은 500원 단위를 올려 받고 다음에 깎아 주므로
+    // 당일합계와 다를 수 있다. 안 적었으면 null — 딱 맞게 냈다고 본다.
+    cashPaid: num(t.cashPaid),
+    // 매입금(차감권). 샘플 반납·불량 매입·안 하기로 한 상품 등으로 잡히고,
+    // 다음 거래에서 깎아 쓴다. 거래처가 기한을 두는 경우가 있어 기한도 받는다.
+    creditAdd: Number(t.creditAdd) || 0,
+    creditUse: Number(t.creditUse) || 0,
+    creditExpiry: t.creditExpiry || "",
+    creditNote: t.creditNote || "",
     memo: t.memo || "",
     hasPhoto: !!t.hasPhoto,
   };

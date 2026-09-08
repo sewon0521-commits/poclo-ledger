@@ -1,5 +1,5 @@
-import { Trash2, Check, Pencil, ImageOff, Clock } from "lucide-react";
-import { won, derive, hasPending } from "../lib/calc";
+import { Trash2, Check, Pencil, ImageOff, Clock, PackageCheck, AlertTriangle } from "lucide-react";
+import { won, derive, hasPending, hasKind } from "../lib/calc";
 import { MethodChip } from "./ui";
 
 /**
@@ -31,6 +31,16 @@ export default function TxRow({
           <Pencil size={11} className="shrink-0 text-stone-300" />
           {!tx.hasPhoto && <ImageOff size={12} className="shrink-0 text-stone-300" title="장끼 없음" />}
           {hasPending(tx) && <Clock size={12} className="shrink-0 text-amber-500" title="미송 있음" />}
+          {hasKind(tx, "pendingOut") && (
+            <PackageCheck
+              size={12}
+              className="shrink-0 text-emerald-600"
+              title="미송 출고 받음 — 이미 낸 돈이라 합계에 안 들어감"
+            />
+          )}
+          {hasKind(tx, "defect") && (
+            <AlertTriangle size={12} className="shrink-0 text-rose-500" title="불량 있음" />
+          )}
         </div>
         {sub && <div className="truncate text-xs text-stone-400">{sub}</div>}
       </button>

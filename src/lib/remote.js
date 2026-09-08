@@ -42,6 +42,12 @@ const txFromRow = (r) =>
     vatPaid: r.vat_paid,
     invoice: r.invoice,
     accountId: r.account_id,
+    // 예전 행에는 이 칸이 없다. null 이면 makeTx가 '안 적음'으로 읽는다.
+    cashPaid: r.cash_paid === null || r.cash_paid === undefined ? null : Number(r.cash_paid),
+    creditAdd: Number(r.credit_add) || 0,
+    creditUse: Number(r.credit_use) || 0,
+    creditExpiry: r.credit_expiry || "",
+    creditNote: r.credit_note || "",
     memo: r.memo,
     hasPhoto: r.has_photo,
   });
@@ -56,6 +62,11 @@ const txToRow = (t) => ({
   vat_paid: t.vatPaid,
   invoice: t.invoice,
   account_id: t.accountId,
+  cash_paid: t.cashPaid === null || t.cashPaid === undefined ? null : t.cashPaid,
+  credit_add: t.creditAdd || 0,
+  credit_use: t.creditUse || 0,
+  credit_expiry: t.creditExpiry || null,
+  credit_note: t.creditNote || "",
   memo: t.memo,
   has_photo: t.hasPhoto,
 });

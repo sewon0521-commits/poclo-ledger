@@ -49,6 +49,20 @@ begin
   end if;
 end $$;
 
+-- 미송·불량·매입금·잔액을 위해 더한 칸들 (2026-09-09).
+-- 이미 만들어진 표에도 안전하게 붙는다. 여러 번 실행해도 된다.
+--   cash_paid     실제로 건넨 돈. null 이면 '안 적음' = 당일합계와 같다는 뜻.
+--                 0원과 null 은 다른 뜻이다 — 미송 출고분만 받은 날은 진짜 0원이다.
+--   credit_add    그날 잡힌 매입금 (샘플 반납·불량 매입 등)
+--   credit_use    그날 깎아 쓴 매입금
+--   credit_expiry 매입금을 쓸 수 있는 기한. 지나면 사라지는 돈이다.
+-- 품목의 성격(매입/미송/출고/불량)은 items jsonb 안의 kind 라서 칸이 따로 없다.
+alter table public.transactions add column if not exists cash_paid     bigint;
+alter table public.transactions add column if not exists credit_add    bigint  not null default 0;
+alter table public.transactions add column if not exists credit_use    bigint  not null default 0;
+alter table public.transactions add column if not exists credit_expiry date;
+alter table public.transactions add column if not exists credit_note   text    not null default '';
+
 create index if not exists transactions_date_idx on public.transactions (date desc);
 create index if not exists transactions_vendor_idx on public.transactions (vendor_id);
 

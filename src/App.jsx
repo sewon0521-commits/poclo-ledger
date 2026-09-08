@@ -12,6 +12,7 @@ import {
 } from "./lib/calc";
 import { makeVendor, makeTx, makeAccount } from "./lib/store";
 import { matchVendor, searchVendors } from "./lib/match";
+import { pendingBoard } from "./lib/pending";
 import { readReceipt } from "./lib/receipt";
 import { useLedger } from "./lib/useLedger";
 import Sidebar from "./components/Sidebar";
@@ -24,6 +25,7 @@ import InvoicePage, { RequestMessage } from "./components/InvoicePage";
 import SalesPage from "./components/SalesPage";
 import PnlPage from "./components/PnlPage";
 import PricePage from "./components/PricePage";
+import PendingPage from "./components/PendingPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
@@ -73,6 +75,11 @@ export default function App() {
   const shown = useMemo(() => filterRange(tx, range), [tx, range]);
   const days = useMemo(() => groupByDay(shown), [shown]);
   const totals = useMemo(() => sumTotals(shown), [shown]);
+  // 미송은 기간과 상관없이 '지금 남은 것'을 본다 — 잡은 달과 받는 달이 다르기 때문이다
+  const pending = useMemo(
+    () => pendingBoard(tx, (id) => vendors.find((v) => v.id === id)?.name || ""),
+    [tx, vendors],
+  );
 
   // 새 거래의 기본 날짜 — 보고 있는 기간 안이면 오늘, 아니면 기간 시작일
   const defaultDate = () => {
@@ -316,6 +323,7 @@ export default function App() {
                     key={form._k}
                     seed={form}
                     vendors={vendors}
+                    allTx={tx}
                     onSubmit={(payload) =>
                       submitForm({ ...payload, photoFile: payload.photoFile || form.photoFile || null })
                     }
@@ -395,7 +403,11 @@ export default function App() {
                   onAddBlank={openBlank}
                   vendorName={vendorName}
                   rowProps={rowProps}
+                  pending={pending}
+                  onPage={setPage}
                 />
+              ) : page === "pending" ? (
+                <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} />
               ) : page === "vendors" ? (
                 <VendorsPage
                   vendors={vendors}

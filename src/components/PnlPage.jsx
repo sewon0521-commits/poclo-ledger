@@ -219,6 +219,47 @@ export default function PnlPage({ rows, conf, range, preset, custom, onRange, on
                   </tr>
                 ))}
               </tbody>
+              {/* 맨 아래 합계 — 표를 눈으로 더하지 않아도 되게. 위 KPI와 같은 값이다. */}
+              <tfoot>
+                <tr className="border-t-2 border-stone-300 bg-stone-50 font-semibold">
+                  <td className="px-3 py-2.5 text-left whitespace-nowrap text-stone-900">
+                    합계 <span className="text-xs font-normal text-stone-400">{total.days}일</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-stone-900">{won(total.revenue)}</td>
+                  <td className="px-3 py-2.5 text-right text-stone-500">
+                    {total.refund ? "−" + won(total.refund) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-stone-900">{won(total.net)}</td>
+                  <td className="px-3 py-2.5 text-right text-stone-700">
+                    {won(total.cogs)}
+                    <span className="ml-1 text-[11px] font-normal text-stone-400">
+                      {pct(total.cogsRate, 0)}%
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-stone-700">{won(total.variable)}</td>
+                  <td className="px-3 py-2.5 text-right text-stone-700">
+                    {won(total.ads)}
+                    <span className="ml-1 text-[11px] font-normal text-stone-400">
+                      {pct(total.adRate, 0)}%
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-stone-700">
+                    {won(total.samchonDay + total.fixedDay)}
+                  </td>
+                  <td
+                    className={
+                      "px-3 py-2.5 text-right " +
+                      (total.profit >= 0 ? "text-emerald-700" : "text-rose-700")
+                    }
+                  >
+                    {total.profit >= 0 ? "+" : "−"}
+                    {won(Math.abs(total.profit))}
+                    <span className="ml-1 text-[11px] font-normal text-stone-400">
+                      {pct(total.margin, 0)}%
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
 

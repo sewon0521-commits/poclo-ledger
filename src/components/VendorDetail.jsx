@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronLeft, MapPin, Phone, Landmark, ReceiptText, Pencil } from "lucide-react";
+import { ChevronLeft, MapPin, Phone, Landmark, ReceiptText, Pencil, Clock, Wallet } from "lucide-react";
 import {
   won,
   dayLabel,
@@ -9,6 +9,7 @@ import {
   rangeLabel,
   totals as sumTotals,
 } from "../lib/calc";
+import { pendingOf, balanceRuns, balanceText } from "../lib/pending";
 import { Badge } from "./ui";
 import TxRow from "./TxRow";
 import DateRange from "./DateRange";
@@ -33,6 +34,17 @@ export default function VendorDetail({ vendor, rows, onBack, onEditVendor, rowPr
   const inside = useMemo(() => filterRange(mine, range), [mine, range]);
   const days = useMemo(() => groupByDay(inside), [inside]);
   const t = useMemo(() => sumTotals(inside), [inside]);
+
+  // 아래 셋은 기간과 상관없이 '지금' 상태다 — 잡은 달과 푸는 달이 다르기 때문이다.
+  const openPending = useMemo(
+    () => pendingOf(mine, vendor.id, () => vendor.name),
+    [mine, vendor.id, vendor.name],
+  );
+  const balance = useMemo(() => balanceRuns(mine).get(vendor.id)?.at(-1)?.after || 0, [mine, vendor.id]);
+  const credit = useMemo(
+    () => mine.reduce((n, x) => n + (x.creditAdd || 0) - (x.creditUse || 0), 0),
+    [mine],
+  );
 
   const accounts = vendor.accounts || [];
 
@@ -83,6 +95,44 @@ export default function VendorDetail({ vendor, rows, onBack, onEditVendor, rowPr
           </p>
         )}
       </div>
+
+      {/* 지금 걸려 있는 것 — 이 거래처에 가기 전에 봐야 하는 것들 */}
+      {(openPending.length > 0 || balance !== 0 || credit !== 0) && (
+        <div className="mt-3 space-y-2">
+          {openPending.length > 0 && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+                <Clock size={14} /> 미송 {openPending.reduce((n, r) => n + r.left, 0)}장이 남아 있어요
+              </div>
+              <ul className="mt-1 space-y-0.5 text-xs text-amber-800">
+                {openPending.map((r) => (
+                  <li key={r.key} className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate">{r.name}</span>
+                    <span className="shrink-0 tabular-nums">
+                      {r.left}장 {r.unitPrice > 0 && won(r.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(balance !== 0 || credit !== 0) && (
+            <div className="flex flex-wrap gap-2 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm">
+              {balance !== 0 && (
+                <span className="text-stone-600">
+                  잔액 <b className="font-semibold tabular-nums">{balanceText(balance)}</b>
+                </span>
+              )}
+              {credit !== 0 && (
+                <span className="flex items-center gap-1 text-stone-600">
+                  <Wallet size={13} className="text-stone-400" /> 매입금{" "}
+                  <b className="font-semibold tabular-nums text-emerald-700">{won(credit)}</b> 남음
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-4">
         <DateRange
