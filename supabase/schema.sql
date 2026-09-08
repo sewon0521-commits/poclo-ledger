@@ -117,3 +117,60 @@ create policy "로그인한 사람은 장끼 바꾸기" on storage.objects
 drop policy if exists "로그인한 사람은 장끼 지우기" on storage.objects;
 create policy "로그인한 사람은 장끼 지우기" on storage.objects
   for delete to authenticated using (bucket_id = 'receipts');
+
+-- ------------------------------------------------------------------ 매출 (일별)
+--
+-- 판 쪽. 카페24 주문에서 뽑은 하루치 한 줄과, 그날 쓴 광고비.
+-- 매입(transactions)이 '산 돈'이라면 여기는 '판 돈'이다.
+--
+--   gross  총매출  — 그날 판 금액. 취소·반품 전. 광고비를 여기에 대고 본다.
+--   net    순매출  — 취소·반품을 뺀 것. 손익은 여기서 낸다.
+
+create table if not exists public.sales_daily (
+  date         date primary key,
+  gross        bigint not null default 0,
+  refund       bigint not null default 0,
+  net          bigint not null default 0,
+  cogs         bigint not null default 0,
+  qty          integer not null default 0,
+  orders       integer not null default 0,
+  ship_income  bigint not null default 0,
+  naver_net    bigint not null default 0,
+  ads          bigint not null default 0,
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.sales_daily enable row level security;
+
+drop policy if exists "로그인한 사람은 매출 읽기" on public.sales_daily;
+create policy "로그인한 사람은 매출 읽기" on public.sales_daily
+  for select to authenticated using (true);
+
+drop policy if exists "로그인한 사람은 매출 쓰기" on public.sales_daily;
+create policy "로그인한 사람은 매출 쓰기" on public.sales_daily
+  for all to authenticated using (true) with check (true);
+
+-- 비용 가정값(택배비·수수료·고정비)도 둘이 같은 값을 봐야 한다
+create table if not exists public.settings (
+  key         text primary key,
+  value       jsonb not null default '{}'::jsonb,
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.settings enable row level security;
+
+drop policy if exists "로그인한 사람은 설정 읽기" on public.settings;
+create policy "로그인한 사람은 설정 읽기" on public.settings
+  for select to authenticated using (true);
+
+drop policy if exists "로그인한 사람은 설정 쓰기" on public.settings;
+create policy "로그인한 사람은 설정 쓰기" on public.settings
+  for all to authenticated using (true) with check (true);
+
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.sales_daily;
+  exception when duplicate_object then null;
+  end;
+end $$;

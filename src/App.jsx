@@ -21,6 +21,10 @@ import TxForm from "./components/TxForm";
 import Login from "./components/Login";
 import Modal from "./components/Modal";
 import InvoicePage, { RequestMessage } from "./components/InvoicePage";
+import SalesPage from "./components/SalesPage";
+import HomePage from "./components/HomePage";
+import Soon from "./components/Soon";
+import { useSales } from "./lib/useSales";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
 
@@ -36,7 +40,12 @@ export default function App() {
   const L = useLedger();
   const { vendors, tx } = L;
 
-  const [page, setPage] = useState("ledger");
+  const S = useSales(L.session);
+
+  const [page, setPage] = useState("home");
+  // 매출 장부는 기간을 따로 고른다 — 매입 기간과 얽히면 둘 다 헷갈린다
+  const [salesPreset, setSalesPreset] = useState("month");
+  const [salesCustom, setSalesCustom] = useState(() => rangeOf("month"));
   const [menuOpen, setMenuOpen] = useState(false);
   const [preset, setPreset] = useState("month");
   const [custom, setCustom] = useState(() => rangeOf("month"));
@@ -57,6 +66,7 @@ export default function App() {
   const vendorName = (id) => vendors.find((v) => v.id === id)?.name || "";
 
   const range = preset === "custom" ? custom : rangeOf(preset);
+  const salesRange = salesPreset === "custom" ? salesCustom : rangeOf(salesPreset);
   const shown = useMemo(() => filterRange(tx, range), [tx, range]);
   const days = useMemo(() => groupByDay(shown), [shown]);
   const totals = useMemo(() => sumTotals(shown), [shown]);
@@ -259,10 +269,17 @@ export default function App() {
         </header>
 
         <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
-          {L.notice && (
+          {(L.notice || S.notice) && (
             <div className="mb-4 flex items-start gap-3 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-600">
-              <span className="flex-1">{L.notice}</span>
-              <button type="button" onClick={() => L.setNotice("")} className="shrink-0 text-stone-400">
+              <span className="flex-1">{L.notice || S.notice}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  L.setNotice("");
+                  S.setNotice("");
+                }}
+                className="shrink-0 text-stone-400"
+              >
                 닫기
               </button>
             </div>
@@ -314,7 +331,32 @@ export default function App() {
                 )}
               </Modal>
 
-              {page === "ledger" ? (
+              {page === "home" ? (
+                <HomePage
+                  salesRows={S.rows}
+                  salesConf={S.conf}
+                  purchaseTotals={sumTotals(tx)}
+                  onPage={setPage}
+                />
+              ) : page === "sales" ? (
+                <SalesPage
+                  rows={S.rows}
+                  conf={S.conf}
+                  onConf={S.saveConf}
+                  onDaily={S.putDaily}
+                  onAds={S.putAds}
+                  onClear={S.clearAll}
+                  range={salesRange}
+                  preset={salesPreset}
+                  custom={salesCustom}
+                  onRange={({ preset: p, custom: c }) => {
+                    setSalesPreset(p);
+                    setSalesCustom(c);
+                  }}
+                />
+              ) : page === "work" || page === "people" || page === "content" ? (
+                <Soon page={page} />
+              ) : page === "ledger" ? (
                 <LedgerPage
                   days={days}
                   totals={totals}
