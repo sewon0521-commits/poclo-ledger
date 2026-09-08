@@ -10,6 +10,7 @@ import {
   BookOpen,
   Scale,
   TrendingUp,
+  Tags,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -30,7 +31,14 @@ export const SECTIONS = [
     label: "돈",
     icon: Wallet,
     groups: [
-      { group: "파는 쪽", items: [{ key: "sales", label: "포클로 매출 장부", icon: TrendingUp }] },
+      {
+        group: "파는 쪽",
+        items: [
+          { key: "sales", label: "포클로 매출 장부", icon: TrendingUp },
+          { key: "pnl", label: "손익", icon: Scale },
+          { key: "price", label: "단가표", icon: Tags },
+        ],
+      },
       {
         group: "사는 쪽",
         items: [

@@ -1,35 +1,25 @@
 import { useMemo, useState } from "react";
-import { Megaphone, Target, Upload, Settings2, Trash2 } from "lucide-react";
+import { Megaphone, Target, Upload, Settings2, Trash2, Info } from "lucide-react";
 import { rangeLabel, dayLabel } from "../lib/calc";
 import {
   won,
   pct,
-  buildDays,
   totalPnl,
   parseDaily,
+  parseCafe,
   parseAds,
   DEFAULT_COSTS,
   TARGET_AD_RATE,
 } from "../lib/sales";
+import { adTone, TONE_TEXT, useDays } from "../lib/view";
 import { Kpi, Empty } from "./ui";
 import DateRange from "./DateRange";
 
-// 광고비율은 낮을수록 좋다. 목표 18%.
-const adTone = (rate) =>
-  rate <= TARGET_AD_RATE ? "emerald" : rate <= 30 ? "amber" : "rose";
-
-const TONE_TEXT = {
-  emerald: "text-emerald-700",
-  amber: "text-amber-700",
-  rose: "text-rose-700",
-};
-
-/** 목표 18%까지 얼마나 왔는지 한 줄로 */
+/** 목표 18%까지 얼마나 왔는지 */
 function AdGauge({ total }) {
   const tone = adTone(total.adRate);
   const width = Math.min((total.adRate / 45) * 100, 100);
   const mark = (TARGET_AD_RATE / 45) * 100;
-  const gap = total.adRate - TARGET_AD_RATE;
 
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-5">
@@ -51,7 +41,11 @@ function AdGauge({ total }) {
         <div
           className={
             "h-full rounded-full " +
-            (tone === "emerald" ? "bg-emerald-500" : tone === "amber" ? "bg-amber-500" : "bg-rose-600")
+            (tone === "emerald"
+              ? "bg-emerald-500"
+              : tone === "amber"
+                ? "bg-amber-500"
+                : "bg-rose-600")
           }
           style={{ width: `${width}%` }}
         />
@@ -60,16 +54,14 @@ function AdGauge({ total }) {
 
       <p className="mt-2.5 text-sm text-stone-500">
         광고비 <span className="font-semibold tabular-nums text-stone-700">{won(total.ads)}</span>
-        {" · "}ROAS <span className="font-semibold tabular-nums text-stone-700">{pct(total.roas, 2)}</span>
-        {gap > 0 && (
+        {" · "}ROAS{" "}
+        <span className="font-semibold tabular-nums text-stone-700">{pct(total.roas, 2)}</span>
+        {total.adRate > TARGET_AD_RATE && total.ads > 0 && (
           <>
             <br />
-            목표까지 <span className="font-semibold tabular-nums">{won(total.ads - total.targetAds)}</span>{" "}
-            줄이면 영업이익이{" "}
-            <span className="font-semibold tabular-nums text-emerald-700">
-              {won(total.targetProfit)}
-            </span>
-            이 돼요.
+            목표까지{" "}
+            <span className="font-semibold tabular-nums">{won(total.ads - total.targetAds)}</span>{" "}
+            줄여야 해요.
           </>
         )}
       </p>
@@ -78,13 +70,11 @@ function AdGauge({ total }) {
 }
 
 /** CSV 붙여넣기 / 파일 올리기 한 벌 */
-function Importer({ label, hint, onText, msg }) {
+function Importer({ label, hint, onText }) {
   const [text, setText] = useState("");
+  const [msg, setMsg] = useState("");
 
-  const file = async (f) => {
-    if (!f) return;
-    onText(await f.text());
-  };
+  const take = async (value) => setMsg(await onText(value));
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
@@ -100,7 +90,7 @@ function Importer({ label, hint, onText, msg }) {
         <button
           type="button"
           onClick={() => {
-            onText(text);
+            take(text);
             setText("");
           }}
           className="rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white"
@@ -113,7 +103,10 @@ function Importer({ label, hint, onText, msg }) {
             type="file"
             accept=".csv,text/csv,text/plain"
             className="hidden"
-            onChange={(e) => file(e.target.files?.[0])}
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (f) take(await f.text());
+            }}
           />
         </label>
         {msg && <span className="text-xs text-stone-500">{msg}</span>}
@@ -155,82 +148,14 @@ function CostFields({ costs, onChange }) {
   );
 }
 
-const HEAD = [
-  "일자",
-  "총매출",
-  "광고비",
-  "광고비율",
-  "ROAS",
-  "취소·반품",
-  "순매출",
-  "매출원가",
-  "택배·부자재·수수료",
-  "고정비",
-  "영업이익",
-];
-
-function DayTable({ days }) {
-  return (
-    <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-      <table className="w-full min-w-[860px] text-sm">
-        <thead>
-          <tr className="border-b border-stone-200 text-xs text-stone-400">
-            {HEAD.map((h, i) => (
-              <th
-                key={h}
-                className={"px-3 py-2.5 font-medium " + (i === 0 ? "text-left" : "text-right")}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-stone-100 tabular-nums">
-          {days.map((d) => (
-            <tr key={d.date} className="hover:bg-stone-50">
-              <td className="px-3 py-2 text-left whitespace-nowrap text-stone-600">
-                {dayLabel(d.date)}
-              </td>
-              <td className="px-3 py-2 text-right font-medium text-stone-900">{won(d.gross)}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{d.ads ? won(d.ads) : "—"}</td>
-              <td className={"px-3 py-2 text-right font-medium " + (d.ads ? TONE_TEXT[adTone(d.adRate)] : "text-stone-300")}>
-                {d.ads ? pct(d.adRate) + "%" : "—"}
-              </td>
-              <td className="px-3 py-2 text-right text-stone-500">
-                {d.ads ? pct(d.roas, 2) : "—"}
-              </td>
-              <td className="px-3 py-2 text-right text-stone-400">
-                {d.refund ? "−" + won(d.refund) : "—"}
-              </td>
-              <td className="px-3 py-2 text-right text-stone-900">{won(d.net)}</td>
-              <td className="px-3 py-2 text-right text-stone-500">
-                {won(d.cogs)}
-                <span className="ml-1 text-[11px] text-stone-300">{pct(d.cogsRate, 0)}%</span>
-              </td>
-              <td className="px-3 py-2 text-right text-stone-500">{won(d.variable)}</td>
-              <td className="px-3 py-2 text-right text-stone-400">{won(d.fixedDay)}</td>
-              <td
-                className={
-                  "px-3 py-2 text-right font-semibold " +
-                  (d.profit >= 0 ? "text-emerald-700" : "text-rose-700")
-                }
-              >
-                {d.profit >= 0 ? "+" : "−"}
-                {won(Math.abs(d.profit))}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+const HEAD = ["일자", "총매출", "광고비", "광고비율", "ROAS", "환불"];
 
 export default function SalesPage({
   rows,
   conf,
   onConf,
   onDaily,
+  onCafe,
   onAds,
   onClear,
   range,
@@ -238,44 +163,31 @@ export default function SalesPage({
   custom,
   onRange,
 }) {
-  const [msg, setMsg] = useState("");
   const [open, setOpen] = useState(false);
-
-  const costs = useMemo(() => ({ ...DEFAULT_COSTS, ...conf.costs }), [conf.costs]);
-
-  const days = useMemo(() => {
-    const inRange = rows.filter(
-      (r) => (!range.from || r.date >= range.from) && (!range.to || r.date <= range.to),
-    );
-    return buildDays(
-      inRange,
-      Object.fromEntries(inRange.map((r) => [r.date, r.ads])),
-      costs,
-      conf.fixed,
-    );
-  }, [rows, range, costs, conf.fixed]);
-
+  const days = useDays(rows, range, conf);
   const total = useMemo(() => totalPnl(days), [days]);
+  const costs = { ...DEFAULT_COSTS, ...conf.costs };
 
-  const takeDaily = (text) => {
-    const parsed = parseDaily(text);
-    if (!parsed.length) {
-      setMsg("주문 CSV를 못 읽었어요. orders_일별.csv 를 통째로 붙여넣어 주세요.");
-      return;
-    }
-    onDaily(parsed);
-    setMsg(`${parsed.length}일치 매출을 넣었어요.`);
+  const takeCafe = async (text) => {
+    const parsed = parseCafe(text);
+    if (!parsed.length) return "카페24 CSV를 못 읽었어요. '결제합계' 칸이 있어야 해요.";
+    await onCafe(parsed);
+    return `${parsed.length}일치 넣었어요.`;
   };
 
-  const takeAds = (text) => {
+  const takeDaily = async (text) => {
+    const parsed = parseDaily(text);
+    if (!parsed.length) return "주문 CSV를 못 읽었어요. orders_일별.csv 를 붙여넣어 주세요.";
+    await onDaily(parsed);
+    return `${parsed.length}일치 넣었어요.`;
+  };
+
+  const takeAds = async (text) => {
     const parsed = parseAds(text);
     const n = Object.keys(parsed).length;
-    if (!n) {
-      setMsg("광고 CSV를 못 읽었어요. '일'과 '지출 금액' 칸이 있는 파일이어야 해요.");
-      return;
-    }
-    onAds(parsed);
-    setMsg(`${n}일치 광고비를 넣었어요. 합계 ${won(Object.values(parsed).reduce((a, b) => a + b, 0))}원`);
+    if (!n) return "광고 CSV를 못 읽었어요. '일'과 '지출 금액' 칸이 있어야 해요.";
+    await onAds(parsed);
+    return `${n}일치 · 합계 ${won(Object.values(parsed).reduce((a, b) => a + b, 0))}원`;
   };
 
   return (
@@ -284,8 +196,8 @@ export default function SalesPage({
         <div>
           <h2 className="text-xl font-bold text-stone-900">포클로 매출 장부</h2>
           <p className="mt-0.5 text-sm text-stone-500">
-            광고 성적은 <b className="font-semibold text-stone-700">총매출</b>로, 남은 돈은{" "}
-            <b className="font-semibold text-stone-700">순매출</b>로 봐요.
+            이 광고비로 얼마가 나왔나. 남은 돈은{" "}
+            <b className="font-semibold text-stone-700">손익</b>에서 봐요.
           </p>
         </div>
         <button
@@ -307,14 +219,18 @@ export default function SalesPage({
       {open && (
         <div className="mb-5 space-y-3">
           <Importer
-            label="주문 데이터"
+            label="총매출 (카페24 애널리틱스)"
+            hint="카페24 › 애널리틱스 › 매출분석 › 일별 CSV. 여기 '결제합계'가 총매출이 됩니다."
+            onText={takeCafe}
+          />
+          <Importer
+            label="주문 데이터 (원가·건수)"
             hint="poclo-cafe24 폴더에서 4_주문불러오기.bat 을 돌리면 나오는 orders_일별.csv"
             onText={takeDaily}
-            msg={msg}
           />
           <Importer
             label="광고비"
-            hint="메타 광고 관리자 › 보고서에서 '일' 단위로 내보낸 CSV. 광고세트별로 여러 줄이어도 날짜로 합칩니다."
+            hint="메타 광고 관리자 › 보고서에서 '일' 단위로 내보낸 CSV. 광고세트가 여러 줄이어도 날짜로 합칩니다."
             onText={takeAds}
           />
           <CostFields costs={costs} onChange={(c) => onConf({ ...conf, costs: c })} />
@@ -332,50 +248,82 @@ export default function SalesPage({
 
       {days.length === 0 ? (
         <Empty
-          title="아직 매출 데이터가 없어요."
-          hint="위 '데이터 넣기'에서 orders_일별.csv 와 메타 광고 CSV를 넣어주세요."
+          title="이 기간에 매출이 없어요."
+          hint="기간을 바꾸거나 '데이터 넣기'에서 카페24 매출분석 CSV를 넣어주세요."
         />
       ) : (
         <>
           <section className="mb-5 space-y-3">
             <AdGauge total={total} />
-
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
               <Kpi
                 label="총매출"
-                value={won(total.gross)}
-                sub={`하루 평균 ${won(total.gross / (total.days || 1))}`}
+                value={won(total.revenue)}
+                sub={`하루 평균 ${won(total.revenue / (total.days || 1))}`}
               />
+              <Kpi label="광고비" value={won(total.ads)} sub={`${pct(total.adRate)}%`} />
+              <Kpi label="ROAS" value={pct(total.roas, 2)} sub="광고 1원당 매출" />
               <Kpi
-                label="취소·반품"
-                value={"−" + won(total.refund)}
+                label="환불"
+                value={total.refundShown ? "−" + won(total.refundShown) : "—"}
                 sub={`${pct(total.refundRate)}%`}
-              />
-              <Kpi label="순매출" value={won(total.net)} sub="여기서 손익을 낸다" />
-              <Kpi
-                label="매출원가"
-                value={won(total.cogs)}
-                sub={`원가율 ${pct(total.cogsRate)}%`}
-              />
-              <Kpi
-                label="영업이익"
-                value={(total.profit >= 0 ? "+" : "−") + won(Math.abs(total.profit))}
-                tone={total.profit >= 0 ? "emerald" : "rose"}
-                sub={`순매출의 ${pct(total.margin)}%`}
-              />
-              <Kpi
-                label="손익분기 일매출"
-                value={won(total.breakeven)}
-                sub={`공헌이익률 ${pct(total.contribRate)}%`}
               />
             </div>
           </section>
 
-          <DayTable days={days} />
+          <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-b border-stone-200 text-xs text-stone-400">
+                  {HEAD.map((h, i) => (
+                    <th
+                      key={h}
+                      className={"px-3 py-2.5 font-medium " + (i === 0 ? "text-left" : "text-right")}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 tabular-nums">
+                {days.map((d) => (
+                  <tr key={d.date} className="hover:bg-stone-50">
+                    <td className="px-3 py-2 text-left whitespace-nowrap text-stone-600">
+                      {dayLabel(d.date)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium text-stone-900">
+                      {won(d.revenue)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-stone-600">
+                      {d.ads ? won(d.ads) : "—"}
+                    </td>
+                    <td
+                      className={
+                        "px-3 py-2 text-right font-medium " +
+                        (d.ads ? TONE_TEXT[adTone(d.adRate)] : "text-stone-300")
+                      }
+                    >
+                      {d.ads ? pct(d.adRate) + "%" : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right text-stone-500">
+                      {d.ads ? pct(d.roas, 2) : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right text-stone-400">
+                      {d.cafeRefund || d.refund ? "−" + won(d.cafeRefund || d.refund) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-          <p className="pt-3 text-xs leading-relaxed text-stone-400">
-            총매출은 그날 판 금액이라 광고 성적을 보는 자리고, 순매출은 취소·반품을 뺀 실제 남은
-            돈이라 이익을 보는 자리예요. 원가는 주문에 붙어 온 공급가라 가정이 아니에요.
+          <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-500">
+            <Info size={13} className="mt-0.5 shrink-0" />
+            <span>
+              총매출은 <b className="font-semibold">카페24 애널리틱스 › 매출분석의 결제합계</b>와
+              같은 숫자예요. 반품될 주문도 광고가 만든 매출이라 여기 그대로 둡니다. 취소·반품을 뺀
+              실제 남은 돈은 <b className="font-semibold">손익</b> 화면에서 봐요.
+            </span>
           </p>
         </>
       )}

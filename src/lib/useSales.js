@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isRemote, supabase } from "./supabase";
 import { DEFAULT_COSTS } from "./sales";
+import { SEED_DAYS } from "./seed";
 
 const ROWS_KEY = "poclo_sales_rows";
 const CONF_KEY = "poclo_sales_conf";
@@ -31,6 +32,8 @@ const writeLocal = (key, value) => {
 
 const toRow = (r) => ({
   date: r.date,
+  cafeGross: Number(r.cafe_gross ?? r.cafeGross) || 0,
+  cafeRefund: Number(r.cafe_refund ?? r.cafeRefund) || 0,
   gross: Number(r.gross) || 0,
   refund: Number(r.refund) || 0,
   net: Number(r.net) || 0,
@@ -44,6 +47,8 @@ const toRow = (r) => ({
 
 const toDb = (r) => ({
   date: r.date,
+  cafe_gross: Math.round(r.cafeGross || 0),
+  cafe_refund: Math.round(r.cafeRefund || 0),
   gross: Math.round(r.gross || 0),
   refund: Math.round(r.refund || 0),
   net: Math.round(r.net || 0),
@@ -58,7 +63,11 @@ const toDb = (r) => ({
 const byDate = (a, b) => a.date.localeCompare(b.date);
 
 export function useSales(session) {
-  const [rows, setRows] = useState(() => readLocal(ROWS_KEY, []));
+  // 저장된 게 하나도 없을 때만 씨앗을 들고 시작한다. 한 번이라도 넣었으면 안 건드린다.
+  const [rows, setRows] = useState(() => {
+    const saved = readLocal(ROWS_KEY, null);
+    return saved?.length ? saved.map(toRow) : SEED_DAYS.map(toRow);
+  });
   const [conf, setConf] = useState(() => ({
     costs: DEFAULT_COSTS,
     fixed: {},
@@ -79,7 +88,16 @@ export function useSales(session) {
       ]);
       if (s.error) throw s.error;
       remoteOk.current = true;
-      setRows((s.data || []).map(toRow).sort(byDate));
+      const got = (s.data || []).map(toRow).sort(byDate);
+      if (got.length) {
+        setRows(got);
+      } else {
+        // 공유 장부가 아직 비었다 — 지금까지 모은 숫자를 한 번 올려 둔다
+        const seed = SEED_DAYS.map(toRow);
+        setRows(seed);
+        writeLocal(ROWS_KEY, seed);
+        await supabase.from("sales_daily").upsert(seed.map(toDb));
+      }
       if (!c.error && c.data?.value) {
         setConf((p) => ({ ...p, ...c.data.value }));
       }
@@ -143,12 +161,17 @@ export function useSales(session) {
   /** 주문 CSV — 매출·원가·건수를 덮는다. 그날 광고비는 건드리지 않는다. */
   const putDaily = useCallback((daily) => merge(daily), [merge]);
 
+  /** 카페24 애널리틱스 CSV — 총매출·환불만 덮는다. 주문 쪽 숫자는 안 건드린다. */
+  const putCafe = useCallback((list) => merge(list), [merge]);
+
   /** 광고 CSV — 광고비만 덮는다. 매출이 없는 날짜도 줄을 만들어 둔다. */
   const putAds = useCallback(
     (adsByDate) =>
       merge(
         Object.entries(adsByDate).map(([date, ads]) => ({ date, ads })),
         (prev) => ({
+          cafeGross: prev.cafeGross || 0,
+          cafeRefund: prev.cafeRefund || 0,
           gross: prev.gross || 0,
           refund: prev.refund || 0,
           net: prev.net || 0,
@@ -181,5 +204,5 @@ export function useSales(session) {
     }
   }, [online]);
 
-  return { rows, conf, saveConf, putDaily, putAds, clearAll, notice, setNotice, ready };
+  return { rows, conf, saveConf, putDaily, putCafe, putAds, clearAll, notice, setNotice, ready };
 }

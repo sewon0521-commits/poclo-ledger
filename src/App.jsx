@@ -22,6 +22,8 @@ import Login from "./components/Login";
 import Modal from "./components/Modal";
 import InvoicePage, { RequestMessage } from "./components/InvoicePage";
 import SalesPage from "./components/SalesPage";
+import PnlPage from "./components/PnlPage";
+import PricePage from "./components/PricePage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import { useSales } from "./lib/useSales";
@@ -344,6 +346,7 @@ export default function App() {
                   conf={S.conf}
                   onConf={S.saveConf}
                   onDaily={S.putDaily}
+                  onCafe={S.putCafe}
                   onAds={S.putAds}
                   onClear={S.clearAll}
                   range={salesRange}
@@ -354,6 +357,21 @@ export default function App() {
                     setSalesCustom(c);
                   }}
                 />
+              ) : page === "pnl" ? (
+                <PnlPage
+                  rows={S.rows}
+                  conf={S.conf}
+                  range={salesRange}
+                  preset={salesPreset}
+                  custom={salesCustom}
+                  onRange={({ preset: p, custom: c }) => {
+                    setSalesPreset(p);
+                    setSalesCustom(c);
+                  }}
+                  onPage={setPage}
+                />
+              ) : page === "price" ? (
+                <PricePage />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />
               ) : page === "ledger" ? (

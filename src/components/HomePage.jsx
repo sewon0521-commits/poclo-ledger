@@ -47,7 +47,9 @@ function Line({ label, value, sub, tone }) {
 export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage }) {
   const month = thisMonth();
 
-  const sales = useMemo(() => {
+  // 매출·광고는 있는 날 전부로, 손익은 원가를 아는 날로만 낸다.
+  // 원가를 모르는 날을 손익에 섞으면 광고비만 빠져서 적자로 보인다.
+  const { sales, pnl } = useMemo(() => {
     const rows = salesRows.filter((r) => r.date.startsWith(month));
     const days = buildDays(
       rows,
@@ -55,7 +57,7 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage 
       { ...DEFAULT_COSTS, ...salesConf.costs },
       salesConf.fixed,
     );
-    return totalPnl(days);
+    return { sales: totalPnl(days), pnl: totalPnl(days.filter((d) => d.hasOrders)) };
   }, [salesRows, salesConf, month]);
 
   const hasSales = sales.days > 0;
@@ -77,27 +79,30 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage 
         >
           {hasSales ? (
             <>
-              <Line label="총매출" value={wonKrw(sales.gross)} sub={`${sales.days}일`} />
+              <Line label="총매출" value={wonKrw(sales.revenue)} sub={`${sales.days}일`} />
               <Line
                 label="광고비"
                 value={wonKrw(sales.ads)}
                 sub={`${pct(sales.adRate)}%`}
                 tone={sales.adRate <= TARGET_AD_RATE ? "emerald" : sales.adRate <= 30 ? "amber" : "rose"}
               />
-              <Line label="순매출" value={wonKrw(sales.net)} sub={`원가율 ${pct(sales.cogsRate)}%`} />
+              <Line
+                label="순매출"
+                value={pnl.days ? wonKrw(pnl.net) : "—"}
+                sub={pnl.days ? `원가율 ${pct(pnl.cogsRate)}%` : "주문 데이터 없음"}
+              />
               <Line
                 label="영업이익"
-                value={(sales.profit >= 0 ? "+" : "−") + wonKrw(Math.abs(sales.profit))}
-                tone={sales.profit >= 0 ? "emerald" : "rose"}
-                sub={`${pct(sales.margin)}%`}
+                value={pnl.days ? (pnl.profit >= 0 ? "+" : "−") + wonKrw(Math.abs(pnl.profit)) : "—"}
+                tone={pnl.days ? (pnl.profit >= 0 ? "emerald" : "rose") : undefined}
+                sub={pnl.days ? `${pct(pnl.margin)}% · ${pnl.days}일` : "주문 데이터 없음"}
               />
               {adGap > 0 && (
                 <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-500">
                   <Target size={13} className="mt-0.5 shrink-0" />
                   <span>
-                    광고비율을 목표 {TARGET_AD_RATE}%까지 내리면 영업이익이{" "}
-                    <b className="font-semibold text-emerald-700">{wonKrw(sales.targetProfit)}</b>이
-                    돼요.
+                    광고비율을 목표 {TARGET_AD_RATE}%까지 내리면 광고비가{" "}
+                    <b className="font-semibold">{wonKrw(sales.ads - sales.targetAds)}</b> 줄어요.
                   </span>
                 </p>
               )}

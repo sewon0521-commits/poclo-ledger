@@ -128,6 +128,8 @@ create policy "로그인한 사람은 장끼 지우기" on storage.objects
 
 create table if not exists public.sales_daily (
   date         date primary key,
+  cafe_gross   bigint not null default 0,   -- 카페24 애널리틱스 결제합계 = 총매출
+  cafe_refund  bigint not null default 0,   -- 카페24 애널리틱스 환불합계
   gross        bigint not null default 0,
   refund       bigint not null default 0,
   net          bigint not null default 0,
@@ -174,3 +176,7 @@ begin
   exception when duplicate_object then null;
   end;
 end $$;
+
+-- 이미 sales_daily 를 만들어 둔 프로젝트라면 칸만 더한다
+alter table public.sales_daily add column if not exists cafe_gross  bigint not null default 0;
+alter table public.sales_daily add column if not exists cafe_refund bigint not null default 0;
