@@ -10,7 +10,6 @@ import {
   BookOpen,
   Scale,
   TrendingUp,
-  Tags,
   Clock,
 } from "lucide-react";
 
@@ -37,7 +36,6 @@ export const SECTIONS = [
         items: [
           { key: "sales", label: "포클로 매출 장부", icon: TrendingUp },
           { key: "pnl", label: "손익", icon: Scale },
-          { key: "price", label: "단가표", icon: Tags },
         ],
       },
       {

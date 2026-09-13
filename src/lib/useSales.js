@@ -76,6 +76,7 @@ export function useSales(session) {
     ...readLocal(CONF_KEY, {}),
   }));
   const [notice, setNotice] = useState("");
+  const [missingCost, setMissingCost] = useState(null); // { days: {날짜: [{no,name,qty}]}, checked }
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
@@ -84,10 +85,13 @@ export function useSales(session) {
 
   const load = useCallback(async () => {
     try {
-      const [s, c] = await Promise.all([
+      const [s, c, m] = await Promise.all([
         supabase.from("sales_daily").select("*").order("date"),
         supabase.from("settings").select("value").eq("key", "sales").maybeSingle(),
+        // 공급가 없이 팔린 품목 — 새벽 자동 갱신(daily.py)이 채운다
+        supabase.from("settings").select("value").eq("key", "missing_cost").maybeSingle(),
       ]);
+      if (!m.error) setMissingCost(m.data?.value || null);
       if (s.error) throw s.error;
       remoteOk.current = true;
       const got = (s.data || []).map(toRow).sort(byDate);
@@ -269,6 +273,7 @@ export function useSales(session) {
   return {
     rows,
     conf,
+    missingCost,
     saveConf,
     putSamchon,
     putDaily,

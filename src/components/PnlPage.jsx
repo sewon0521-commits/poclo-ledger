@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Info, AlertCircle } from "lucide-react";
+import { Info, AlertCircle, CheckCircle2 } from "lucide-react";
 import { rangeLabel, dayLabel } from "../lib/calc";
 import { won, pct, totalPnl, TARGET_AD_RATE } from "../lib/sales";
 import { useDays } from "../lib/view";
@@ -86,7 +86,62 @@ function Waterfall({ t }) {
   );
 }
 
-export default function PnlPage({ rows, conf, range, preset, custom, onRange, onPage }) {
+/**
+ * 공급가 없이 팔린 상품 점검.
+ *
+ * 단가표 화면을 없애면서 꼭 남겨야 했던 기능 하나다. 공급가가 비어 있는 상품이 팔리면
+ * 그날 원가가 0원으로 잡혀 **이익이 실제보다 좋아 보인다.** 새벽 자동 갱신이 주문을
+ * 훑어서 settings 의 missing_cost 에 적어 두고, 여기서 보고 있는 기간만 골라 보여준다.
+ */
+function MissingCost({ data, range }) {
+  if (!data?.days) return null;
+  const inside = Object.entries(data.days).filter(
+    ([d]) => (!range.from || d >= range.from) && (!range.to || d <= range.to),
+  );
+  const byProduct = new Map();
+  for (const [d, list] of inside) {
+    for (const r of list) {
+      const p = byProduct.get(r.no) || { ...r, qty: 0, dates: [] };
+      p.qty += r.qty;
+      p.dates.push(d);
+      byProduct.set(r.no, p);
+    }
+  }
+  const items = [...byProduct.values()].sort((a, b) => b.qty - a.qty);
+
+  if (items.length === 0) {
+    return (
+      <p className="mb-4 flex items-center gap-1.5 text-xs text-emerald-700">
+        <CheckCircle2 size={13} /> 이 기간에 공급가가 빠진 채 팔린 상품은 없어요. 원가가 다 잡혔습니다.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2.5 text-xs leading-relaxed text-rose-900">
+      <div className="flex items-start gap-1.5">
+        <AlertCircle size={13} className="mt-0.5 shrink-0" />
+        <span>
+          <b className="font-semibold">공급가가 비어 있는 상품이 {items.reduce((n, p) => n + p.qty, 0)}개 팔렸어요.</b>{" "}
+          이만큼 원가가 0원으로 잡혀서 이익이 실제보다 크게 보입니다. 카페24 상품 관리에서 공급가를
+          넣어주세요.
+        </span>
+      </div>
+      <ul className="mt-1.5 space-y-0.5 pl-5">
+        {items.map((p) => (
+          <li key={p.no} className="flex justify-between gap-3">
+            <span className="min-w-0 truncate">
+              상품번호 {p.no} · {p.name}
+            </span>
+            <span className="shrink-0 tabular-nums">{p.qty}개</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default function PnlPage({ rows, conf, range, preset, custom, onRange, onPage, missingCost }) {
   const days = useDays(rows, range, conf);
   // 원가를 아는 날만 손익을 낸다. 매출만 있고 주문 데이터가 없는 날을 섞으면 이익이 부풀려진다.
   const withOrders = useMemo(() => days.filter((d) => d.hasOrders), [days]);
@@ -134,6 +189,8 @@ export default function PnlPage({ rows, conf, range, preset, custom, onRange, on
               </span>
             </p>
           )}
+
+          <MissingCost data={missingCost} range={range} />
 
           <section className="mb-5 space-y-3">
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">

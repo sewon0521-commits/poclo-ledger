@@ -24,7 +24,6 @@ import Modal from "./components/Modal";
 import InvoicePage, { RequestMessage } from "./components/InvoicePage";
 import SalesPage from "./components/SalesPage";
 import PnlPage from "./components/PnlPage";
-import PricePage from "./components/PricePage";
 import PendingPage from "./components/PendingPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
@@ -386,9 +385,8 @@ export default function App() {
                     setSalesCustom(c);
                   }}
                   onPage={setPage}
+                  missingCost={S.missingCost}
                 />
-              ) : page === "price" ? (
-                <PricePage />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />
               ) : page === "ledger" ? (
