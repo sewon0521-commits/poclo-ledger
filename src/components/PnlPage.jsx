@@ -29,7 +29,14 @@ function Waterfall({ t }) {
     ["부자재", -t.material, "minus", `${won(t.qty)}개`],
     ["결제 수수료", -t.fee, "minus", "네이버페이 + PG"],
     ["광고비", -t.ads, "minus", `총매출의 ${pct(t.adRate)}%`],
-    ["삼촌비", -t.samchonDay, "minus", ""],
+    [
+      "삼촌비",
+      -t.samchonDay,
+      "minus",
+      t.samchonMonthly > 0
+        ? `날짜별 ${won(t.samchonDaily)} + 월 ${won(t.samchonMonthly)}`
+        : "삼촌비 넣기에서 날짜별로 적은 것",
+    ],
     ["고정비", -t.fixedDay, "minus", "관리비 + 앱"],
   ];
 

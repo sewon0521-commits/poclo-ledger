@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Megaphone, Target, Upload, Settings2, Trash2, Info, Plus } from "lucide-react";
+import { Megaphone, Target, Upload, Settings2, Trash2, Info, Plus, Truck } from "lucide-react";
 import { rangeLabel, dayLabel, todayISO } from "../lib/calc";
 import {
   won,
@@ -229,13 +229,95 @@ function AdEntry({ onAdd }) {
   );
 }
 
+/**
+ * 삼촌비를 날짜별로 적는다. 광고비 넣기와 같은 모양.
+ *
+ * 지금은 삼촌에게 월급을 주지 않고 그날그날 낸다. 그래서 '월 삼촌비'는 0으로 두고
+ * 여기에 적는다. 나중에 월급을 주게 되면 비용 가정값의 '월 삼촌비'를 쓰면 된다
+ * (둘 다 있으면 손익에서 더한다).
+ */
+function SamchonEntry({ daily, onPut, range }) {
+  const [date, setDate] = useState(todayISO);
+  const [amount, setAmount] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const add = async () => {
+    const n = Math.round(Number(String(amount).replace(/[^\d.-]/g, "")) || 0);
+    if (!date || !n) {
+      setMsg("날짜와 금액을 넣어주세요.");
+      return;
+    }
+    await onPut(date, n);
+    setMsg(`${date} 삼촌비 ${won(n)}원 넣었어요.`);
+    setAmount("");
+  };
+
+  // 보고 있는 기간 안에 적힌 것만, 최근 날짜부터
+  const list = Object.entries(daily || {})
+    .filter(([d, v]) => v && (!range.from || d >= range.from) && (!range.to || d <= range.to))
+    .sort((a, b) => b[0].localeCompare(a[0]));
+  const sum = list.reduce((s, [, v]) => s + v, 0);
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white p-4">
+      <div className="text-sm font-semibold text-stone-800">삼촌비 직접 넣기</div>
+      <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-stone-400">
+        그날 삼촌에게 낸 돈. 같은 날짜를 다시 넣으면 그 값으로 바뀌어요. 손익에서 빠집니다.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm"
+        />
+        <input
+          value={amount}
+          inputMode="numeric"
+          placeholder="금액"
+          onChange={(e) => setAmount(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          className="w-32 rounded-lg border border-stone-300 bg-white px-3 py-2 text-right text-sm tabular-nums"
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white"
+        >
+          <Plus size={14} /> 넣기
+        </button>
+        {msg && <span className="text-xs text-stone-500">{msg}</span>}
+      </div>
+
+      {list.length > 0 && (
+        <div className="mt-4 border-t border-stone-100 pt-3">
+          <div className="mb-1.5 flex items-baseline justify-between text-xs text-stone-500">
+            <span>이 기간에 적은 삼촌비 · 숫자를 눌러 고치고, 0으로 하면 지워져요</span>
+            <span className="font-semibold tabular-nums text-stone-700">합계 {won(sum)}</span>
+          </div>
+          <ul className="divide-y divide-stone-100 text-sm">
+            {list.map(([d, v]) => (
+              <li key={d} className="flex items-center justify-between gap-3 py-1">
+                <span className="text-stone-600">{dayLabel(d)}</span>
+                <span className="w-32">
+                  <EditNum value={v} onSave={(n) => onPut(d, n)} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const FIELDS = [
   ["shipCost", "택배비 / 건", "우리가 내는 돈"],
   ["material", "부자재 / 개", ""],
   ["pg", "결제 수수료 (%)", "네이버 외"],
   ["naver", "네이버페이 (%)", "부가세 포함"],
   ["fixed", "월 고정비", "관리비 + 앱"],
-  ["samchon", "월 삼촌비", "달마다 다르면 아래에서"],
+  ["samchon", "월 삼촌비", "월급 줄 때만. 지금은 0 · 날짜별은 '삼촌비 넣기'"],
 ];
 
 function CostFields({ conf, onConf, months }) {
@@ -329,6 +411,7 @@ export default function SalesPage({
   onDaily,
   onCafe,
   onAds,
+  onSamchon,
   onEdit,
   onClear,
   range,
@@ -393,6 +476,18 @@ export default function SalesPage({
           </button>
           <button
             type="button"
+            onClick={() => toggle("samchon")}
+            className={
+              "flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition " +
+              (panel === "samchon"
+                ? "bg-amber-600 text-white"
+                : "border border-amber-300 bg-white text-amber-800 hover:bg-amber-50")
+            }
+          >
+            <Truck size={14} /> 삼촌비 넣기
+          </button>
+          <button
+            type="button"
             onClick={() => toggle("data")}
             className={
               "rounded-lg px-3.5 py-2 text-sm font-medium transition " +
@@ -424,6 +519,12 @@ export default function SalesPage({
           <p className="text-xs leading-relaxed text-stone-400">
             표에서 광고비 숫자를 눌러 바로 고칠 수도 있어요.
           </p>
+        </div>
+      )}
+
+      {panel === "samchon" && (
+        <div className="mb-5">
+          <SamchonEntry daily={conf.samchonDaily} onPut={onSamchon} range={range} />
         </div>
       )}
 

@@ -363,6 +363,7 @@ export default function App() {
                   onDaily={S.putDaily}
                   onCafe={S.putCafe}
                   onAds={S.putAds}
+                  onSamchon={S.putSamchon}
                   onEdit={S.editRow}
                   onClear={S.clearAll}
                   range={salesRange}

@@ -191,15 +191,71 @@ export function useSales(session) {
     [merge],
   );
 
+  /** 서버에 있는 설정을 지금 바로 읽는다. 둘이 동시에 고칠 때 덮어쓰지 않으려고. */
+  const readServerConf = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "sales")
+      .maybeSingle();
+    if (error) throw error;
+    return data?.value || {};
+  }, []);
+
   const saveConf = useCallback(
     async (next) => {
       setConf(next);
       writeLocal(CONF_KEY, next);
       if (online && remoteOk.current) {
-        await supabase.from("settings").upsert({ key: "sales", value: next });
+        // 비용 칸을 고칠 때 날짜별 삼촌비는 건드리지 않는다. 그건 putSamchon 만 쓴다.
+        // 이 화면이 오래 열려 있었으면 상대가 적은 삼촌비를 옛값으로 덮어버리기 때문이다.
+        let value = next;
+        try {
+          const server = await readServerConf();
+          if (server.samchonDaily) value = { ...next, samchonDaily: server.samchonDaily };
+        } catch {
+          /* 못 읽으면 가진 것으로 저장한다 */
+        }
+        await supabase.from("settings").upsert({ key: "sales", value });
       }
     },
-    [online],
+    [online, readServerConf],
+  );
+
+  /**
+   * 삼촌비 한 날짜를 적는다. 0이면 지운 것과 같다.
+   *
+   * 삼촌에게 월급을 주는 게 아니라 그날그날 내므로 날짜별로 받는다.
+   * sales_daily 칸이 아니라 settings 에 두는 이유: 칸을 새로 만들면 SQL을 또 돌려야 하고,
+   * 새벽 자동 갱신(daily.py)이 sales_daily 를 덮어쓰는 것과도 얽히지 않는다.
+   * 서버에서 최신을 읽어 그 날짜 하나만 바꿔 쓴다 — 둘이 동시에 적어도 안 지워진다.
+   */
+  const putSamchon = useCallback(
+    async (date, amount) => {
+      const n = Math.max(0, Math.round(Number(amount) || 0));
+      let base = conf;
+      if (online && remoteOk.current) {
+        try {
+          base = { ...conf, ...(await readServerConf()) };
+        } catch {
+          /* 못 읽으면 가진 것으로 */
+        }
+      }
+      const samchonDaily = { ...(base.samchonDaily || {}) };
+      if (n) samchonDaily[date] = n;
+      else delete samchonDaily[date];
+      const next = { ...base, samchonDaily };
+      setConf(next);
+      writeLocal(CONF_KEY, next);
+      if (online && remoteOk.current) {
+        const { error } = await supabase.from("settings").upsert({ key: "sales", value: next });
+        if (error) {
+          setNotice("삼촌비를 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+          console.error(error);
+        }
+      }
+    },
+    [conf, online, readServerConf],
   );
 
   const clearAll = useCallback(async () => {
@@ -214,6 +270,7 @@ export function useSales(session) {
     rows,
     conf,
     saveConf,
+    putSamchon,
     putDaily,
     putCafe,
     putAds,

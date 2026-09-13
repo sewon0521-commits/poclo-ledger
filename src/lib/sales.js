@@ -31,7 +31,9 @@ export const DEFAULT_COSTS = {
   pg: 2.0, // 일반 결제 수수료 (%)
   naver: 3.74, // 네이버페이 수수료 (%, 부가세 포함)
   fixed: 1200000, // 월 고정비 — 관리비 20만 + 앱 100만. 삼촌비는 따로 센다
-  samchon: 500000, // 월 삼촌비 (거래처당 2,000 + 배송 3,000 식이라 달마다 다르다)
+  // 월 삼촌비 — 삼촌에게 월급을 줄 때만 쓴다. 지금은 월급이 아니라 그날그날 내므로 0이고,
+  // 실제 비용은 '삼촌비 넣기'로 날짜별로 적는다(conf.samchonDaily). 둘 다 있으면 더한다.
+  samchon: 0,
 };
 
 // 달마다 손으로 눌러 담는 값. conf.monthly['2026-08'] = { ... } 모양.
@@ -261,7 +263,10 @@ export function dayPnl(row, costs, fixed, monthly) {
   // 달 단위로 내는 돈은 그 달 날수로 쪼갠다. 매출이 있는 날에만 얹는다.
   const spread = revenue > 0 ? 1 / dim : 0;
   const fixedDay = (M.fixed ?? c.fixed) * spread;
-  const samchonDay = (M.samchon ?? c.samchon) * spread;
+  // 삼촌비 = 월 삼촌비를 날수로 쪼갠 것 + 그날 손으로 적은 것
+  const samchonMonthly = (M.samchon ?? c.samchon) * spread;
+  const samchonDaily = row.samchonCost || 0;
+  const samchonDay = samchonMonthly + samchonDaily;
 
   const ads = row.ads || 0;
   const profit = net - cogs - variable - ads - samchonDay - fixedDay;
@@ -281,6 +286,8 @@ export function dayPnl(row, costs, fixed, monthly) {
     material,
     variable,
     samchonDay,
+    samchonDaily,
+    samchonMonthly,
     fixedDay,
     profit,
     adRate: revenue ? (ads / revenue) * 100 : 0, // 총매출 기준 — 광고가 만든 매출
@@ -305,6 +312,8 @@ const SUM = [
   "material",
   "variable",
   "samchonDay",
+  "samchonDaily",
+  "samchonMonthly",
   "fixedDay",
   "profit",
 ];

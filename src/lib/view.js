@@ -23,7 +23,10 @@ export const inRangeRows = (rows, range) =>
 export function useDays(rows, range, conf) {
   const costs = useMemo(() => ({ ...DEFAULT_COSTS, ...conf.costs }), [conf.costs]);
   return useMemo(() => {
-    const all = buildDays(rows, costs, conf.monthly);
+    // 날짜별로 손으로 적은 삼촌비를 그날 줄에 얹는다 (settings 에 따로 저장돼 있다)
+    const daily = conf.samchonDaily || {};
+    const withSamchon = rows.map((r) => (daily[r.date] ? { ...r, samchonCost: daily[r.date] } : r));
+    const all = buildDays(withSamchon, costs, conf.monthly);
     return inRangeRows(all, range);
-  }, [rows, range, costs, conf.monthly]);
+  }, [rows, range, costs, conf.monthly, conf.samchonDaily]);
 }
