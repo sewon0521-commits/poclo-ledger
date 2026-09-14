@@ -9,7 +9,7 @@
 //   미송     돈 냈다 · 물건 아직    → 장부 금액에 **든다**
 //   미송출고 돈 이미 냄 · 물건 왔다 → 장부 금액에 **안 든다** (또 내면 이중 지불)
 //   매입금   돈이 거래처에 남아 있다 → 다음 거래에서 깎아 쓴다
-//   잔액     우리가 더 낸 돈        → 다음 거래에서 깎아 준다
+//   잔액     천원 단위로 덜·더 낸 돈 → 다음 거래에서 맞춘다 (장끼와 같은 부호)
 
 import { won } from "./calc";
 
@@ -208,27 +208,55 @@ export function creditBoard(tx, vendorName, today) {
 // ------------------------------------------------------------------ 잔액
 
 /**
- * 거래처별 잔액 흐름 (전잔 → 당잔).
+ * 잔액은 **장끼와 같은 방향**으로 센다.
  *
- *   잔액 = 낸 돈 − 살 돈
+ *   당잔 = 전잔 + 당일합계 − 현금입금
  *
- * 양수면 **우리가 더 냈다** — 다음 거래에서 그만큼 덜 내면 된다.
- * 동대문은 천원 단위로 맞춰 받고 다음에 깎아 주기 때문에 이 값이 늘 오간다.
- * 현금입금을 안 적은 거래는 딱 맞게 낸 것으로 본다(잔액이 안 변한다).
+ * 양수 = 우리가 **덜 낸** 돈(다음에 더 내야 함), 음수 = 우리가 **더 낸** 돈(다음에 깎음).
+ * 3,500원짜리를 4,000원 내면 당잔 −500, 다음 날 3,500원을 3,000원만 내면 당잔 0.
+ * (세원 예시: "전잔 −500 = 우리가 500원 더 냈음")
+ *
+ * 처음엔 반대 방향(낸 돈 − 살 돈)으로 만들었는데, 장끼 숫자를 그대로 옮겨 적으려면
+ * 부호가 장끼와 같아야 해서 2026-09-15 에 뒤집었다.
+ *
+ * 거래 한 건에 손으로 적은 값이 있으면 그걸 믿는다 — 거래처 장부(장끼)가 기준이다.
+ *   prevBalance  장끼에 찍힌 전잔. 적으면 그 거래부터 잔액이 이 값에서 다시 시작한다.
+ *   balance      장끼에 찍힌 당잔. 적으면 다음 거래로 이 값이 넘어간다.
+ *   cashPaid     현금입금. 안 적었고 당잔은 적었으면 거꾸로 풀어서 채운다.
  */
-export function balanceRuns(tx) {
-  const runs = new Map(); // vendorId → [{txId, date, before, day, cash, after}]
-  const sorted = [...tx].sort(byDate);
-  const at = new Map(); // vendorId → 지금까지의 잔액
+export function stepBalance(running, t) {
+  const has = (v) => v !== null && v !== undefined && v !== "";
+  const day = t.supply || 0;
+  const before = has(t.prevBalance) ? Number(t.prevBalance) : running;
+  const cash = has(t.cashPaid)
+    ? Number(t.cashPaid)
+    : has(t.balance)
+      ? before + day - Number(t.balance)
+      : day;
+  const computedAfter = before + day - cash;
+  const after = has(t.balance) ? Number(t.balance) : computedAfter;
+  return {
+    before,
+    day,
+    cash,
+    after,
+    // 앱이 이어서 센 전잔과 장끼에 적은 전잔이 다르면 — 어딘가 빠졌거나 잘못 적은 것
+    expectedBefore: running,
+    beforeGap: has(t.prevBalance) ? Number(t.prevBalance) - running : 0,
+    // 장끼 숫자끼리 안 맞으면(전잔 + 합계 − 입금 ≠ 당잔)
+    afterGap: has(t.balance) && has(t.cashPaid) ? Number(t.balance) - computedAfter : 0,
+  };
+}
 
-  for (const t of sorted) {
-    const before = at.get(t.vendorId) || 0;
-    const day = t.supply || 0;
-    const cash = t.cashPaid === null || t.cashPaid === undefined ? day : t.cashPaid;
-    const after = before + cash - day;
-    at.set(t.vendorId, after);
+/** 거래처별 잔액 흐름. vendorId → [{txId, date, before, day, cash, after, beforeGap, afterGap}] */
+export function balanceRuns(tx) {
+  const runs = new Map();
+  const at = new Map();
+  for (const t of [...tx].sort(byDate)) {
+    const step = stepBalance(at.get(t.vendorId) || 0, t);
+    at.set(t.vendorId, step.after);
     if (!runs.has(t.vendorId)) runs.set(t.vendorId, []);
-    runs.get(t.vendorId).push({ txId: t.id, date: t.date, before, day, cash, after });
+    runs.get(t.vendorId).push({ txId: t.id, date: t.date, ...step });
   }
   return runs;
 }
@@ -240,7 +268,7 @@ export function balanceOfTx(runs, tx) {
 }
 
 /**
- * 새 거래를 넣을 때의 전잔 — 그 거래처의, 그 날짜 **앞**까지의 잔액.
+ * 새 거래를 넣을 때의 전잔 — 그 거래처의, 그 날짜 **앞**까지 이어 센 잔액.
  * 수정 중인 거래는 빼고 센다(자기 자신이 자기 전잔에 들어가면 안 된다).
  */
 export function balanceBefore(tx, vendorId, date, exceptId) {
@@ -250,9 +278,7 @@ export function balanceBefore(tx, vendorId, date, exceptId) {
     if (t.vendorId !== vendorId || t.id === exceptId) continue;
     if (date && t.date > date) break;
     if (date && t.date === date && t.id >= (exceptId || "￿")) continue;
-    const day = t.supply || 0;
-    const cash = t.cashPaid === null || t.cashPaid === undefined ? day : t.cashPaid;
-    bal += cash - day;
+    bal = stepBalance(bal, t).after;
   }
   return bal;
 }
@@ -260,5 +286,5 @@ export function balanceBefore(tx, vendorId, date, exceptId) {
 /** 잔액을 사람 말로. 부호만 보고는 어느 쪽이 이득인지 알 수가 없다. */
 export const balanceText = (n) => {
   if (!n) return "딱 맞아요";
-  return n > 0 ? `${won(n)} 더 냈어요 (다음에 깎으면 돼요)` : `${won(-n)} 덜 냈어요`;
+  return n > 0 ? `${won(n)} 덜 냈어요 (다음에 더 내요)` : `${won(-n)} 더 냈어요 (다음에 깎아요)`;
 };

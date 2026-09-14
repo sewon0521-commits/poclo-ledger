@@ -264,9 +264,9 @@ function CreditTab({ credit, balances, vendorName, onOpen }) {
           sub={`${credit.open.length}곳에 남아 있어요`}
         />
         <Kpi
-          label="더 낸 돈 (잔액)"
+          label="거래처 잔액 합계"
           value={won(bal.reduce((s, b) => s + b.value, 0))}
-          sub={`${bal.length}곳`}
+          sub={`${bal.length}곳 · + 덜 낸 돈 / − 더 낸 돈`}
         />
       </div>
 
@@ -355,8 +355,9 @@ function CreditTab({ credit, balances, vendorName, onOpen }) {
         <section>
           <h3 className="mb-1 text-sm font-semibold text-stone-700">거래처 잔액</h3>
           <p className="mb-2 text-xs leading-relaxed text-stone-400">
-            천원 단위로 맞춰 주고받다 보면 남는 돈. <b className="font-semibold">양수면 우리가 더 낸
-            것</b>이라 다음 거래에서 그만큼 덜 내면 돼요.
+            천원 단위로 맞춰 주고받다 보면 남는 돈. 부호는 장끼와 같아요 —{" "}
+            <b className="font-semibold">플러스는 덜 낸 돈</b>(다음에 더 냄),{" "}
+            <b className="font-semibold">마이너스는 더 낸 돈</b>(다음에 깎음).
           </p>
           <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 bg-white">
             {bal.map((b) => (
@@ -370,7 +371,7 @@ function CreditTab({ credit, balances, vendorName, onOpen }) {
                   <span
                     className={
                       "shrink-0 text-sm tabular-nums " +
-                      (b.value > 0 ? "text-emerald-700" : "text-rose-700")
+                      (b.value > 0 ? "text-amber-700" : "text-emerald-700")
                     }
                   >
                     {balanceText(b.value)}

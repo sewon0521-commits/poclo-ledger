@@ -104,6 +104,10 @@ export function makeTx(t = {}) {
     // 실제로 건넨 돈. 동대문은 500원 단위를 올려 받고 다음에 깎아 주므로
     // 당일합계와 다를 수 있다. 안 적었으면 null — 딱 맞게 냈다고 본다.
     cashPaid: num(t.cashPaid),
+    // 장끼에 찍힌 전잔·당잔을 손으로 옮겨 적은 값. 안 적었으면 null — 앱이 이어서 센다.
+    // 부호는 장끼와 같다: 양수 = 덜 냄, 음수 = 더 냄 (pending.stepBalance)
+    prevBalance: num(t.prevBalance),
+    balance: num(t.balance),
     // 매입금(차감권). 샘플 반납·불량 매입·안 하기로 한 상품 등으로 잡히고,
     // 다음 거래에서 깎아 쓴다. 거래처가 기한을 두는 경우가 있어 기한도 받는다.
     creditAdd: Number(t.creditAdd) || 0,

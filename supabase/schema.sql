@@ -62,6 +62,10 @@ alter table public.transactions add column if not exists credit_add    bigint  n
 alter table public.transactions add column if not exists credit_use    bigint  not null default 0;
 alter table public.transactions add column if not exists credit_expiry date;
 alter table public.transactions add column if not exists credit_note   text    not null default '';
+-- 장끼에 찍힌 전잔·당잔을 손으로 옮겨 적은 값 (2026-09-15). null = 안 적음(앱이 이어서 센다).
+-- 부호는 장끼와 같다: 양수 = 우리가 덜 냄, 음수 = 더 냄.
+alter table public.transactions add column if not exists prev_balance  bigint;
+alter table public.transactions add column if not exists balance       bigint;
 
 create index if not exists transactions_date_idx on public.transactions (date desc);
 create index if not exists transactions_vendor_idx on public.transactions (vendor_id);

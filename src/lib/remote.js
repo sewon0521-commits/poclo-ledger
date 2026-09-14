@@ -44,6 +44,8 @@ const txFromRow = (r) =>
     accountId: r.account_id,
     // 예전 행에는 이 칸이 없다. null 이면 makeTx가 '안 적음'으로 읽는다.
     cashPaid: r.cash_paid === null || r.cash_paid === undefined ? null : Number(r.cash_paid),
+    prevBalance: r.prev_balance === null || r.prev_balance === undefined ? null : Number(r.prev_balance),
+    balance: r.balance === null || r.balance === undefined ? null : Number(r.balance),
     creditAdd: Number(r.credit_add) || 0,
     creditUse: Number(r.credit_use) || 0,
     creditExpiry: r.credit_expiry || "",
@@ -63,6 +65,8 @@ const txToRow = (t) => ({
   invoice: t.invoice,
   account_id: t.accountId,
   cash_paid: t.cashPaid === null || t.cashPaid === undefined ? null : t.cashPaid,
+  prev_balance: t.prevBalance === null || t.prevBalance === undefined ? null : t.prevBalance,
+  balance: t.balance === null || t.balance === undefined ? null : t.balance,
   credit_add: t.creditAdd || 0,
   credit_use: t.creditUse || 0,
   credit_expiry: t.creditExpiry || null,
@@ -113,34 +117,45 @@ export async function deleteVendor(id) {
  * 품목의 성격(매입/미송/출고/불량)은 items jsonb 안이라 여기 없다 —
  * 미송·불량은 스키마를 안 올려도 그대로 저장된다.
  */
-const LATER_COLUMNS = ["cash_paid", "credit_add", "credit_use", "credit_expiry", "credit_note"];
+const LATER_COLUMNS = [
+  "cash_paid",
+  "credit_add",
+  "credit_use",
+  "credit_expiry",
+  "credit_note",
+  "prev_balance", // 2026-09-15 장끼 전잔
+  "balance", // 2026-09-15 장끼 당잔
+];
 
-// 한 번 없다고 확인되면 그 세션 동안 다시 시도하지 않는다
-let tableHasLaterColumns = true;
+// 표에 없다고 확인된 칸. 한 번 확인되면 그 세션 동안 빼고 보낸다.
+// 칸마다 따로 기억한다 — 새 칸 하나가 없다고 이미 있는 칸(현금입금 등)까지 빼면 안 된다.
+const missing = new Set();
 
-const withoutLater = (row) => {
+const withoutMissing = (row) => {
   const r = { ...row };
-  for (const k of LATER_COLUMNS) delete r[k];
+  for (const k of missing) delete r[k];
   return r;
 };
 
-/** 표에 칸이 없어서 난 오류인가 */
-const isMissingColumn = (e) =>
-  e?.code === "PGRST204" ||
-  e?.code === "42703" ||
-  LATER_COLUMNS.some((k) => String(e?.message || "").includes(k));
+/** 오류가 '이 칸이 표에 없다'는 뜻이면 그 칸 이름을, 아니면 null */
+const missingColumnOf = (e) => {
+  if (!(e?.code === "PGRST204" || e?.code === "42703")) return null;
+  const msg = String(e?.message || "");
+  return LATER_COLUMNS.find((k) => msg.includes(`'${k}'`) || msg.includes(`"${k}"`)) ||
+    LATER_COLUMNS.find((k) => !missing.has(k) && msg.includes(k)) ||
+    null;
+};
 
-/** @returns {Promise<{degraded: boolean}>} degraded=true 면 새 칸은 못 담고 저장됐다 */
+/** @returns {Promise<{degraded: boolean}>} degraded=true 면 새 칸 일부를 못 담고 저장됐다 */
 async function upsertTxRows(rows) {
-  if (tableHasLaterColumns) {
-    const { error } = await supabase.from("transactions").upsert(rows);
-    if (!error) return { degraded: false };
-    if (!isMissingColumn(error)) throw error;
-    tableHasLaterColumns = false;
+  for (let i = 0; i <= LATER_COLUMNS.length; i++) {
+    const { error } = await supabase.from("transactions").upsert(rows.map(withoutMissing));
+    if (!error) return { degraded: missing.size > 0, missing: [...missing] };
+    const col = missingColumnOf(error);
+    if (!col || missing.has(col)) throw error;
+    missing.add(col);
   }
-  const { error } = await supabase.from("transactions").upsert(rows.map(withoutLater));
-  if (error) throw error;
-  return { degraded: true };
+  throw new Error("transactions 표에 없는 칸이 너무 많아요.");
 }
 
 export const upsertTx = (tx) => upsertTxRows([txToRow(tx)]);

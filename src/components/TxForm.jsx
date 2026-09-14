@@ -41,6 +41,57 @@ function Money({ value, onChange, className = "", compact = false, ...rest }) {
   );
 }
 
+/** 부호 있는 금액 문자열 → 숫자. "-" 만 친 상태는 아직 숫자가 아니다. */
+const signedOf = (s) => {
+  const t = String(s ?? "").trim();
+  const n = Number(digits(t) || 0);
+  return t.startsWith("-") ? -n : n;
+};
+const isTyped = (s) => s !== "" && s !== "-";
+const hasVal = (v) => v !== null && v !== undefined && v !== "";
+
+/**
+ * 전잔·당잔 칸 — 마이너스가 된다(더 낸 돈). 휴대폰 숫자 자판에는 − 가 없어서 ± 단추를 붙였다.
+ * 비워 두면 앱이 계산한 값이 흐리게 보이고, 치면 그 값이 진하게 남는다.
+ */
+function SignedMoney({ value, onChange, auto }) {
+  const neg = String(value).startsWith("-");
+  const d = digits(value);
+  const shown = isTyped(value) ? (neg ? "-" : "") + Number(d).toLocaleString("ko-KR") : neg ? "-" : "";
+  const autoText = (auto < 0 ? "-" : "") + Math.abs(Math.round(auto)).toLocaleString("ko-KR");
+  return (
+    <div className="flex items-center gap-0.5">
+      <button
+        type="button"
+        onClick={() => {
+          const base = isTyped(value) ? value : String(Math.round(auto));
+          onChange(base.startsWith("-") ? base.slice(1) : "-" + base);
+        }}
+        aria-label="부호 바꾸기"
+        title="마이너스 ↔ 플러스"
+        className="shrink-0 rounded border border-stone-300 bg-white px-1 text-xs leading-5 text-stone-500 hover:bg-stone-100"
+      >
+        ±
+      </button>
+      <input
+        value={shown}
+        onChange={(e) => {
+          const raw = e.target.value;
+          const minus = raw.trim().startsWith("-");
+          const nd = digits(raw);
+          onChange(nd ? (minus ? "-" : "") + nd : minus ? "-" : "");
+        }}
+        inputMode="numeric"
+        placeholder={autoText}
+        className={
+          "w-full min-w-0 rounded-md border bg-white px-1.5 py-1 text-center text-sm font-semibold tabular-nums outline-none focus:border-rose-600 placeholder:font-semibold placeholder:text-stone-400 " +
+          (isTyped(value) ? "border-rose-300 text-stone-900" : "border-stone-200")
+        }
+      />
+    </div>
+  );
+}
+
 /**
  * 수량 — 화살표로 1씩 올리고 내린다.
  * 마이너스를 허용한다. 반품·교환은 수량이 빠지는 일이므로 음수로 적는다.
@@ -108,6 +159,9 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
   const [cashTouched, setCashTouched] = useState(
     seed.cashPaid !== null && seed.cashPaid !== undefined,
   );
+  // 장끼에 찍힌 전잔·당잔을 손으로 적은 값. "" 이면 앱이 계산한다.
+  const [prevBal, setPrevBal] = useState(hasVal(seed.prevBalance) ? String(seed.prevBalance) : "");
+  const [bal, setBal] = useState(hasVal(seed.balance) ? String(seed.balance) : "");
   const [creditAdd, setCreditAdd] = useState(seed.creditAdd ? String(seed.creditAdd) : "");
   const [creditUse, setCreditUse] = useState(seed.creditUse ? String(seed.creditUse) : "");
   const [creditExpiry, setCreditExpiry] = useState(seed.creditExpiry || "");
@@ -138,7 +192,6 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
   const mode = method ? MODES.find((m) => m.method === method && m.vatPaid === vatPaid) : null;
   const itemSum = useMemo(() => itemsTotal(items), [items]);
   const amount = supplyTouched ? numOf(supply) : itemSum;
-  const cashAmount = cashTouched ? numOf(cash) : amount;
 
   // 이 거래처에 아직 남아 있는 미송 — 장끼를 넣는 자리에서 바로 보이게
   const vendorNameOf = (id) => vendors.find((v) => v.id === id)?.name || "";
@@ -148,12 +201,21 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
     [allTx, vendorId, vendors],
   );
 
-  // 전잔 → 당잔. 잔액 = 낸 돈 − 살 돈 (양수면 우리가 더 낸 것)
-  const before = useMemo(
+  // 전잔 → 당잔. 장끼와 같은 방향: 당잔 = 전잔 + 당일합계 − 현금입금 (양수 = 덜 냄, 음수 = 더 냄)
+  // 셋 다 손으로 고칠 수 있다. 장끼에 찍힌 숫자가 기준이고, 앱은 어긋나면 알려준다.
+  const autoBefore = useMemo(
     () => balanceBefore(allTx, vendorId, date, seed.id),
     [allTx, vendorId, date, seed.id],
   );
-  const after = before + cashAmount - amount;
+  const prevTyped = isTyped(prevBal);
+  const balTyped = isTyped(bal);
+  const before = prevTyped ? signedOf(prevBal) : autoBefore;
+  // 현금입금을 안 적었는데 당잔을 적었으면 거꾸로 풀어서 채운다
+  const cashAmount = cashTouched ? numOf(cash) : balTyped ? before + amount - signedOf(bal) : amount;
+  const computedAfter = before + amount - cashAmount;
+  const after = balTyped ? signedOf(bal) : computedAfter;
+  const beforeGap = prevTyped ? before - autoBefore : 0; // 장끼 전잔 vs 앱이 이어 센 전잔
+  const afterGap = balTyped && cashTouched ? after - computedAfter : 0; // 장끼 숫자끼리 안 맞음
   // 동대문은 천원 단위로 맞춰 주고받는다. 천원을 넘게 어긋나면 적은 값이 틀렸을 가능성이 크다.
   const balanceOdd = Math.abs(after) >= 1000;
   const filledAccounts = accounts.filter((a) => a.number.trim());
@@ -203,6 +265,8 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
         items: items.filter((i) => i.name.trim() || i.amount),
         supply: amount,
         cashPaid: cashTouched ? cashAmount : onlyPrepaid ? 0 : null,
+        prevBalance: prevTyped ? before : null,
+        balance: balTyped ? after : null,
         creditAdd: numOf(creditAdd),
         creditUse: numOf(creditUse),
         creditExpiry,
@@ -464,7 +528,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
             <div className="text-[11px] text-stone-400">실제로 건넨 돈. 같으면 비워두세요</div>
           </div>
           <Money
-            value={cashTouched ? cash : String(amount || "")}
+            value={cashTouched ? cash : String(Math.max(cashAmount, 0) || "")}
             onChange={(v) => {
               setCash(v);
               setCashTouched(true);
@@ -474,43 +538,86 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
           />
         </div>
 
-        {/* 전잔 → 당잔 */}
+        {/* 전잔 · 당일합계 · 당잔 — 비우면 앱이 계산, 치면 장끼 값으로 */}
         <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-          {[
-            ["전잔", before, "지난 거래까지"],
-            ["당일합계", amount, "산 물건"],
-            ["당잔", after, balanceOdd ? "확인해 보세요" : "다음으로 넘어가요"],
-          ].map(([label, value, note], i) => (
-            <div
-              key={label}
-              className={
-                "rounded-lg border px-2 py-1.5 " +
-                (i === 2 && balanceOdd
-                  ? "border-amber-400 bg-amber-50"
-                  : "border-stone-200 bg-white")
-              }
-            >
-              <div className="text-[11px] text-stone-400">{label}</div>
-              <div
-                className={
-                  "text-sm font-semibold tabular-nums " +
-                  (i === 2 && balanceOdd ? "text-amber-800" : "text-stone-800")
-                }
-              >
-                {won(value)}
-              </div>
-              <div className="text-[10px] text-stone-400">{note}</div>
+          <div
+            className={
+              "rounded-lg border px-1.5 py-1.5 " +
+              (beforeGap ? "border-amber-400 bg-amber-50" : "border-stone-200 bg-white")
+            }
+          >
+            <div className="mb-1 text-[11px] text-stone-400">전잔</div>
+            <SignedMoney value={prevBal} onChange={setPrevBal} auto={autoBefore} />
+            <div className="mt-1 text-[10px] text-stone-400">
+              {prevTyped ? (
+                <button type="button" onClick={() => setPrevBal("")} className="underline">
+                  자동으로
+                </button>
+              ) : (
+                "지난 거래까지"
+              )}
             </div>
-          ))}
+          </div>
+          <div className="rounded-lg border border-stone-200 bg-white px-1.5 py-1.5">
+            <div className="mb-1 text-[11px] text-stone-400">당일합계</div>
+            <input
+              value={comma(supplyTouched ? supply : String(itemSum || ""))}
+              onChange={(e) => {
+                setSupply(digits(e.target.value));
+                setSupplyTouched(true);
+              }}
+              inputMode="numeric"
+              placeholder="0"
+              className="w-full min-w-0 rounded-md border border-stone-200 bg-white px-1.5 py-1 text-center text-sm font-semibold tabular-nums outline-none focus:border-rose-600"
+            />
+            <div className="mt-1 text-[10px] text-stone-400">산 물건</div>
+          </div>
+          <div
+            className={
+              "rounded-lg border px-1.5 py-1.5 " +
+              (afterGap || balanceOdd ? "border-amber-400 bg-amber-50" : "border-stone-200 bg-white")
+            }
+          >
+            <div className="mb-1 text-[11px] text-stone-400">당잔</div>
+            <SignedMoney value={bal} onChange={setBal} auto={computedAfter} />
+            <div className="mt-1 text-[10px] text-stone-400">
+              {balTyped ? (
+                <button type="button" onClick={() => setBal("")} className="underline">
+                  자동으로
+                </button>
+              ) : balanceOdd ? (
+                "확인해 보세요"
+              ) : (
+                "다음으로 넘어가요"
+              )}
+            </div>
+          </div>
         </div>
+
+        <p className="mt-1.5 text-[11px] text-stone-400">
+          비워 두면 앱이 계산해요(흐린 숫자). 장끼에 찍힌 숫자가 있으면 그대로 옮겨 적으세요.
+          마이너스는 더 낸 돈이에요.
+        </p>
         {after !== 0 && (
           <p
             className={
-              "mt-1.5 text-xs " + (balanceOdd ? "font-medium text-amber-800" : "text-stone-500")
+              "mt-1 text-xs " + (balanceOdd ? "font-medium text-amber-800" : "text-stone-500")
             }
           >
             당잔 {balanceText(after)}
             {balanceOdd && " — 천원 단위를 넘어요. 금액을 다시 보거나 거래처에 확인해 보세요."}
+          </p>
+        )}
+        {beforeGap !== 0 && (
+          <p className="mt-1 text-xs font-medium text-amber-800">
+            장끼 전잔 {won(before)} 이 앱이 이어 센 {won(autoBefore)} 와 {won(Math.abs(beforeGap))}{" "}
+            달라요. 빠진 장끼가 있거나 잘못 적었을 수 있어요. 이 거래부터는 장끼 값으로 이어서 셉니다.
+          </p>
+        )}
+        {afterGap !== 0 && (
+          <p className="mt-1 text-xs font-medium text-amber-800">
+            장끼 숫자끼리 안 맞아요 — 전잔 + 당일합계 − 현금입금 = {won(computedAfter)} 인데 당잔은{" "}
+            {won(after)} ({won(Math.abs(afterGap))} 차이). 다시 보거나 거래처에 확인해 보세요.
           </p>
         )}
       </div>
