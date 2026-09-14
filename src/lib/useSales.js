@@ -13,6 +13,7 @@ import { SEED_DAYS, SEED_MONTHLY } from "./seed";
 
 const ROWS_KEY = "poclo_sales_rows";
 const CONF_KEY = "poclo_sales_conf";
+const PRICING_KEY = "poclo_pricing_items";
 
 const readLocal = (key, fallback) => {
   try {
@@ -77,6 +78,8 @@ export function useSales(session) {
   }));
   const [notice, setNotice] = useState("");
   const [missingCost, setMissingCost] = useState(null); // { days: {날짜: [{no,name,qty}]}, checked }
+  // 판매가 계산기에서 담아 둔 상품들 — settings 의 'pricing' 키
+  const [pricing, setPricing] = useState(() => readLocal(PRICING_KEY, []));
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
@@ -85,13 +88,18 @@ export function useSales(session) {
 
   const load = useCallback(async () => {
     try {
-      const [s, c, m] = await Promise.all([
+      const [s, c, m, p] = await Promise.all([
         supabase.from("sales_daily").select("*").order("date"),
         supabase.from("settings").select("value").eq("key", "sales").maybeSingle(),
         // 공급가 없이 팔린 품목 — 새벽 자동 갱신(daily.py)이 채운다
         supabase.from("settings").select("value").eq("key", "missing_cost").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "pricing").maybeSingle(),
       ]);
       if (!m.error) setMissingCost(m.data?.value || null);
+      if (!p.error && p.data?.value?.items) {
+        setPricing(p.data.value.items);
+        writeLocal(PRICING_KEY, p.data.value.items);
+      }
       if (s.error) throw s.error;
       remoteOk.current = true;
       const got = (s.data || []).map(toRow).sort(byDate);
@@ -136,7 +144,16 @@ export function useSales(session) {
       .channel("sales")
       .on("postgres_changes", { event: "*", schema: "public", table: "sales_daily" }, load)
       .subscribe();
-    return () => supabase.removeChannel(ch);
+    // settings(삼촌비·판매가 목록)는 실시간 알림이 없다. 탭을 다시 볼 때 한 번 읽어
+    // 상대가 담은 것이 보이게 한다.
+    const onVisible = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      supabase.removeChannel(ch);
+    };
   }, [online, load]);
 
   /** 날짜가 겹치면 새 값으로 덮고, 없으면 넣는다. */
@@ -262,6 +279,55 @@ export function useSales(session) {
     [conf, online, readServerConf],
   );
 
+  /**
+   * 판매가 계산기 목록을 한 줄 바꾼다. 서버 최신을 읽어 그 줄만 넣고/빼고 쓴다 —
+   * 둘이 동시에 담아도 서로 안 지워지게 (삼촌비와 같은 방식).
+   * `change(items)` 가 새 목록을 돌려준다.
+   */
+  const changePricing = useCallback(
+    async (change) => {
+      let base = pricing;
+      if (online && remoteOk.current) {
+        const { data, error } = await supabase
+          .from("settings")
+          .select("value")
+          .eq("key", "pricing")
+          .maybeSingle();
+        if (!error) base = data?.value?.items || [];
+      }
+      const items = change(base);
+      setPricing(items);
+      writeLocal(PRICING_KEY, items);
+      if (online && remoteOk.current) {
+        const { error } = await supabase
+          .from("settings")
+          .upsert({ key: "pricing", value: { items } });
+        if (error) {
+          setNotice("판매가 목록을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+          console.error(error);
+        }
+      }
+    },
+    [pricing, online],
+  );
+
+  /** 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 넣는다 */
+  const savePricing = useCallback(
+    (item) =>
+      changePricing((items) => {
+        const next = { ...item, savedAt: new Date().toISOString() };
+        return items.some((i) => i.id === item.id)
+          ? items.map((i) => (i.id === item.id ? { ...i, ...next } : i))
+          : [next, ...items];
+      }),
+    [changePricing],
+  );
+
+  const removePricing = useCallback(
+    (id) => changePricing((items) => items.filter((i) => i.id !== id)),
+    [changePricing],
+  );
+
   const clearAll = useCallback(async () => {
     setRows([]);
     writeLocal(ROWS_KEY, []);
@@ -274,6 +340,10 @@ export function useSales(session) {
     rows,
     conf,
     missingCost,
+    pricing,
+    savePricing,
+    removePricing,
+    reload: load,
     saveConf,
     putSamchon,
     putDaily,

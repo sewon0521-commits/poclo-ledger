@@ -11,6 +11,7 @@ import {
   Scale,
   TrendingUp,
   Clock,
+  Calculator,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -36,6 +37,7 @@ export const SECTIONS = [
         items: [
           { key: "sales", label: "포클로 매출 장부", icon: TrendingUp },
           { key: "pnl", label: "손익", icon: Scale },
+          { key: "pricing", label: "판매가 계산기", icon: Calculator },
         ],
       },
       {

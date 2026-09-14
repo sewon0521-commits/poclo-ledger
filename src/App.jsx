@@ -25,6 +25,7 @@ import InvoicePage, { RequestMessage } from "./components/InvoicePage";
 import SalesPage from "./components/SalesPage";
 import PnlPage from "./components/PnlPage";
 import PendingPage from "./components/PendingPage";
+import PricingPage from "./components/PricingPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
@@ -282,7 +283,7 @@ export default function App() {
             <SyncBadge
               live={L.live}
               email={L.session?.user?.email}
-              onReload={L.live === "local" ? null : L.reload}
+              onReload={L.live === "local" ? null : () => { L.reload(); S.reload(); }}
             />
           </div>
 
@@ -386,6 +387,15 @@ export default function App() {
                   }}
                   onPage={setPage}
                   missingCost={S.missingCost}
+                />
+              ) : page === "pricing" ? (
+                <PricingPage
+                  rows={S.rows}
+                  conf={S.conf}
+                  onConf={S.saveConf}
+                  items={S.pricing}
+                  onSave={S.savePricing}
+                  onRemove={S.removePricing}
                 />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />
