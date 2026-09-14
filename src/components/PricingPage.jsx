@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
-import { Calculator, Plus, Search, Trash2, Target, Info, RotateCcw } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Calculator, Plus, Search, Trash2, Target, Info, RotateCcw, Store, Check } from "lucide-react";
 import { won, pct, DEFAULT_COSTS, TARGET_AD_RATE } from "../lib/sales";
 import { dayLabel } from "../lib/calc";
 import { useDays } from "../lib/view";
 import { newId } from "../lib/id";
+import { searchVendors } from "../lib/match";
 import {
   DEFAULT_PRICING,
   actualRates,
@@ -14,7 +15,16 @@ import {
 } from "../lib/pricing";
 import EditNum from "./EditNum";
 
+// 느려지지 않게 지킨 것 (2026-09-14, 실제로 재서 고침 — CPU 4배 느리게 해서 공급가 한 글자에 0.5초 멈췄다)
+//  1. 목록(SavedList)은 memo — 계산기에 한 글자 칠 때마다 수백 줄을 다시 그리지 않는다.
+//     그러려면 넘기는 값이 매번 새로 만들어지면 안 된다(settings·rates·핸들러를 고정).
+//  2. 목록 표는 table-fixed + 처음 60줄만 — 내용에 맞춰 칸 너비를 매번 다시 재지 않는다.
+//  3. 가정값 입력은 화면에만 먼저 반영하고 저장은 멈춘 뒤 한 번.
+//  4. 숫자 형식기는 하나를 돌려 쓴다(sales.won) — toLocaleString("ko-KR")은 부를 때마다 새로 만든다.
+
 const ALL = { from: "", to: "" };
+const EMPTY = { id: "", name: "", vendor: "", vendorId: "", supply: "", price: "" };
+const PAGE = 60;
 
 const digits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
 const toNum = (s) => Number(digits(s) || 0);
@@ -26,11 +36,116 @@ const FIELD =
 const marginTone = (m, target) =>
   m >= target ? "text-emerald-700" : m >= target / 2 ? "text-amber-700" : "text-rose-700";
 
+// ---------------------------------------------------------------- 거래처 칸
+
+/**
+ * 거래처 — 그냥 쳐도 되고, 매입 장부에 있는 거래처를 골라도 된다.
+ * 고르면 vendorId 가 같이 붙는다(나중에 매입과 이어 볼 때 쓴다). 손으로 고치면 떨어진다.
+ */
+function VendorInput({ vendors, name, vendorId, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const found = useMemo(() => {
+    const list = searchVendors(vendors, name).slice();
+    list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    return list.slice(0, 8);
+  }, [vendors, name]);
+  const linked = vendorId && vendors.some((v) => v.id === vendorId);
+
+  const pick = (v) => {
+    onChange({ vendor: v.name, vendorId: v.id });
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <input
+        value={name}
+        onChange={(e) => {
+          onChange({ vendor: e.target.value, vendorId: "" });
+          setOpen(true);
+          setHi(0);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (!open || !found.length) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setHi((h) => (h + 1) % found.length);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setHi((h) => (h - 1 + found.length) % found.length);
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            pick(found[hi]);
+          } else if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder={vendors.length ? "치거나 매입 거래처에서 고르기" : "예: 디벨롭"}
+        className={FIELD + (linked ? " pr-24" : "")}
+      />
+      {linked && (
+        <span className="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+          <Store size={11} /> 매입 거래처
+        </span>
+      )}
+      {open && found.length > 0 && (
+        <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-stone-300 bg-white py-1 shadow-lg">
+          {found.map((v, i) => (
+            <li key={v.id}>
+              <button
+                type="button"
+                // 누르는 순간 입력칸 blur 가 먼저 와서 목록이 닫히지 않게
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(v)}
+                className={
+                  "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm " +
+                  (i === hi ? "bg-rose-50" : "hover:bg-stone-50")
+                }
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-stone-900">{v.name}</span>
+                  {v.address && <span className="block truncate text-xs text-stone-400">{v.address}</span>}
+                </span>
+                {v.id === vendorId && <Check size={14} className="shrink-0 text-emerald-600" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- 가정값 줄
 
+/** 숫자 칸 — 치는 동안은 화면에만, 멈추면 저장 */
+function LazyNumber({ value, onCommit }) {
+  const [draft, setDraft] = useState(String(value));
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return (
+    <input
+      type="number"
+      step="any"
+      value={draft}
+      onChange={(e) => {
+        const v = e.target.value;
+        setDraft(v);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => onCommit(Number(v) || 0), 500);
+      }}
+      onBlur={() => {
+        clearTimeout(timer.current);
+        if ((Number(draft) || 0) !== value) onCommit(Number(draft) || 0);
+      }}
+      className="w-16 rounded-lg border border-stone-300 px-2 py-1.5 text-right text-sm tabular-nums"
+    />
+  );
+}
+
 function Assumptions({ rates, settings, onSettings }) {
-  const s = { ...DEFAULT_PRICING, ...settings };
-  const set = (patch) => onSettings({ ...s, ...patch });
+  const set = (patch) => onSettings({ ...settings, ...patch });
 
   return (
     <div className="mb-5 rounded-xl border border-stone-200 bg-white p-4">
@@ -48,7 +163,7 @@ function Assumptions({ rates, settings, onSettings }) {
                 onClick={() => set({ adBasis: key })}
                 className={
                   "px-3 py-1.5 " +
-                  (s.adBasis === key ? "bg-rose-700 text-white" : "bg-white text-stone-600")
+                  (settings.adBasis === key ? "bg-rose-700 text-white" : "bg-white text-stone-600")
                 }
               >
                 {label}
@@ -59,26 +174,14 @@ function Assumptions({ rates, settings, onSettings }) {
         <label className="block">
           <span className="mb-1 block text-xs text-stone-500">목표 이익률</span>
           <span className="flex items-center gap-1">
-            <input
-              type="number"
-              step="any"
-              value={s.targetMargin}
-              onChange={(e) => set({ targetMargin: Number(e.target.value) || 0 })}
-              className="w-16 rounded-lg border border-stone-300 px-2 py-1.5 text-right text-sm tabular-nums"
-            />
+            <LazyNumber value={settings.targetMargin} onCommit={(v) => set({ targetMargin: v })} />
             <span className="text-sm text-stone-500">%</span>
           </span>
         </label>
         <label className="block">
           <span className="mb-1 block text-xs text-stone-500">부가세 (간이, 대략)</span>
           <span className="flex items-center gap-1">
-            <input
-              type="number"
-              step="any"
-              value={s.vat}
-              onChange={(e) => set({ vat: Number(e.target.value) || 0 })}
-              className="w-16 rounded-lg border border-stone-300 px-2 py-1.5 text-right text-sm tabular-nums"
-            />
+            <LazyNumber value={settings.vat} onCommit={(v) => set({ vat: v })} />
             <span className="text-sm text-stone-500">%</span>
           </span>
         </label>
@@ -109,16 +212,17 @@ function Assumptions({ rates, settings, onSettings }) {
 
 // ---------------------------------------------------------------- 계산 카드
 
-function CalcCard({ draft, setDraft, rates, settings, onSave }) {
-  const s = { ...DEFAULT_PRICING, ...settings };
+function CalcCard({ draft, setDraft, rates, settings, vendors, onSave }) {
   const supply = toNum(draft.supply);
   const chosen = toNum(draft.price);
-  const list = useMemo(() => candidates(supply), [supply]);
-  const rows = list.map((p) => priceResult(supply, p, rates, s));
+  const rows = useMemo(
+    () => candidates(supply).map((p) => priceResult(supply, p, rates, settings)),
+    [supply, rates, settings],
+  );
   const firstOk = rows.find((r) => r.meets)?.price;
   // 판매가를 안 골랐으면 기본 판매가(공급가×2, 끝 800)로 본다
   const price = chosen || (supply ? basePrice(supply) : 0);
-  const r = supply && price ? priceResult(supply, price, rates, s) : null;
+  const r = supply && price ? priceResult(supply, price, rates, settings) : null;
 
   const canSave = draft.name.trim() && supply > 0 && price > 0;
 
@@ -131,7 +235,7 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
         {(draft.id || draft.name || draft.supply) && (
           <button
             type="button"
-            onClick={() => setDraft({ id: "", name: "", vendor: "", supply: "", price: "" })}
+            onClick={() => setDraft(EMPTY)}
             className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-700"
           >
             <RotateCcw size={12} /> 새로 계산
@@ -149,19 +253,19 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
             className={FIELD}
           />
         </label>
-        <label className="text-sm sm:col-span-2">
+        <div className="text-sm sm:col-span-2">
           <span className="mb-1 block text-stone-500">거래처</span>
-          <input
-            value={draft.vendor}
-            onChange={(e) => setDraft({ ...draft, vendor: e.target.value })}
-            placeholder="예: 디벨롭"
-            className={FIELD}
+          <VendorInput
+            vendors={vendors}
+            name={draft.vendor}
+            vendorId={draft.vendorId}
+            onChange={(patch) => setDraft({ ...draft, ...patch })}
           />
-        </label>
+        </div>
         <label className="text-sm sm:col-span-2">
           <span className="mb-1 block text-stone-500">공급가 (도매가)</span>
           <input
-            value={draft.supply ? Number(digits(draft.supply)).toLocaleString("ko-KR") : ""}
+            value={draft.supply ? won(toNum(draft.supply)) : ""}
             onChange={(e) => setDraft({ ...draft, supply: digits(e.target.value) })}
             inputMode="numeric"
             placeholder="0"
@@ -173,10 +277,10 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
             판매가 <span className="text-stone-400">· 비우면 공급가×2 끝자리 800</span>
           </span>
           <input
-            value={draft.price ? Number(digits(draft.price)).toLocaleString("ko-KR") : ""}
+            value={draft.price ? won(toNum(draft.price)) : ""}
             onChange={(e) => setDraft({ ...draft, price: digits(e.target.value) })}
             inputMode="numeric"
-            placeholder={supply ? basePrice(supply).toLocaleString("ko-KR") : "0"}
+            placeholder={supply ? won(basePrice(supply)) : "0"}
             className={FIELD + " text-right text-lg font-semibold tabular-nums"}
           />
         </label>
@@ -186,10 +290,10 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
         <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_16rem]">
           {/* 판매가 후보 — 누르면 그 가격으로 고른다 */}
           <div className="overflow-x-auto rounded-xl border border-stone-200">
-            <table className="w-full min-w-[440px] text-sm">
+            <table className="w-full min-w-[440px] table-fixed text-sm">
               <thead>
                 <tr className="border-b border-stone-200 bg-stone-50 text-xs text-stone-400">
-                  <th className="px-3 py-2 text-left font-medium">판매가</th>
+                  <th className="w-[38%] px-3 py-2 text-left font-medium">판매가</th>
                   <th className="px-3 py-2 text-right font-medium">정상가</th>
                   <th className="px-3 py-2 text-right font-medium">원가율</th>
                   <th className="px-3 py-2 text-right font-medium">남는 돈</th>
@@ -197,38 +301,32 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100 tabular-nums">
-                {rows.map((x) => {
-                  const on = x.price === price;
-                  return (
-                    <tr
-                      key={x.price}
-                      onClick={() => setDraft({ ...draft, price: String(x.price) })}
+                {rows.map((x) => (
+                  <tr
+                    key={x.price}
+                    onClick={() => setDraft({ ...draft, price: String(x.price) })}
+                    className={"cursor-pointer " + (x.price === price ? "bg-rose-50" : "hover:bg-stone-50")}
+                  >
+                    <td className="px-3 py-1.5 text-left font-medium text-stone-900">
+                      {won(x.price)}
+                      {x.price === firstOk && (
+                        <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
+                          목표 넘는 최저가
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-stone-400">{won(x.retail)}</td>
+                    <td className="px-3 py-1.5 text-right text-stone-500">{pct(x.costRate, 0)}%</td>
+                    <td className="px-3 py-1.5 text-right text-stone-700">{won(x.profit)}</td>
+                    <td
                       className={
-                        "cursor-pointer " + (on ? "bg-rose-50" : "hover:bg-stone-50")
+                        "px-3 py-1.5 text-right font-semibold " + marginTone(x.margin, settings.targetMargin)
                       }
                     >
-                      <td className="px-3 py-1.5 text-left font-medium text-stone-900">
-                        {won(x.price)}
-                        {x.price === firstOk && (
-                          <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
-                            목표 넘는 최저가
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 text-right text-stone-400">{won(x.retail)}</td>
-                      <td className="px-3 py-1.5 text-right text-stone-500">{pct(x.costRate, 0)}%</td>
-                      <td className="px-3 py-1.5 text-right text-stone-700">{won(x.profit)}</td>
-                      <td
-                        className={
-                          "px-3 py-1.5 text-right font-semibold " +
-                          marginTone(x.margin, s.targetMargin)
-                        }
-                      >
-                        {pct(x.margin)}%
-                      </td>
-                    </tr>
-                  );
-                })}
+                      {pct(x.margin)}%
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -250,7 +348,7 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
                 ["− 택배비", -r.shipping],
                 ["− 결제수수료", -r.fee],
                 [`− 광고비 ${pct(r.adRate)}%`, -r.ads],
-                [`− 부가세 ${s.vat}%`, -r.vat],
+                [`− 부가세 ${settings.vat}%`, -r.vat],
               ].map(([label, v]) => (
                 <div key={label} className="flex justify-between py-0.5 text-xs text-stone-500">
                   <span>{label}</span>
@@ -259,11 +357,11 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
               ))}
               <div className="mt-2 flex items-baseline justify-between border-t border-stone-200 pt-2">
                 <span className="font-semibold text-stone-800">남는 돈</span>
-                <span className={"text-lg font-bold tabular-nums " + marginTone(r.margin, s.targetMargin)}>
+                <span className={"text-lg font-bold tabular-nums " + marginTone(r.margin, settings.targetMargin)}>
                   {won(r.profit)}
                 </span>
               </div>
-              <div className={"text-right text-xs font-medium " + marginTone(r.margin, s.targetMargin)}>
+              <div className={"text-right text-xs font-medium " + marginTone(r.margin, settings.targetMargin)}>
                 이익률 {pct(r.margin)}% · 원가율 {pct(r.costRate, 0)}%
               </div>
 
@@ -275,6 +373,7 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
                     id: draft.id || newId("p"),
                     name: draft.name.trim(),
                     vendor: draft.vendor.trim(),
+                    vendorId: draft.vendorId || "",
                     supply,
                     price,
                   })
@@ -298,24 +397,24 @@ function CalcCard({ draft, setDraft, rates, settings, onSave }) {
 
 // ---------------------------------------------------------------- 모은 목록
 
-function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
-  const s = { ...DEFAULT_PRICING, ...settings };
+const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("recent"); // recent | low | high
+  const [limit, setLimit] = useState(PAGE);
 
   const rows = useMemo(() => {
     const needle = searchKey(q);
     const out = items
       .filter((i) => !needle || searchKey(i.name + i.vendor).includes(needle))
-      .map((i) => ({ ...i, r: priceResult(i.supply, i.price, rates, s) }));
+      .map((i) => ({ ...i, r: priceResult(i.supply, i.price, rates, settings) }));
     if (sort === "low") out.sort((a, b) => a.r.margin - b.r.margin);
     if (sort === "high") out.sort((a, b) => b.r.margin - a.r.margin);
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, q, sort, rates, s.adBasis, s.vat, s.targetMargin]);
+  }, [items, q, sort, rates, settings]);
 
   const below = rows.filter((x) => !x.r.meets).length;
   const avg = rows.length ? rows.reduce((a, x) => a + x.r.margin, 0) / rows.length : 0;
+  const shown = rows.slice(0, limit);
 
   return (
     <section>
@@ -324,7 +423,7 @@ function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
           <h3 className="font-semibold text-stone-900">모아 둔 상품 {items.length}개</h3>
           {rows.length > 0 && (
             <p className="text-xs text-stone-500">
-              평균 이익률 <b className="tabular-nums">{pct(avg)}%</b> · 목표 {s.targetMargin}% 밑{" "}
+              평균 이익률 <b className="tabular-nums">{pct(avg)}%</b> · 목표 {settings.targetMargin}% 밑{" "}
               <b className={"tabular-nums " + (below ? "text-rose-700" : "")}>{below}개</b>
               <span className="text-stone-400"> · 위 가정값을 바꾸면 전부 다시 계산돼요</span>
             </p>
@@ -335,7 +434,10 @@ function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
             <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
             <input
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setLimit(PAGE);
+              }}
               placeholder="상품명·거래처"
               className="w-40 rounded-lg border border-stone-300 bg-white py-1.5 pr-2 pl-8 text-sm"
             />
@@ -349,7 +451,10 @@ function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
               <button
                 key={key}
                 type="button"
-                onClick={() => setSort(key)}
+                onClick={() => {
+                  setSort(key);
+                  setLimit(PAGE);
+                }}
                 className={
                   "px-2.5 py-1.5 " + (sort === key ? "bg-stone-800 text-white" : "bg-white text-stone-600")
                 }
@@ -366,55 +471,71 @@ function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
           위에서 계산한 상품을 <b className="font-medium text-stone-500">목록에 담기</b>로 모아 두세요.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-          <table className="w-full min-w-[720px] text-sm">
+        // content-visibility: 화면 밖에 있는 목록은 위에서 숫자를 칠 때 다시 배치·그리지 않는다
+        <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white [contain-intrinsic-size:auto_1800px] [content-visibility:auto]">
+          <table className="w-full min-w-[760px] table-fixed text-sm">
+            <colgroup>
+              <col />
+              <col className="w-28" />
+              <col className="w-24" />
+              <col className="w-24" />
+              <col className="w-16" />
+              <col className="w-20" />
+              <col className="w-16" />
+              <col className="w-10" />
+            </colgroup>
             <thead>
               <tr className="border-b border-stone-200 text-xs text-stone-400">
                 <th className="px-3 py-2.5 text-left font-medium">상품</th>
                 <th className="px-3 py-2.5 text-left font-medium">거래처</th>
                 <th className="px-3 py-2.5 text-right font-medium">공급가</th>
                 <th className="px-3 py-2.5 text-right font-medium">판매가</th>
-                <th className="px-3 py-2.5 text-right font-medium">원가율</th>
-                <th className="px-3 py-2.5 text-right font-medium">남는 돈</th>
-                <th className="px-3 py-2.5 text-right font-medium">이익률</th>
-                <th className="px-2 py-2.5" />
+                <th className="px-2 py-2.5 text-right font-medium">원가율</th>
+                <th className="px-2 py-2.5 text-right font-medium">남는 돈</th>
+                <th className="px-2 py-2.5 text-right font-medium">이익률</th>
+                <th />
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100 tabular-nums">
-              {rows.map((x) => (
+              {shown.map((x) => (
                 <tr key={x.id} className="hover:bg-stone-50">
-                  <td className="px-3 py-1.5 text-left">
+                  <td className="truncate px-3 py-1.5 text-left">
                     <button
                       type="button"
                       onClick={() => onEdit(x)}
-                      className="text-left font-medium text-stone-900 hover:text-rose-700"
+                      className="max-w-full truncate text-left font-medium text-stone-900 hover:text-rose-700"
                       title="위 계산기로 불러오기"
                     >
                       {x.name}
                     </button>
                   </td>
-                  <td className="px-3 py-1.5 text-left text-stone-500">{x.vendor || "—"}</td>
-                  <td className="w-24 px-1 py-1.5">
+                  <td className="truncate px-3 py-1.5 text-left text-stone-500" title={x.vendor}>
+                    {x.vendorId && <Store size={11} className="mr-1 inline align-[-1px] text-emerald-600" />}
+                    {x.vendor || "—"}
+                  </td>
+                  <td className="px-1 py-1.5">
                     <EditNum value={x.supply} onSave={(v) => onPatch(x, { supply: v })} />
                   </td>
-                  <td className="w-24 px-1 py-1.5">
+                  <td className="px-1 py-1.5">
                     <EditNum
                       value={x.price}
                       tone="font-medium text-stone-900"
                       onSave={(v) => onPatch(x, { price: v })}
                     />
                   </td>
-                  <td className="px-3 py-1.5 text-right text-stone-500">{pct(x.r.costRate, 0)}%</td>
-                  <td className="px-3 py-1.5 text-right text-stone-700">{won(x.r.profit)}</td>
-                  <td className={"px-3 py-1.5 text-right font-semibold " + marginTone(x.r.margin, s.targetMargin)}>
+                  <td className="px-2 py-1.5 text-right text-stone-500">{pct(x.r.costRate, 0)}%</td>
+                  <td className="px-2 py-1.5 text-right text-stone-700">{won(x.r.profit)}</td>
+                  <td
+                    className={
+                      "px-2 py-1.5 text-right font-semibold " + marginTone(x.r.margin, settings.targetMargin)
+                    }
+                  >
                     {pct(x.r.margin)}%
                   </td>
-                  <td className="px-2 py-1.5 text-right">
+                  <td className="px-1 py-1.5 text-right">
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm(`${x.name} 을(를) 목록에서 뺄까요?`)) onRemove(x.id);
-                      }}
+                      onClick={() => onRemove(x)}
                       aria-label="목록에서 빼기"
                       className="p-1 text-stone-300 hover:text-rose-600"
                     >
@@ -425,20 +546,70 @@ function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
               ))}
             </tbody>
           </table>
+          {rows.length > shown.length && (
+            <button
+              type="button"
+              onClick={() => setLimit((n) => n + PAGE)}
+              className="w-full border-t border-stone-100 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50"
+            >
+              더 보기 · {rows.length - shown.length}개 남음
+            </button>
+          )}
         </div>
       )}
     </section>
   );
-}
+});
 
 // ------------------------------------------------------------------- 화면
 
-export default function PricingPage({ rows, conf, onConf, items, onSave, onRemove }) {
+export default function PricingPage({ rows, conf, onConf, items, vendors, onSave, onRemove }) {
   const days = useDays(rows, ALL, conf);
   const costs = useMemo(() => ({ ...DEFAULT_COSTS, ...conf.costs }), [conf.costs]);
-  const rates = useMemo(() => actualRates(days, costs), [days, costs]);
-  const settings = { ...DEFAULT_PRICING, ...conf.pricing };
-  const [draft, setDraft] = useState({ id: "", name: "", vendor: "", supply: "", price: "" });
+
+  // 새로 읽을 때마다 같은 숫자라도 새 객체가 오면 목록이 통째로 다시 그려진다.
+  // 값이 같으면 예전 객체를 그대로 쓴다.
+  const fresh = useMemo(() => actualRates(days, costs), [days, costs]);
+  const freshKey = JSON.stringify(fresh);
+  const rates = useMemo(() => fresh, [freshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const settings = useMemo(() => ({ ...DEFAULT_PRICING, ...conf.pricing }), [conf.pricing]);
+  const [draft, setDraft] = useState(EMPTY);
+
+  // 목록 쪽 핸들러는 고정 — 바뀌면 memo 가 소용없다
+  const saveRef = useRef(onSave);
+  const removeRef = useRef(onRemove);
+  useEffect(() => {
+    saveRef.current = onSave;
+    removeRef.current = onRemove;
+  });
+  const onEdit = useCallback((x) => {
+    setDraft({
+      id: x.id,
+      name: x.name,
+      vendor: x.vendor || "",
+      vendorId: x.vendorId || "",
+      supply: String(x.supply),
+      price: String(x.price),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+  const onPatch = useCallback(
+    (x, patch) =>
+      saveRef.current({
+        id: x.id,
+        name: x.name,
+        vendor: x.vendor,
+        vendorId: x.vendorId || "",
+        supply: x.supply,
+        price: x.price,
+        ...patch,
+      }),
+    [],
+  );
+  const onRemoveItem = useCallback((x) => {
+    if (window.confirm(`${x.name} 을(를) 목록에서 뺄까요?`)) removeRef.current(x.id);
+  }, []);
 
   return (
     <div>
@@ -460,9 +631,10 @@ export default function PricingPage({ rows, conf, onConf, items, onSave, onRemov
         setDraft={setDraft}
         rates={rates}
         settings={settings}
+        vendors={vendors}
         onSave={async (item) => {
           await onSave(item);
-          setDraft({ id: "", name: "", vendor: "", supply: "", price: "" });
+          setDraft(EMPTY);
         }}
       />
 
@@ -470,12 +642,9 @@ export default function PricingPage({ rows, conf, onConf, items, onSave, onRemov
         items={items}
         rates={rates}
         settings={settings}
-        onEdit={(x) => {
-          setDraft({ id: x.id, name: x.name, vendor: x.vendor || "", supply: String(x.supply), price: String(x.price) });
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-        onPatch={(x, patch) => onSave({ id: x.id, name: x.name, vendor: x.vendor, supply: x.supply, price: x.price, ...patch })}
-        onRemove={onRemove}
+        onEdit={onEdit}
+        onPatch={onPatch}
+        onRemove={onRemoveItem}
       />
 
       <p className="mt-5 flex items-start gap-1.5 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-500">

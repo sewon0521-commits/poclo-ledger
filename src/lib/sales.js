@@ -45,7 +45,10 @@ export const MONTH_FIELDS = [
   ["fixed", "고정비", "관리비 + 앱"],
 ];
 
-export const won = (n) => Math.round(n || 0).toLocaleString("ko-KR");
+// toLocaleString("ko-KR") 은 부를 때마다 숫자 형식기를 새로 만들어서 느리다.
+// 표 한 장에 수백 번 불리므로(판매가 계산기 목록) 하나를 만들어 두고 돌려 쓴다.
+const NUM = new Intl.NumberFormat("ko-KR");
+export const won = (n) => NUM.format(Math.round(n || 0));
 export const pct = (n, digits = 1) => (Number.isFinite(n) ? n.toFixed(digits) : "0.0");
 
 // ---------------------------------------------------------------- CSV 읽기

@@ -394,6 +394,7 @@ export default function App() {
                   conf={S.conf}
                   onConf={S.saveConf}
                   items={S.pricing}
+                  vendors={vendors}
                   onSave={S.savePricing}
                   onRemove={S.removePricing}
                 />

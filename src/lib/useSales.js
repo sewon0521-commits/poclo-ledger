@@ -146,7 +146,14 @@ export function useSales(session) {
       .subscribe();
     // settings(삼촌비·판매가 목록)는 실시간 알림이 없다. 탭을 다시 볼 때 한 번 읽어
     // 상대가 담은 것이 보이게 한다.
-    const onVisible = () => document.visibilityState === "visible" && load();
+    // 창을 오갈 때마다(확인 창을 닫을 때도) 불리므로 15초에 한 번까지만 읽는다.
+    // 매번 읽으면 모든 표가 통째로 다시 그려져서 화면이 버벅인다.
+    let last = Date.now();
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 15000) return;
+      last = Date.now();
+      load();
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     return () => {

@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+// 표 안에서 수백 개가 한꺼번에 그려진다 — 형식기는 하나만 만들어 돌려 쓴다
+const NUM = new Intl.NumberFormat("ko-KR");
+
 /**
  * 표 안에서 숫자를 눌러 바로 고치는 칸.
  *
@@ -50,7 +53,7 @@ export default function EditNum({ value, onSave, align = "right", placeholder = 
         (tone || (value ? "text-stone-700" : "text-stone-300"))
       }
     >
-      {value ? value.toLocaleString("ko-KR") : placeholder}
+      {value ? NUM.format(value) : placeholder}
     </button>
   );
 }
