@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   X, Check, Plus, Trash2, ChevronDown, ChevronUp, Camera, ImageOff, Clock, Wallet,
 } from "lucide-react";
-import { won, VAT_RATE, itemsTotal, MODES, KIND_TONE, kindOf, nextKind } from "../lib/calc";
+import { won, VAT_RATE, itemsTotal, isPrepaid, MODES, KIND_TONE, kindOf, nextKind } from "../lib/calc";
 import { makeAccount, makeItem } from "../lib/store";
 import { pendingOf, balanceBefore, balanceBasis, balanceText } from "../lib/pending";
 import VendorPicker from "./VendorPicker";
@@ -233,7 +233,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
   // 미송 출고분만 받은 날은 낼 돈이 0원이다. 그런 장끼도 남겨야 하므로
   // 금액과 결제방식을 강요하지 않는다 — 0원에는 부가세도 없다.
   const onlyPrepaid =
-    amount === 0 && items.some((i) => i.kind === "pendingOut" && (i.name.trim() || i.qty));
+    amount === 0 && items.some((i) => isPrepaid(i) && (i.name.trim() || i.qty));
 
   const [touched, setTouched] = useState(false);
   const missing = [];
@@ -436,7 +436,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
                     onChange={(v) => patchItem(it.id, { amount: Number(v || 0) })}
                     placeholder="금액"
                     className={
-                      "w-[5.5rem] shrink-0 " + (kind.key === "pendingOut" ? "text-stone-400" : "")
+                      "w-[5.5rem] shrink-0 " + (isPrepaid(it) ? "text-stone-400" : "")
                     }
                     compact
                   />
@@ -492,8 +492,8 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
 
         <p className="mt-2 text-right text-xs tabular-nums text-stone-500">
           품목 합계 {won(itemSum)}
-          {items.some((i) => i.kind === "pendingOut") && (
-            <span className="ml-1 text-emerald-700">· 미송 출고분은 뺐어요</span>
+          {items.some(isPrepaid) && (
+            <span className="ml-1 text-emerald-700">· 미송 출고·불량 교환분은 뺐어요</span>
           )}
         </p>
       </div>
@@ -522,7 +522,20 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
             <span>부가세 미포함 {won(amount)}</span>
             <span>부가세 포함 {won(amount + amount * VAT_RATE)}</span>
             {supplyTouched && itemSum > 0 && amount !== itemSum && (
-              <span className="text-amber-700">품목 합계와 {won(Math.abs(amount - itemSum))} 차이</span>
+              <span className="text-amber-700">
+                품목 합계와 {won(Math.abs(amount - itemSum))} 차이{" "}
+                {/* 에누리면 그대로 두면 되고, 불량·출고분이 섞여 들어간 옛 기록이면 눌러서 맞춘다 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSupply(String(itemSum));
+                    setSupplyTouched(true);
+                  }}
+                  className="font-medium underline"
+                >
+                  품목 합계 {won(itemSum)}로 맞추기
+                </button>
+              </span>
             )}
           </div>
         )}

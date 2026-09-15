@@ -48,7 +48,8 @@ export function makeAccount(a = {}) {
  *   pending     미송 — 돈은 냈고 물건은 나중에 온다. 돈은 buy와 똑같이 나간 것이다.
  *   pendingOut  미송 출고 — 미송분이 도착했다. **돈은 이미 냈으므로 장부 금액에 안 더한다.**
  *               여기서 안 빼면 같은 물건 값을 두 번 내게 된다.
- *   defect      불량 — 돌려준 것. 무엇으로 바꿔 받았는지는 note에 적는다.
+ *   defect      불량 교환 — 돌려주고 바꿔 받은 것. 무엇으로 바꿨는지는 note에 적는다.
+ *               **이미 산 물건이라 장부 금액에 안 더한다** (미송 출고와 같다).
  */
 export const ITEM_KINDS = ["buy", "pending", "pendingOut", "defect"];
 

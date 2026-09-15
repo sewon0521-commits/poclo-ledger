@@ -117,7 +117,7 @@ export const KINDS = [
   { key: "buy", label: "매입", help: "산 물건 · 돈이 나가요" },
   { key: "pending", label: "미송", help: "돈은 냈고 물건은 나중에" },
   { key: "pendingOut", label: "출고", help: "미송분 도착 · 이미 낸 돈이라 합계에 안 들어가요" },
-  { key: "defect", label: "불량", help: "돌려준 것 · 무엇으로 바꿨는지 적어두세요" },
+  { key: "defect", label: "불량", help: "불량 교환 · 이미 낸 돈이라 합계에 안 들어가요" },
 ];
 
 export const KIND_TONE = {
@@ -134,14 +134,18 @@ export const nextKind = (kind) => {
   return KINDS[(i + 1) % KINDS.length].key;
 };
 
+/** 이미 낸 돈이라 당일합계에 안 더하는 줄 — 미송 출고, 불량 교환 */
+export const PREPAID_KINDS = ["pendingOut", "defect"];
+export const isPrepaid = (i) => PREPAID_KINDS.includes(i?.kind);
+
 /**
  * 품목 행 합계 — 당일합계와 다를 수 있어 참고용으로만 보여준다.
  *
- * **미송 출고는 더하지 않는다.** 그 물건 값은 미송을 잡던 날 이미 냈다.
- * 여기서 안 빼면 같은 물건을 두 번 사는 셈이 된다.
+ * **미송 출고와 불량 교환은 더하지 않는다.** 그 물건 값은 처음 살 때 이미 냈다.
+ * 여기서 안 빼면 같은 물건을 두 번 사는 셈이 된다. (불량 교환도 빼 달라 — 세원 2026-09-15)
  */
 export const itemsTotal = (items = []) =>
-  items.reduce((s, i) => s + (i.kind === "pendingOut" ? 0 : Number(i.amount) || 0), 0);
+  items.reduce((s, i) => s + (isPrepaid(i) ? 0 : Number(i.amount) || 0), 0);
 
 export const hasPending = (t) => (t.items || []).some((i) => (i.kind || "") === "pending" || i.pending);
 export const hasKind = (t, kind) => (t.items || []).some((i) => (i.kind || "buy") === kind);

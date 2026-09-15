@@ -191,7 +191,7 @@ function DefectTab({ rows, onOpen }) {
     <>
       <div className="mb-4 grid grid-cols-2 gap-2.5">
         <Kpi label="불량 건" value={rows.length + "건"} sub={`${qty}장`} tone="rose" />
-        <Kpi label="그 값어치" value={won(total)} sub="공급가 기준" />
+        <Kpi label="그 값어치" value={won(total)} sub="공급가 기준 · 이미 낸 돈이라 합계엔 안 들어가요" />
       </div>
       <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
         <table className="w-full min-w-[560px] text-sm">

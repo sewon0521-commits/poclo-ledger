@@ -345,9 +345,9 @@ Supabase의 `sales_daily` + `settings`, 없으면 localStorage.
 | `buy` | 산 물건 | 든다 |
 | `pending` | 미송 — 돈은 냈고 물건은 나중에 | 든다 |
 | `pendingOut` | 미송 출고 — 미송분이 도착 | **안 든다** |
-| `defect` | 불량 — 돌려준 것 (`note`에 무엇으로 바꿨는지) | 든 대로 |
+| `defect` | 불량 교환 — 돌려주고 바꿔 받은 것 (`note`에 무엇으로 바꿨는지) | **안 든다** (9/15 세원) |
 
-**`pendingOut` 을 합계에서 빼는 것이 이 기능의 존재 이유다.** 그 물건 값은
+**`pendingOut`·`defect` 를 합계에서 빼는 것이 이 기능의 존재 이유다** (`PREPAID_KINDS`). 그 물건 값은
 미송을 잡던 날 이미 냈다. 여기서 안 빼면 이중 지불이 된다 (`itemsTotal`).
 출고분만 받은 날은 낼 돈이 0원이므로 **금액·결제방식을 강요하지 않는다**(`onlyPrepaid`).
 
