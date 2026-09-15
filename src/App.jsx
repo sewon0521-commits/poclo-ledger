@@ -233,6 +233,10 @@ export default function App() {
       matchNote: m.kind === "exact" ? `${m.vendor.name} 거래처로 잡았어요 (${m.reason}).` : "",
       items: g.items,
       supply: g.supply,
+      // 장끼 아래쪽 전잔·입금·당잔 — 읽혔으면 폼에 그대로 채운다(안 읽혔으면 null)
+      prevBalance: g.prevBalance ?? null,
+      cashPaid: g.cashPaid ?? null,
+      balance: g.balance ?? null,
       address: g.address,
       phone: g.phone,
       bizNo: g.bizNo,

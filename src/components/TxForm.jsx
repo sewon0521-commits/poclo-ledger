@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { won, VAT_RATE, itemsTotal, MODES, KIND_TONE, kindOf, nextKind } from "../lib/calc";
 import { makeAccount, makeItem } from "../lib/store";
-import { pendingOf, balanceBefore, balanceText } from "../lib/pending";
+import { pendingOf, balanceBefore, balanceBasis, balanceText } from "../lib/pending";
 import VendorPicker from "./VendorPicker";
 
 const digits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
@@ -214,7 +214,13 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
   const cashAmount = cashTouched ? numOf(cash) : balTyped ? before + amount - signedOf(bal) : amount;
   const computedAfter = before + amount - cashAmount;
   const after = balTyped ? signedOf(bal) : computedAfter;
-  const beforeGap = prevTyped ? before - autoBefore : 0; // 장끼 전잔 vs 앱이 이어 센 전잔
+  // 장끼 전잔 vs 앱이 이어 센 전잔. 앞선 장끼에 입금·잔액 기록이 있을 때만 비교한다 —
+  // 기록이 없으면 앱의 0 은 '모름'이라, 다르다고 알리면 멀쩡한 장끼를 틀렸다고 하게 된다.
+  const basis = useMemo(
+    () => balanceBasis(allTx, vendorId, date, seed.id),
+    [allTx, vendorId, date, seed.id],
+  );
+  const beforeGap = prevTyped && basis ? before - autoBefore : 0;
   const afterGap = balTyped && cashTouched ? after - computedAfter : 0; // 장끼 숫자끼리 안 맞음
   // 동대문은 천원 단위로 맞춰 주고받는다. 천원을 넘게 어긋나면 적은 값이 틀렸을 가능성이 크다.
   const balanceOdd = Math.abs(after) >= 1000;
@@ -543,7 +549,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
           <div
             className={
               "rounded-lg border px-1.5 py-1.5 " +
-              (beforeGap ? "border-amber-400 bg-amber-50" : "border-stone-200 bg-white")
+              "border-stone-200 bg-white"
             }
           >
             <div className="mb-1 text-[11px] text-stone-400">전잔</div>
@@ -609,9 +615,9 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
           </p>
         )}
         {beforeGap !== 0 && (
-          <p className="mt-1 text-xs font-medium text-amber-800">
-            장끼 전잔 {won(before)} 이 앱이 이어 센 {won(autoBefore)} 와 {won(Math.abs(beforeGap))}{" "}
-            달라요. 빠진 장끼가 있거나 잘못 적었을 수 있어요. 이 거래부터는 장끼 값으로 이어서 셉니다.
+          <p className="mt-1 text-xs text-stone-500">
+            참고: 앞선 장끼 기록으로 이어 세면 전잔이 {won(autoBefore)} 이에요({won(Math.abs(beforeGap))} 차이).
+            그 사이 장끼가 빠졌는지만 한 번 봐주세요. <b className="font-semibold">저장은 장끼에 적힌 값으로 돼요.</b>
           </p>
         )}
         {afterGap !== 0 && (
@@ -666,7 +672,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
             {mode?.key === "transfer-vat"
               ? `실제 지출 ${won(amount + amount * VAT_RATE)} (금액 ${won(amount)} + 부가세 ${won(amount * VAT_RATE)})`
               : mode
-                ? `실제 지출 ${won(amount)} · 아직 안 낸 부가세 ${won(amount * VAT_RATE)}`
+                ? `매입 ${won(amount)}${cashAmount !== amount ? ` · 실제 건넨 돈 ${won(cashAmount)}` : ""} · 아직 안 낸 부가세 ${won(amount * VAT_RATE)}`
                 : `부가세 ${won(amount * VAT_RATE)}`}
           </p>
         )}

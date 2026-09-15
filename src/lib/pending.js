@@ -283,6 +283,24 @@ export function balanceBefore(tx, vendorId, date, exceptId) {
   return bal;
 }
 
+/**
+ * 앱이 이어 센 전잔에 **근거가 있나** — 그 거래처의 앞선 장끼에 현금입금·전잔·당잔 중
+ * 하나라도 실제로 적혀 있어야 근거가 있다. 그런 게 없으면 앱의 전잔 0 은 "모름"이지
+ * 사실이 아니므로, 장끼에 적힌 전잔과 달라도 알리지 않는다.
+ * (지원이 장끼를 날짜 순서 없이 넣다가 "금액이 안 맞는다" 경고를 계속 봤다 — 2026-09-15)
+ */
+export function balanceBasis(tx, vendorId, date, exceptId) {
+  if (!vendorId) return false;
+  const has = (v) => v !== null && v !== undefined && v !== "";
+  return tx.some(
+    (t) =>
+      t.vendorId === vendorId &&
+      t.id !== exceptId &&
+      (!date || t.date < date || (t.date === date && t.id < (exceptId || "\uffff"))) &&
+      (has(t.cashPaid) || has(t.prevBalance) || has(t.balance)),
+  );
+}
+
 /** 잔액을 사람 말로. 부호만 보고는 어느 쪽이 이득인지 알 수가 없다. */
 export const balanceText = (n) => {
   if (!n) return "딱 맞아요";

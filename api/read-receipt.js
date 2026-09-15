@@ -40,7 +40,16 @@ const ReceiptSchema = z.object({
     )
     .describe("품목 줄 전부. 여러 줄이면 각각. 없으면 빈 배열"),
   date: z.string().describe(`거래 날짜 YYYY-MM-DD. ${blank}`),
-  supply: z.number().describe("당일합계(그 날 총 거래금액, 원 단위 정수). 못 읽으면 0"),
+  supply: z.number().describe("당일합계(그 날 산 것만의 합계, 원 단위 정수). 전잔을 더한 총계가 아니다. 못 읽으면 0"),
+  prevBalance: z
+    .string()
+    .describe("전잔(전일 잔액·이월). 숫자만, 마이너스면 앞에 -. 칸이 없거나 못 읽으면 빈 문자열"),
+  cashPaid: z
+    .string()
+    .describe("입금(현금·입금액·받은 돈). 숫자만. 칸이 없거나 못 읽으면 빈 문자열"),
+  balance: z
+    .string()
+    .describe("당잔(금일 잔액·잔액·미수). 숫자만, 마이너스면 앞에 -. 칸이 없거나 못 읽으면 빈 문자열"),
   vatSeparate: z
     .boolean()
     .describe("금액이 부가세 별도(VAT별도)로 표기돼 있으면 true, 총액이면 false"),
@@ -82,6 +91,18 @@ supply는 그 날 총 거래금액(당일합계·Total)이다. 품목 줄의 합
 (에누리 등) 그럴 때는 적힌 합계를 그대로 따른다.
 "VAT별도", "부가세 별도"라고 적혀 있으면 vatSeparate를 true로 하고 적힌 금액을
 supply에 넣어라. 그런 표기가 없으면 vatSeparate를 false로 하고 합계 금액을 넣어라.
+
+**전잔 · 입금 · 당잔 — 동대문 장끼 아래쪽에 거의 항상 있다. 꼭 찾아라.**
+보통 "전잔 / 당일합계(금일) / 입금 / 당잔(잔액)" 네 칸이 나란히 또는 위아래로 있다.
+- prevBalance = 전잔. "전잔", "전일잔액", "이월", "전미수" 같은 이름.
+- cashPaid = 입금. "입금", "현금", "입금액", "받은금액", "결제" 같은 이름.
+- balance = 당잔. "당잔", "잔액", "금일잔액", "미수", "외상" 같은 이름.
+- supply 는 **그 날 산 것만의 합계(당일합계)**다. 전잔을 더한 "총계·청구액·합계"가 따로 있으면
+  그걸 supply 에 넣지 마라. 예) 전잔 -500 / 당일합계 33,500 / 입금 33,000 / 당잔 0 이면
+  supply 는 33500, prevBalance "-500", cashPaid "33000", balance "0".
+- **마이너스 표기를 놓치지 마라.** "-500", "△500", "▲500", "(500)" 은 전부 "-500" 이다.
+  더 낸 돈은 전잔·당잔에 마이너스로 찍힌다.
+- 숫자만 쓴다(쉼표·원 빼고). 칸은 있는데 0 이면 "0", 칸 자체가 없거나 손글씨가 안 읽히면 "".
 
 **추측 금지.**
 읽히지 않는 항목은 빈 문자열(숫자는 0)로 두어라. 손글씨라 헷갈리는 글자가 있으면
@@ -160,6 +181,15 @@ export default async function handler(req, res) {
 
     const g = response.parsed_output;
     const num = (n) => (Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
+    // 전잔·입금·당잔은 부호가 있고, '안 적힘'(null)과 0 이 다른 뜻이다
+    const signed = (s) => {
+      const t = String(s ?? "").replace(/[\s,원]/g, "");
+      if (!t) return null;
+      const neg = /^[-△▲(]/.test(t);
+      const d = t.replace(/[^0-9]/g, "");
+      if (!d) return null;
+      return neg ? -Number(d) : Number(d);
+    };
 
     return res.status(200).json({
       vendor: g.vendor || "",
@@ -179,6 +209,9 @@ export default async function handler(req, res) {
         })),
       date: /^\d{4}-\d{2}-\d{2}$/.test(g.date) ? g.date : "",
       supply: num(g.supply),
+      prevBalance: signed(g.prevBalance),
+      cashPaid: signed(g.cashPaid),
+      balance: signed(g.balance),
       vatSeparate: !!g.vatSeparate,
     });
   } catch (err) {
