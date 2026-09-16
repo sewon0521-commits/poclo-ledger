@@ -557,7 +557,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
         <p className="mt-2 text-right text-xs tabular-nums text-stone-500">
           품목 합계 {won(itemSum)}
           {items.some(isPrepaid) && (
-            <span className="ml-1 text-emerald-700">· 미송 출고·불량 교환분은 뺐어요</span>
+            <span className="ml-1 text-emerald-700">· 미송 출고·교환받은 줄은 뺐어요</span>
           )}
         </p>
       </div>

@@ -117,7 +117,7 @@ export const KINDS = [
   { key: "buy", label: "매입", help: "산 물건 · 돈이 나가요" },
   { key: "pending", label: "미송", help: "돈은 냈고 물건은 나중에" },
   { key: "pendingOut", label: "출고", help: "미송분 도착 · 이미 낸 돈이라 합계에 안 들어가요" },
-  { key: "defect", label: "불량", help: "불량 옴 · 교환받을 때까지 남아 있어요 · 합계엔 안 들어가요" },
+  { key: "defect", label: "불량", help: "불량 표시 · 매입엔 그대로 들어가요 · 교환받을 때까지 남아 있어요" },
   { key: "defectOut", label: "교환", help: "불량 교환 받음 · 이미 낸 돈이라 합계에 안 들어가요" },
 ];
 
@@ -136,15 +136,19 @@ export const nextKind = (kind) => {
   return KINDS[(i + 1) % KINDS.length].key;
 };
 
-/** 이미 낸 돈이라 당일합계에 안 더하는 줄 — 미송 출고, 불량 교환 */
-export const PREPAID_KINDS = ["pendingOut", "defect", "defectOut"];
+/**
+ * 이미 낸 돈이라 당일합계에 안 더하는 줄 — 미송 출고, 불량 교환받음.
+ * **불량(defect)은 여기 없다.** 불량은 그냥 산 물건인데, 나중에 교환받을 때 찾기 쉽게
+ * 표시해 둔 것이라 매입 금액에 그대로 들어간다 (세원 정정 2026-09-16).
+ */
+export const PREPAID_KINDS = ["pendingOut", "defectOut"];
 export const isPrepaid = (i) => PREPAID_KINDS.includes(i?.kind);
 
 /**
  * 품목 행 합계 — 당일합계와 다를 수 있어 참고용으로만 보여준다.
  *
- * **미송 출고와 불량 교환은 더하지 않는다.** 그 물건 값은 처음 살 때 이미 냈다.
- * 여기서 안 빼면 같은 물건을 두 번 사는 셈이 된다. (불량 교환도 빼 달라 — 세원 2026-09-15)
+ * **미송 출고와 불량 교환받음은 더하지 않는다.** 그 물건 값은 처음 살 때 이미 냈다.
+ * 여기서 안 빼면 같은 물건을 두 번 사는 셈이 된다. 불량 표시 줄은 매입이라 더한다.
  */
 export const itemsTotal = (items = []) =>
   items.reduce((s, i) => s + (isPrepaid(i) ? 0 : Number(i.amount) || 0), 0);

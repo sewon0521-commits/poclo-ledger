@@ -432,8 +432,8 @@ export default function PendingPage({ tx, vendors, onOpenTx, initialTab = "pendi
         <span>
           여기 있는 건 전부 <b className="font-semibold">장끼에서 넣은 것</b>이에요. 품목 오른쪽
           칩을 눌러 <b className="font-semibold">매입 → 미송 → 출고 → 불량 → 교환</b> 으로 바꾸면 되고,{" "}
-          <PackageCheck size={12} className="inline align-[-2px]" /> 출고·불량·교환 줄은{" "}
-          <b className="font-semibold">당일합계에 안 들어갑니다</b> — 이미 낸 돈이니까요.
+          <PackageCheck size={12} className="inline align-[-2px]" /> 출고·교환 줄은{" "}
+          <b className="font-semibold">당일합계에 안 들어갑니다</b> — 이미 낸 돈이니까요. 불량 표시 줄은 매입이라 그대로 들어가요.
         </span>
       </p>
     </div>
