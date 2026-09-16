@@ -18,28 +18,46 @@ export const itemKey = (name) => String(name || "").trim().replace(/\s+/g, "").t
 
 const byDate = (a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : a.date.localeCompare(b.date));
 
-// ------------------------------------------------------------------- 미송
+// ------------------------------------------------------------- 미송 · 불량
 
 /**
- * 거래처 × 품목별 미송 현황.
+ * 미송과 불량은 같은 모양으로 흐른다 — **잡히고, 나중에 풀린다.**
  *
- * 미송으로 잡은 수량에서 미송 출고된 수량을 뺀 것이 지금 남은 미송이다.
- * 잡은 날과 출고된 날을 같이 들고 있어야 "언제 잡았더라"를 볼 수 있다.
+ *   미송  pending(잡음)  → pendingOut(미송 출고 받음)
+ *   불량  defect(불량 옴) → defectOut(교환 받음 / 매입으로 정리)
+ *
+ * 잡은 수량 − 풀린 수량 = 아직 남은 것. 남아 있으면 매입 장부 위에 계속 떠 있고,
+ * 다 풀리면 사라진다. 잡은 날·풀린 날을 다 들고 있어서 "언제 생겼고 언제 받았나"를 본다.
+ *
+ * 불량은 **다른 품목으로 바꿔 받는 일이 많다.** 그래서 defectOut 줄의 품목명은
+ * '받은 것'이고, 어느 불량을 푼 것인지는 linkName(원래 불량 품목명)으로 잇는다.
+ * (세원 요청 2026-09-16: 불량이 오면 체크만 해 두고, 교환받을 때 그 불량을 골라
+ *  무엇으로 몇 장 받았는지 적는 흐름)
  */
-export function pendingBoard(tx, vendorName) {
+export const FLOWS = {
+  pending: { in: "pending", out: "pendingOut" },
+  defect: { in: "defect", out: "defectOut" },
+};
+
+/** 풀린 줄이 어느 잡힌 줄을 푸는지 — 불량 교환은 linkName, 없으면 자기 이름 */
+const flowName = (i) => (i.kind === "defectOut" && i.linkName ? i.linkName : i.name);
+
+export function flowBoard(tx, vendorName, flowKey = "pending") {
+  const F = FLOWS[flowKey];
   const lines = new Map(); // vendorId|itemKey → 한 줄
 
   for (const t of [...tx].sort(byDate)) {
     for (const i of t.items || []) {
-      if (i.kind !== "pending" && i.kind !== "pendingOut") continue;
-      const k = `${t.vendorId}|${itemKey(i.name)}`;
+      if (i.kind !== F.in && i.kind !== F.out) continue;
+      const name = flowName(i);
+      const k = `${t.vendorId}|${itemKey(name)}`;
       let row = lines.get(k);
       if (!row) {
         row = {
           key: k,
           vendorId: t.vendorId,
           vendor: vendorName(t.vendorId),
-          name: i.name || "(품목명 없음)",
+          name: name || "(품목명 없음)",
           unitPrice: 0,
           taken: 0,
           out: 0,
@@ -49,13 +67,20 @@ export function pendingBoard(tx, vendorName) {
         lines.set(k, row);
       }
       const qty = Math.abs(Number(i.qty) || 0);
-      if (i.unitPrice) row.unitPrice = i.unitPrice;
-      if (i.kind === "pending") {
+      if (i.kind === F.in) {
+        if (i.unitPrice) row.unitPrice = i.unitPrice;
         row.taken += qty;
-        row.takenDates.push({ date: t.date, qty, txId: t.id });
+        row.takenDates.push({ date: t.date, qty, txId: t.id, note: i.note || "" });
       } else {
         row.out += qty;
-        row.outDates.push({ date: t.date, qty, txId: t.id });
+        row.outDates.push({
+          date: t.date,
+          qty,
+          txId: t.id,
+          // 불량 교환: 무엇으로 받았나 (원래 품목과 이름이 다르면 그게 받은 것)
+          got: flowKey === "defect" && i.name && itemKey(i.name) !== itemKey(name) ? i.name : "",
+          note: i.note || "",
+        });
       }
     }
   }
@@ -64,7 +89,8 @@ export function pendingBoard(tx, vendorName) {
     ...r,
     left: r.taken - r.out,
     amount: (r.taken - r.out) * r.unitPrice,
-    lastDate: r.takenDates.at(-1)?.date || "",
+    lastDate: r.takenDates.at(-1)?.date || r.outDates.at(-1)?.date || "",
+    firstDate: r.takenDates[0]?.date || "",
   }));
 
   // 거래처별로 묶는다 — 남은 게 많은 거래처가 위로
@@ -90,59 +116,46 @@ export function pendingBoard(tx, vendorName) {
   };
 }
 
-/** 이 거래처에 아직 남아 있는 미송. 장끼를 넣을 때 옆에 띄워 준다. */
-export function pendingOf(tx, vendorId, vendorName) {
+export const pendingBoard = (tx, vendorName) => flowBoard(tx, vendorName, "pending");
+export const defectBoard = (tx, vendorName) => flowBoard(tx, vendorName, "defect");
+
+/** 이 거래처에 아직 남아 있는 것. 장끼를 넣을 때 폼 안에 띄워 준다. */
+export function openOf(tx, vendorId, vendorName, flowKey = "pending") {
   if (!vendorId) return [];
-  const board = pendingBoard(
+  const board = flowBoard(
     tx.filter((t) => t.vendorId === vendorId),
     vendorName,
+    flowKey,
   );
   return (board.groups[0]?.lines || []).filter((r) => r.left > 0);
 }
+export const pendingOf = (tx, vendorId, vendorName) => openOf(tx, vendorId, vendorName, "pending");
+export const defectOf = (tx, vendorId, vendorName) => openOf(tx, vendorId, vendorName, "defect");
 
-/** 그날 잡힌 미송 / 그날 출고된 미송 — 하루 단위로 보고 싶을 때 */
-export function pendingByDay(tx, vendorName) {
+/** 그날 잡힌 것 / 그날 풀린 것 — 하루 단위로 보고 싶을 때 */
+export function flowByDay(tx, vendorName, flowKey = "pending") {
+  const F = FLOWS[flowKey];
   const days = new Map();
   for (const t of [...tx].sort(byDate)) {
     for (const i of t.items || []) {
-      if (i.kind !== "pending" && i.kind !== "pendingOut") continue;
+      if (i.kind !== F.in && i.kind !== F.out) continue;
       if (!days.has(t.date)) days.set(t.date, { date: t.date, taken: [], out: [] });
+      const name = flowName(i);
       const row = {
         vendor: vendorName(t.vendorId),
-        name: i.name || "(품목명 없음)",
+        name: name || "(품목명 없음)",
+        got: i.kind === F.out && i.name && itemKey(i.name) !== itemKey(name) ? i.name : "",
+        note: i.note || "",
         qty: Math.abs(Number(i.qty) || 0),
         amount: Math.abs(Number(i.amount) || 0),
         txId: t.id,
       };
-      days.get(t.date)[i.kind === "pending" ? "taken" : "out"].push(row);
+      days.get(t.date)[i.kind === F.in ? "taken" : "out"].push(row);
     }
   }
   return [...days.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
-
-// ------------------------------------------------------------------ 불량
-
-/** 불량으로 잡은 것들. 무엇으로 바꿔 받았는지는 note에 적혀 있다. */
-export function defectList(tx, vendorName) {
-  const out = [];
-  for (const t of tx) {
-    for (const i of t.items || []) {
-      if (i.kind !== "defect") continue;
-      out.push({
-        id: `${t.id}|${i.id}`,
-        txId: t.id,
-        date: t.date,
-        vendorId: t.vendorId,
-        vendor: vendorName(t.vendorId),
-        name: i.name || "(품목명 없음)",
-        qty: Math.abs(Number(i.qty) || 0),
-        amount: Number(i.amount) || 0,
-        note: i.note || "",
-      });
-    }
-  }
-  return out.sort((a, b) => b.date.localeCompare(a.date));
-}
+export const pendingByDay = (tx, vendorName) => flowByDay(tx, vendorName, "pending");
 
 // ---------------------------------------------------------------- 매입금
 

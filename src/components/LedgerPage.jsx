@@ -1,4 +1,4 @@
-import { AlertCircle, Plus, Clock, ChevronRight } from "lucide-react";
+import { AlertCircle, AlertTriangle, Plus, Clock, ChevronRight } from "lucide-react";
 import { won, dayLabel, rangeLabel } from "../lib/calc";
 import { Kpi, Empty } from "./ui";
 import TxRow from "./TxRow";
@@ -21,7 +21,9 @@ export default function LedgerPage({
   vendorName,
   rowProps,
   pending,
+  defects,
   onPage,
+  onPendingTab,
 }) {
   return (
     <div>
@@ -86,18 +88,57 @@ export default function LedgerPage({
         {pending?.totalLeft > 0 && (
           <button
             type="button"
-            onClick={() => onPage("pending")}
+            onClick={() => (onPendingTab ? onPendingTab("pending") : onPage("pending"))}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3.5 text-left transition hover:bg-amber-100"
           >
             <span className="min-w-0">
               <span className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
                 <Clock size={15} /> 아직 안 받은 미송 {pending.totalLeft}장
               </span>
-              <span className="mt-0.5 block text-xs text-amber-700">
-                {pending.open.length}곳 · 값어치 {won(pending.totalAmount)} — 이미 낸 돈이에요
+              <span className="mt-1 block space-y-0.5 text-xs text-amber-800">
+                {pending.open
+                  .flatMap((g) => g.lines.filter((r) => r.left > 0).map((r) => ({ ...r, vendor: g.vendor })))
+                  .slice(0, 4)
+                  .map((r) => (
+                    <span key={r.key} className="block truncate">
+                      {r.vendor} · {r.name} · {r.left}장
+                      {r.amount > 0 && <span className="tabular-nums"> {won(r.amount)}</span>}
+                      <span className="text-amber-600"> · {r.firstDate.slice(5).replace("-", "/")}부터</span>
+                    </span>
+                  ))}
+                <span className="block text-amber-700">
+                  {pending.open.length}곳 · 값어치 {won(pending.totalAmount)} — 이미 낸 돈이에요
+                </span>
               </span>
             </span>
             <ChevronRight size={18} className="shrink-0 text-amber-500" />
+          </button>
+        )}
+
+        {defects?.totalLeft > 0 && (
+          <button
+            type="button"
+            onClick={() => onPendingTab("defect")}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3.5 text-left transition hover:bg-rose-100"
+          >
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-rose-900">
+                <AlertTriangle size={15} /> 아직 교환 안 받은 불량 {defects.totalLeft}장
+              </span>
+              <span className="mt-1 block space-y-0.5 text-xs text-rose-800">
+                {defects.open
+                  .flatMap((g) => g.lines.filter((r) => r.left > 0).map((r) => ({ ...r, vendor: g.vendor })))
+                  .slice(0, 4)
+                  .map((r) => (
+                    <span key={r.key} className="block truncate">
+                      {r.vendor} · {r.name} · {r.left}장
+                      {r.amount > 0 && <span className="tabular-nums"> {won(r.amount)}</span>}
+                      <span className="text-rose-500"> · {r.firstDate.slice(5).replace("-", "/")}부터</span>
+                    </span>
+                  ))}
+              </span>
+            </span>
+            <ChevronRight size={18} className="shrink-0 text-rose-500" />
           </button>
         )}
 

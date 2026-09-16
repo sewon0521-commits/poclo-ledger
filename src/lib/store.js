@@ -48,10 +48,12 @@ export function makeAccount(a = {}) {
  *   pending     미송 — 돈은 냈고 물건은 나중에 온다. 돈은 buy와 똑같이 나간 것이다.
  *   pendingOut  미송 출고 — 미송분이 도착했다. **돈은 이미 냈으므로 장부 금액에 안 더한다.**
  *               여기서 안 빼면 같은 물건 값을 두 번 내게 된다.
- *   defect      불량 교환 — 돌려주고 바꿔 받은 것. 무엇으로 바꿨는지는 note에 적는다.
- *               **이미 산 물건이라 장부 금액에 안 더한다** (미송 출고와 같다).
+ *   defect      불량 — 불량이 왔다(돌려줄 것). 미송처럼 '잡혀' 있다가 교환받으면 풀린다.
+ *               **이미 산 물건이라 장부 금액에 안 더한다.**
+ *   defectOut   불량 교환 받음 — 잡혀 있던 불량을 바꿔 받았다(또는 매입으로 정리했다).
+ *               품목명은 '받은 것', linkName 은 원래 불량 품목명. 장부 금액에 안 더한다.
  */
-export const ITEM_KINDS = ["buy", "pending", "pendingOut", "defect"];
+export const ITEM_KINDS = ["buy", "pending", "pendingOut", "defect", "defectOut"];
 
 export function makeItem(i = {}) {
   // 빈 줄은 수량 0으로 시작한다. 장끼에서 읽어온 값은 그대로 쓴다.
@@ -67,7 +69,8 @@ export function makeItem(i = {}) {
     amount: Number.isFinite(Number(i.amount)) && i.amount !== "" ? Number(i.amount) : unitPrice * qty,
     kind,
     pending: kind === "pending", // 예전 코드와 예전 저장분을 위해 남겨 둔다
-    note: i.note || "", // 불량을 무엇으로 바꿔 받았는지 등
+    note: i.note || "", // 불량 사유, 매입으로 정리했다 등
+    linkName: i.linkName || "", // defectOut 이 푸는 원래 불량 품목명
   };
 }
 

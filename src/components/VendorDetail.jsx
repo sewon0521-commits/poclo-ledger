@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronLeft, MapPin, Phone, Landmark, ReceiptText, Pencil, Clock, Wallet } from "lucide-react";
+import { ChevronLeft, MapPin, Phone, Landmark, ReceiptText, Pencil, Clock, Wallet, AlertTriangle } from "lucide-react";
 import {
   won,
   dayLabel,
@@ -9,7 +9,7 @@ import {
   rangeLabel,
   totals as sumTotals,
 } from "../lib/calc";
-import { pendingOf, balanceRuns, balanceText } from "../lib/pending";
+import { pendingOf, defectOf, balanceRuns, balanceText } from "../lib/pending";
 import { Badge } from "./ui";
 import TxRow from "./TxRow";
 import DateRange from "./DateRange";
@@ -36,6 +36,10 @@ export default function VendorDetail({ vendor, rows, onBack, onEditVendor, rowPr
   const t = useMemo(() => sumTotals(inside), [inside]);
 
   // 아래 셋은 기간과 상관없이 '지금' 상태다 — 잡은 달과 푸는 달이 다르기 때문이다.
+  const openDefects = useMemo(
+    () => defectOf(mine, vendor.id, () => vendor.name),
+    [mine, vendor.id, vendor.name],
+  );
   const openPending = useMemo(
     () => pendingOf(mine, vendor.id, () => vendor.name),
     [mine, vendor.id, vendor.name],
@@ -97,8 +101,27 @@ export default function VendorDetail({ vendor, rows, onBack, onEditVendor, rowPr
       </div>
 
       {/* 지금 걸려 있는 것 — 이 거래처에 가기 전에 봐야 하는 것들 */}
-      {(openPending.length > 0 || balance !== 0 || credit !== 0) && (
+      {(openPending.length > 0 || openDefects.length > 0 || balance !== 0 || credit !== 0) && (
         <div className="mt-3 space-y-2">
+          {openDefects.length > 0 && (
+            <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-rose-900">
+                <AlertTriangle size={14} /> 교환 안 받은 불량 {openDefects.reduce((n, r) => n + r.left, 0)}장
+              </div>
+              <ul className="mt-1 space-y-0.5 text-xs text-rose-800">
+                {openDefects.map((r) => (
+                  <li key={r.key} className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 truncate">
+                      {r.name} <span className="text-rose-500">· {r.firstDate.slice(5).replace("-", "/")}부터</span>
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {r.left}장 {r.unitPrice > 0 && won(r.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {openPending.length > 0 && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
               <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">

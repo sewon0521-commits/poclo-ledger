@@ -12,7 +12,7 @@ import {
 } from "./lib/calc";
 import { makeVendor, makeTx, makeAccount } from "./lib/store";
 import { matchVendor, searchVendors } from "./lib/match";
-import { pendingBoard } from "./lib/pending";
+import { pendingBoard, defectBoard } from "./lib/pending";
 import { readReceipt } from "./lib/receipt";
 import { useLedger } from "./lib/useLedger";
 import Sidebar from "./components/Sidebar";
@@ -76,6 +76,12 @@ export default function App() {
   const days = useMemo(() => groupByDay(shown), [shown]);
   const totals = useMemo(() => sumTotals(shown), [shown]);
   // 미송은 기간과 상관없이 '지금 남은 것'을 본다 — 잡은 달과 받는 달이 다르기 때문이다
+  const defects = useMemo(
+    () => defectBoard(tx, (id) => vendors.find((v) => v.id === id)?.name || ""),
+    [tx, vendors],
+  );
+  // 매입 장부 위 카드에서 미송/불량 중 어느 탭으로 들어왔는지
+  const [pendingTab, setPendingTab] = useState("pending");
   const pending = useMemo(
     () => pendingBoard(tx, (id) => vendors.find((v) => v.id === id)?.name || ""),
     [tx, vendors],
@@ -423,10 +429,15 @@ export default function App() {
                   vendorName={vendorName}
                   rowProps={rowProps}
                   pending={pending}
+                  defects={defects}
                   onPage={setPage}
+                  onPendingTab={(t) => {
+                    setPendingTab(t);
+                    setPage("pending");
+                  }}
                 />
               ) : page === "pending" ? (
-                <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} />
+                <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} initialTab={pendingTab} />
               ) : page === "vendors" ? (
                 <VendorsPage
                   vendors={vendors}

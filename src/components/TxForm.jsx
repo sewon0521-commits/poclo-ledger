@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  X, Check, Plus, Trash2, ChevronDown, ChevronUp, Camera, ImageOff, Clock, Wallet,
+  X, Check, Plus, Trash2, ChevronDown, ChevronUp, Camera, ImageOff, Clock, Wallet, AlertTriangle,
 } from "lucide-react";
 import { won, VAT_RATE, itemsTotal, isPrepaid, MODES, KIND_TONE, kindOf, nextKind } from "../lib/calc";
 import { makeAccount, makeItem } from "../lib/store";
-import { pendingOf, balanceBefore, balanceBasis, balanceText } from "../lib/pending";
+import { pendingOf, defectOf, balanceBefore, balanceBasis, balanceText } from "../lib/pending";
 import VendorPicker from "./VendorPicker";
 
 const digits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
@@ -196,7 +196,13 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
   // 이 거래처에 아직 남아 있는 미송 — 장끼를 넣는 자리에서 바로 보이게
   const vendorNameOf = (id) => vendors.find((v) => v.id === id)?.name || "";
   const openPending = useMemo(
-    () => (vendorId ? pendingOf(allTx, vendorId, vendorNameOf) : []),
+    () => (vendorId ? pendingOf(allTx.filter((t) => t.id !== seed.id), vendorId, vendorNameOf) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allTx, vendorId, vendors],
+  );
+  // 이 거래처에 아직 교환 안 받은 불량 — 미송과 같은 자리에 띄운다
+  const openDefects = useMemo(
+    () => (vendorId ? defectOf(allTx.filter((t) => t.id !== seed.id), vendorId, vendorNameOf) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [allTx, vendorId, vendors],
   );
@@ -398,6 +404,46 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
         </div>
       )}
 
+      {/* 이 거래처에 남은 불량 — 누르면 교환 줄이 만들어진다. 받은 품목으로 이름만 바꾸면 된다 */}
+      {openDefects.length > 0 && (
+        <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-rose-900">
+            <AlertTriangle size={14} /> 이 거래처에 교환 안 받은 불량{" "}
+            {openDefects.reduce((n, r) => n + r.left, 0)}장이 남아 있어요
+          </div>
+          <p className="mt-0.5 mb-2 text-[11px] leading-relaxed text-rose-800">
+            오늘 교환받았으면 눌러서 <b className="font-semibold">교환</b> 줄로 넣으세요. 다른 품목으로 받았으면
+            품목명만 받은 걸로 바꾸면 돼요. 매입으로 정리했으면 비고에 적고 아래 매입금에 금액을 넣으세요.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {openDefects.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() =>
+                  setItems((list) => [
+                    ...list.filter((i) => i.name.trim() || i.amount),
+                    makeItem({
+                      name: r.name,
+                      linkName: r.name,
+                      qty: r.left,
+                      unitPrice: r.unitPrice,
+                      amount: r.left * r.unitPrice,
+                      kind: "defectOut",
+                    }),
+                  ])
+                }
+                className="rounded-lg border border-rose-400 bg-white px-2.5 py-1.5 text-xs font-medium text-rose-900 hover:bg-rose-100"
+              >
+                {r.name} <span className="tabular-nums">{r.left}장</span>
+                {r.unitPrice > 0 && <span className="ml-1 font-normal text-rose-600">{won(r.amount)}</span>}
+                <span className="ml-1 font-normal text-rose-500">· {r.firstDate.slice(5).replace("-", "/")}부터</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 품목 */}
       <div className="mt-4">
         <div className="mb-1.5 flex items-center justify-between">
@@ -470,16 +516,34 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
                           ? "text-emerald-700"
                           : kind.key === "defect"
                             ? "text-rose-700"
-                            : "text-amber-700"
+                            : kind.key === "defectOut"
+                              ? "text-sky-700"
+                              : "text-amber-700"
                       }
                     >
                       {kind.help}
                     </span>
-                    {kind.key === "defect" && (
+                    {kind.key === "defectOut" && (
+                      // 어느 불량을 푸는 교환인지. 위 칩으로 넣으면 이미 골라져 있다.
+                      <select
+                        value={it.linkName}
+                        onChange={(e) => patchItem(it.id, { linkName: e.target.value })}
+                        className={COMPACT + " max-w-full text-xs"}
+                        title="어느 불량을 교환받은 건지"
+                      >
+                        <option value="">원래 불량 고르기 (안 고르면 같은 이름끼리)</option>
+                        {[...new Set([it.linkName, ...openDefects.map((r) => r.name)].filter(Boolean))].map((n) => (
+                          <option key={n} value={n}>
+                            ↔ {n}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {(kind.key === "defect" || kind.key === "defectOut") && (
                       <input
                         value={it.note}
                         onChange={(e) => patchItem(it.id, { note: e.target.value })}
-                        placeholder="무엇으로 바꿔 받았나요"
+                        placeholder={kind.key === "defect" ? "불량 내용 (선택) · 예: 올 풀림" : "비고 (선택) · 예: 매입으로 정리"}
                         className={COMPACT + " min-w-0 flex-1 text-xs"}
                       />
                     )}

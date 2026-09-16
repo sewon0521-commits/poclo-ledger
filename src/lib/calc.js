@@ -117,7 +117,8 @@ export const KINDS = [
   { key: "buy", label: "매입", help: "산 물건 · 돈이 나가요" },
   { key: "pending", label: "미송", help: "돈은 냈고 물건은 나중에" },
   { key: "pendingOut", label: "출고", help: "미송분 도착 · 이미 낸 돈이라 합계에 안 들어가요" },
-  { key: "defect", label: "불량", help: "불량 교환 · 이미 낸 돈이라 합계에 안 들어가요" },
+  { key: "defect", label: "불량", help: "불량 옴 · 교환받을 때까지 남아 있어요 · 합계엔 안 들어가요" },
+  { key: "defectOut", label: "교환", help: "불량 교환 받음 · 이미 낸 돈이라 합계에 안 들어가요" },
 ];
 
 export const KIND_TONE = {
@@ -125,6 +126,7 @@ export const KIND_TONE = {
   pending: "border-amber-500 bg-amber-500 text-white",
   pendingOut: "border-emerald-600 bg-emerald-600 text-white",
   defect: "border-rose-600 bg-rose-600 text-white",
+  defectOut: "border-sky-600 bg-sky-600 text-white",
 };
 
 export const kindOf = (i) => KINDS.find((k) => k.key === (i?.kind || "buy")) || KINDS[0];
@@ -135,7 +137,7 @@ export const nextKind = (kind) => {
 };
 
 /** 이미 낸 돈이라 당일합계에 안 더하는 줄 — 미송 출고, 불량 교환 */
-export const PREPAID_KINDS = ["pendingOut", "defect"];
+export const PREPAID_KINDS = ["pendingOut", "defect", "defectOut"];
 export const isPrepaid = (i) => PREPAID_KINDS.includes(i?.kind);
 
 /**

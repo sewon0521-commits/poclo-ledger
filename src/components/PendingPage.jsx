@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Clock, PackageCheck, AlertTriangle, Wallet, Info, CalendarClock } from "lucide-react";
 import { won, dayLabel, todayISO } from "../lib/calc";
-import { pendingBoard, pendingByDay, defectList, creditBoard, balanceRuns, balanceText } from "../lib/pending";
+import { flowBoard, flowByDay, creditBoard, balanceRuns, balanceText } from "../lib/pending";
 import { Kpi, Empty, Tab } from "./ui";
 
 /**
@@ -18,36 +18,76 @@ const TABS = [
   ["credit", "잔액·매입금", Wallet],
 ];
 
-// ------------------------------------------------------------------- 미송
+// ------------------------------------------------------------- 미송 · 불량
 
-function PendingTab({ board, byDay, onOpen }) {
+/**
+ * 미송과 불량은 같은 모양이다 — 잡히고, 나중에 풀린다. 한 화면 틀로 둘 다 그린다.
+ * 불량은 풀릴 때 **다른 품목으로 바꿔 받는 일이 많아서** '무엇으로 받았는지'를 같이 보여준다.
+ */
+const FLOW_TEXT = {
+  pending: {
+    word: "미송",
+    taken: "미송 잡음",
+    out: "출고 받음",
+    outBadge: "출고",
+    left: "남은 미송",
+    value: "공급가 기준 · 이미 낸 돈",
+    tone: "amber",
+    leftText: "text-amber-700",
+    takenBadge: "bg-amber-100 text-amber-800",
+    outBadgeTone: "bg-emerald-100 text-emerald-800",
+    outText: "text-emerald-600 hover:text-emerald-800",
+    empty: "잡아 둔 미송이 없어요.",
+    emptyHint: "장끼를 넣을 때 품목 오른쪽 칩을 눌러 '미송'으로 바꾸면 여기에 쌓여요.",
+    done: "남은 미송이 없어요. 잡은 것이 전부 출고됐습니다.",
+  },
+  defect: {
+    word: "불량",
+    taken: "불량 옴",
+    out: "교환 받음",
+    outBadge: "교환",
+    left: "남은 불량",
+    value: "공급가 기준 · 이미 낸 돈",
+    tone: "rose",
+    leftText: "text-rose-700",
+    takenBadge: "bg-rose-100 text-rose-800",
+    outBadgeTone: "bg-sky-100 text-sky-800",
+    outText: "text-sky-700 hover:text-sky-900",
+    empty: "잡아 둔 불량이 없어요.",
+    emptyHint:
+      "불량이 오면 그 장끼에서 품목 칩을 '불량'으로 바꿔 두세요. 나중에 교환받을 때 그 거래처 장끼를 넣으면 남은 불량이 뜨고, 눌러서 '교환'으로 넣으면 여기서 빠져요.",
+    done: "남은 불량이 없어요. 전부 교환받았습니다.",
+  },
+};
+
+function FlowTab({ flowKey, board, byDay, onOpen }) {
+  const T = FLOW_TEXT[flowKey];
   const [open, setOpen] = useState("");
 
   if (board.totalLeft === 0 && byDay.length === 0) {
-    return (
-      <Empty
-        title="잡아 둔 미송이 없어요."
-        hint="장끼를 넣을 때 품목 오른쪽 칩을 눌러 '미송'으로 바꾸면 여기에 쌓여요."
-      />
-    );
+    return <Empty title={T.empty} hint={T.emptyHint} />;
   }
 
   return (
     <>
       <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
         <Kpi
-          label="남은 미송"
+          label={T.left}
           value={board.totalLeft + "장"}
-          tone={board.totalLeft > 0 ? "amber" : undefined}
+          tone={board.totalLeft > 0 ? T.tone : undefined}
           sub={`거래처 ${board.open.length}곳`}
         />
-        <Kpi label="그 값어치" value={won(board.totalAmount)} sub="공급가 기준 · 이미 낸 돈" />
-        <Kpi label="기록된 품목" value={board.groups.reduce((n, g) => n + g.lines.length, 0) + "개"} sub="출고 끝난 것 포함" />
+        <Kpi label="그 값어치" value={won(board.totalAmount)} sub={T.value} />
+        <Kpi
+          label="기록된 품목"
+          value={board.groups.reduce((n, g) => n + g.lines.length, 0) + "개"}
+          sub={`${T.out.split(" ")[0]} 끝난 것 포함`}
+        />
       </div>
 
       {board.open.length === 0 ? (
         <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm text-emerald-800">
-          <b className="font-semibold">남은 미송이 없어요.</b> 잡은 것이 전부 출고됐습니다.
+          <b className="font-semibold">{T.done}</b>
         </div>
       ) : (
         <div className="mb-6 space-y-2.5">
@@ -67,7 +107,7 @@ function PendingTab({ board, byDay, onOpen }) {
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
-                  <span className="block font-semibold tabular-nums text-amber-700">{g.left}장</span>
+                  <span className={"block font-semibold tabular-nums " + T.leftText}>{g.left}장</span>
                   <span className="text-xs tabular-nums text-stone-400">{won(g.amount)}</span>
                 </span>
               </button>
@@ -89,7 +129,8 @@ function PendingTab({ board, byDay, onOpen }) {
                                   onClick={() => onOpen(d.txId)}
                                   className="block text-left hover:text-rose-700"
                                 >
-                                  {dayLabel(d.date)} 미송 {d.qty}장 잡음
+                                  {dayLabel(d.date)} {T.taken} {d.qty}장
+                                  {d.note && <span className="text-stone-500"> · {d.note}</span>}
                                 </button>
                               ))}
                               {r.outDates.map((d, i) => (
@@ -97,19 +138,23 @@ function PendingTab({ board, byDay, onOpen }) {
                                   key={"o" + i}
                                   type="button"
                                   onClick={() => onOpen(d.txId)}
-                                  className="block text-left text-emerald-600 hover:text-emerald-800"
+                                  className={"block text-left " + T.outText}
                                 >
-                                  {dayLabel(d.date)} {d.qty}장 출고 받음
+                                  {dayLabel(d.date)} {d.qty}장 {T.out}
+                                  {d.got && <> → {d.got}</>}
+                                  {d.note && <span className="text-stone-500"> · {d.note}</span>}
                                 </button>
                               ))}
                             </div>
                           )}
                         </td>
                         <td className="px-2 py-2 text-right text-xs whitespace-nowrap tabular-nums text-stone-400">
-                          {r.taken}장 잡고 {r.out}장 받음
+                          {r.taken}장 {T.word === "미송" ? "잡고" : "오고"} {r.out}장{" "}
+                          {T.out.split(" ")[0]}
+                          <span className="block">{dayLabel(r.firstDate)}부터</span>
                         </td>
                         <td className="py-2 pr-4 pl-2 text-right whitespace-nowrap">
-                          <span className="font-semibold tabular-nums text-amber-700">{r.left}장</span>
+                          <span className={"font-semibold tabular-nums " + T.leftText}>{r.left}장</span>
                           {r.unitPrice > 0 && (
                             <span className="block text-[11px] tabular-nums text-stone-400">
                               {won(r.amount)}
@@ -123,7 +168,7 @@ function PendingTab({ board, byDay, onOpen }) {
 
               {open !== g.vendorId && (
                 <div className="border-t border-stone-100 px-4 py-1.5 text-[11px] text-stone-400">
-                  거래처 이름을 누르면 잡은 날·받은 날이 보여요.
+                  거래처 이름을 누르면 {T.word === "미송" ? "잡은 날·받은 날" : "불량 온 날·교환받은 날"}이 보여요.
                 </div>
               )}
             </section>
@@ -141,12 +186,13 @@ function PendingTab({ board, byDay, onOpen }) {
                 <ul className="space-y-1 text-sm">
                   {d.taken.map((r, i) => (
                     <li key={"t" + i} className="flex items-baseline justify-between gap-2">
-                      <span className="min-w-0 truncate text-stone-600">
-                        <span className="mr-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
-                          미송
+                      <button type="button" onClick={() => onOpen(r.txId)} className="min-w-0 truncate text-left text-stone-600">
+                        <span className={"mr-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium " + T.takenBadge}>
+                          {T.word}
                         </span>
                         {r.vendor} · {r.name}
-                      </span>
+                        {r.note && <span className="text-stone-400"> · {r.note}</span>}
+                      </button>
                       <span className="shrink-0 tabular-nums text-stone-500">
                         {r.qty}장 {won(r.amount)}
                       </span>
@@ -154,12 +200,14 @@ function PendingTab({ board, byDay, onOpen }) {
                   ))}
                   {d.out.map((r, i) => (
                     <li key={"o" + i} className="flex items-baseline justify-between gap-2">
-                      <span className="min-w-0 truncate text-stone-600">
-                        <span className="mr-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">
-                          출고
+                      <button type="button" onClick={() => onOpen(r.txId)} className="min-w-0 truncate text-left text-stone-600">
+                        <span className={"mr-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium " + T.outBadgeTone}>
+                          {T.outBadge}
                         </span>
                         {r.vendor} · {r.name}
-                      </span>
+                        {r.got && <span className="text-stone-500"> → {r.got}</span>}
+                        {r.note && <span className="text-stone-400"> · {r.note}</span>}
+                      </button>
                       <span className="shrink-0 tabular-nums text-stone-400">{r.qty}장</span>
                     </li>
                   ))}
@@ -169,64 +217,6 @@ function PendingTab({ board, byDay, onOpen }) {
           </div>
         </section>
       )}
-    </>
-  );
-}
-
-// ------------------------------------------------------------------ 불량
-
-function DefectTab({ rows, onOpen }) {
-  if (rows.length === 0) {
-    return (
-      <Empty
-        title="불량으로 잡은 게 없어요."
-        hint="장끼에서 품목 칩을 '불량'으로 바꾸면 무엇으로 바꿔 받았는지까지 여기 남아요."
-      />
-    );
-  }
-  const total = rows.reduce((s, r) => s + Math.abs(r.amount), 0);
-  const qty = rows.reduce((s, r) => s + r.qty, 0);
-
-  return (
-    <>
-      <div className="mb-4 grid grid-cols-2 gap-2.5">
-        <Kpi label="불량 건" value={rows.length + "건"} sub={`${qty}장`} tone="rose" />
-        <Kpi label="그 값어치" value={won(total)} sub="공급가 기준 · 이미 낸 돈이라 합계엔 안 들어가요" />
-      </div>
-      <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-        <table className="w-full min-w-[560px] text-sm">
-          <thead>
-            <tr className="border-b border-stone-200 text-xs text-stone-400">
-              {["날짜", "거래처", "품목", "수량", "금액", "바꿔 받은 것"].map((h, i) => (
-                <th
-                  key={h}
-                  className={"px-3 py-2.5 font-medium " + (i >= 3 && i <= 4 ? "text-right" : "text-left")}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-stone-100">
-            {rows.map((r) => (
-              <tr
-                key={r.id}
-                onClick={() => onOpen(r.txId)}
-                className="cursor-pointer hover:bg-stone-50"
-              >
-                <td className="px-3 py-2 whitespace-nowrap text-stone-500">{dayLabel(r.date)}</td>
-                <td className="px-3 py-2 text-stone-800">{r.vendor}</td>
-                <td className="px-3 py-2 text-stone-800">{r.name}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-stone-600">{r.qty}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-stone-600">{won(r.amount)}</td>
-                <td className="px-3 py-2 text-stone-500">
-                  {r.note || <span className="text-stone-300">아직 안 적었어요</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </>
   );
 }
@@ -388,16 +378,22 @@ function CreditTab({ credit, balances, vendorName, onOpen }) {
 
 // ------------------------------------------------------------------- 화면
 
-export default function PendingPage({ tx, vendors, onOpenTx }) {
-  const [tab, setTab] = useState("pending");
+export default function PendingPage({ tx, vendors, onOpenTx, initialTab = "pending" }) {
+  const [tab, setTab] = useState(initialTab);
+  // 매입 장부 위 불량 카드에서 넘어오면 불량 탭으로 연다
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    setTab(initialTab);
+  }, [initialTab]);
   const vendorName = useMemo(
     () => (id) => vendors.find((v) => v.id === id)?.name || "",
     [vendors],
   );
 
-  const board = useMemo(() => pendingBoard(tx, vendorName), [tx, vendorName]);
-  const byDay = useMemo(() => pendingByDay(tx, vendorName), [tx, vendorName]);
-  const defects = useMemo(() => defectList(tx, vendorName), [tx, vendorName]);
+  const board = useMemo(() => flowBoard(tx, vendorName, "pending"), [tx, vendorName]);
+  const byDay = useMemo(() => flowByDay(tx, vendorName, "pending"), [tx, vendorName]);
+  const dBoard = useMemo(() => flowBoard(tx, vendorName, "defect"), [tx, vendorName]);
+  const dByDay = useMemo(() => flowByDay(tx, vendorName, "defect"), [tx, vendorName]);
   const credit = useMemo(() => creditBoard(tx, vendorName, todayISO()), [tx, vendorName]);
   const balances = useMemo(() => balanceRuns(tx), [tx]);
 
@@ -424,9 +420,9 @@ export default function PendingPage({ tx, vendors, onOpenTx }) {
       </div>
 
       {tab === "pending" ? (
-        <PendingTab board={board} byDay={byDay} onOpen={open} />
+        <FlowTab flowKey="pending" board={board} byDay={byDay} onOpen={open} />
       ) : tab === "defect" ? (
-        <DefectTab rows={defects} onOpen={open} />
+        <FlowTab flowKey="defect" board={dBoard} byDay={dByDay} onOpen={open} />
       ) : (
         <CreditTab credit={credit} balances={balances} vendorName={vendorName} onOpen={open} />
       )}
@@ -435,8 +431,8 @@ export default function PendingPage({ tx, vendors, onOpenTx }) {
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
           여기 있는 건 전부 <b className="font-semibold">장끼에서 넣은 것</b>이에요. 품목 오른쪽
-          칩을 눌러 <b className="font-semibold">매입 → 미송 → 출고 → 불량</b> 으로 바꾸면 되고,{" "}
-          <PackageCheck size={12} className="inline align-[-2px]" /> 출고로 잡은 줄은{" "}
+          칩을 눌러 <b className="font-semibold">매입 → 미송 → 출고 → 불량 → 교환</b> 으로 바꾸면 되고,{" "}
+          <PackageCheck size={12} className="inline align-[-2px]" /> 출고·불량·교환 줄은{" "}
           <b className="font-semibold">당일합계에 안 들어갑니다</b> — 이미 낸 돈이니까요.
         </span>
       </p>

@@ -1,4 +1,4 @@
-import { Trash2, Check, Pencil, ImageOff, Clock, PackageCheck, AlertTriangle } from "lucide-react";
+import { Trash2, Check, Pencil, ImageOff, Clock, PackageCheck, AlertTriangle, RefreshCw } from "lucide-react";
 import { won, derive, hasPending, hasKind } from "../lib/calc";
 import { MethodChip } from "./ui";
 
@@ -39,7 +39,10 @@ export default function TxRow({
             />
           )}
           {hasKind(tx, "defect") && (
-            <AlertTriangle size={12} className="shrink-0 text-rose-500" title="불량 있음" />
+            <AlertTriangle size={12} className="shrink-0 text-rose-500" title="불량 옴" />
+          )}
+          {hasKind(tx, "defectOut") && (
+            <RefreshCw size={12} className="shrink-0 text-sky-600" title="불량 교환 받음" />
           )}
         </div>
         {sub && <div className="truncate text-xs text-stone-400">{sub}</div>}
