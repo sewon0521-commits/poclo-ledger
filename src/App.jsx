@@ -26,6 +26,7 @@ import SalesPage from "./components/SalesPage";
 import PnlPage from "./components/PnlPage";
 import PendingPage from "./components/PendingPage";
 import PricingPage from "./components/PricingPage";
+import ReelsPage from "./components/ReelsPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
@@ -408,6 +409,8 @@ export default function App() {
                   onSave={S.savePricing}
                   onRemove={S.removePricing}
                 />
+              ) : page === "reels" ? (
+                <ReelsPage items={S.reels} onSave={S.saveReel} onRemove={S.removeReel} />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />
               ) : page === "ledger" ? (

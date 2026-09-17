@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Clock,
   Calculator,
+  Clapperboard,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -61,7 +62,15 @@ export const SECTIONS = [
     key: "content",
     label: "콘텐츠",
     icon: Palette,
-    groups: [{ group: "기본", items: [{ key: "content", label: "콘텐츠", icon: Palette }] }],
+    groups: [
+      {
+        group: "기본",
+        items: [
+          { key: "reels", label: "릴스 기획", icon: Clapperboard },
+          { key: "content", label: "콘텐츠", icon: Palette },
+        ],
+      },
+    ],
   },
 ];
 

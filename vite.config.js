@@ -25,7 +25,9 @@ function devApi() {
         process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
       }
 
-      server.middlewares.use("/api/read-receipt", async (req, res, next) => {
+      // api/ 폴더의 함수들을 개발 서버에도 그대로 물린다
+      for (const name of ["read-receipt", "reels"]) {
+      server.middlewares.use(`/api/${name}`, async (req, res, next) => {
         if (req.method !== "POST") return next();
 
         let raw = "";
@@ -42,7 +44,7 @@ function devApi() {
           if (tooBig) {
             res.statusCode = 413;
             res.setHeader("Content-Type", "application/json");
-            return res.end(JSON.stringify({ error: "too_large", message: "사진이 너무 커요." }));
+            return res.end(JSON.stringify({ error: "too_large", message: "보낸 내용이 너무 커요." }));
           }
           try {
             req.body = raw ? JSON.parse(raw) : {};
@@ -61,16 +63,17 @@ function devApi() {
           };
 
           try {
-            const { default: handler } = await server.ssrLoadModule("/api/read-receipt.js");
+            const { default: handler } = await server.ssrLoadModule(`/api/${name}.js`);
             await handler(req, res);
           } catch (err) {
             server.config.logger.error("[dev-api] " + (err?.stack || err));
             res.statusCode = 500;
             res.setHeader("Content-Type", "application/json; charset=utf-8");
-            res.end(JSON.stringify({ error: "dev", message: "개발 서버에서 장끼 읽기에 실패했어요." }));
+            res.end(JSON.stringify({ error: "dev", message: `개발 서버에서 ${name} 처리에 실패했어요.` }));
           }
         });
       });
+      }
     },
   };
 }

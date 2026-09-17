@@ -14,6 +14,7 @@ import { SEED_DAYS, SEED_MONTHLY } from "./seed";
 const ROWS_KEY = "poclo_sales_rows";
 const CONF_KEY = "poclo_sales_conf";
 const PRICING_KEY = "poclo_pricing_items";
+const REELS_KEY = "poclo_reels_items";
 
 const readLocal = (key, fallback) => {
   try {
@@ -80,6 +81,8 @@ export function useSales(session) {
   const [missingCost, setMissingCost] = useState(null); // { days: {날짜: [{no,name,qty}]}, checked }
   // 판매가 계산기에서 담아 둔 상품들 — settings 의 'pricing' 키
   const [pricing, setPricing] = useState(() => readLocal(PRICING_KEY, []));
+  // 릴스 기획 라이브러리 — settings 의 'reels' 키
+  const [reels, setReels] = useState(() => readLocal(REELS_KEY, []));
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
@@ -88,17 +91,22 @@ export function useSales(session) {
 
   const load = useCallback(async () => {
     try {
-      const [s, c, m, p] = await Promise.all([
+      const [s, c, m, p, rl] = await Promise.all([
         supabase.from("sales_daily").select("*").order("date"),
         supabase.from("settings").select("value").eq("key", "sales").maybeSingle(),
         // 공급가 없이 팔린 품목 — 새벽 자동 갱신(daily.py)이 채운다
         supabase.from("settings").select("value").eq("key", "missing_cost").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "pricing").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "reels").maybeSingle(),
       ]);
       if (!m.error) setMissingCost(m.data?.value || null);
       if (!p.error && p.data?.value?.items) {
         setPricing(p.data.value.items);
         writeLocal(PRICING_KEY, p.data.value.items);
+      }
+      if (!rl.error && rl.data?.value?.items) {
+        setReels(rl.data.value.items);
+        writeLocal(REELS_KEY, rl.data.value.items);
       }
       if (s.error) throw s.error;
       remoteOk.current = true;
@@ -287,35 +295,58 @@ export function useSales(session) {
   );
 
   /**
-   * 판매가 계산기 목록을 한 줄 바꾼다. 서버 최신을 읽어 그 줄만 넣고/빼고 쓴다 —
-   * 둘이 동시에 담아도 서로 안 지워지게 (삼촌비와 같은 방식).
-   * `change(items)` 가 새 목록을 돌려준다.
+   * settings 안의 목록 하나를 바꾼다(판매가 계산기 · 릴스 라이브러리).
+   * 서버 최신을 읽어 그 줄만 넣고/빼고 쓴다 — 둘이 동시에 담아도 서로 안 지워지게
+   * (삼촌비와 같은 방식). `change(items)` 가 새 목록을 돌려준다.
    */
-  const changePricing = useCallback(
-    async (change) => {
-      let base = pricing;
+  const changeList = useCallback(
+    async (key, localKey, current, setLocal, change, what) => {
+      let base = current;
       if (online && remoteOk.current) {
         const { data, error } = await supabase
           .from("settings")
           .select("value")
-          .eq("key", "pricing")
+          .eq("key", key)
           .maybeSingle();
         if (!error) base = data?.value?.items || [];
       }
       const items = change(base);
-      setPricing(items);
-      writeLocal(PRICING_KEY, items);
+      setLocal(items);
+      writeLocal(localKey, items);
       if (online && remoteOk.current) {
-        const { error } = await supabase
-          .from("settings")
-          .upsert({ key: "pricing", value: { items } });
+        const { error } = await supabase.from("settings").upsert({ key, value: { items } });
         if (error) {
-          setNotice("판매가 목록을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+          setNotice(`${what}을(를) 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.`);
           console.error(error);
         }
       }
     },
-    [pricing, online],
+    [online],
+  );
+
+  const changePricing = useCallback(
+    (change) => changeList("pricing", PRICING_KEY, pricing, setPricing, change, "판매가 목록"),
+    [changeList, pricing],
+  );
+  const changeReels = useCallback(
+    (change) => changeList("reels", REELS_KEY, reels, setReels, change, "릴스 기획"),
+    [changeList, reels],
+  );
+
+  /** 릴스 기획 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 */
+  const saveReel = useCallback(
+    (item) =>
+      changeReels((items) => {
+        const next = { ...item, savedAt: new Date().toISOString() };
+        return items.some((i) => i.id === item.id)
+          ? items.map((i) => (i.id === item.id ? { ...i, ...next } : i))
+          : [next, ...items];
+      }),
+    [changeReels],
+  );
+  const removeReel = useCallback(
+    (id) => changeReels((items) => items.filter((i) => i.id !== id)),
+    [changeReels],
   );
 
   /** 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 넣는다 */
@@ -350,6 +381,9 @@ export function useSales(session) {
     pricing,
     savePricing,
     removePricing,
+    reels,
+    saveReel,
+    removeReel,
     reload: load,
     saveConf,
     putSamchon,
