@@ -71,6 +71,8 @@ export function makeItem(i = {}) {
     pending: kind === "pending", // 예전 코드와 예전 저장분을 위해 남겨 둔다
     note: i.note || "", // 불량 사유, 매입으로 정리했다 등
     linkName: i.linkName || "", // defectOut 이 푸는 원래 불량 품목명
+    // 불량 줄이 '이미 낸 물건(미송 출고분)에서 나온 것'인지. null이면 자동 판단(calc.isPrepaid)
+    fromPaid: i.fromPaid === true ? true : i.fromPaid === false ? false : null,
   };
 }
 

@@ -239,7 +239,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
   // 미송 출고분만 받은 날은 낼 돈이 0원이다. 그런 장끼도 남겨야 하므로
   // 금액과 결제방식을 강요하지 않는다 — 0원에는 부가세도 없다.
   const onlyPrepaid =
-    amount === 0 && items.some((i) => isPrepaid(i) && (i.name.trim() || i.qty));
+    amount === 0 && items.some((i) => isPrepaid(i, items) && (i.name.trim() || i.qty));
 
   const [touched, setTouched] = useState(false);
   const missing = [];
@@ -482,7 +482,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
                     onChange={(v) => patchItem(it.id, { amount: Number(v || 0) })}
                     placeholder="금액"
                     className={
-                      "w-[5.5rem] shrink-0 " + (isPrepaid(it) ? "text-stone-400" : "")
+                      "w-[5.5rem] shrink-0 " + (isPrepaid(it, items) ? "text-stone-400" : "")
                     }
                     compact
                   />
@@ -539,6 +539,22 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
                         ))}
                       </select>
                     )}
+                    {kind.key === "defect" && (
+                      // 미송으로 받은 물건에서 나온 불량이면 그 값은 이미 냈다 → 합계에서 뺀다.
+                      // 같은 장끼에 같은 품목 '출고' 줄이 있으면 저절로 빠지고, 여기서 뒤집을 수 있다.
+                      <button
+                        type="button"
+                        onClick={() => patchItem(it.id, { fromPaid: !isPrepaid(it, items) })}
+                        className={
+                          "shrink-0 rounded border px-1.5 py-0.5 text-[11px] font-medium " +
+                          (isPrepaid(it, items)
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                            : "border-stone-300 bg-white text-stone-500")
+                        }
+                      >
+                        {isPrepaid(it, items) ? "합계에서 뺌 (이미 낸 것)" : "합계에 넣음 (오늘 산 것)"}
+                      </button>
+                    )}
                     {(kind.key === "defect" || kind.key === "defectOut") && (
                       <input
                         value={it.note}
@@ -556,7 +572,7 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
 
         <p className="mt-2 text-right text-xs tabular-nums text-stone-500">
           품목 합계 {won(itemSum)}
-          {items.some(isPrepaid) && (
+          {items.some((i) => isPrepaid(i, items)) && (
             <span className="ml-1 text-emerald-700">· 미송 출고·교환받은 줄은 뺐어요</span>
           )}
         </p>

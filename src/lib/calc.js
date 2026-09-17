@@ -138,11 +138,32 @@ export const nextKind = (kind) => {
 
 /**
  * 이미 낸 돈이라 당일합계에 안 더하는 줄 — 미송 출고, 불량 교환받음.
- * **불량(defect)은 여기 없다.** 불량은 그냥 산 물건인데, 나중에 교환받을 때 찾기 쉽게
+ * **불량(defect)은 원래 여기 없다.** 불량은 그냥 산 물건인데 나중에 교환받을 때 찾기 쉽게
  * 표시해 둔 것이라 매입 금액에 그대로 들어간다 (세원 정정 2026-09-16).
  */
 export const PREPAID_KINDS = ["pendingOut", "defectOut"];
-export const isPrepaid = (i) => PREPAID_KINDS.includes(i?.kind);
+
+const sameName = (a, b) =>
+  String(a || "").replace(/\s+/g, "").toLowerCase() ===
+  String(b || "").replace(/\s+/g, "").toLowerCase();
+
+/**
+ * 이 줄이 당일합계에서 빠지나.
+ *
+ * 불량은 보통 매입에 들어가지만, **미송으로 받은 물건에서 나온 불량**은 그 값을 이미 냈다.
+ * 그래서 같은 장끼에 같은 품목의 '출고' 줄이 있으면 그 불량은 자동으로 뺀다
+ * (세원 2026-09-17: "미송 출고건인데 불량이 1개 생겨서 품목 합계가 다르게 나온 것").
+ * 사람이 `fromPaid` 로 뒤집을 수 있다 — true면 무조건 빼고, false면 무조건 넣는다.
+ */
+export const isPrepaid = (i, items) => {
+  if (PREPAID_KINDS.includes(i?.kind)) return true;
+  if (i?.kind !== "defect") return false;
+  if (i.fromPaid === true) return true;
+  if (i.fromPaid === false) return false;
+  return (items || []).some(
+    (o) => o !== i && o.kind === "pendingOut" && sameName(o.name, i.name),
+  );
+};
 
 /**
  * 품목 행 합계 — 당일합계와 다를 수 있어 참고용으로만 보여준다.
@@ -151,7 +172,7 @@ export const isPrepaid = (i) => PREPAID_KINDS.includes(i?.kind);
  * 여기서 안 빼면 같은 물건을 두 번 사는 셈이 된다. 불량 표시 줄은 매입이라 더한다.
  */
 export const itemsTotal = (items = []) =>
-  items.reduce((s, i) => s + (isPrepaid(i) ? 0 : Number(i.amount) || 0), 0);
+  items.reduce((s, i) => s + (isPrepaid(i, items) ? 0 : Number(i.amount) || 0), 0);
 
 export const hasPending = (t) => (t.items || []).some((i) => (i.kind || "") === "pending" || i.pending);
 export const hasKind = (t, kind) => (t.items || []).some((i) => (i.kind || "buy") === kind);
