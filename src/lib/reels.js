@@ -39,3 +39,30 @@ export const readScript = ({ frames, kind, transcript, memo }) =>
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
 export const adaptScript = ({ reference, url, memo }) =>
   call({ mode: "adapt", reference, url, memo });
+
+// ---------------------------------------------------------------- 빈칸 틀
+
+/** 빈칸 틀 + 채운 값 → 완성 대본 */
+export function fillTemplate(template, filled) {
+  const map = new Map((filled || []).map((f) => [f.key, f.value]));
+  return String(template || "").replace(
+    /\{\{\s*([^}]+?)\s*\}\}/g,
+    (_, k) => map.get(k) ?? `{{${k}}}`,
+  );
+}
+
+/** 틀 한 줄을 글자와 빈칸 조각으로 쪼갠다 — 화면에서 빈칸만 칩으로 그리려고 */
+export function splitTemplate(line) {
+  const out = [];
+  let rest = String(line || "");
+  for (;;) {
+    const m = rest.match(/\{\{\s*([^}]+?)\s*\}\}/);
+    if (!m) {
+      if (rest) out.push({ text: rest });
+      return out;
+    }
+    if (m.index > 0) out.push({ text: rest.slice(0, m.index) });
+    out.push({ slot: m[1] });
+    rest = rest.slice(m.index + m[0].length);
+  }
+}

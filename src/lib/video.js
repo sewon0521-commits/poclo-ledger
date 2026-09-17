@@ -51,6 +51,13 @@ export async function extractFrames(file, { longEdge = 900, quality = 0.7, onSte
     const ctx = canvas.getContext("2d");
 
     const frames = [];
+    // 목록 카드에 쓸 작은 썸네일 (Storage 에 따로 올린다)
+    const thumbCanvas = document.createElement("canvas");
+    const tScale = Math.min(1, 420 / Math.max(w, h));
+    thumbCanvas.width = Math.round(w * tScale);
+    thumbCanvas.height = Math.round(h * tScale);
+    const tctx = thumbCanvas.getContext("2d");
+    let thumb = null;
     for (let i = 0; i < count; i++) {
       const at = seconds ? from + step * i : 0;
       await new Promise((resolve, reject) => {
@@ -64,9 +71,14 @@ export async function extractFrames(file, { longEdge = 900, quality = 0.7, onSte
         at: Math.round(at * 10) / 10,
         data: canvas.toDataURL("image/jpeg", quality).split(",")[1],
       });
+      // 두 번째 장면을 썸네일로 — 첫 장면은 검은 화면이거나 인트로인 경우가 많다
+      if (i === Math.min(1, count - 1)) {
+        tctx.drawImage(video, 0, 0, thumbCanvas.width, thumbCanvas.height);
+        thumb = await new Promise((r) => thumbCanvas.toBlob(r, "image/jpeg", 0.75));
+      }
       onStep?.(i + 1, count);
     }
-    return { frames, seconds: Math.round(seconds * 10) / 10, width: w, height: h };
+    return { frames, thumb, seconds: Math.round(seconds * 10) / 10, width: w, height: h };
   } finally {
     URL.revokeObjectURL(url);
   }

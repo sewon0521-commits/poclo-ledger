@@ -410,7 +410,13 @@ export default function App() {
                   onRemove={S.removePricing}
                 />
               ) : page === "reels" ? (
-                <ReelsPage items={S.reels} onSave={S.saveReel} onRemove={S.removeReel} />
+                <ReelsPage
+                  items={S.reels}
+                  onSave={S.saveReel}
+                  onRemove={S.removeReel}
+                  putFile={S.putReelFile}
+                  fileUrl={S.reelFileUrl}
+                />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />
               ) : page === "ledger" ? (

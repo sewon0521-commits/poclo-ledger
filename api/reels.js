@@ -41,11 +41,45 @@ const ScriptSchema = z.object({
     )
     .describe("장면 흐름. 보이는 만큼만"),
   structure: z.object({
-    hookType: z.string().describe("훅 방식. 예: '질문형', '결과 먼저', '고민 공감', '숫자 제시'"),
+    hookType: z.string().describe("훅 유형 한 줄. 예: '군중심리형 : 나만 모르고 있었나?', '고민 공감형', '결과 먼저'"),
     flow: z.string().describe("전개 구조를 화살표로. 예: '훅 → 고민 → 착용컷 3벌 → 가격 → CTA'"),
     cta: z.string().describe("마지막에 시키는 행동. 없으면 '없음'"),
     whyItWorks: z.string().describe("이 릴스가 먹히는 이유 2~3줄"),
   }),
+  empathy: z.string().describe("공감 포인트 — 보는 사람이 왜 손가락을 멈추는지 2~3줄"),
+  hookFormula: z.object({
+    line: z.string().describe("훅 문장 그대로"),
+    a: z.string().describe("공식의 A 자리가 무엇인지. 예: '타겟이 이미 알고 있어야 할 행동'"),
+    b: z.string().describe("공식의 B 자리. 예: '현재 타겟의 상태(아직 없음)'"),
+    why: z.string().describe("이 공식이 왜 멈추게 하는지 한두 줄"),
+  }),
+  lines: z
+    .array(
+      z.object({
+        role: z.string().describe("이 문장의 역할. '후킹' / '본문' / '심리' / 'CTA' 중 하나"),
+        text: z.string().describe("문장 그대로"),
+        why: z.string().describe("이 문장이 하는 일 2~3줄. 어떤 기술인지"),
+      }),
+    )
+    .describe("문장별 분석"),
+  template: z
+    .string()
+    .describe(
+      "대본을 **빈칸 있는 틀**로 바꾼 것. 상품마다 달라지는 자리를 {{핵심소재}} 처럼 중괄호 두 개로 " +
+      "바꾸고 나머지 말투·구조는 그대로 둔다. 줄 앞에 [0:03] 처럼 시점을 붙인다. " +
+      "**조사(이/가·은/는·라·로·에)는 빈칸 안에 넣는다** — 상품에 따라 조사가 달라지기 때문이다. " +
+      "예: 원문이 '바스락거리는 나일론 재질이라 여름에 입기 진짜 좋고' 면 " +
+      "'[0:03] {{핵심소재}} {{체감장점}}' 이고, 핵심소재 자리의 원래 말은 '바스락거리는 나일론 재질이라' 다.",
+    ),
+  slots: z
+    .array(
+      z.object({
+        key: z.string().describe("빈칸 이름. template 의 {{ }} 안과 정확히 같게. 예: '핵심소재'"),
+        hint: z.string().describe("이 칸에 무엇을 넣는지 한 줄. 예: '상품의 주요 원단·소재명'"),
+        original: z.string().describe("레퍼런스에서는 이 자리에 뭐라고 썼는지. 조사까지 그대로"),
+      }),
+    )
+    .describe("빈칸 목록. 3~7개. 상품이 바뀌면 달라지는 것만 빈칸으로 만든다"),
   note: z.string().describe("소리를 못 들어서 놓쳤을 수 있는 부분 등 솔직한 한계. 없으면 빈 문자열"),
 });
 
@@ -56,7 +90,12 @@ const SCRIPT_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. �
 1. 화면에 박힌 자막을 **글자 그대로** 읽어라. 자막이 릴스 대본이다. 맞춤법을 고치지 마라.
 2. 자막이 없으면 화면(옷·동작·장소·표정)만 보고 어떤 영상인지 읽어라.
 3. 아래에 '받아쓴 말'이 주어졌다면 그것이 실제 음성이다. 자막과 합쳐 하나의 대본으로 정리해라.
-4. 대본을 뽑은 뒤 **구조를 분석**해라 — 훅 방식, 전개, CTA, 왜 먹히는지.
+4. 대본을 뽑은 뒤 **구조를 분석**해라 — 공감 포인트, 훅 공식(A/B), 문장별 역할, 전개, CTA.
+5. 마지막으로 이 대본을 **다른 상품에도 쓸 수 있는 틀**로 바꿔라(template + slots).
+   말투·리듬·구조는 그대로 두고, **상품이 바뀌면 달라지는 자리만** {{핵심소재}} 처럼 빈칸으로 판다.
+   빈칸은 3~7개. 너무 잘게 쪼개면 쓰기 어렵다.
+   **조사는 빈칸 안에 넣어라.** 상품에 따라 '~이라/~라/~는' 이 달라지므로 빈칸 밖에 두면
+   '있어라' 처럼 말이 어긋난다. 빈칸을 뺀 나머지 글자만 이어 읽어도 문장이 어색하지 않아야 한다.
 
 **규칙**
 - 결과는 전부 **한국어**로 쓴다.
@@ -75,6 +114,14 @@ const AdaptSchema = z.object({
     target: z.string().describe("누구에게 팔 옷인지"),
     cautions: z.string().describe("영상에서 말하면 안 되거나 조심할 점. 없으면 빈 문자열"),
   }),
+  filled: z
+    .array(
+      z.object({
+        key: z.string().describe("빈칸 이름. 레퍼런스 slots 의 key 와 같게"),
+        value: z.string().describe("우리 상품으로 채운 말. 상품 글에 있는 사실만"),
+      }),
+    )
+    .describe("레퍼런스 틀의 빈칸을 우리 상품으로 채운 것. slots 가 주어졌으면 전부 채운다"),
   hook: z.string().describe("우리 릴스의 첫 1~3초 훅. 레퍼런스의 훅 방식을 따르되 우리 상품으로"),
   script: z.string().describe("우리 릴스 대본 전체. 자막으로 그대로 쓸 수 있게 줄바꿈으로"),
   scenes: z
@@ -100,6 +147,10 @@ const ADAPT_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기
 2. 레퍼런스의 **구조(훅 방식 → 전개 → CTA)를 그대로 빌려서**, 내용만 우리 상품으로 바꾼 대본을 써라.
    베끼는 게 아니라 **틀을 가져오는 것**이다.
 3. 촬영할 사람이 보고 바로 찍을 수 있게 **장면별 촬영 지시**를 붙여라.
+4. 레퍼런스에 **빈칸 틀(template/slots)** 이 있으면 그 빈칸을 우리 상품으로 **전부 채워라**(filled).
+   빈칸에 넣는 말은 **상품 글에 실제로 있는 사실**이어야 한다.
+   **채운 말을 틀에 그대로 끼웠을 때 문장이 자연스러워야 한다** — 조사(이라/라/는/가)까지 맞춰서 쓰고,
+   빈칸 바로 뒤에 오는 글자와 겹치지 않게 해라. 레퍼런스의 original 이 어떻게 끝났는지 보고 맞춘다.
 
 **포클로 톤**
 - 20~30대 여성이 친구에게 말하듯. 과장 광고 문구("최저가", "1위") 쓰지 마라.
@@ -254,6 +305,10 @@ export default async function handler(req, res) {
         `훅: ${ref.hook || ""}`,
         `구조: ${ref.structure?.flow || ""} (훅 방식: ${ref.structure?.hookType || ""}, CTA: ${ref.structure?.cta || ""})`,
         `대본:\n${ref.script || ""}`,
+        ref.template ? `빈칸 틀:\n${ref.template}` : "",
+        ref.slots?.length
+          ? `빈칸 목록:\n${ref.slots.map((s) => `- ${s.key}: ${s.hint} (레퍼런스에선 "${s.original}")`).join("\n")}`
+          : "",
         "\n--- 우리 상품 판매페이지 ---",
         `주소: ${url}`,
         `상품명: ${product.title}`,

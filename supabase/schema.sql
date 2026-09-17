@@ -136,6 +136,31 @@ drop policy if exists "로그인한 사람은 장끼 지우기" on storage.objec
 create policy "로그인한 사람은 장끼 지우기" on storage.objects
   for delete to authenticated using (bucket_id = 'receipts');
 
+-- ------------------------------------------------------------- 릴스 레퍼런스 영상
+--
+-- 릴스 기획 라이브러리에서 쓰는 영상과 썸네일. 기획 내용 자체는 settings 의 'reels' 키에 있고
+-- 무거운 파일만 여기 둔다. 키는 `<기획id>` (영상) 과 `<기획id>-thumb.jpg` (썸네일).
+
+insert into storage.buckets (id, name, public)
+values ('reels', 'reels', false)
+on conflict (id) do nothing;
+
+drop policy if exists "로그인한 사람은 릴스 영상 읽기" on storage.objects;
+create policy "로그인한 사람은 릴스 영상 읽기" on storage.objects
+  for select to authenticated using (bucket_id = 'reels');
+
+drop policy if exists "로그인한 사람은 릴스 영상 올리기" on storage.objects;
+create policy "로그인한 사람은 릴스 영상 올리기" on storage.objects
+  for insert to authenticated with check (bucket_id = 'reels');
+
+drop policy if exists "로그인한 사람은 릴스 영상 바꾸기" on storage.objects;
+create policy "로그인한 사람은 릴스 영상 바꾸기" on storage.objects
+  for update to authenticated using (bucket_id = 'reels');
+
+drop policy if exists "로그인한 사람은 릴스 영상 지우기" on storage.objects;
+create policy "로그인한 사람은 릴스 영상 지우기" on storage.objects
+  for delete to authenticated using (bucket_id = 'reels');
+
 -- ------------------------------------------------------------------ 매출 (일별)
 --
 -- 판 쪽. 카페24 주문에서 뽑은 하루치 한 줄과, 그날 쓴 광고비.

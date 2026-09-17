@@ -345,8 +345,47 @@ export function useSales(session) {
     [changeReels],
   );
   const removeReel = useCallback(
-    (id) => changeReels((items) => items.filter((i) => i.id !== id)),
-    [changeReels],
+    async (id) => {
+      await changeReels((items) => items.filter((i) => i.id !== id));
+      if (online && remoteOk.current) {
+        await supabase.storage.from("reels").remove([id, `${id}-thumb.jpg`]);
+      }
+    },
+    [changeReels, online],
+  );
+
+  /**
+   * 릴스 영상·썸네일은 settings 가 아니라 Storage 의 'reels' 버킷에 둔다.
+   * 기획 목록은 통째로 읽고 쓰는 jsonb 한 줄이라, 무거운 파일을 넣으면 화면이 느려진다.
+   * @returns {Promise<boolean>} 올렸으면 true (로그인 안 했거나 실패하면 false)
+   */
+  const putReelFile = useCallback(
+    async (key, fileOrBlob, contentType) => {
+      if (!(online && remoteOk.current)) return false;
+      const { error } = await supabase.storage
+        .from("reels")
+        .upload(key, fileOrBlob, { upsert: true, contentType });
+      if (error) {
+        console.error(error);
+        setNotice(
+          /bucket/i.test(error.message || "")
+            ? "영상 보관함이 아직 없어요. Supabase SQL Editor에서 supabase/schema.sql을 다시 실행해 주세요."
+            : "영상을 저장하지 못했어요. 기획 내용은 저장됐습니다.",
+        );
+        return false;
+      }
+      return true;
+    },
+    [online],
+  );
+
+  const reelFileUrl = useCallback(
+    async (key) => {
+      if (!(online && remoteOk.current)) return null;
+      const { data } = await supabase.storage.from("reels").createSignedUrl(key, 60 * 60 * 4);
+      return data?.signedUrl || null;
+    },
+    [online],
   );
 
   /** 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 넣는다 */
@@ -384,6 +423,8 @@ export function useSales(session) {
     reels,
     saveReel,
     removeReel,
+    putReelFile,
+    reelFileUrl,
     reload: load,
     saveConf,
     putSamchon,
