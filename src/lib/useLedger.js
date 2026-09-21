@@ -190,6 +190,22 @@ export function useLedger() {
     );
   };
 
+  /**
+   * 여러 건을 한 번에 — 거래처 장끼를 '전부 계산서 받음'으로 묶어 바꿀 때.
+   * patchTx 를 여러 번 부르면 같은 tx 목록에서 출발해 마지막 한 건만 남는다.
+   */
+  const patchTxs = (ids, patch) => {
+    const set = new Set(ids);
+    const changed = [];
+    const next = tx.map((t) => {
+      if (!set.has(t.id)) return t;
+      const record = makeTx({ ...t, ...patch });
+      changed.push(record);
+      return record;
+    });
+    if (changed.length) apply(vendors, next, () => remote.upsertTxs(changed));
+  };
+
   // ---------------------------------------------------------------- 사진
 
   const putPhoto = async (txId, file) => {
@@ -242,6 +258,7 @@ export function useLedger() {
     saveTxRecord,
     removeTx,
     patchTx,
+    patchTxs,
     putPhoto,
     getPhoto,
     canUpload,

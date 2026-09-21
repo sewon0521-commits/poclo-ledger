@@ -13,7 +13,7 @@ import { Empty } from "./ui";
 import DateRange from "./DateRange";
 import { requestMessage } from "../lib/message";
 
-function VendorRow({ v, checked, onToggle, onRequest }) {
+function VendorRow({ v, checked, onToggle, onRequest, onOpen }) {
   return (
     <li className="flex items-center gap-3 px-3 py-3">
       <button
@@ -29,22 +29,25 @@ function VendorRow({ v, checked, onToggle, onRequest }) {
         <Check size={14} />
       </button>
 
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-medium text-stone-900">{v.name}</div>
+      {/* 이름·금액을 누르면 그 거래처 장끼가 언제 이체·대납이었는지 바로 나온다 */}
+      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left" title="눌러서 장끼 내역 보기">
+        <div className="truncate font-medium text-stone-900">
+          {v.name} <span className="text-xs font-normal text-stone-300">내역 ›</span>
+        </div>
         <div className="mt-0.5 text-xs text-stone-400">
           장끼 {v.count}건 · 계산서 {v.invoiceCount}/{v.count}
           {v.phone && ` · ${v.phone}`}
         </div>
-      </div>
+      </button>
 
-      <div className="shrink-0 text-right">
+      <button type="button" onClick={onOpen} className="shrink-0 text-right">
         <div className="font-semibold tabular-nums text-stone-900">
           {won(v.unpaidVatSupply + v.switchCost)}
         </div>
         <div className="text-xs tabular-nums text-stone-400">
           공급가 {won(v.unpaidVatSupply)} + 부가세 {won(v.switchCost)}
         </div>
-      </div>
+      </button>
 
       <button
         type="button"
@@ -64,7 +67,7 @@ function VendorRow({ v, checked, onToggle, onRequest }) {
  * 홈택스에서 실제 발행 내역을 자동으로 가져오는 것은 아직 안 한다(TODO.md 참고).
  * 지금은 앱에 기록한 '계산서 받음' 체크가 기준이다.
  */
-export default function InvoicePage({ vendors, rows, onRequestMessage }) {
+export default function InvoicePage({ vendors, rows, onRequestMessage, onBreakdown }) {
   const [preset, setPreset] = useState("month");
   const [custom, setCustom] = useState(rangeOf("month"));
   const [picked, setPicked] = useState(() => new Set());
@@ -97,6 +100,16 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
       return next;
     });
 
+  // 위 다섯 칸을 누르면 그 금액을 만든 장끼 — 고른 거래처만, 이 기간만
+  const openKpi = (title, modes) =>
+    onBreakdown({
+      title: `${title} · ${chosen.length ? chosen.map((v) => v.name).join(", ") : "고른 곳 없음"}`,
+      range,
+      vendorIds: [...picked],
+      modes,
+      empty: picked.size ? undefined : "아래에서 거래처를 먼저 체크하세요. 체크한 곳의 장끼만 나와요.",
+    });
+
   const allPicked = pending.length > 0 && chosen.length === pending.length;
 
   return (
@@ -121,26 +134,35 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
 
       <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
         {[
-          ["총매입 (공급가)", won(t.supply), "text-stone-900"],
+          ["총매입 (공급가)", won(t.supply), "text-stone-900", undefined],
           // 부가세까지 보낸 이체는 실제로 나간 돈(공급가 + 부가세)으로 본다
-          ["부가세 낸 매입", won(t.paidWithVat), "text-emerald-700"],
+          ["부가세 낸 매입", won(t.paidWithVat), "text-emerald-700", ["transfer-vat"]],
           // 삼촌 대납은 옆 칸으로 따로 뺐다
-          ["부가세 안 낸 매입", won(t.transferNoVat), "text-amber-700"],
-          ["삼촌 대납", won(t.samchon), "text-amber-700"],
+          ["부가세 안 낸 매입", won(t.transferNoVat), "text-amber-700", ["transfer-novat"]],
+          ["삼촌 대납", won(t.samchon), "text-amber-700", ["samchon"]],
           // 위 두 칸(이체·부가세X + 삼촌 대납)을 더한 값의 10%
-          ["더 낼 부가세", won(t.switchCost), "text-rose-700"],
-        ].map(([label, value, tone]) => (
-          <div key={label} className="rounded-xl border border-stone-200 bg-white p-3">
-            <div className="text-xs text-stone-500">{label}</div>
+          ["더 낼 부가세", won(t.switchCost), "text-rose-700", ["transfer-novat", "samchon"]],
+        ].map(([label, value, tone, modes]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => openKpi(label, modes)}
+            className="rounded-xl border border-stone-200 bg-white p-3 text-left transition hover:border-stone-400 hover:bg-stone-50"
+          >
+            <div className="flex items-center justify-between gap-1 text-xs text-stone-500">
+              {label}
+              <span className="text-[10px] text-stone-300">내역 ›</span>
+            </div>
             <div className={"mt-0.5 font-semibold tabular-nums " + tone}>{value}</div>
-          </div>
+          </button>
         ))}
       </div>
 
       <p className="mt-2 text-xs text-stone-400">
         {chosen.length > 0
           ? `아래에서 고른 ${chosen.length}곳만 합산했어요.`
-          : "아래에서 거래처를 체크하면 위 칸에 합산돼요."}
+          : "아래에서 거래처를 체크하면 위 칸에 합산돼요."}{" "}
+        금액 칸을 누르면 그 금액이 나온 장끼가 떠요.
       </p>
 
       {pending.length === 0 ? (
@@ -172,6 +194,14 @@ export default function InvoicePage({ vendors, rows, onRequestMessage }) {
                 v={v}
                 checked={picked.has(v.id)}
                 onToggle={() => toggle(v.id)}
+                onOpen={() =>
+                  onBreakdown({
+                    title: `${v.name} · ${rangeLabel(range)}`,
+                    range,
+                    vendorIds: [v.id],
+                    initialBy: "day",
+                  })
+                }
                 onRequest={(vendor) =>
                   onRequestMessage(
                     vendor,

@@ -24,7 +24,12 @@ export default function LedgerPage({
   defects,
   onPage,
   onPendingTab,
+  onBreakdown,
 }) {
+  // 금액 칸을 누르면 그 금액을 만든 장끼 목록 (지금 보고 있는 기간 안에서)
+  const open = (title, extra) =>
+    onBreakdown({ title: `${title} · ${rangeLabel(range)}`, range, ...extra });
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -72,9 +77,14 @@ export default function LedgerPage({
       </button>
 
       <section className="mb-5 space-y-3">
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
+        <button
+          type="button"
+          onClick={() => open("부가세 안 낸 매입", { modes: ["transfer-novat", "samchon"] })}
+          className="block w-full rounded-2xl border border-rose-200 bg-rose-50 p-5 text-left transition hover:bg-rose-100"
+        >
           <div className="flex items-center gap-1.5 text-sm font-semibold text-rose-800">
             <AlertCircle size={15} /> 부가세 안 낸 매입 (삼촌 대납 + 이체·부가세X)
+            <span className="ml-auto text-xs font-normal text-rose-400">내역 보기 ›</span>
           </div>
           <div className="mt-2 text-3xl font-bold tabular-nums text-rose-900">
             {won(totals.unpaid)}
@@ -83,7 +93,7 @@ export default function LedgerPage({
             세금계산서로 돌리려면 추가 부가세{" "}
             <span className="font-semibold tabular-nums">{won(totals.switchCost)}</span>
           </div>
-        </div>
+        </button>
 
         {pending?.totalLeft > 0 && (
           <button
@@ -143,12 +153,24 @@ export default function LedgerPage({
         )}
 
         <div className="grid grid-cols-3 gap-2.5">
-          <Kpi label="총매입" value={won(totals.supply)} sub={`실지출 ${won(totals.actualPaid)}`} />
-          <Kpi label="낸 부가세" value={won(totals.paidVat)} tone="emerald" sub="이체 건" />
+          <Kpi
+            label="총매입"
+            value={won(totals.supply)}
+            sub={`실지출 ${won(totals.actualPaid)}`}
+            onClick={() => open("총매입")}
+          />
+          <Kpi
+            label="낸 부가세"
+            value={won(totals.paidVat)}
+            tone="emerald"
+            sub="이체 건"
+            onClick={() => open("부가세 낸 매입", { modes: ["transfer-vat"] })}
+          />
           <Kpi
             label="세금계산서"
             value={`${totals.invoiced}/${totals.count}`}
             sub={totals.count ? `수취율 ${Math.round(totals.invoiceRate * 100)}%` : "—"}
+            onClick={() => open("세금계산서", { invoice: true })}
           />
         </div>
       </section>

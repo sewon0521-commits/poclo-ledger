@@ -1,4 +1,4 @@
-export function Kpi({ label, value, sub, tone }) {
+export function Kpi({ label, value, sub, tone, onClick }) {
   const valueTone =
     tone === "emerald"
       ? "text-emerald-700"
@@ -7,15 +7,30 @@ export function Kpi({ label, value, sub, tone }) {
         : tone === "rose"
           ? "text-rose-700"
           : "text-stone-900";
-  return (
-    <div className="rounded-xl border border-stone-200 bg-white p-3.5">
-      <div className="text-xs font-medium text-stone-500">{label}</div>
+  const inner = (
+    <>
+      <div className="flex items-center justify-between gap-1 text-xs font-medium text-stone-500">
+        {label}
+        {onClick && <span className="text-[10px] font-normal text-stone-300">내역 ›</span>}
+      </div>
       <div className={"mt-1 text-lg leading-tight font-bold tabular-nums " + valueTone}>
         {value}
       </div>
       {sub && <div className="mt-0.5 text-[11px] text-stone-400">{sub}</div>}
-    </div>
+    </>
   );
+  // 누르면 그 숫자를 만든 장끼 목록이 뜬다 (TxBreakdown)
+  if (onClick)
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-xl border border-stone-200 bg-white p-3.5 text-left transition hover:border-stone-400 hover:bg-stone-50"
+      >
+        {inner}
+      </button>
+    );
+  return <div className="rounded-xl border border-stone-200 bg-white p-3.5">{inner}</div>;
 }
 
 export function Tab({ active, onClick, children }) {

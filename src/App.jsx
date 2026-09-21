@@ -21,6 +21,7 @@ import VendorsPage from "./components/VendorsPage";
 import TxForm from "./components/TxForm";
 import Login from "./components/Login";
 import Modal from "./components/Modal";
+import TxBreakdown from "./components/TxBreakdown";
 import InvoicePage, { RequestMessage } from "./components/InvoicePage";
 import SalesPage from "./components/SalesPage";
 import PnlPage from "./components/PnlPage";
@@ -56,6 +57,8 @@ export default function App() {
   const [preset, setPreset] = useState("month");
   const [custom, setCustom] = useState(() => rangeOf("month"));
   const [request, setRequest] = useState(null);
+  // 금액 칸을 누르면 뜨는 장끼 목록 { title, range, vendorIds?, modes?, invoice? }
+  const [breakdown, setBreakdown] = useState(null);
   const [taxType, setTaxType] = useState(loadTaxType);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -254,6 +257,8 @@ export default function App() {
     });
   };
 
+  const openBreakdown = (spec) => setBreakdown({ ...spec, _k: Date.now() });
+
   const rowProps = {
     // 이체(부가세O) → 이체(부가세X) → 삼촌 순으로 돈다
     onToggleMethod: (id) => {
@@ -344,6 +349,31 @@ export default function App() {
                       submitForm({ ...payload, photoFile: payload.photoFile || form.photoFile || null })
                     }
                     onCancel={() => setForm(null)}
+                  />
+                )}
+              </Modal>
+
+              {/* 금액 칸을 누르면 뜨는 장끼 목록. 거래는 매번 살아 있는 tx 에서 다시 골라서
+                  여기서 계산서를 체크하면 숫자가 바로 바뀐다. */}
+              <Modal open={!!breakdown} onClose={() => setBreakdown(null)} labelledBy="tx-breakdown-title">
+                {breakdown && (
+                  <TxBreakdown
+                    key={breakdown._k}
+                    title={breakdown.title}
+                    rows={filterRange(tx, breakdown.range).filter(
+                      (t) => !breakdown.vendorIds || breakdown.vendorIds.includes(t.vendorId),
+                    )}
+                    modes={breakdown.modes}
+                    invoice={breakdown.invoice}
+                    initialBy={breakdown.initialBy}
+                    empty={breakdown.empty}
+                    vendorName={vendorName}
+                    onSetInvoice={(ids, v) => L.patchTxs(ids, { invoice: v })}
+                    onEdit={(t) => {
+                      setBreakdown(null);
+                      editTx(t);
+                    }}
+                    onClose={() => setBreakdown(null)}
                   />
                 )}
               </Modal>
@@ -440,6 +470,7 @@ export default function App() {
                   pending={pending}
                   defects={defects}
                   onPage={setPage}
+                  onBreakdown={openBreakdown}
                   onPendingTab={(t) => {
                     setPendingTab(t);
                     setPage("pending");
@@ -462,6 +493,7 @@ export default function App() {
                   vendors={vendors}
                   rows={tx}
                   onRequestMessage={(vendor, text) => setRequest({ vendor, text, _k: Date.now() })}
+                  onBreakdown={openBreakdown}
                 />
               )}
             </>
