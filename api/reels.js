@@ -351,7 +351,8 @@ function metaText(m) {
     m.comments != null ? `댓글: ${m.comments}` : "",
     m.duration ? `길이: ${m.duration}초` : "",
   ].filter(Boolean).join(" · ");
-  return `성과 숫자(인스타에서 가져옴): ${line}` +
+  // 좋아요를 숨긴 계정은 좋아요가 엉뚱하게(예: 3) 올 때가 있다 — 댓글·캡션을 더 믿게 한다
+  return `성과 숫자(인스타에서 가져옴, 좋아요는 계정이 숨기면 부정확할 수 있음 — 댓글·캡션 쪽을 더 믿어라): ${line}` +
     (m.caption ? `\n캡션(본문):\n${String(m.caption).slice(0, 2000)}` : "");
 }
 
