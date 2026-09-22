@@ -18,6 +18,7 @@ const REELS_KEY = "poclo_reels_items";
 const REEL_FOLDERS_KEY = "poclo_reel_folders";
 const CAROUSELS_KEY = "poclo_carousels";
 const CAROUSEL_PLANS_KEY = "poclo_carousel_plans";
+const REEL_PLANS_KEY = "poclo_reel_plans";
 
 const readLocal = (key, fallback) => {
   try {
@@ -101,6 +102,8 @@ export function useSales(session) {
   const [carousels, setCarousels] = useState(() => readLocal(CAROUSELS_KEY, []));
   const [carouselPlans, setCarouselPlans] = useState(() => readLocal(CAROUSEL_PLANS_KEY, []));
   const [productStats, setProductStats] = useState(null);
+  // 상품에서 시작한 릴스 기획 (9/22) — settings 'reel_plans'
+  const [reelPlans, setReelPlans] = useState(() => readLocal(REEL_PLANS_KEY, []));
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
@@ -109,7 +112,7 @@ export function useSales(session) {
 
   const load = useCallback(async () => {
     try {
-      const [s, c, m, p, rl, rf, cr, cp, ps] = await Promise.all([
+      const [s, c, m, p, rl, rf, cr, cp, ps, rp] = await Promise.all([
         supabase.from("sales_daily").select("*").order("date"),
         supabase.from("settings").select("value").eq("key", "sales").maybeSingle(),
         // 공급가 없이 팔린 품목 — 새벽 자동 갱신(daily.py)이 채운다
@@ -120,6 +123,7 @@ export function useSales(session) {
         supabase.from("settings").select("value").eq("key", "carousels").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "carousel_plans").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "product_stats").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "reel_plans").maybeSingle(),
       ]);
       if (!m.error) setMissingCost(m.data?.value || null);
       if (!p.error && p.data?.value?.items) {
@@ -139,6 +143,10 @@ export function useSales(session) {
         writeLocal(CAROUSEL_PLANS_KEY, cp.data.value.items);
       }
       if (!ps.error) setProductStats(ps.data?.value || null);
+      if (!rp.error && rp.data?.value?.items) {
+        setReelPlans(rp.data.value.items);
+        writeLocal(REEL_PLANS_KEY, rp.data.value.items);
+      }
       if (!rf.error && rf.data?.value?.items) {
         setReelFolders(rf.data.value.items);
         writeLocal(REEL_FOLDERS_KEY, rf.data.value.items);
@@ -468,6 +476,16 @@ export function useSales(session) {
     [changeList, carouselPlans],
   );
 
+  const saveReelPlan = useCallback(
+    (item) => changeList("reel_plans", REEL_PLANS_KEY, reelPlans, setReelPlans, upsertInto(item), "릴스 기획안"),
+    [changeList, reelPlans],
+  );
+  const removeReelPlan = useCallback(
+    (id) => changeList("reel_plans", REEL_PLANS_KEY, reelPlans, setReelPlans,
+      (items) => items.filter((i) => i.id !== id), "릴스 기획안"),
+    [changeList, reelPlans],
+  );
+
   /** 릴스 기획 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 */
   const saveReel = useCallback(
     (item) =>
@@ -578,6 +596,9 @@ export function useSales(session) {
     saveCarouselPlan,
     removeCarouselPlan,
     productStats,
+    reelPlans,
+    saveReelPlan,
+    removeReelPlan,
     reload: load,
     saveConf,
     putSamchon,

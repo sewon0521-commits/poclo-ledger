@@ -22,6 +22,8 @@ import {
   TrendingUp,
   Mic,
   GripVertical,
+  FolderInput,
+  Check,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate } from "../lib/reels";
@@ -36,6 +38,7 @@ import {
   moveFolder,
 } from "../lib/reelFolders";
 import { Empty } from "./ui";
+import ProductReelTab from "./ProductReel";
 import { CopyButton, WorkerStatus } from "./ContentBits";
 import { workerAlive } from "../lib/reels";
 
@@ -542,15 +545,70 @@ function statusOf(item, queue, target = "ref") {
   return { kind: "done" };
 }
 
-function Card({ item, thumbUrl, folderName, status, onOpen }) {
+/**
+ * 카드 밖에서 바로 폴더 옮기기 (세원 9/22: "얘네처럼 밖에서 폴더를 지정했으면") —
+ * 카드 오른쪽 아래 폴더 아이콘 → 작은 목록 → 누르면 그 폴더로.
+ */
+function FolderPicker({ item, folders, onMove }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  const current = folderIdOf(item, folders);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => box.current && !box.current.contains(e.target) && setOpen(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const pick = (id) => {
+    setOpen(false);
+    if (id !== current) onMove(id);
+  };
+  const tops = folders.filter((f) => !f.parent);
+  return (
+    <span ref={box} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="폴더 옮기기"
+        title="폴더 옮기기"
+        className={
+          "flex h-7 w-7 items-center justify-center rounded-md border " +
+          (open ? "border-rose-300 bg-rose-50 text-rose-700" : "border-transparent text-stone-400 hover:border-stone-200 hover:bg-stone-50 hover:text-stone-700")
+        }
+      >
+        <FolderInput size={15} />
+      </button>
+      {open && (
+        <span className="absolute right-0 bottom-8 z-30 block max-h-72 w-56 overflow-y-auto rounded-xl border border-stone-200 bg-white py-1 text-left shadow-lg">
+          <span className="block px-3 pt-1.5 pb-1 text-[11px] font-semibold text-stone-400">어느 폴더로?</span>
+          {[{ id: null, name: "미분류" }, ...tops.flatMap((f) => [f, ...childrenOf(f.id, folders)])].map((f) => (
+            <button
+              key={f.id || "none"}
+              type="button"
+              onClick={() => pick(f.id)}
+              className={
+                "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm hover:bg-stone-50 " +
+                (f.parent ? "pl-7 text-stone-600 " : "font-medium text-stone-800 ") +
+                (f.id === current ? "bg-rose-50 text-rose-800" : "")
+              }
+            >
+              {f.parent && <span className="text-stone-300">└</span>}
+              <span className="min-w-0 flex-1 truncate">{f.name}</span>
+              {f.id === current && <Check size={13} className="shrink-0 text-rose-700" />}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove }) {
   const r = item.reference || {};
   const pending = status.kind !== "done";
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(item)}
-      className="overflow-hidden rounded-xl border border-stone-200 bg-white text-left transition hover:border-stone-300 hover:shadow-sm"
-    >
+    <div className="rounded-xl border border-stone-200 bg-white transition hover:border-stone-300 hover:shadow-sm">
+      <button type="button" onClick={() => onOpen(item)} className="block w-full overflow-hidden rounded-t-xl text-left">
       <span className="relative block aspect-[3/4] bg-stone-100">
         {thumbUrl ? (
           <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
@@ -589,15 +647,19 @@ function Card({ item, thumbUrl, folderName, status, onOpen }) {
           </span>
         )}
       </span>
-      <span className="block px-3 py-2">
-        <span className="block truncate text-sm font-medium text-stone-900">{item.title}</span>
-        <span className="mt-0.5 block truncate text-[11px] text-stone-400">
-          {folderName}
-          {item.meta?.uploader && ` · @${item.meta.uploader}`}
-          {item.plan?.product?.name && ` · ${item.plan.product.name}`}
-        </span>
-      </span>
-    </button>
+      </button>
+      <div className="flex items-center gap-1 px-3 py-2">
+        <button type="button" onClick={() => onOpen(item)} className="min-w-0 flex-1 text-left">
+          <span className="block truncate text-sm font-medium text-stone-900">{item.title}</span>
+          <span className="mt-0.5 block truncate text-[11px] text-stone-400">
+            {folderName}
+            {item.meta?.uploader && ` · @${item.meta.uploader}`}
+            {item.plan?.product?.name && ` · ${item.plan.product.name}`}
+          </span>
+        </button>
+        <FolderPicker item={item} folders={folders} onMove={onMove} />
+      </div>
+    </div>
   );
 }
 
@@ -1249,7 +1311,13 @@ export default function ReelsPage({
   worker,
   onQueue,
   onPoll,
+  stats,
+  plans = [],
+  onSavePlan,
+  onRemovePlan,
 }) {
+  // 레퍼런스 라이브러리 | 우리 상품으로 기획 (9/22 세원: "우리 상품을 말하거나 링크·클릭하면 그 상품에 맞는 릴스로")
+  const [mode, setMode] = useState("library");
   const [notice, setNotice] = useState("");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState("all");
@@ -1445,6 +1513,33 @@ export default function ReelsPage({
         </p>
       </div>
 
+      <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+        {[
+          ["library", `레퍼런스 라이브러리 ${items.length}`],
+          ["product", `우리 상품으로 기획 ${plans.length}`],
+        ].map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setMode(k)}
+            className={"flex-1 rounded-lg py-2 font-medium " + (mode === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "product" ? (
+        <ProductReelTab
+          stats={stats}
+          library={items}
+          plans={plans}
+          onSavePlan={onSavePlan}
+          onRemovePlan={onRemovePlan}
+          onOpenRef={openItem}
+        />
+      ) : (
+      <>
       <AddBar worker={worker} onLink={queueLink} onFile={queueFile} onBrowser={analyzeHere} notice={notice} />
 
       <FolderBar
@@ -1472,9 +1567,16 @@ export default function ReelsPage({
               folderName={pathName(folderIdOf(it, folders), folders)}
               status={statusOf(it, queue)}
               onOpen={openItem}
+              folders={folders}
+              onMove={(id) => {
+                const f = folders.find((x) => x.id === id);
+                onSave({ ...it, folderId: id, folder: f && !f.parent ? f.name : "" });
+              }}
             />
           ))}
         </div>
+      )}
+      </>
       )}
 
       {open && (

@@ -453,6 +453,10 @@ export default function App() {
                   worker={S.reelWorker}
                   onQueue={S.queueReel}
                   onPoll={S.pollReels}
+                  stats={S.productStats}
+                  plans={S.reelPlans}
+                  onSavePlan={S.saveReelPlan}
+                  onRemovePlan={S.removeReelPlan}
                 />
               ) : page === "carousel" ? (
                 <CarouselPage

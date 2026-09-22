@@ -13,6 +13,8 @@
 //   script  장면 사진 + (선택) 받아쓴 말  → 한글 대본 + 구조 분석
 //   adapt   그 대본/구조 + 우리 상품 URL  → 우리 상품으로 바꾼 릴스 기획
 //   review  우리가 찍은 영상(장면+받아쓴 말) + 레퍼런스·기획 → 촬영 피드백
+//   product 우리 상품(주소) + 레퍼런스 후보들 → 가장 맞는 레퍼런스를 골라 그 구조로 우리 릴스 기획 (9/22 세원:
+//           "우리 상품을 내가 말해주거나 링크를 삽입하거나 클릭하면 그 상품에 맞는 릴스로 기획")
 //
 // 2026-09-22 — 사무실 PC 분석기(poclo-cafe24/reels_worker.py)가 인스타 링크를 받아
 // 영상을 내려받고, 장면을 뜨고, **소리를 받아써서**(faster-whisper) 이 함수를 부른다.
@@ -183,6 +185,28 @@ const ADAPT_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기
 - 사실이 아닌 소재·기능을 지어내지 마라. 상품 글에 있는 것만 쓴다.
 
 결과는 전부 **한국어**로 쓴다.`;
+
+// ------------------------------------------------------------- 2-1) 상품에서 시작하는 릴스
+
+const ProductReelSchema = AdaptSchema.extend({
+  chosen: z.string().describe("고른 레퍼런스의 id (후보 목록의 [id]). 후보가 없으면 빈 문자열"),
+  chosenWhy: z.string().describe("왜 이 레퍼런스 구조가 이 상품에 맞는지 1~2줄"),
+  shots: z
+    .array(z.object({ photo: z.number().describe("참고할 상품 사진 번호(사진 N). 없으면 0"), note: z.string() }))
+    .describe("촬영 때 참고할 상품 사진 — 어떤 컷처럼 찍을지"),
+});
+
+const PRODUCT_REEL_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기획자다.
+이번엔 **상품이 먼저 정해졌다.** 아래 레퍼런스 후보(우리 라이브러리에 모아 둔, 잘 된 릴스 분석) 중에서
+**이 상품에 가장 맞는 구조 하나**를 골라(chosen), 그 구조를 빌려 우리 상품 릴스를 기획해라.
+
+고르는 기준: 상품의 강점(핏·소재·코디 활용·가격)과 레퍼런스의 훅 방식·전개가 맞는지, 레퍼런스 성과가 좋은지,
+판매 숫자(잘 팔림/뜨는 중)에 맞는 각도인지. 후보에 빈칸 틀(template/slots)이 있으면 그 빈칸을 전부 채워라(filled).
+후보가 없으면 chosen 은 빈 문자열로 두고 일반적으로 잘 되는 판매형 릴스 구조로 기획해라.
+상품 사진(사진 1…)을 보고 어떤 컷처럼 찍을지 shots 에 적어라.
+
+**포클로 톤** — 20~30대 여성이 친구에게 말하듯. 과장 광고 문구 금지. 자막 한 줄 12~18자.
+가격·소재는 상품 글에 있는 것만. 결과는 전부 **한국어**.`;
 
 // ------------------------------------------------------------- 3) 우리가 찍은 영상 피드백
 
@@ -358,6 +382,63 @@ export default async function handler(req, res) {
       return res.status(200).json(parsedOf(r, "피드백"));
     }
 
+    if (body.mode === "product") {
+      const url = String(body.url || "").trim();
+      if (!/^https?:\/\//i.test(url)) return fail(res, 400, "bad_request", "상품 주소(https://...)를 넣어주세요.");
+      let product;
+      try {
+        product = await readProduct(url);
+      } catch (err) {
+        return fail(res, 422, "product_unreadable", err.message || "상품 페이지를 못 읽었어요.");
+      }
+      const cands = Array.isArray(body.candidates) ? body.candidates.slice(0, 12) : [];
+      const st = body.stats || {};
+      const text = [
+        PRODUCT_REEL_PROMPT,
+        "\n--- 레퍼런스 후보 ---",
+        cands.length
+          ? cands
+              .map((c) =>
+                [
+                  `[${c.id}] ${c.title}`,
+                  `  훅: ${c.hook || ""} (${c.hookType || ""})`,
+                  `  구조: ${c.flow || ""} · CTA: ${c.cta || ""}`,
+                  `  먹히는 이유: ${c.why || ""}`,
+                  c.performance ? `  성과: ${c.performance}` : "",
+                  c.template ? `  빈칸 틀:\n${String(c.template).split("\n").map((l) => "    " + l).join("\n")}` : "",
+                  c.slots?.length ? `  빈칸: ${c.slots.map((x) => `${x.key}(${x.hint}; 원래 "${x.original}")`).join(" / ")}` : "",
+                  c.script ? `  대본:\n${String(c.script).slice(0, 700)}` : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              )
+              .join("\n\n")
+          : "(없음)",
+        "\n--- 우리 상품 ---",
+        `주소: ${url}`,
+        `상품명: ${product.title}`,
+        `요약설명: ${product.summary}`,
+        `판매가: ${product.price}${product.listPrice ? ` (정가 ${product.listPrice})` : ""}`,
+        st.reason ? `판매 숫자: ${st.reason}` : "",
+        `상세:\n${product.text}`,
+        body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1500)}` : "",
+      ].join("\n");
+      const imgs = product.images.slice(0, 6);
+      const content = (use) => {
+        const c = [{ type: "text", text }];
+        if (use) imgs.forEach((u, i) => c.push({ type: "text", text: `사진 ${i + 1}` }, { type: "image", source: { type: "url", url: u } }));
+        return c;
+      };
+      let r;
+      try {
+        r = await ask(client, content(true), ProductReelSchema, effort);
+      } catch (err) {
+        if (err?.status === 400 && /image|url|fetch/i.test(String(err?.message))) r = await ask(client, content(false), ProductReelSchema, effort);
+        else throw err;
+      }
+      return res.status(200).json({ ...parsedOf(r, "릴스 기획"), productTitle: product.title, images: imgs });
+    }
+
     if (body.mode === "adapt") {
       const url = String(body.url || "").trim();
       if (!/^https?:\/\//i.test(url)) {
@@ -398,7 +479,7 @@ export default async function handler(req, res) {
       return res.status(200).json(parsedOf(r, "대본 만들기"));
     }
 
-    return fail(res, 400, "bad_request", "mode 는 script · adapt · review 중 하나여야 합니다.");
+    return fail(res, 400, "bad_request", "mode 는 script · adapt · product · review 중 하나여야 합니다.");
   } catch (err) {
     if (err?.userFacing) return fail(res, err.userFacing, "unreadable", err.message);
     const status = err?.status;

@@ -4,7 +4,8 @@
 //
 // mode
 //   analyze  캐러셀 장면(사진 여러 장, base64) + 성과 숫자 → 장별 역할·표지 훅·구조·디자인·빈칸 틀
-//   plan     상품 주소 + 판매 숫자(왜 이 상품인지) + 레퍼런스 요약들 → 장별 캐러셀 기획
+//   plan     상품(1~6개) 주소 + 판매 숫자(왜 이 상품인지) + 레퍼런스 요약들 → 장별 캐러셀 기획
+//            여러 개면 **묶음 캐러셀**(세원 9/22: "잘 나가는 상품 몇 개를 묶어서 만드는 캐러셀도")
 //            상품 상세 사진을 URL 로 같이 보여줘서 "몇 번 사진을 몇 번째 장에" 까지 고르게 한다.
 //
 // ANTHROPIC_API_KEY 는 이 함수의 환경변수로만 존재한다.
@@ -77,13 +78,17 @@ const REF_PROMPT = `너는 여성 의류 쇼핑몰의 인스타그램 콘텐츠 
 // ------------------------------------------------------------------ 2) 우리 상품 캐러셀 기획
 
 const PlanSchema = z.object({
-  product: z.object({
-    name: z.string(),
-    price: z.string().describe("페이지 판매가 그대로. 없으면 빈 문자열"),
-    points: z.array(z.string()).describe("소구점 3~5개 — 상품 글에 있는 사실로"),
-    target: z.string().describe("누구에게"),
-  }),
-  angle: z.string().describe("이 상품을 지금 어떤 각도로 밀지 — 판매 숫자(잘 팔림/뜨는 중)와 계절을 근거로 2~3줄"),
+  products: z
+    .array(
+      z.object({
+        name: z.string(),
+        price: z.string().describe("페이지 판매가 그대로. 없으면 빈 문자열"),
+        points: z.array(z.string()).describe("소구점 2~4개 — 상품 글에 있는 사실로"),
+      }),
+    )
+    .describe("주어진 상품 순서 그대로"),
+  target: z.string().describe("누구에게"),
+  angle: z.string().describe("이 상품(들)을 지금 어떤 각도로 밀지 — 판매 숫자(잘 팔림/뜨는 중)와 계절을 근거로 2~3줄. 묶음이면 무엇으로 엮었는지"),
   hooks: z
     .array(z.object({ text: z.string().describe("표지 문구"), type: z.string().describe("훅 방식") }))
     .describe("표지 문구 후보 3개"),
@@ -92,7 +97,8 @@ const PlanSchema = z.object({
       z.object({
         n: z.number(),
         role: z.string().describe("이 장의 역할"),
-        photo: z.number().describe("쓸 상품 사진 번호(아래 '사진 N'). 새로 찍어야 하면 0"),
+        product: z.number().describe("이 장에 나오는 상품 번호(상품 1, 상품 2 …). 여러 상품이 같이 나오거나 상품이 없는 장이면 0"),
+        photo: z.number().describe("그 상품의 사진 번호('상품 K · 사진 N' 의 N). 새로 찍어야 하거나 product 가 0 이면 0"),
         shot: z.string().describe("사진 설명 — 기존 사진이면 어떤 컷인지, 0이면 무엇을 새로 찍을지"),
         text: z.string().describe("장 위에 올릴 글 (짧게, 줄바꿈 가능)"),
         design: z.string().describe("글 위치·크기·강조 등 디자인 지시 한 줄"),
@@ -110,15 +116,20 @@ const PlanSchema = z.object({
 
 const PLAN_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 인스타그램 캐러셀 기획자다.
 
-아래에 (1) 밀어야 할 우리 상품의 판매페이지 글과 **판매 숫자**(잘 팔리는 이유 / 뜨고 있는 이유),
+아래에 (1) 밀어야 할 우리 상품(1개 또는 여러 개)의 판매페이지 글과 **판매 숫자**(잘 팔리는 이유 / 뜨고 있는 이유),
 (2) 우리가 모아 둔 **캐러셀 레퍼런스와 릴스 레퍼런스의 분석 요약**(표지 훅·구조·성과),
-(3) 상품 상세 사진들(사진 1, 사진 2 …)이 있다.
+(3) 상품 상세 사진들('상품 K · 사진 N')이 있다.
+
+**상품이 여러 개면 묶음 캐러셀이다.** 따로 소개하는 나열이 아니라 **하나의 주제로 엮어라** —
+예: "요즘 제일 많이 나간 가을 니트 3", "이 스커트 하나로 3가지 코디", "출근룩 위아래 세트".
+상품끼리 같이 입을 수 있으면 코디로 묶고(그 장은 product 0 + shot 에 조합), 표지에서 개수를 약속하면 끝까지 지켜라.
+상품마다 적어도 한 장은 그 상품 사진으로 채운다.
 
 **할 일**
 1. 레퍼런스들에서 **잘 된 패턴**(표지 훅 방식, 장 구성, 저장·댓글 유도)을 뽑고, 이 상품에 맞는 것을 골라라.
    베끼지 말고 **틀을 빌려라**. learnedFrom 에 어디서 무엇을 가져왔는지 적어라.
 2. 판매 숫자를 근거로 각도(angle)를 정해라 — 잘 팔리는 상품이면 "이미 검증된" 쪽, 뜨는 신상이면 "지금 먼저" 쪽.
-3. 장별로 **어느 상품 사진을 쓸지 번호로** 골라라. 맞는 사진이 없으면 0 으로 두고 무엇을 새로 찍을지 적어라.
+3. 장별로 **어느 상품의 몇 번 사진을 쓸지** 골라라(product, photo). 맞는 사진이 없으면 photo 0 으로 두고 무엇을 새로 찍을지 적어라.
 4. 표지 문구 후보 3개, 본문, 해시태그, 촬영·편집 할 일까지.
 
 **포클로 톤**
@@ -212,51 +223,85 @@ export default async function handler(req, res) {
     }
 
     if (body.mode === "plan") {
-      const url = String(body.url || "").trim();
-      if (!/^https?:\/\//i.test(url)) return fail(res, 400, "bad_request", "상품 주소(https://...)를 넣어주세요.");
-      let product;
+      // products: [{url, stats}] — 예전처럼 url/stats 하나만 와도 받는다
+      const list = (Array.isArray(body.products) && body.products.length
+        ? body.products
+        : [{ url: body.url, stats: body.stats }]
+      ).slice(0, 6);
+      if (!list.every((x) => /^https?:\/\//i.test(String(x?.url || "").trim()))) {
+        return fail(res, 400, "bad_request", "상품 주소(https://...)를 넣어주세요.");
+      }
+      let read;
       try {
-        product = await readProduct(url);
+        read = await Promise.all(list.map((x) => readProduct(String(x.url).trim())));
       } catch (err) {
         return fail(res, 422, "product_unreadable", err.message || "상품 페이지를 못 읽었어요.");
       }
+      // 사진은 모두 합쳐 14장 안에서 나눈다 (상품이 많으면 상품당 적게)
+      const per = Math.max(3, Math.floor(14 / list.length));
+      const photos = read.map((p) => p.images.slice(0, per));
       const refs = Array.isArray(body.refs) ? body.refs.slice(0, 12) : [];
-      const st = body.stats || {};
+      const many = list.length > 1;
+      const productText = read
+        .map((p, i) => {
+          const st = list[i].stats || {};
+          return [
+            `\n--- 상품 ${i + 1} ---`,
+            `주소: ${list[i].url}`,
+            `상품명: ${p.title}`,
+            `요약설명: ${p.summary}`,
+            `판매가: ${p.price}${p.listPrice ? ` (정가 ${p.listPrice})` : ""}`,
+            st.reason
+              ? `판매 숫자: ${st.reason}${st.q7 != null ? ` (최근 7일 ${st.q7}장, 그 전 7일 ${st.p7}장, 30일 ${st.q30}장)` : ""}`
+              : "판매 숫자: (없음 — 직접 고른 상품)",
+            st.group ? `분류: ${st.group === "best" ? "잘 팔리는 상품" : "뜰 것 같은 상품"}` : "",
+            // 여러 개면 상세를 줄여 프롬프트가 너무 길어지지 않게
+            `상세:\n${p.text.slice(0, many ? 2500 : 9000)}`,
+          ]
+            .filter(Boolean)
+            .join("\n");
+        })
+        .join("\n");
       const text = [
         PLAN_PROMPT,
-        "\n--- 우리 상품 ---",
-        `주소: ${url}`,
-        `상품명: ${product.title}`,
-        `요약설명: ${product.summary}`,
-        `판매가: ${product.price}${product.listPrice ? ` (정가 ${product.listPrice})` : ""}`,
-        st.reason ? `판매 숫자: ${st.reason}${st.q7 != null ? ` (최근 7일 ${st.q7}장, 그 전 7일 ${st.p7}장, 30일 ${st.q30}장)` : ""}` : "판매 숫자: (없음 — 직접 고른 상품)",
-        st.group ? `분류: ${st.group === "best" ? "잘 팔리는 상품" : "뜰 것 같은 상품"}` : "",
-        `상세:\n${product.text}`,
+        many ? `\n이번엔 **상품 ${list.length}개 묶음 캐러셀**이다.` : "",
+        productText,
         "\n--- 레퍼런스 (우리가 모아 둔 것) ---",
         refs.length ? refs.map(refLine).join("\n\n") : "(아직 없음 — 일반적인 좋은 캐러셀 패턴으로)",
         body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1500)}` : "",
-        `\n상품 사진은 아래 ${Math.min(product.images.length, 10)}장이다 (사진 1부터).`,
+        "\n상품 사진은 아래에 '상품 K · 사진 N' 으로 붙어 있다.",
       ].join("\n");
 
-      const withImages = (imgs) => {
+      const withImages = (use) => {
         const content = [{ type: "text", text }];
-        imgs.forEach((u, i) => {
-          content.push({ type: "text", text: `사진 ${i + 1}` });
-          content.push({ type: "image", source: { type: "url", url: u } });
-        });
+        if (use) {
+          photos.forEach((imgs, k) =>
+            imgs.forEach((u, i) => {
+              content.push({ type: "text", text: `상품 ${k + 1} · 사진 ${i + 1}` });
+              content.push({ type: "image", source: { type: "url", url: u } });
+            }),
+          );
+        }
         return content;
       };
-      const imgs = product.images.slice(0, 10);
       let plan;
       try {
-        plan = await ask(client, withImages(imgs), PlanSchema, effort);
+        plan = await ask(client, withImages(true), PlanSchema, effort);
       } catch (err) {
         // 사진 주소를 Claude 가 못 받아오는 경우가 있다 → 사진 없이 한 번 더
         if (err?.status === 400 && /image|url|fetch/i.test(String(err?.message))) {
-          plan = await ask(client, withImages([]), PlanSchema, effort);
+          plan = await ask(client, withImages(false), PlanSchema, effort);
         } else throw err;
       }
-      return res.status(200).json({ ...plan, images: imgs, productTitle: product.title });
+      return res.status(200).json({
+        ...plan,
+        productImages: photos,
+        productTitles: read.map((p) => p.title),
+        productUrls: list.map((x) => String(x.url).trim()),
+        // 예전 화면이 읽던 칸 (상품 하나일 때)
+        images: photos[0],
+        productTitle: read[0].title,
+      });
     }
 
     return fail(res, 400, "bad_request", "mode 는 analyze 또는 plan 이어야 합니다.");

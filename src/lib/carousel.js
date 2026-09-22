@@ -36,9 +36,9 @@ async function call(body) {
 export const analyzeCarousel = ({ slides, meta, memo }) =>
   call({ mode: "analyze", slides, meta, memo });
 
-/** 상품 주소 + 판매 숫자 + 레퍼런스 요약 → 장별 기획 */
-export const planCarousel = ({ url, stats, refs, memo }) =>
-  call({ mode: "plan", url, stats, refs, memo });
+/** 상품(1~6개: [{url, stats}]) + 레퍼런스 요약 → 장별 기획. 여러 개면 묶음 캐러셀 */
+export const planCarousel = ({ products, refs, memo }) =>
+  call({ mode: "plan", products, refs, memo });
 
 /**
  * 사진 파일을 줄인다. 분석용(긴 변 900, base64)과 보관용(긴 변 1080, Blob) 둘을 만든다.

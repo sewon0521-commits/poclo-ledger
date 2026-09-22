@@ -66,12 +66,18 @@ function Head({ title, sub, onClose }) {
 
 // ------------------------------------------------------------------ 1) 상품에서 시작
 
-function ProductCard({ p, group, onPick }) {
+function ProductCard({ p, group, onPick, checked, onCheck }) {
   return (
+    <div
+      className={
+        "relative rounded-xl border bg-white transition hover:shadow-sm " +
+        (checked ? "border-rose-500 ring-2 ring-rose-200" : "border-stone-200 hover:border-rose-300")
+      }
+    >
     <button
       type="button"
-      onClick={() => onPick({ ...p, group })}
-      className="flex gap-3 rounded-xl border border-stone-200 bg-white p-2.5 text-left transition hover:border-rose-300 hover:shadow-sm"
+      onClick={() => onPick([{ ...p, group }])}
+      className="flex w-full gap-3 p-2.5 pr-10 text-left"
     >
       {p.image ? (
         <img src={p.image} alt="" className="h-20 w-16 shrink-0 rounded-lg object-cover" loading="lazy" />
@@ -84,11 +90,28 @@ function ProductCard({ p, group, onPick }) {
         <span className="mt-0.5 block text-[11px] text-stone-400">{won(p.price)}</span>
       </span>
     </button>
+    <button
+      type="button"
+      onClick={() => onCheck({ ...p, group })}
+      aria-pressed={checked}
+      title="묶음 캐러셀에 넣기"
+      className={
+        "absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-lg border " +
+        (checked ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 bg-white text-transparent hover:text-stone-300")
+      }
+    >
+      <Check size={15} />
+    </button>
+    </div>
   );
 }
 
 function ProductsTab({ stats, onPick }) {
   const [url, setUrl] = useState("");
+  // 묶음 캐러셀 (세원 9/22: "잘 나가는 상품 몇 개를 묶어서 만드는 캐러셀도") — 고른 순서대로
+  const [sel, setSel] = useState([]);
+  const check = (p) =>
+    setSel((s) => (s.some((x) => x.no === p.no) ? s.filter((x) => x.no !== p.no) : s.length >= 6 ? s : [...s, p]));
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap gap-2 rounded-2xl border border-stone-200 bg-white p-3">
@@ -101,7 +124,7 @@ function ProductsTab({ stats, onPick }) {
         <button
           type="button"
           disabled={!/^https?:\/\//.test(url.trim())}
-          onClick={() => onPick({ url: url.trim(), name: "직접 고른 상품", reason: "" })}
+          onClick={() => onPick([{ url: url.trim(), name: "직접 고른 상품", reason: "" }])}
           className="rounded-lg bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
         >
           이 상품으로 기획
@@ -123,10 +146,17 @@ function ProductsTab({ stats, onPick }) {
               <h3 className={"flex items-center gap-1.5 font-semibold " + tone}>
                 <Icon size={16} /> {label} <span className="text-sm font-normal text-stone-400">{(stats[key] || []).length}</span>
               </h3>
-              <p className="mb-2 text-xs text-stone-400">{hint} · 누르면 캐러셀 기획을 시작해요</p>
+              <p className="mb-2 text-xs text-stone-400">{hint} · 누르면 그 상품 하나로, 오른쪽 위 체크로 여러 개를 묶어서</p>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {(stats[key] || []).slice(0, key === "best" ? 12 : 12).map((p) => (
-                  <ProductCard key={p.no} p={p} group={key} onPick={onPick} />
+                  <ProductCard
+                    key={p.no}
+                    p={p}
+                    group={key}
+                    onPick={onPick}
+                    checked={sel.some((x) => x.no === p.no)}
+                    onCheck={check}
+                  />
                 ))}
               </div>
             </section>
@@ -136,12 +166,40 @@ function ProductsTab({ stats, onPick }) {
           </p>
         </>
       )}
+
+      {sel.length > 0 && (
+        <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-2 rounded-2xl border border-rose-200 bg-white/95 p-3 shadow-lg backdrop-blur">
+          <div className="flex -space-x-2">
+            {sel.map((p) =>
+              p.image ? (
+                <img key={p.no} src={p.image} alt="" className="h-10 w-8 rounded-md border-2 border-white object-cover" />
+              ) : null,
+            )}
+          </div>
+          <span className="min-w-0 flex-1 text-sm text-stone-700">
+            <b className="font-semibold text-rose-800">{sel.length}개</b> 묶음 캐러셀
+            <span className="block truncate text-xs text-stone-400">{sel.map((p) => p.name.replace(/^\[[^\]]*\]\s*/, "")).join(" · ")}</span>
+          </span>
+          <button type="button" onClick={() => setSel([])} className="text-xs text-stone-400 hover:text-stone-700">
+            비우기
+          </button>
+          <button
+            type="button"
+            disabled={sel.length < 2}
+            onClick={() => onPick(sel)}
+            className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:bg-stone-300"
+          >
+            {sel.length < 2 ? "2개 이상 고르세요" : "묶어서 기획하기"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 /** 상품을 고르면 — 참고할 레퍼런스를 고르고 기획을 만든다 */
-function Planner({ product, carousels, reels, onDone, onClose }) {
+function Planner({ products, carousels, reels, onDone, onClose }) {
+  const many = products.length > 1;
   const doneC = carousels.filter((c) => c.analysis);
   const doneR = reels.filter((r) => r.reference?.structure);
   // 기본으로 켜 둘 것: 캐러셀은 최근 6개, 릴스는 성과 분석이 있는 것 먼저 4개
@@ -152,7 +210,6 @@ function Planner({ product, carousels, reels, onDone, onClose }) {
   const [memo, setMemo] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const url = product.url;
 
   const toggle = (id) =>
     setPick((p) => {
@@ -170,17 +227,33 @@ function Planner({ product, carousels, reels, onDone, onClose }) {
         ...doneC.filter((c) => pick.has(c.id)).map((c) => refSummary(c, "carousel")),
         ...doneR.filter((r) => pick.has(r.id)).map((r) => refSummary(r, "reel")),
       ];
-      const stats = product.reason
-        ? { reason: product.reason, group: product.group, q7: product.q7, p7: product.p7, q30: product.q30 }
-        : {};
-      const r = await planCarousel({ url, stats, refs, memo });
+      const list = products.map((p) => ({
+        url: p.url,
+        stats: p.reason ? { reason: p.reason, group: p.group, q7: p.q7, p7: p.p7, q30: p.q30 } : {},
+      }));
+      const r = await planCarousel({ products: list, refs, memo });
       if (!r.ok) {
         setMsg(r.message);
         return;
       }
       await onDone({
         id: newId("cp"),
-        product: { no: product.no || null, name: r.data.productTitle || product.name, url, image: product.image || r.data.images?.[0] || "", reason: product.reason, group: product.group || "" },
+        // 목록 카드는 첫 상품을 대표로 쓴다 (예전 기획안과 같은 모양)
+        product: {
+          no: products[0].no || null,
+          name: many ? `${products.length}개 묶음 · ${r.data.productTitles?.[0] || products[0].name}` : r.data.productTitle || products[0].name,
+          url: products[0].url,
+          image: products[0].image || r.data.images?.[0] || "",
+          reason: many ? products.map((p) => p.reason).filter(Boolean).join(" / ") : products[0].reason,
+          group: products[0].group || "",
+        },
+        products: products.map((p, i) => ({
+          no: p.no || null,
+          name: r.data.productTitles?.[i] || p.name,
+          url: p.url,
+          image: p.image || r.data.productImages?.[i]?.[0] || "",
+          reason: p.reason || "",
+        })),
         refs: refs.map((x) => ({ title: x.title, kind: x.kind })),
         memo,
         plan: r.data,
@@ -203,17 +276,28 @@ function Planner({ product, carousels, reels, onDone, onClose }) {
 
   return (
     <div className="flex max-h-[90vh] flex-col">
-      <Head title="캐러셀 기획 만들기" sub={product.name} onClose={onClose} />
+      <Head
+        title={many ? `묶음 캐러셀 만들기 · 상품 ${products.length}개` : "캐러셀 기획 만들기"}
+        sub={many ? "고른 상품을 하나의 주제로 엮어요" : products[0].name}
+        onClose={onClose}
+      />
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <div className="flex gap-3 rounded-xl bg-stone-50 p-3">
-          {product.image && <img src={product.image} alt="" className="h-24 w-20 rounded-lg object-cover" />}
-          <div className="min-w-0 text-sm">
-            <div className="font-medium text-stone-900">{product.name}</div>
-            {product.reason && <div className="mt-1 text-xs text-rose-700">{product.reason}</div>}
-            <a href={url} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-xs text-sky-700 hover:underline">
-              <ExternalLink size={11} /> 상품 페이지
-            </a>
-          </div>
+        <div className={"grid gap-2 " + (many ? "sm:grid-cols-2" : "")}>
+          {products.map((product, i) => (
+            <div key={product.no || product.url} className="flex gap-3 rounded-xl bg-stone-50 p-3">
+              {product.image && <img src={product.image} alt="" className={(many ? "h-16 w-12" : "h-24 w-20") + " shrink-0 rounded-lg object-cover"} />}
+              <div className="min-w-0 text-sm">
+                <div className="font-medium text-stone-900">
+                  {many && <span className="mr-1 rounded bg-rose-700 px-1 text-[10px] text-white">상품 {i + 1}</span>}
+                  {product.name}
+                </div>
+                {product.reason && <div className="mt-1 text-xs text-rose-700">{product.reason}</div>}
+                <a href={product.url} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-xs text-sky-700 hover:underline">
+                  <ExternalLink size={11} /> 상품 페이지
+                </a>
+              </div>
+            </div>
+          ))}
         </div>
 
         <div>
@@ -240,7 +324,7 @@ function Planner({ product, carousels, reels, onDone, onClose }) {
         <textarea
           value={memo}
           onChange={(e) => setMemo(e.target.value)}
-          placeholder="메모 (선택) — 예: 출근룩으로, 7장 이내, 가격 강조"
+          placeholder={many ? "메모 (선택) — 예: 가을 니트 3종 비교, 같이 입는 코디로 엮기" : "메모 (선택) — 예: 출근룩으로, 7장 이내, 가격 강조"}
           className={FIELD + " h-20 resize-y text-sm"}
         />
         {msg && <p className="text-sm text-rose-700">{msg}</p>}
@@ -253,7 +337,9 @@ function Planner({ product, carousels, reels, onDone, onClose }) {
           className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 font-semibold text-white disabled:bg-stone-300"
         >
           {busy ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-          {busy ? "상품 사진 보고 기획하는 중… (1분쯤)" : `기획 만들기 · 레퍼런스 ${pick.size}개 참고`}
+          {busy
+            ? `상품 사진 보고 기획하는 중… (${many ? "1~2분" : "1분쯤"})`
+            : `${many ? "묶음 " : ""}기획 만들기 · 레퍼런스 ${pick.size}개 참고`}
         </button>
       </footer>
     </div>
@@ -262,7 +348,7 @@ function Planner({ product, carousels, reels, onDone, onClose }) {
 
 // ------------------------------------------------------------------ 기획안 보기
 
-function SlidePreview({ s, img }) {
+function SlidePreview({ s, img, tag }) {
   return (
     <div className="overflow-hidden rounded-xl border border-stone-200 bg-white">
       <div className="relative aspect-[4/5] bg-stone-100">
@@ -277,6 +363,9 @@ function SlidePreview({ s, img }) {
         <span className="absolute top-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
           {s.n} · {s.role}
         </span>
+        {tag && (
+          <span className="absolute top-1.5 right-1.5 rounded bg-rose-700 px-1.5 py-0.5 text-[10px] font-semibold text-white">{tag}</span>
+        )}
         {s.text && (
           <div className="absolute inset-x-2 bottom-2 rounded-lg bg-white/90 px-2 py-1.5 text-center text-[13px] leading-snug font-bold whitespace-pre-line text-stone-900 shadow">
             {s.text}
@@ -285,7 +374,7 @@ function SlidePreview({ s, img }) {
       </div>
       <div className="space-y-0.5 px-2.5 py-2 text-[11px] leading-relaxed">
         <div className="text-stone-700">
-          {s.photo ? <b className="font-semibold">사진 {s.photo}</b> : <b className="font-semibold text-amber-700">촬영</b>} · {s.shot}
+          {s.photo ? <b className="font-semibold">{tag ? `${tag} · ` : ""}사진 {s.photo}</b> : <b className="font-semibold text-amber-700">{s.product === 0 && tag == null ? "조합·촬영" : "촬영"}</b>} · {s.shot}
         </div>
         <div className="text-stone-400">{s.design}</div>
       </div>
@@ -295,11 +384,18 @@ function SlidePreview({ s, img }) {
 
 function PlanView({ item, onRemove, onClose }) {
   const p = item.plan || {};
-  const imgs = p.images || [];
+  // 묶음이면 상품마다 사진 목록이 따로 (productImages[k][n]). 예전 기획안은 images 하나.
+  const sets = p.productImages || (p.images ? [p.images] : []);
+  const titles = p.productTitles || [item.product?.name];
+  const many = sets.length > 1;
+  const imgOf = (s) => {
+    const k = many ? (s.product || 0) - 1 : 0;
+    return k >= 0 && s.photo > 0 ? sets[k]?.[s.photo - 1] || null : null;
+  };
   return (
     <div className="flex max-h-[92vh] flex-col">
       <Head
-        title={`캐러셀 · ${item.product?.name || ""}`}
+        title={`캐러셀 · ${item.products?.length > 1 ? item.products.map((x) => x.name.replace(/^\[[^\]]*\]\s*/, "")).join(" + ") : item.product?.name || ""}`}
         sub={[item.product?.reason, new Date(item.createdAt).toLocaleString("ko-KR")].filter(Boolean).join(" · ")}
         onClose={onClose}
       />
@@ -327,7 +423,7 @@ function PlanView({ item, onRemove, onClose }) {
           <div className="mb-1.5 text-xs font-semibold text-stone-500">장별 기획 ({(p.slides || []).length}장) — 사진 번호는 상품 상세 사진 순서</div>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
             {(p.slides || []).map((s) => (
-              <SlidePreview key={s.n} s={s} img={s.photo > 0 ? imgs[s.photo - 1] : null} />
+              <SlidePreview key={s.n} s={s} img={imgOf(s)} tag={many && s.product > 0 ? `상품 ${s.product}` : null} />
             ))}
           </div>
         </div>
@@ -368,17 +464,22 @@ function PlanView({ item, onRemove, onClose }) {
           )}
         </div>
 
-        {imgs.length > 0 && (
+        {sets.some((x) => x?.length) && (
           <details className="rounded-xl border border-stone-200 px-3 py-2">
-            <summary className="cursor-pointer text-xs font-semibold text-stone-500">상품 사진 번호 보기 ({imgs.length}장)</summary>
-            <div className="mt-2 grid grid-cols-5 gap-1.5 sm:grid-cols-8">
-              {imgs.map((u, i) => (
-                <a key={u} href={u} target="_blank" rel="noreferrer" className="relative block">
-                  <img src={u} alt="" className="aspect-[3/4] w-full rounded object-cover" loading="lazy" />
-                  <span className="absolute top-0.5 left-0.5 rounded bg-black/60 px-1 text-[10px] text-white">{i + 1}</span>
-                </a>
-              ))}
-            </div>
+            <summary className="cursor-pointer text-xs font-semibold text-stone-500">상품 사진 번호 보기</summary>
+            {sets.map((imgs, k) => (
+              <div key={k} className="mt-2">
+                {many && <div className="mb-1 text-[11px] font-semibold text-stone-500">상품 {k + 1} · {titles[k]}</div>}
+                <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-8">
+                  {(imgs || []).map((u, i) => (
+                    <a key={u} href={u} target="_blank" rel="noreferrer" className="relative block">
+                      <img src={u} alt="" className="aspect-[3/4] w-full rounded object-cover" loading="lazy" />
+                      <span className="absolute top-0.5 left-0.5 rounded bg-black/60 px-1 text-[10px] text-white">{i + 1}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
           </details>
         )}
       </div>
@@ -692,7 +793,7 @@ export default function CarouselPage({
   onPoll,
 }) {
   const [tab, setTab] = useState("products");
-  const [planning, setPlanning] = useState(null); // 고른 상품
+  const [planning, setPlanning] = useState(null); // 고른 상품들 (1개면 단독, 여러 개면 묶음)
   const [viewPlan, setViewPlan] = useState(null);
   const [openRef, setOpenRef] = useState(null);
   const [thumbs, setThumbs] = useState({});
@@ -843,7 +944,7 @@ export default function CarouselPage({
 
       {planning && (
         <Overlay onClose={() => setPlanning(null)}>
-          <Planner product={planning} carousels={carousels} reels={reels} onDone={donePlan} onClose={() => setPlanning(null)} />
+          <Planner products={planning} carousels={carousels} reels={reels} onDone={donePlan} onClose={() => setPlanning(null)} />
         </Overlay>
       )}
       {viewPlan && (
