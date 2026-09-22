@@ -446,6 +446,12 @@ export default function App() {
                   onRemove={S.removeReel}
                   putFile={S.putReelFile}
                   fileUrl={S.reelFileUrl}
+                  folders={S.reelFolders}
+                  onFolders={S.changeReelFolders}
+                  queue={S.reelQueue}
+                  worker={S.reelWorker}
+                  onQueue={S.queueReel}
+                  onPoll={S.pollReels}
                 />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />

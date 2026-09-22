@@ -15,6 +15,7 @@ const ROWS_KEY = "poclo_sales_rows";
 const CONF_KEY = "poclo_sales_conf";
 const PRICING_KEY = "poclo_pricing_items";
 const REELS_KEY = "poclo_reels_items";
+const REEL_FOLDERS_KEY = "poclo_reel_folders";
 
 const readLocal = (key, fallback) => {
   try {
@@ -83,6 +84,17 @@ export function useSales(session) {
   const [pricing, setPricing] = useState(() => readLocal(PRICING_KEY, []));
   // 릴스 기획 라이브러리 — settings 의 'reels' 키
   const [reels, setReels] = useState(() => readLocal(REELS_KEY, []));
+  // 릴스 폴더(상위 → 하위) — settings 의 'reels_folders' 키. items 와 따로 둬야
+  // 기획 목록을 저장할 때(changeList 는 {items} 로 통째로 쓴다) 폴더가 안 날아간다.
+  const [reelFolders, setReelFolders] = useState(() => readLocal(REEL_FOLDERS_KEY, null));
+  // 사무실 PC 분석기에 맡긴 일감과 분석기가 살아 있는지 (poclo-cafe24/reels_worker.py)
+  const [reelQueue, setReelQueueState] = useState([]);
+  const queueRef = useRef([]);
+  const setReelQueue = useCallback((jobs) => {
+    queueRef.current = jobs;
+    setReelQueueState(jobs);
+  }, []);
+  const [reelWorker, setReelWorker] = useState(null);
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
@@ -91,13 +103,14 @@ export function useSales(session) {
 
   const load = useCallback(async () => {
     try {
-      const [s, c, m, p, rl] = await Promise.all([
+      const [s, c, m, p, rl, rf] = await Promise.all([
         supabase.from("sales_daily").select("*").order("date"),
         supabase.from("settings").select("value").eq("key", "sales").maybeSingle(),
         // 공급가 없이 팔린 품목 — 새벽 자동 갱신(daily.py)이 채운다
         supabase.from("settings").select("value").eq("key", "missing_cost").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "pricing").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "reels").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "reels_folders").maybeSingle(),
       ]);
       if (!m.error) setMissingCost(m.data?.value || null);
       if (!p.error && p.data?.value?.items) {
@@ -107,6 +120,10 @@ export function useSales(session) {
       if (!rl.error && rl.data?.value?.items) {
         setReels(rl.data.value.items);
         writeLocal(REELS_KEY, rl.data.value.items);
+      }
+      if (!rf.error && rf.data?.value?.items) {
+        setReelFolders(rf.data.value.items);
+        writeLocal(REEL_FOLDERS_KEY, rf.data.value.items);
       }
       if (s.error) throw s.error;
       remoteOk.current = true;
@@ -333,6 +350,69 @@ export function useSales(session) {
     [changeList, reels],
   );
 
+  /** 폴더 목록 통째로 바꾸기 — change(folders) 가 새 목록을 돌려준다 */
+  const changeReelFolders = useCallback(
+    (change) =>
+      changeList(
+        "reels_folders",
+        REEL_FOLDERS_KEY,
+        reelFolders || [],
+        setReelFolders,
+        change,
+        "릴스 폴더",
+      ),
+    [changeList, reelFolders],
+  );
+
+  /**
+   * 사무실 PC 분석기에 일감을 맡긴다. target: "ref"(레퍼런스) | "ours"(우리가 찍은 영상).
+   * 분석기는 이 작은 목록만 5초마다 본다 — 릴스 전체를 매번 읽으면 전송량이 금방 찬다.
+   */
+  const queueReel = useCallback(
+    async (id, target) => {
+      const job = { id, target, status: "queued", step: "", at: new Date().toISOString() };
+      await changeList(
+        "reels_queue",
+        "poclo_reels_queue",
+        reelQueue,
+        setReelQueue,
+        (jobs) => [...jobs.filter((j) => !(j.id === id && j.target === target)), job],
+        "분석 요청",
+      );
+    },
+    [changeList, reelQueue, setReelQueue],
+  );
+
+  /**
+   * 일감 진행 상황과 분석기 상태만 가볍게 읽는다. 일감이 끝나 목록에서 빠지면
+   * 그때만 릴스 전체를 다시 읽는다. 릴스 화면이 떠 있는 동안 몇 초마다 부른다.
+   */
+  const pollReels = useCallback(async () => {
+    if (!(online && remoteOk.current)) return;
+    const [q, w] = await Promise.all([
+      supabase.from("settings").select("value").eq("key", "reels_queue").maybeSingle(),
+      supabase.from("settings").select("value").eq("key", "reels_worker").maybeSingle(),
+    ]);
+    if (!w.error) setReelWorker(w.data?.value || null);
+    if (q.error) return;
+    const jobs = q.data?.value?.jobs || [];
+    const finished = queueRef.current.some(
+      (p) => !jobs.some((j) => j.id === p.id && j.target === p.target),
+    );
+    setReelQueue(jobs);
+    if (finished) {
+      const { data, error } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "reels")
+        .maybeSingle();
+      if (!error && data?.value?.items) {
+        setReels(data.value.items);
+        writeLocal(REELS_KEY, data.value.items);
+      }
+    }
+  }, [online, setReelQueue]);
+
   /** 릴스 기획 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 */
   const saveReel = useCallback(
     (item) =>
@@ -348,7 +428,9 @@ export function useSales(session) {
     async (id) => {
       await changeReels((items) => items.filter((i) => i.id !== id));
       if (online && remoteOk.current) {
-        await supabase.storage.from("reels").remove([id, `${id}-thumb.jpg`]);
+        await supabase.storage
+          .from("reels")
+          .remove([id, `${id}-thumb.jpg`, `${id}-ours`, `${id}-ours-thumb.jpg`]);
       }
     },
     [changeReels, online],
@@ -367,10 +449,13 @@ export function useSales(session) {
         .upload(key, fileOrBlob, { upsert: true, contentType });
       if (error) {
         console.error(error);
+        // 보관함(버킷)이 없는 게 지금까지 제일 흔한 원인이었다 (9/22 세원: "영상이 저장되지 않았어요")
         setNotice(
           /bucket/i.test(error.message || "")
-            ? "영상 보관함이 아직 없어요. Supabase SQL Editor에서 supabase/schema.sql을 다시 실행해 주세요."
-            : "영상을 저장하지 못했어요. 기획 내용은 저장됐습니다.",
+            ? "영상 보관함이 아직 없어요. Supabase SQL Editor에서 릴스 보관함 SQL을 한 번 실행해 주세요 (supabase/schema.sql 의 '릴스 레퍼런스 영상' 부분)."
+            : /exceed|size|large/i.test(error.message || "")
+              ? "영상이 너무 커서 보관하지 못했어요 (50MB 한도). 짧게 잘라 넣어 주세요."
+              : `영상을 저장하지 못했어요 (${error.message || "알 수 없는 이유"}).`,
         );
         return false;
       }
@@ -425,6 +510,12 @@ export function useSales(session) {
     removeReel,
     putReelFile,
     reelFileUrl,
+    reelFolders,
+    changeReelFolders,
+    reelQueue,
+    reelWorker,
+    queueReel,
+    pollReels,
     reload: load,
     saveConf,
     putSamchon,

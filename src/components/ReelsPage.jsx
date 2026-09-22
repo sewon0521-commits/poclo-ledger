@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Clapperboard,
   Upload,
@@ -10,26 +10,44 @@ import {
   Loader2,
   Link2,
   Play,
-  Folder,
   Search,
   X,
   Sparkles,
   Heart,
   Zap,
+  Pencil,
+  Plus,
+  ChevronRight,
+  RotateCw,
+  Video,
+  ExternalLink,
+  TrendingUp,
+  Mic,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate } from "../lib/reels";
 import { newId } from "../lib/id";
+import {
+  seedFolders,
+  folderIdOf,
+  childrenOf,
+  withChildren,
+  pathName,
+  folderCounts,
+} from "../lib/reelFolders";
 import { Empty } from "./ui";
 
 /**
  * 릴스 기획 — 레퍼런스를 모으고(라이브러리), 그 구조로 우리 상품 대본을 만든다.
  *
- * 세 가지가 핵심 (세원 2026-09-17, 레퍼런스랩 참고):
- *  1. **영상을 모아 두는 곳** — 썸네일이 보이고 눌러서 다시 볼 수 있어야 한다.
- *  2. **폴더** — 판매형/정보성/코디릴스처럼 갈래로 묶는다.
- *  3. **반자동 기획** — 레퍼런스 대본을 빈칸 있는 틀로 만들어 두고(`template`/`slots`),
- *     우리 상품을 넣으면 빈칸이 자동으로 채워진다. 채워진 말은 손으로 고칠 수 있다.
+ * 2026-09-17: 영상 파일 → 장면 사진 → 대본·구조 → 빈칸 틀 → 우리 상품으로 채우기.
+ * 2026-09-22 (세원: "인스타 링크만 넣으면 되게, 우리가 찍은 영상도 첨부, 폴더는 상위→하위"):
+ *  - **인스타 링크**만 넣으면 사무실 PC 분석기(poclo-cafe24/reels_worker.py)가 영상을 받아
+ *    장면을 뜨고 **소리까지 받아써서** 분석한다. 계정·좋아요·댓글·캡션으로 성과도 본다.
+ *  - 영상 파일도 분석기로 보낸다(소리 받아쓰기 때문). 분석기가 꺼져 있으면 예전처럼
+ *    브라우저에서 바로(소리 없이) 할 수 있다.
+ *  - **우리 영상** 탭: 우리가 찍은 영상을 올리면 레퍼런스·기획과 비교해 고칠 점을 준다.
+ *  - 폴더는 상위 → 하위 한 단계. '카테고리 편집'에서 만든다.
  *
  * 영상·썸네일은 Supabase Storage('reels' 버킷), 기획 내용은 settings 의 'reels' 키.
  */
@@ -37,7 +55,11 @@ import { Empty } from "./ui";
 const FIELD =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-rose-600";
 const KINDS = ["자막형", "목소리형", "자막+목소리"];
-const BASE_FOLDERS = ["미분류", "판매형", "정보성", "코디릴스", "관심끌기용"];
+const MAX_VIDEO = 40 * 1024 * 1024;
+
+const isLink = (s) => /^https?:\/\/(www\.)?(instagram\.com|instagr\.am|tiktok\.com|youtube\.com|youtu\.be)\//i.test(s.trim());
+const workerAlive = (w) => !!w?.at && Date.now() - new Date(w.at).getTime() < 90 * 1000;
+const num = (n) => (n == null ? "—" : new Intl.NumberFormat("ko-KR").format(n));
 
 function CopyButton({ text, label = "복사" }) {
   const [done, setDone] = useState(false);
@@ -61,37 +83,57 @@ function CopyButton({ text, label = "복사" }) {
   );
 }
 
-// ------------------------------------------------------------- 영상 넣고 분석
+// ------------------------------------------------------------- 분석기 상태
 
-function AddBar({ onAnalyzed, notice, setNotice }) {
+function WorkerStatus({ worker }) {
+  const alive = workerAlive(worker);
+  return (
+    <p className={"mt-2 flex items-start gap-1.5 text-xs " + (alive ? "text-emerald-700" : "text-stone-500")}>
+      <span
+        className={
+          "mt-1 h-2 w-2 shrink-0 rounded-full " + (alive ? "bg-emerald-500" : "bg-stone-300")
+        }
+      />
+      {alive ? (
+        <span>
+          사무실 PC 분석기 켜짐{worker.busy ? " · 지금 분석 중" : ""} — 소리까지 받아써서 분석해요.
+        </span>
+      ) : (
+        <span>
+          사무실 PC 분석기가 꺼져 있어요. 맡겨 두면 켜질 때 이어서 분석해요.
+          <span className="block text-stone-400">
+            켜기: poclo-cafe24 폴더의 <b className="font-medium">8_릴스분석기_켜기.bat</b> (한 번 켜 두면 PC 켤 때마다 자동)
+          </span>
+        </span>
+      )}
+    </p>
+  );
+}
+
+// ------------------------------------------------------------- 넣기 (링크 · 파일)
+
+function AddBar({ worker, onLink, onFile, onBrowser, notice }) {
+  const [tab, setTab] = useState("link");
+  const [url, setUrl] = useState("");
   const [file, setFile] = useState(null);
+  const [memo, setMemo] = useState("");
   const [kind, setKind] = useState("자막형");
   const [transcript, setTranscript] = useState("");
-  const [memo, setMemo] = useState("");
   const [over, setOver] = useState(false);
   const [step, setStep] = useState("");
   const busy = !!step;
+  const alive = workerAlive(worker);
 
-  const run = async () => {
-    setNotice("");
+  const wrap = async (label, fn) => {
+    setStep(label);
     try {
-      setStep("장면 뜨는 중…");
-      const { frames, thumb, seconds } = await extractFrames(file, {
-        onStep: (i, n) => setStep(`장면 뜨는 중… ${i}/${n}`),
-      });
-      setStep("대본 읽는 중… (30초쯤 걸려요)");
-      const r = await readScript({ frames, kind, transcript, memo });
-      if (!r.ok) {
-        setNotice(r.message);
-        return;
+      const ok = await fn();
+      if (ok !== false) {
+        setUrl("");
+        setFile(null);
+        setMemo("");
+        setTranscript("");
       }
-      setStep("영상 보관하는 중…");
-      await onAnalyzed({ reference: { ...r.data, seconds: r.data.seconds || seconds }, file, thumb });
-      setFile(null);
-      setTranscript("");
-      setMemo("");
-    } catch (err) {
-      setNotice(err?.message || "영상을 읽지 못했어요.");
     } finally {
       setStep("");
     }
@@ -108,90 +150,399 @@ function AddBar({ onAnalyzed, notice, setNotice }) {
         e.preventDefault();
         setOver(false);
         const f = e.dataTransfer.files?.[0];
-        if (f) setFile(f);
+        if (f) {
+          setTab("file");
+          setFile(f);
+        }
       }}
       className={
         "mb-4 rounded-2xl border p-4 transition " +
         (over ? "border-rose-500 bg-rose-50" : "border-stone-200 bg-white")
       }
     >
-      <label className="flex cursor-pointer items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-700">
-          <Upload size={18} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-stone-800">
-            {file ? file.name : "릴스 영상을 끌어다 놓거나 눌러서 고르기"}
-          </span>
-          <span className="block text-[11px] text-stone-400">
-            mp4 · mov · webm — 넣으면 대본과 구조를 뽑아 라이브러리에 담아요
-          </span>
-        </span>
-        <input
-          type="file"
-          accept="video/*"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) setFile(f);
-          }}
-        />
-      </label>
+      <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+        {[
+          ["link", "인스타 링크", Link2],
+          ["file", "영상 파일", Upload],
+        ].map(([k, label, Icon]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={
+              "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 font-medium " +
+              (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")
+            }
+          >
+            <Icon size={14} /> {label}
+          </button>
+        ))}
+      </div>
 
-      {file && (
-        <div className="mt-3 border-t border-stone-100 pt-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {KINDS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKind(k)}
-                className={
-                  "rounded-lg border px-3 py-1.5 text-sm font-medium " +
-                  (kind === k
-                    ? "border-rose-700 bg-rose-700 text-white"
-                    : "border-stone-300 bg-white text-stone-600")
-                }
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-          {kind !== "자막형" && (
-            <textarea
-              value={transcript}
-              onChange={(e) => setTranscript(e.target.value)}
-              placeholder="소리는 못 읽어요. 인스타 자동자막을 복사해 넣으면 합쳐서 정리해요 (선택)"
-              className={FIELD + " mt-2 h-20 resize-y text-sm"}
-            />
-          )}
+      {tab === "link" ? (
+        <div className="flex flex-wrap gap-2">
           <input
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            placeholder="메모 (선택) — 예: 어반몬드 · 조회수 80만"
-            className={FIELD + " mt-2 text-sm"}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://www.instagram.com/reel/…"
+            className={FIELD + " min-w-0 flex-1 text-sm"}
           />
           <button
             type="button"
-            disabled={busy}
-            onClick={run}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 font-semibold text-white disabled:bg-stone-300"
+            disabled={busy || !isLink(url)}
+            onClick={() => wrap("맡기는 중…", () => onLink(url.trim(), memo))}
+            className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
           >
             {busy ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-            {busy ? step : "대본 뽑고 담기"}
+            {busy ? step : "분석 맡기기"}
           </button>
         </div>
+      ) : (
+        <>
+          <label className="flex cursor-pointer items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-700">
+              <Upload size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-stone-800">
+                {file ? file.name : "릴스 영상을 끌어다 놓거나 눌러서 고르기"}
+              </span>
+              <span className="block text-[11px] text-stone-400">
+                mp4 · mov — 40MB까지 보관. 분석기가 소리까지 받아써요
+              </span>
+            </span>
+            <input
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) setFile(f);
+              }}
+            />
+          </label>
+          {file && (
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-stone-100 pt-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => wrap("영상 올리는 중…", () => onFile(file, memo))}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 font-semibold text-white disabled:bg-stone-300"
+              >
+                {busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
+                {busy ? step : "올려서 분석 맡기기 (소리 포함)"}
+              </button>
+              {!alive && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    wrap("브라우저에서 분석 중…", () =>
+                      onBrowser(file, { memo, kind, transcript }, setStep),
+                    )
+                  }
+                  className="rounded-xl border border-stone-300 px-3 py-2.5 text-sm font-medium text-stone-600 disabled:opacity-50"
+                  title="사무실 PC 분석기 없이 지금 바로 — 소리는 못 들어요"
+                >
+                  PC 없이 지금 (소리 제외)
+                </button>
+              )}
+            </div>
+          )}
+          {file && !alive && (
+            <div className="mt-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-stone-400">'PC 없이'로 할 때 형태:</span>
+                {KINDS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setKind(k)}
+                    className={
+                      "rounded-md border px-2 py-1 text-xs " +
+                      (kind === k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 text-stone-600")
+                    }
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+              {kind !== "자막형" && (
+                <textarea
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  placeholder="소리는 못 읽어요. 인스타 자동자막을 복사해 넣으면 합쳐서 정리해요 (선택)"
+                  className={FIELD + " mt-2 h-16 resize-y text-sm"}
+                />
+              )}
+            </div>
+          )}
+        </>
       )}
+
+      <input
+        value={memo}
+        onChange={(e) => setMemo(e.target.value)}
+        placeholder="메모 (선택) — 예: 어반몬드 · 조회수 80만"
+        className={FIELD + " mt-2 text-sm"}
+      />
+      <WorkerStatus worker={worker} />
       {notice && <p className="mt-2 text-sm text-rose-700">{notice}</p>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------- 폴더 줄 · 카테고리 편집
+
+function Chip({ active, onClick, children, count }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium " +
+        (active ? "bg-rose-700 text-white" : "border border-stone-200 bg-stone-50 text-stone-600 hover:bg-stone-100")
+      }
+    >
+      {children}
+      {count != null && <span className={active ? "text-rose-200" : "text-stone-400"}>{count}</span>}
+    </button>
+  );
+}
+
+function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ }) {
+  const { total, none } = useMemo(() => folderCounts(items, folders), [items, folders]);
+  const tops = folders.filter((f) => !f.parent);
+  const selFolder = folders.find((f) => f.id === sel);
+  const openParent = selFolder ? selFolder.parent || selFolder.id : null;
+  const kids = openParent ? childrenOf(openParent, folders) : [];
+
+  return (
+    <div className="mb-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className="mr-1 w-8 shrink-0 text-xs text-stone-400">폴더</span>
+          <Chip active={sel === "all"} onClick={() => onSel("all")} count={items.length}>
+            전체
+          </Chip>
+          {none > 0 && (
+            <Chip active={sel === "none"} onClick={() => onSel("none")} count={none}>
+              미분류
+            </Chip>
+          )}
+          {tops.map((f) => (
+            <Chip
+              key={f.id}
+              active={sel === f.id || selFolder?.parent === f.id}
+              onClick={() => onSel(f.id)}
+              count={total.get(f.id) || 0}
+            >
+              {f.name}
+              {childrenOf(f.id, folders).length > 0 && <ChevronRight size={12} className="opacity-60" />}
+            </Chip>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex shrink-0 items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
+        >
+          <Pencil size={12} /> 카테고리 편집
+        </button>
+      </div>
+
+      {kids.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-stone-100 pt-2">
+          <span className="mr-1 w-8 shrink-0 text-xs text-stone-400">하위</span>
+          <Chip active={sel === openParent} onClick={() => onSel(openParent)}>
+            전부
+          </Chip>
+          {kids.map((k) => (
+            <Chip key={k.id} active={sel === k.id} onClick={() => onSel(k.id)} count={total.get(k.id) || 0}>
+              {k.name}
+            </Chip>
+          ))}
+        </div>
+      )}
+
+      <div className="relative mt-2">
+        <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="대본·계정·상품 검색"
+          className="w-full rounded-lg border border-stone-200 bg-white py-1.5 pr-2 pl-8 text-sm sm:w-60"
+        />
+      </div>
+    </div>
+  );
+}
+
+/** 한 줄 이름 고치기 / 새로 만들기 칸 */
+function NameInput({ initial = "", placeholder, onDone, onCancel }) {
+  const [v, setV] = useState(initial);
+  // 엔터로 끝내면 칸이 사라지면서 blur 가 한 번 더 올 수 있다 — 두 번 저장하지 않게
+  const settled = useRef(false);
+  const finish = (save) => {
+    if (settled.current) return;
+    settled.current = true;
+    if (save && v.trim() && v.trim() !== initial) onDone(v.trim());
+    else onCancel();
+  };
+  return (
+    <input
+      autoFocus
+      value={v}
+      placeholder={placeholder}
+      onChange={(e) => setV(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(true);
+        if (e.key === "Escape") finish(false);
+      }}
+      onBlur={() => finish(true)}
+      className="min-w-0 flex-1 rounded-md border border-rose-500 px-2 py-1 text-sm outline-none"
+    />
+  );
+}
+
+function CategoryEditor({ items, folders, onChange, onClose }) {
+  // editing: {id} 이름 고치기 | {parent} 하위 새로 | {top:true} 상위 새로
+  const [editing, setEditing] = useState(null);
+  const { total } = useMemo(() => folderCounts(items, folders), [items, folders]);
+  const tops = folders.filter((f) => !f.parent);
+
+  const rename = (id, name) =>
+    onChange((list) =>
+      list.map((f) =>
+        f.id === id ? { ...f, name, aka: [...new Set([...(f.aka || []), f.name])] } : f,
+      ),
+    );
+  const add = (name, parent = null) =>
+    onChange((list) => [...list, { id: newId("f"), name, parent }]);
+  const remove = (f) => {
+    const n = total.get(f.id) || 0;
+    const kids = childrenOf(f.id, folders).length;
+    const msg =
+      `'${f.name}' 폴더를 지울까요?` +
+      (kids ? `\n하위 폴더 ${kids}개도 같이 지워져요.` : "") +
+      (n ? `\n안에 든 릴스 ${n}개는 지워지지 않고 미분류로 가요.` : "");
+    if (window.confirm(msg)) onChange((list) => list.filter((x) => x.id !== f.id && x.parent !== f.id));
+  };
+  const done = () => setEditing(null);
+
+  const row = (f, child) => (
+    <li
+      key={f.id}
+      className={
+        "group flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-stone-50 " + (child ? "pl-8" : "")
+      }
+    >
+      {child && <span className="text-stone-300">└</span>}
+      {editing?.id === f.id ? (
+        <NameInput
+          initial={f.name}
+          onDone={(v) => {
+            rename(f.id, v);
+            done();
+          }}
+          onCancel={done}
+        />
+      ) : (
+        <span className={"min-w-0 flex-1 truncate text-sm " + (child ? "text-stone-700" : "font-semibold text-stone-900")}>
+          {f.name}
+        </span>
+      )}
+      <span className="w-6 text-right text-xs text-stone-400 tabular-nums">{total.get(f.id) || 0}</span>
+      <span className="flex items-center gap-0.5 text-stone-400">
+        <button type="button" onClick={() => setEditing({ id: f.id })} aria-label="이름 고치기" className="rounded p-1 hover:bg-stone-200 hover:text-stone-700">
+          <Pencil size={13} />
+        </button>
+        {!child && (
+          <button type="button" onClick={() => setEditing({ parent: f.id })} aria-label="하위 폴더 만들기" className="rounded p-1 hover:bg-stone-200 hover:text-stone-700">
+            <Plus size={14} />
+          </button>
+        )}
+        <button type="button" onClick={() => remove(f)} aria-label="지우기" className="rounded p-1 hover:bg-stone-200 hover:text-rose-600">
+          <Trash2 size={13} />
+        </button>
+      </span>
+    </li>
+  );
+
+  return (
+    <div className="flex max-h-[85vh] flex-col">
+      <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
+        <div>
+          <h2 className="font-semibold text-stone-900">카테고리 편집</h2>
+          <p className="mt-0.5 text-xs text-stone-500">상위 폴더 아래에 하위 폴더를 둘 수 있어요</p>
+        </div>
+        <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <X size={20} />
+        </button>
+      </header>
+      <ul className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        {tops.map((f) => (
+          <div key={f.id}>
+            {row(f, false)}
+            {childrenOf(f.id, folders).map((c) => row(c, true))}
+            {editing?.parent === f.id && (
+              <li className="flex items-center gap-2 py-1.5 pr-3 pl-8">
+                <span className="text-stone-300">└</span>
+                <NameInput
+                  placeholder="하위 폴더 이름 — 예: [팬츠] 설명 영상"
+                  onDone={(v) => {
+                    add(v, f.id);
+                    done();
+                  }}
+                  onCancel={done}
+                />
+              </li>
+            )}
+          </div>
+        ))}
+        {editing?.top && (
+          <li className="flex items-center gap-2 px-3 py-1.5">
+            <NameInput
+              placeholder="상위 폴더 이름 — 예: 판매형 릴스 (메타광고)"
+              onDone={(v) => {
+                add(v);
+                done();
+              }}
+              onCancel={done}
+            />
+          </li>
+        )}
+      </ul>
+      <footer className="shrink-0 border-t border-stone-200 p-3">
+        <button
+          type="button"
+          onClick={() => setEditing({ top: true })}
+          className="w-full rounded-xl border border-dashed border-rose-300 py-2.5 text-sm font-medium text-rose-700 hover:bg-rose-50"
+        >
+          + 새 상위 폴더
+        </button>
+      </footer>
     </div>
   );
 }
 
 // ------------------------------------------------------------------ 카드
 
-function Card({ item, thumbUrl, onOpen }) {
+/** 분석 진행 상황 — 분석기가 일감 목록에 적는 단계(step)가 있으면 그걸 보여준다 */
+function statusOf(item, queue, target = "ref") {
+  const q = queue.find((j) => j.id === item.id && j.target === target);
+  const job = target === "ours" ? item.ours?.job : item.job;
+  if (q?.status === "working") return { kind: "working", text: q.step || "분석 중" };
+  if (q) return { kind: "queued", text: "분석 대기 중" };
+  if (job?.status === "error") return { kind: "error", text: job.message || "분석 실패" };
+  if (job?.status === "queued") return { kind: "queued", text: "분석 대기 중" };
+  return { kind: "done" };
+}
+
+function Card({ item, thumbUrl, folderName, status, onOpen }) {
   const r = item.reference || {};
+  const pending = status.kind !== "done";
   return (
     <button
       type="button"
@@ -203,13 +554,27 @@ function Card({ item, thumbUrl, onOpen }) {
           <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
         ) : (
           <span className="flex h-full w-full items-center justify-center text-stone-300">
-            <Clapperboard size={28} />
+            {pending && status.kind !== "error" ? <Loader2 size={24} className="animate-spin" /> : <Clapperboard size={28} />}
           </span>
         )}
-        <span className="absolute top-2 left-2 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-stone-600">
-          {item.plan ? "대본 완성" : "분석 완료"}
+        <span
+          className={
+            "absolute top-2 left-2 max-w-[85%] truncate rounded px-1.5 py-0.5 text-[10px] font-medium " +
+            (status.kind === "error"
+              ? "bg-rose-600 text-white"
+              : pending
+                ? "bg-amber-400 text-amber-950"
+                : "bg-white/90 text-stone-600")
+          }
+        >
+          {pending ? status.text : item.plan ? "대본 완성" : "분석 완료"}
         </span>
-        {item.hasVideo && (
+        {item.ours && (
+          <span className="absolute top-2 right-2 rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+            우리 영상
+          </span>
+        )}
+        {item.hasVideo && !pending && (
           <span className="absolute inset-0 flex items-center justify-center">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white">
               <Play size={16} />
@@ -225,7 +590,8 @@ function Card({ item, thumbUrl, onOpen }) {
       <span className="block px-3 py-2">
         <span className="block truncate text-sm font-medium text-stone-900">{item.title}</span>
         <span className="mt-0.5 block truncate text-[11px] text-stone-400">
-          {item.folder || "미분류"}
+          {folderName}
+          {item.meta?.uploader && ` · @${item.meta.uploader}`}
           {item.plan?.product?.name && ` · ${item.plan.product.name}`}
         </span>
       </span>
@@ -235,8 +601,37 @@ function Card({ item, thumbUrl, onOpen }) {
 
 // ------------------------------------------------------------- 상세 · 대본 만들기
 
-function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
+function Meta({ meta }) {
+  if (!meta) return null;
+  const cells = [
+    ["좋아요", num(meta.likes)],
+    ["댓글", num(meta.comments)],
+    ["조회수", meta.views != null ? num(meta.views) : "못 가져옴"],
+    ["게시일", meta.postedAt || "—"],
+  ];
+  return (
+    <div className="mt-2 rounded-lg bg-stone-800 p-2 text-[11px] text-stone-300">
+      {meta.uploader && <div className="mb-1 truncate font-medium text-white">@{meta.uploader}</div>}
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+        {cells.map(([k, v]) => (
+          <span key={k} className="flex justify-between gap-1">
+            <span className="text-stone-400">{k}</span>
+            <span className="tabular-nums">{v}</span>
+          </span>
+        ))}
+      </div>
+      {meta.url && (
+        <a href={meta.url} target="_blank" rel="noreferrer" className="mt-1.5 flex items-center gap-1 text-sky-300 hover:underline">
+          <ExternalLink size={11} /> 원본 릴스 열기
+        </a>
+      )}
+    </div>
+  );
+}
+
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs }) {
   const r = item.reference || {};
+  const status = statusOf(item, queue);
   const [tab, setTab] = useState(item.plan ? "write" : "script");
   const [url, setUrl] = useState(item.plan ? item.productUrl || "" : "");
   const [memo, setMemo] = useState("");
@@ -244,8 +639,6 @@ function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
   const [msg, setMsg] = useState("");
   const [filled, setFilled] = useState(item.filled || item.plan?.filled || []);
   const [plan, setPlan] = useState(item.plan || null);
-  const [folder, setFolder] = useState(item.folder || "미분류");
-  const [newFolder, setNewFolder] = useState("");
 
   const value = (key) => filled.find((f) => f.key === key)?.value || "";
   const setValue = (key, v) => {
@@ -253,10 +646,11 @@ function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
       ? filled.map((f) => (f.key === key ? { ...f, value: v } : f))
       : [...filled, { key, value: v }];
     setFilled(next);
-    onSave({ ...item, filled: next, folder });
+    onSave({ ...item, filled: next });
   };
 
   const done = fillTemplate(r.template, filled);
+  const folderId = folderIdOf(item, folders);
 
   const run = async () => {
     setMsg("");
@@ -269,13 +663,7 @@ function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
       }
       setPlan(res.data);
       setFilled(res.data.filled || []);
-      onSave({
-        ...item,
-        plan: res.data,
-        filled: res.data.filled || [],
-        productUrl: url.trim(),
-        folder,
-      });
+      onSave({ ...item, plan: res.data, filled: res.data.filled || [], productUrl: url.trim() });
       setTab("write");
     } finally {
       setBusy(false);
@@ -286,6 +674,7 @@ function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
     ["script", "원본 대본"],
     ["struct", "구조분석"],
     ["write", "대본 만들기"],
+    ["ours", "우리 영상"],
   ];
 
   return (
@@ -297,49 +686,35 @@ function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
             {r.structure?.hookType && (
-              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700">
-                {r.structure.hookType}
-              </span>
+              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700">{r.structure.hookType}</span>
             )}
-            <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-600">{r.kind}</span>
+            {r.kind && <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-600">{r.kind}</span>}
             {r.seconds > 0 && (
               <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-600">{r.seconds}초</span>
             )}
             <select
-              value={folder}
+              value={folderId || ""}
               onChange={(e) => {
-                setFolder(e.target.value);
-                onSave({ ...item, folder: e.target.value, filled });
+                const id = e.target.value || null;
+                const f = folders.find((x) => x.id === id);
+                // 이름도 같이 적어 둔다 — 폴더를 처음 저장하기 전(기본 갈래)에도 이름으로 찾을 수 있게
+                onSave({ ...item, folderId: id, folder: f && !f.parent ? f.name : "" });
               }}
               className="rounded border border-stone-300 bg-white px-1.5 py-0.5 text-stone-600"
             >
-              {[...new Set([...BASE_FOLDERS, ...folders, folder])].map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
+              <option value="">미분류</option>
+              {folders
+                .filter((f) => !f.parent)
+                .flatMap((f) => [f, ...childrenOf(f.id, folders)])
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.parent ? `　└ ${f.name}` : f.name}
+                  </option>
+                ))}
             </select>
-            <input
-              value={newFolder}
-              onChange={(e) => setNewFolder(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newFolder.trim()) {
-                  setFolder(newFolder.trim());
-                  onSave({ ...item, folder: newFolder.trim(), filled });
-                  setNewFolder("");
-                }
-              }}
-              placeholder="새 폴더 + Enter"
-              className="w-28 rounded border border-stone-300 px-1.5 py-0.5"
-            />
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="닫기"
-          className="-m-1 shrink-0 p-1 text-stone-400 hover:text-stone-700"
-        >
+        <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 shrink-0 p-1 text-stone-400 hover:text-stone-700">
           <X size={20} />
         </button>
       </header>
@@ -352,238 +727,299 @@ function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
           ) : urls.thumb ? (
             <img src={urls.thumb} alt="" className="w-full rounded-lg" />
           ) : (
-            <div className="flex h-40 items-center justify-center text-sm text-stone-500">
-              영상이 저장되지 않았어요
+            <div className="flex h-40 flex-col items-center justify-center gap-1 px-3 text-center text-sm text-stone-500">
+              {status.kind === "done" ? "영상이 보관되지 않았어요" : status.text}
+              {status.kind === "done" && (
+                <span className="text-[11px] text-stone-600">보관함(SQL)이 생긴 뒤 넣은 영상부터 보여요</span>
+              )}
             </div>
           )}
+          <Meta meta={item.meta} />
         </div>
 
         <div className="min-w-0 p-4">
-          <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
-            {TABS.map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setTab(k)}
-                className={
-                  "flex-1 rounded-lg py-2 font-medium " +
-                  (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {tab === "script" && (
-            <>
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-stone-500">자동으로 뽑은 대본</span>
-                <CopyButton text={r.script || ""} />
+          {status.kind !== "done" ? (
+            <div
+              className={
+                "rounded-xl border px-4 py-5 text-sm " +
+                (status.kind === "error" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-900")
+              }
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                {status.kind === "error" ? <Info size={15} /> : <Loader2 size={15} className="animate-spin" />}
+                {status.text}
               </div>
-              <p className="rounded-xl border border-stone-200 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">
-                {r.script}
-              </p>
-              {r.scenes?.length > 0 && (
-                <ul className="mt-3 divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 text-sm">
-                  {r.scenes.map((s, i) => (
-                    <li key={i} className="flex gap-3 px-3 py-2">
-                      <span className="w-14 shrink-0 text-xs text-stone-400">{s.at}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-stone-700">{s.visual}</span>
-                        {s.text && <span className="block text-xs text-rose-700">“{s.text}”</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {r.note && (
-                <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-amber-800">
-                  <Info size={13} className="mt-0.5 shrink-0" />
-                  {r.note}
+              {status.kind === "error" ? (
+                <button
+                  type="button"
+                  onClick={() => onRetry(item, "ref")}
+                  className="mt-3 flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white"
+                >
+                  <RotateCw size={13} /> 다시 분석 맡기기
+                </button>
+              ) : (
+                <p className="mt-1 text-xs opacity-80">
+                  링크 받기 → 장면 뜨기 → 소리 받아쓰기 → 대본·구조 분석 순서로 해요. 보통 1~2분. 창을 닫아도 계속돼요.
                 </p>
               )}
-            </>
-          )}
-
-          {tab === "struct" && (
+            </div>
+          ) : (
             <>
-              {r.empathy && (
-                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900">
-                    <Heart size={13} /> 공감 포인트
-                  </div>
-                  <p className="mt-1 text-sm leading-relaxed text-amber-900">{r.empathy}</p>
-                </div>
-              )}
-              {r.hookFormula?.line && (
-                <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-900">
-                    <Zap size={13} /> 후킹 공식
-                  </div>
-                  <p className="mt-1 text-sm font-semibold text-rose-900">{r.hookFormula.line}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-rose-800">
-                    A = {r.hookFormula.a} / B = {r.hookFormula.b}
-                    <br />
-                    {r.hookFormula.why}
-                  </p>
-                </div>
-              )}
-              {r.lines?.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-stone-500">문장별 분석</div>
-                  {r.lines.map((l, i) => (
-                    <div key={i} className="rounded-xl border border-stone-200 px-3 py-2.5">
-                      <div className="flex items-start gap-2">
-                        <span className="shrink-0 rounded bg-stone-100 px-1.5 py-0.5 text-[11px] font-medium text-stone-600">
-                          {l.role}
-                        </span>
-                        <span className="text-sm font-medium text-stone-900">{l.text}</span>
-                      </div>
-                      <p className="mt-1 text-xs leading-relaxed text-stone-500">{l.why}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <p className="mt-3 rounded-xl bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-stone-700">
-                {r.structure?.flow}
-                <span className="mt-1 block text-xs text-stone-500">
-                  CTA: {r.structure?.cta} · {r.structure?.whyItWorks}
-                </span>
-              </p>
-            </>
-          )}
-
-          {tab === "write" && (
-            <>
-              <div className="rounded-xl border border-stone-200 p-3">
-                <div className="mb-1.5 text-xs font-semibold text-stone-500">
-                  우리 상품 주소를 넣으면 아래 빈칸이 자동으로 채워져요
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="relative min-w-0 flex-1">
-                    <Link2 size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-stone-400" />
-                    <input
-                      value={url}
-                      onChange={(e) => setUrl(e.target.value)}
-                      placeholder="https://ppoclo.cafe24.com/product/..."
-                      className={FIELD + " pl-8 text-sm"}
-                    />
-                  </span>
+              <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+                {TABS.map(([k, label]) => (
                   <button
+                    key={k}
                     type="button"
-                    disabled={!url.trim() || busy}
-                    onClick={run}
-                    className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
+                    onClick={() => setTab(k)}
+                    className={
+                      "flex-1 rounded-lg py-2 font-medium " +
+                      (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")
+                    }
                   >
-                    {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                    {busy ? "채우는 중…" : plan ? "다시 채우기" : "빈칸 채우기"}
+                    {label}
                   </button>
-                </div>
-                <input
-                  value={memo}
-                  onChange={(e) => setMemo(e.target.value)}
-                  placeholder="메모 (선택) — 예: 가을 신상으로 밀 것"
-                  className={FIELD + " mt-2 text-sm"}
-                />
-                {msg && <p className="mt-2 text-sm text-rose-700">{msg}</p>}
+                ))}
               </div>
 
-              {r.template && (
-                <div className="mt-3">
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-stone-500">
-                      틀 — 노란 칸을 눌러 고칠 수 있어요
-                    </span>
-                    <CopyButton text={done} label="완성 대본 복사" />
+              {tab === "script" && (
+                <>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-stone-500">자동으로 뽑은 대본</span>
+                    <CopyButton text={r.script || ""} />
                   </div>
-                  <div className="space-y-1.5 rounded-xl border border-stone-200 p-3">
-                    {r.template.split("\n").filter(Boolean).map((line, i) => {
-                      const at = (line.match(/^\[([^\]]+)\]\s*/) || [])[1] || "";
-                      const rest = line.replace(/^\[[^\]]+\]\s*/, "");
-                      return (
-                        <div key={i} className="flex gap-2 text-sm">
-                          {at && <span className="w-12 shrink-0 pt-1 text-xs text-stone-400">{at}</span>}
-                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 leading-7">
-                            {splitTemplate(rest).map((part, j) =>
-                              part.slot ? (
-                                <SlotChip
-                                  key={j}
-                                  slot={r.slots?.find((s) => s.key === part.slot) || { key: part.slot }}
-                                  value={value(part.slot)}
-                                  onChange={(v) => setValue(part.slot, v)}
-                                />
-                              ) : (
-                                <span key={j} className="text-stone-800">
-                                  {part.text}
-                                </span>
-                              ),
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {plan && (
-                <div className="mt-3 space-y-3">
-                  <div className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm">
-                    <div className="text-xs font-semibold text-stone-500">
-                      {plan.product?.name} {plan.product?.price}
-                    </div>
-                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-stone-700">
-                      {(plan.product?.points || []).map((p, i) => (
-                        <li key={i}>{p}</li>
+                  <p className="rounded-xl border border-stone-200 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">
+                    {r.script}
+                  </p>
+                  {item.transcript && (
+                    <details className="mt-2 rounded-xl border border-stone-200 px-3 py-2 text-sm">
+                      <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-stone-500">
+                        <Mic size={12} /> 자동 받아쓰기 원문 (기계가 들은 그대로)
+                      </summary>
+                      <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-stone-600">{item.transcript}</p>
+                    </details>
+                  )}
+                  {item.meta?.caption && (
+                    <details className="mt-2 rounded-xl border border-stone-200 px-3 py-2 text-sm">
+                      <summary className="cursor-pointer text-xs font-semibold text-stone-500">원본 캡션(본문)</summary>
+                      <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-stone-600">{item.meta.caption}</p>
+                    </details>
+                  )}
+                  {r.scenes?.length > 0 && (
+                    <ul className="mt-3 divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 text-sm">
+                      {r.scenes.map((s, i) => (
+                        <li key={i} className="flex gap-3 px-3 py-2">
+                          <span className="w-14 shrink-0 text-xs text-stone-400">{s.at}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-stone-700">{s.visual}</span>
+                            {s.text && <span className="block text-xs text-rose-700">“{s.text}”</span>}
+                          </span>
+                        </li>
                       ))}
                     </ul>
-                    {plan.product?.cautions && (
-                      <p className="mt-1.5 text-xs text-amber-800">{plan.product.cautions}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-stone-500">AI가 새로 쓴 대본</span>
-                      <CopyButton text={plan.script || ""} />
-                    </div>
-                    <p className="rounded-xl border border-stone-200 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">
-                      {plan.script}
+                  )}
+                  {r.note && (
+                    <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-amber-800">
+                      <Info size={13} className="mt-0.5 shrink-0" />
+                      {r.note}
                     </p>
+                  )}
+                </>
+              )}
+
+              {tab === "struct" && (
+                <>
+                  {(r.performance?.summary || r.performance?.signals?.length > 0) && (
+                    <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-900">
+                        <TrendingUp size={13} /> 성과 분석
+                      </div>
+                      {r.performance.summary && (
+                        <p className="mt-1 text-sm leading-relaxed text-sky-950">{r.performance.summary}</p>
+                      )}
+                      {r.performance.signals?.length > 0 && (
+                        <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-xs leading-relaxed text-sky-900">
+                          {r.performance.signals.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {r.empathy && (
+                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900">
+                        <Heart size={13} /> 공감 포인트
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed text-amber-900">{r.empathy}</p>
+                    </div>
+                  )}
+                  {r.hookFormula?.line && (
+                    <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-rose-900">
+                        <Zap size={13} /> 후킹 공식
+                      </div>
+                      <p className="mt-1 text-sm font-semibold text-rose-900">{r.hookFormula.line}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-rose-800">
+                        A = {r.hookFormula.a} / B = {r.hookFormula.b}
+                        <br />
+                        {r.hookFormula.why}
+                      </p>
+                    </div>
+                  )}
+                  {r.lines?.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold text-stone-500">문장별 분석</div>
+                      {r.lines.map((l, i) => (
+                        <div key={i} className="rounded-xl border border-stone-200 px-3 py-2.5">
+                          <div className="flex items-start gap-2">
+                            <span className="shrink-0 rounded bg-stone-100 px-1.5 py-0.5 text-[11px] font-medium text-stone-600">
+                              {l.role}
+                            </span>
+                            <span className="text-sm font-medium text-stone-900">{l.text}</span>
+                          </div>
+                          <p className="mt-1 text-xs leading-relaxed text-stone-500">{l.why}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-3 rounded-xl bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-stone-700">
+                    {r.structure?.flow}
+                    <span className="mt-1 block text-xs text-stone-500">
+                      CTA: {r.structure?.cta} · {r.structure?.whyItWorks}
+                    </span>
+                  </p>
+                </>
+              )}
+
+              {tab === "write" && (
+                <>
+                  <div className="rounded-xl border border-stone-200 p-3">
+                    <div className="mb-1.5 text-xs font-semibold text-stone-500">
+                      우리 상품 주소를 넣으면 아래 빈칸이 자동으로 채워져요
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="relative min-w-0 flex-1">
+                        <Link2 size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-stone-400" />
+                        <input
+                          value={url}
+                          onChange={(e) => setUrl(e.target.value)}
+                          placeholder="https://ppoclo.cafe24.com/product/..."
+                          className={FIELD + " pl-8 text-sm"}
+                        />
+                      </span>
+                      <button
+                        type="button"
+                        disabled={!url.trim() || busy}
+                        onClick={run}
+                        className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
+                      >
+                        {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                        {busy ? "채우는 중…" : plan ? "다시 채우기" : "빈칸 채우기"}
+                      </button>
+                    </div>
+                    <input
+                      value={memo}
+                      onChange={(e) => setMemo(e.target.value)}
+                      placeholder="메모 (선택) — 예: 가을 신상으로 밀 것"
+                      className={FIELD + " mt-2 text-sm"}
+                    />
+                    {msg && <p className="mt-2 text-sm text-rose-700">{msg}</p>}
                   </div>
 
-                  {plan.scenes?.length > 0 && (
-                    <div>
-                      <div className="mb-1.5 text-xs font-semibold text-stone-500">촬영 코멘트</div>
-                      <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 text-sm">
-                        {plan.scenes.map((s, i) => (
-                          <li key={i} className="flex gap-3 px-3 py-2">
-                            <span className="w-14 shrink-0 text-xs text-stone-400">{s.at}</span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block text-stone-700">{s.shot}</span>
-                              {s.text && <span className="block text-xs text-rose-700">“{s.text}”</span>}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
+                  {r.template && (
+                    <div className="mt-3">
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-stone-500">틀 — 노란 칸을 눌러 고칠 수 있어요</span>
+                        <CopyButton text={done} label="완성 대본 복사" />
+                      </div>
+                      <div className="space-y-1.5 rounded-xl border border-stone-200 p-3">
+                        {r.template.split("\n").filter(Boolean).map((line, i) => {
+                          const at = (line.match(/^\[([^\]]+)\]\s*/) || [])[1] || "";
+                          const rest = line.replace(/^\[[^\]]+\]\s*/, "");
+                          return (
+                            <div key={i} className="flex gap-2 text-sm">
+                              {at && <span className="w-12 shrink-0 pt-1 text-xs text-stone-400">{at}</span>}
+                              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 leading-7">
+                                {splitTemplate(rest).map((part, j) =>
+                                  part.slot ? (
+                                    <SlotChip
+                                      key={j}
+                                      slot={r.slots?.find((s) => s.key === part.slot) || { key: part.slot }}
+                                      value={value(part.slot)}
+                                      onChange={(v) => setValue(part.slot, v)}
+                                    />
+                                  ) : (
+                                    <span key={j} className="text-stone-800">
+                                      {part.text}
+                                    </span>
+                                  ),
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
-                  <div className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-stone-500">인스타 본문</span>
-                      <CopyButton
-                        text={`${plan.caption}\n\n${(plan.hashtags || []).join(" ")}`}
-                        label="본문 복사"
-                      />
+                  {plan && (
+                    <div className="mt-3 space-y-3">
+                      <div className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm">
+                        <div className="text-xs font-semibold text-stone-500">
+                          {plan.product?.name} {plan.product?.price}
+                        </div>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-stone-700">
+                          {(plan.product?.points || []).map((p, i) => (
+                            <li key={i}>{p}</li>
+                          ))}
+                        </ul>
+                        {plan.product?.cautions && (
+                          <p className="mt-1.5 text-xs text-amber-800">{plan.product.cautions}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-stone-500">AI가 새로 쓴 대본</span>
+                          <CopyButton text={plan.script || ""} />
+                        </div>
+                        <p className="rounded-xl border border-stone-200 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">
+                          {plan.script}
+                        </p>
+                      </div>
+
+                      {plan.scenes?.length > 0 && (
+                        <div>
+                          <div className="mb-1.5 text-xs font-semibold text-stone-500">촬영 코멘트</div>
+                          <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 text-sm">
+                            {plan.scenes.map((s, i) => (
+                              <li key={i} className="flex gap-3 px-3 py-2">
+                                <span className="w-14 shrink-0 text-xs text-stone-400">{s.at}</span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-stone-700">{s.shot}</span>
+                                  {s.text && <span className="block text-xs text-rose-700">“{s.text}”</span>}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-stone-500">인스타 본문</span>
+                          <CopyButton text={`${plan.caption}\n\n${(plan.hashtags || []).join(" ")}`} label="본문 복사" />
+                        </div>
+                        <p className="mt-1 leading-relaxed whitespace-pre-wrap text-stone-700">{plan.caption}</p>
+                        <p className="mt-1.5 text-xs text-stone-500">{(plan.hashtags || []).join(" ")}</p>
+                      </div>
                     </div>
-                    <p className="mt-1 leading-relaxed whitespace-pre-wrap text-stone-700">
-                      {plan.caption}
-                    </p>
-                    <p className="mt-1.5 text-xs text-stone-500">{(plan.hashtags || []).join(" ")}</p>
-                  </div>
-                </div>
+                  )}
+                </>
+              )}
+
+              {tab === "ours" && (
+                <OursTab item={item} queue={queue} ourUrl={urls.ours} onUpload={onOurs} onRetry={onRetry} />
               )}
             </>
           )}
@@ -605,6 +1041,150 @@ function Detail({ item, urls, folders, onSave, onRemove, onClose }) {
         </button>
         <span className="text-xs text-stone-400">고친 내용은 바로 저장돼요</span>
       </footer>
+    </div>
+  );
+}
+
+/** 우리가 찍은 영상 — 올리면 레퍼런스·기획과 비교해 고칠 점을 받는다 */
+function OursTab({ item, queue, ourUrl, onUpload, onRetry }) {
+  const ours = item.ours;
+  const status = ours ? statusOf(item, queue, "ours") : null;
+  const [file, setFile] = useState(null);
+  const [memo, setMemo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const rv = ours?.review;
+
+  const picker = (
+    <div className="rounded-xl border border-dashed border-stone-300 p-3">
+      <label className="flex cursor-pointer items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
+          <Video size={17} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-stone-800">
+            {file ? file.name : ours ? "다른 영상으로 바꾸기" : "우리가 찍은 영상 올리기"}
+          </span>
+          <span className="block text-[11px] text-stone-400">
+            이 레퍼런스(와 만든 대본)에 비춰서 올리기 전에 고칠 점을 알려줘요 · 40MB까지
+          </span>
+        </span>
+        <input
+          type="file"
+          accept="video/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) setFile(f);
+          }}
+        />
+      </label>
+      {file && (
+        <>
+          <input
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="메모 (선택) — 예: 1차 편집본, 자막 아직 없음"
+            className={FIELD + " mt-2 text-sm"}
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                if (await onUpload(item, file, memo)) setFile(null);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-sky-700 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
+          >
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+            {busy ? "올리는 중…" : "올려서 피드백 받기"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+
+  if (!ours) return picker;
+
+  return (
+    <div className="space-y-3">
+      {ourUrl && (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <video src={ourUrl} controls playsInline className="max-h-80 w-full rounded-lg bg-black" />
+      )}
+      {status.kind !== "done" ? (
+        <div
+          className={
+            "rounded-xl border px-3 py-3 text-sm " +
+            (status.kind === "error" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-900")
+          }
+        >
+          <div className="flex items-center gap-2 font-semibold">
+            {status.kind === "error" ? <Info size={14} /> : <Loader2 size={14} className="animate-spin" />}
+            {status.text}
+          </div>
+          {status.kind === "error" && (
+            <button
+              type="button"
+              onClick={() => onRetry(item, "ours")}
+              className="mt-2 flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              <RotateCw size={12} /> 다시 맡기기
+            </button>
+          )}
+        </div>
+      ) : (
+        rv && (
+          <>
+            <p className="rounded-xl bg-sky-50 px-3 py-2.5 text-sm font-semibold text-sky-950">{rv.summary}</p>
+            {rv.fixes?.length > 0 && (
+              <div>
+                <div className="mb-1.5 text-xs font-semibold text-stone-500">고칠 점</div>
+                <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 text-sm">
+                  {rv.fixes.map((f, i) => (
+                    <li key={i} className="flex gap-3 px-3 py-2">
+                      <span className="w-14 shrink-0 text-xs text-stone-400">{f.at}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-stone-800">{f.issue}</span>
+                        <span className="block text-xs text-emerald-700">→ {f.suggestion}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {rv.good?.length > 0 && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                <div className="text-xs font-semibold text-emerald-900">잘한 점</div>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-emerald-900">
+                  {rv.good.map((g, i) => (
+                    <li key={i}>{g}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm leading-relaxed text-stone-700">
+              <b className="text-xs text-stone-500">훅</b> {rv.hook}
+              <br />
+              <b className="text-xs text-stone-500">레퍼런스 대비</b> {rv.vsReference}
+            </div>
+            {rv.caption && (
+              <div className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-stone-500">본문 제안</span>
+                  <CopyButton text={rv.caption} label="본문 복사" />
+                </div>
+                <p className="mt-1 leading-relaxed whitespace-pre-wrap text-stone-700">{rv.caption}</p>
+              </div>
+            )}
+          </>
+        )
+      )}
+      {picker}
     </div>
   );
 }
@@ -645,9 +1225,7 @@ function SlotChip({ slot, value, onChange }) {
       title={slot.hint ? `${slot.hint}${slot.original ? ` · 레퍼런스: ${slot.original}` : ""}` : slot.key}
       className={
         "rounded px-1.5 py-0.5 text-sm font-medium " +
-        (value
-          ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-          : "bg-amber-100 text-amber-900 hover:bg-amber-200")
+        (value ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-900 hover:bg-amber-200")
       }
     >
       {value || `[${slot.key}]`}
@@ -657,39 +1235,73 @@ function SlotChip({ slot, value, onChange }) {
 
 // ------------------------------------------------------------------- 화면
 
-export default function ReelsPage({ items, onSave, onRemove, putFile, fileUrl }) {
+export default function ReelsPage({
+  items,
+  onSave,
+  onRemove,
+  putFile,
+  fileUrl,
+  folders: savedFolders,
+  onFolders,
+  queue,
+  worker,
+  onQueue,
+  onPoll,
+}) {
   const [notice, setNotice] = useState("");
   const [q, setQ] = useState("");
-  const [folder, setFolder] = useState("전체");
+  const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
+  const [editCats, setEditCats] = useState(false);
   const [thumbs, setThumbs] = useState({});
   const [urls, setUrls] = useState({});
 
-  const folders = useMemo(
-    () => [...new Set(items.map((i) => i.folder || "미분류"))],
-    [items],
-  );
+  // 폴더를 한 번도 저장한 적 없으면 기본 갈래 + 예전 항목의 폴더 이름으로 보여준다.
+  // 처음 편집할 때 이 목록이 그대로 저장된다.
+  const seeded = useMemo(() => seedFolders(items), [items]);
+  const folders = savedFolders?.length ? savedFolders : seeded;
+  const changeFolders = (op) => onFolders((list) => op(list.length ? list : folders));
+
+  // 분석기 일감·상태를 몇 초마다 가볍게 읽는다 (이 화면이 떠 있는 동안만)
+  useEffect(() => {
+    onPoll();
+    const t = setInterval(onPoll, 4000);
+    return () => clearInterval(t);
+  }, [onPoll]);
+
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
+    const inSel =
+      sel === "all"
+        ? () => true
+        : sel === "none"
+          ? (it) => !folderIdOf(it, folders)
+          : (() => {
+              const ids = new Set(withChildren(sel, folders));
+              return (it) => ids.has(folderIdOf(it, folders));
+            })();
     return items.filter(
       (i) =>
-        (folder === "전체" || (i.folder || "미분류") === folder) &&
+        inSel(i) &&
         (!needle ||
-          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name])
+          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo])
             .toLowerCase()
             .includes(needle)),
     );
-  }, [items, q, folder]);
+  }, [items, q, sel, folders]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
+  // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
+  const thumbKey = (it) => `${it.id}:${it.thumbAt || ""}:${it.job?.status || ""}`;
   useEffect(() => {
     let alive = true;
     (async () => {
-      for (const it of shown.slice(0, 24)) {
-        if (thumbs[it.id] !== undefined) continue;
+      for (const it of shown.slice(0, 40)) {
+        const k = thumbKey(it);
+        if (thumbs[k] !== undefined) continue;
         const u = await fileUrl(`${it.id}-thumb.jpg`);
         if (!alive) return;
-        setThumbs((p) => ({ ...p, [it.id]: u }));
+        setThumbs((p) => ({ ...p, [k]: u }));
       }
     })();
     return () => {
@@ -699,35 +1311,125 @@ export default function ReelsPage({ items, onSave, onRemove, putFile, fileUrl })
 
   const openItem = async (item) => {
     setOpen(item);
-    setUrls({ thumb: thumbs[item.id] || null, video: null });
-    if (item.hasVideo) {
-      const v = await fileUrl(item.id);
-      setUrls((p) => ({ ...p, video: v }));
+    setUrls({ thumb: thumbs[thumbKey(item)] || null, video: null, ours: null });
+    const [v, o] = await Promise.all([
+      item.hasVideo ? fileUrl(item.id) : null,
+      item.ours ? fileUrl(`${item.id}-ours`) : null,
+    ]);
+    setUrls((p) => ({ ...p, video: v, ours: o }));
+  };
+
+  // 새로 담을 때 지금 보고 있는 폴더에 넣는다
+  const targetFolder = () => {
+    const f = folders.find((x) => x.id === sel);
+    return f ? { folderId: f.id, folder: f.parent ? "" : f.name } : { folderId: null, folder: "" };
+  };
+
+  const queueLink = async (url, memo) => {
+    setNotice("");
+    const id = newId("r");
+    await onSave({
+      id,
+      title: "분석 대기 — " + url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40),
+      source: { type: "link", url },
+      meta: { url },
+      memo,
+      ...targetFolder(),
+      hasVideo: false,
+      job: { status: "queued", at: new Date().toISOString() },
+      filled: [],
+    });
+    await onQueue(id, "ref");
+  };
+
+  const queueFile = async (file, memo) => {
+    setNotice("");
+    if (file.size > MAX_VIDEO) {
+      setNotice("영상이 40MB를 넘어요. 짧게 자르거나 화질을 낮춰서 넣어 주세요.");
+      return false;
+    }
+    const id = newId("r");
+    const ok = await putFile(id, file, file.type || "video/mp4");
+    if (!ok) {
+      setNotice("영상을 보관함에 못 올렸어요. 위 안내를 확인하거나 'PC 없이 지금'으로 분석해 보세요.");
+      return false;
+    }
+    await onSave({
+      id,
+      title: file.name.replace(/\.[^.]+$/, ""),
+      source: { type: "file", name: file.name },
+      memo,
+      ...targetFolder(),
+      hasVideo: true,
+      job: { status: "queued", at: new Date().toISOString() },
+      filled: [],
+    });
+    await onQueue(id, "ref");
+  };
+
+  /** 예전 방식 — 브라우저에서 장면만 떠서 바로 분석 (소리 없음) */
+  const analyzeHere = async (file, { memo, kind, transcript }, setStep) => {
+    setNotice("");
+    try {
+      setStep("장면 뜨는 중…");
+      const { frames, thumb, seconds } = await extractFrames(file, {
+        onStep: (i, n) => setStep(`장면 뜨는 중… ${i}/${n}`),
+      });
+      setStep("대본 읽는 중… (30초~1분)");
+      const r = await readScript({ frames, kind, transcript, memo });
+      if (!r.ok) {
+        setNotice(r.message);
+        return false;
+      }
+      setStep("영상 보관하는 중…");
+      const id = newId("r");
+      if (thumb) await putFile(`${id}-thumb.jpg`, thumb, "image/jpeg");
+      const hasVideo = file.size <= MAX_VIDEO ? await putFile(id, file, file.type || "video/mp4") : false;
+      const item = {
+        id,
+        title: r.data.title || "릴스",
+        kind: r.data.kind || "",
+        source: { type: "file", name: file.name },
+        memo,
+        ...targetFolder(),
+        hasVideo,
+        reference: { ...r.data, seconds: r.data.seconds || seconds },
+        job: { status: "done", at: new Date().toISOString() },
+        thumbAt: new Date().toISOString(),
+        filled: [],
+      };
+      await onSave(item);
+      openItem(item);
+    } catch (err) {
+      setNotice(err?.message || "영상을 읽지 못했어요.");
+      return false;
     }
   };
 
-  const analyzed = async ({ reference, file, thumb }) => {
-    const id = newId("r");
-    let hasVideo = false;
-    if (thumb) await putFile(`${id}-thumb.jpg`, thumb, "image/jpeg");
-    // 영상이 너무 크면 보관함이 금방 찬다 — 40MB 넘으면 썸네일만 남긴다
-    if (file.size <= 40 * 1024 * 1024) {
-      hasVideo = await putFile(id, file, file.type || "video/mp4");
-    } else {
-      setNotice("영상이 40MB를 넘어 썸네일만 보관했어요. 기획 내용은 그대로 저장됩니다.");
+  const retry = async (item, target) => {
+    const job = { status: "queued", at: new Date().toISOString() };
+    await onSave(target === "ours" ? { ...item, ours: { ...item.ours, job } } : { ...item, job });
+    await onQueue(item.id, target);
+  };
+
+  const uploadOurs = async (item, file, memo) => {
+    if (file.size > MAX_VIDEO) {
+      window.alert("영상이 40MB를 넘어요. 짧게 자르거나 화질을 낮춰서 넣어 주세요.");
+      return false;
     }
-    const item = {
-      id,
-      title: reference.title || "릴스",
-      kind: reference.kind || "",
-      folder: "미분류",
-      hasVideo,
-      reference,
-      filled: [],
-    };
-    await onSave(item);
-    setThumbs((p) => ({ ...p, [id]: undefined }));
-    openItem(item);
+    const ok = await putFile(`${item.id}-ours`, file, file.type || "video/mp4");
+    if (!ok) {
+      window.alert("영상을 보관함에 못 올렸어요. 화면 위 안내를 확인해 주세요.");
+      return false;
+    }
+    await onSave({
+      ...item,
+      ours: { name: file.name, memo, hasVideo: true, job: { status: "queued", at: new Date().toISOString() } },
+    });
+    await onQueue(item.id, "ours");
+    const u = await fileUrl(`${item.id}-ours`);
+    setUrls((p) => ({ ...p, ours: u }));
+    return true;
   };
 
   return (
@@ -737,78 +1439,71 @@ export default function ReelsPage({ items, onSave, onRemove, putFile, fileUrl })
           <Clapperboard size={20} /> 릴스 기획
         </h2>
         <p className="mt-0.5 text-sm text-stone-500">
-          잘 된 릴스를 모아 두고, 그 구조 그대로 우리 상품 대본을 만들어요.
+          잘 된 릴스를 모아 두고, 그 구조 그대로 우리 상품 대본을 만들고, 찍은 영상을 점검해요.
         </p>
       </div>
 
-      <AddBar onAnalyzed={analyzed} notice={notice} setNotice={setNotice} />
+      <AddBar worker={worker} onLink={queueLink} onFile={queueFile} onBrowser={analyzeHere} notice={notice} />
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {["전체", ...new Set([...BASE_FOLDERS, ...folders])].map((f) => {
-            const n =
-              f === "전체" ? items.length : items.filter((i) => (i.folder || "미분류") === f).length;
-            if (f !== "전체" && n === 0 && !BASE_FOLDERS.includes(f)) return null;
-            return (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFolder(f)}
-                className={
-                  "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium " +
-                  (folder === f
-                    ? "bg-rose-700 text-white"
-                    : "border border-stone-300 bg-white text-stone-600")
-                }
-              >
-                {f !== "전체" && <Folder size={12} />}
-                {f}
-                <span className={folder === f ? "text-rose-200" : "text-stone-400"}>{n}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="relative">
-          <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="대본·상품 검색"
-            className="w-44 rounded-lg border border-stone-300 bg-white py-1.5 pr-2 pl-8 text-sm"
-          />
-        </div>
-      </div>
+      <FolderBar
+        items={items}
+        folders={folders}
+        sel={sel}
+        onSel={setSel}
+        onEdit={() => setEditCats(true)}
+        q={q}
+        setQ={setQ}
+      />
 
       {shown.length === 0 ? (
         <Empty
-          title="아직 모아 둔 릴스가 없어요."
-          hint="위에 영상을 넣으면 대본과 구조를 뽑아 여기에 담아요. 지원님도 같이 봐요."
+          title={items.length ? "이 폴더에는 아직 없어요." : "아직 모아 둔 릴스가 없어요."}
+          hint="위에 인스타 링크를 넣거나 영상을 올리면 대본과 구조를 뽑아 여기에 담아요. 지원님도 같이 봐요."
         />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {shown.map((it) => (
-            <Card key={it.id} item={it} thumbUrl={thumbs[it.id]} onOpen={openItem} />
+            <Card
+              key={it.id}
+              item={it}
+              thumbUrl={thumbs[thumbKey(it)]}
+              folderName={pathName(folderIdOf(it, folders), folders)}
+              status={statusOf(it, queue)}
+              onOpen={openItem}
+            />
           ))}
         </div>
       )}
 
       {open && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-4">
-          <button
-            type="button"
-            aria-label="닫기"
-            onClick={() => setOpen(null)}
-            className="absolute inset-0 cursor-default"
-          />
+          <button type="button" aria-label="닫기" onClick={() => setOpen(null)} className="absolute inset-0 cursor-default" />
           <div className="relative z-10 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
             <Detail
               key={open.id}
               item={items.find((i) => i.id === open.id) || open}
               urls={urls}
               folders={folders}
+              queue={queue}
               onSave={onSave}
               onRemove={onRemove}
               onClose={() => setOpen(null)}
+              onRetry={retry}
+              onOurs={uploadOurs}
+            />
+          </div>
+        </div>
+      )}
+
+      {editCats && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-4">
+          <button type="button" aria-label="닫기" onClick={() => setEditCats(false)} className="absolute inset-0 cursor-default" />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl">
+            <CategoryEditor
+              items={items}
+              folders={folders}
+              onChange={changeFolders}
+              onClose={() => setEditCats(false)}
             />
           </div>
         </div>
@@ -817,9 +1512,8 @@ export default function ReelsPage({ items, onSave, onRemove, putFile, fileUrl })
       <p className="mt-5 flex items-start gap-1.5 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-500">
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
-          영상에서 <b className="font-semibold">장면 사진 8~14장</b>을 떠서 읽어요.{" "}
-          <b className="font-semibold">소리는 못 들어요</b> — 목소리형은 인스타 자동자막을 붙여넣으면
-          합쳐서 정리합니다. 영상은 라이브러리에 보관되고(40MB까지), 빈칸은 눌러서 직접 고칠 수 있어요.
+          Claude는 영상을 직접 못 봐요. 사무실 PC 분석기가 영상을 <b className="font-semibold">장면 사진</b>으로 뜨고{" "}
+          <b className="font-semibold">소리를 받아써서</b> 넘겨요. 조회수는 인스타가 로그인 없이는 안 알려줘서 좋아요·댓글·캡션으로 성과를 봐요.
         </span>
       </p>
     </div>

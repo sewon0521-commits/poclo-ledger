@@ -12,6 +12,15 @@
 // mode
 //   script  장면 사진 + (선택) 받아쓴 말  → 한글 대본 + 구조 분석
 //   adapt   그 대본/구조 + 우리 상품 URL  → 우리 상품으로 바꾼 릴스 기획
+//   review  우리가 찍은 영상(장면+받아쓴 말) + 레퍼런스·기획 → 촬영 피드백
+//
+// 2026-09-22 — 사무실 PC 분석기(poclo-cafe24/reels_worker.py)가 인스타 링크를 받아
+// 영상을 내려받고, 장면을 뜨고, **소리를 받아써서**(faster-whisper) 이 함수를 부른다.
+// 그때는 transcriptSource 가 "whisper" 이고 meta(계정·좋아요·댓글·캡션)가 같이 온다.
+//
+// 결과 JSON이 길어서(장면·문장별 분석·빈칸 틀) 예전 8,000 토큰으로는 생각하다 잘려
+// "다시 시도"만 뜨는 일이 있었다. 스트리밍 + 넉넉한 max_tokens 로 받고,
+// 과부하(529)·한도(429)는 한 번 다시 시도한다. 실패하면 **이유를 화면에 그대로** 보낸다.
 //
 // ANTHROPIC_API_KEY 는 이 함수의 환경변수로만 존재한다. 프론트는 /api/reels 만 부른다.
 
@@ -80,6 +89,16 @@ const ScriptSchema = z.object({
       }),
     )
     .describe("빈칸 목록. 3~7개. 상품이 바뀌면 달라지는 것만 빈칸으로 만든다"),
+  performance: z
+    .object({
+      summary: z
+        .string()
+        .describe("주어진 성과 숫자(좋아요·댓글·게시일·캡션)로 본 반응 해석 2~3줄. 숫자가 없으면 빈 문자열"),
+      signals: z
+        .array(z.string())
+        .describe("반응을 만든 요인 추정 2~4개. 예: '댓글 유도형 CTA(\"코디\" 댓글 → 링크)가 댓글 수를 끌어올림'"),
+    })
+    .describe("성과 분석. 숫자는 주어진 것만 쓰고 지어내지 않는다"),
   note: z.string().describe("소리를 못 들어서 놓쳤을 수 있는 부분 등 솔직한 한계. 없으면 빈 문자열"),
 });
 
@@ -101,7 +120,11 @@ const SCRIPT_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. �
 - 결과는 전부 **한국어**로 쓴다.
 - **없는 말을 지어내지 마라.** 안 보이면 안 보인다고 note 에 적어라.
   특히 소리는 들을 수 없으니, 목소리형인데 받아쓴 말이 없으면 그렇게 적어라.
-- 사진에 워터마크·아이디·UI(좋아요 수 등)가 보여도 대본에 넣지 마라.`;
+- 사진에 워터마크·아이디·UI(좋아요 수 등)가 보여도 대본에 넣지 마라.
+- '자동 받아쓰기'는 기계가 들은 것이라 틀릴 수 있다. 배경음악 가사가 섞였을 수 있으니
+  **말인지 노래 가사인지 가려서**, 가사는 대본에 넣지 말고 note 에 "배경음악: …"으로 적어라.
+- 성과 숫자(좋아요·댓글 등)가 주어지면 performance 에 해석을 적어라. 조회수가 없으면 없다고 두고
+  숫자를 추정해 만들지 마라. 캡션의 CTA(댓글 유도·저장 유도 등)도 성과 요인으로 본다.`;
 
 // ------------------------------------------------------------- 2) 우리 상품으로 바꾸기
 
@@ -158,6 +181,37 @@ const ADAPT_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기
 - 가격은 상품 글에 있는 값만 쓴다. 없으면 가격 얘기를 빼라.
 - 사실이 아닌 소재·기능을 지어내지 마라. 상품 글에 있는 것만 쓴다.
 
+결과는 전부 **한국어**로 쓴다.`;
+
+// ------------------------------------------------------------- 3) 우리가 찍은 영상 피드백
+
+const ReviewSchema = z.object({
+  summary: z.string().describe("한 줄 총평. 예: '훅은 좋은데 2~5초가 늘어져서 이탈이 날 것 같아요'"),
+  script: z.string().describe("우리 영상에서 실제로 나온 자막·말을 한글로. 줄바꿈으로"),
+  good: z.array(z.string()).describe("잘한 점 2~4개"),
+  fixes: z
+    .array(
+      z.object({
+        at: z.string().describe("시점. 예: '0~2초'"),
+        issue: z.string().describe("무엇이 아쉬운지"),
+        suggestion: z.string().describe("어떻게 고치면 되는지 — 다시 찍을지, 편집으로 될지까지"),
+      }),
+    )
+    .describe("고칠 점. 중요한 순서로 3~6개"),
+  hook: z.string().describe("첫 1~3초 훅 평가 — 레퍼런스 훅과 비교해서"),
+  vsReference: z.string().describe("레퍼런스 구조(훅→전개→CTA)를 얼마나 따라갔는지, 빠진 단계"),
+  caption: z.string().describe("이 영상에 붙일 인스타 본문 제안. 해시태그 빼고"),
+});
+
+const REVIEW_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 편집 디렉터다.
+아래 사진들은 **우리가 직접 찍은 릴스 영상**에서 시간 순서대로 떠낸 장면이다.
+같이 준 레퍼런스 릴스의 구조·대본, 그리고 (있으면) 우리가 미리 써 둔 기획 대본과 비교해서
+**올리기 전에 고칠 점**을 짚어라.
+
+- 보이는 것과 들린 것(받아쓴 말)만 근거로 말한다. 지어내지 마라.
+- 고칠 점은 시점을 붙여서, 촬영한 사람이 바로 알아듣게 구체적으로.
+- 자막 길이(한 줄 12~18자), 첫 1초에 옷이 보이는지, 훅 문장이 바로 읽히는지, CTA가 있는지 본다.
+- 포클로 톤: 친구에게 말하듯, 과장 광고 문구 금지.
 결과는 전부 **한국어**로 쓴다.`;
 
 // ------------------------------------------------------------------ 상품 페이지 읽기
@@ -232,6 +286,83 @@ async function readProduct(url) {
 
 const fail = (res, code, error, message) => res.status(code).json({ error, message });
 
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Claude 한 번 부르기 — 스트리밍으로 받아 끝난 메시지의 parsed_output 을 돌려준다.
+ * 과부하(529)·한도(429)·잠깐 끊김(5xx)은 한 번만 쉬었다가 다시 부른다.
+ */
+async function ask(client, content, schema) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const stream = client.messages.stream({
+        model: MODEL,
+        max_tokens: 32000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "high", format: zodOutputFormat(schema) },
+        messages: [{ role: "user", content }],
+      });
+      return await stream.finalMessage();
+    } catch (err) {
+      const st = err?.status;
+      const retry = st === 429 || st === 529 || (st >= 500 && st < 600) || /overloaded/i.test(err?.message || "");
+      if (attempt === 0 && retry) {
+        await wait(st === 429 ? 8000 : 4000);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/** 받은 결과가 쓸 만한지 — 잘렸거나 거절이면 이유를 붙여 던진다 */
+function parsedOf(r, what) {
+  if (r.stop_reason === "refusal") {
+    const e = new Error(`${what}을(를) 거절했어요. 다른 영상으로 해보세요.`);
+    e.userFacing = 422;
+    throw e;
+  }
+  if (r.stop_reason === "max_tokens" || !r.parsed_output) {
+    const e = new Error(`${what} 결과가 너무 길어 잘렸어요. 더 짧은 영상으로 다시 해보세요.`);
+    e.userFacing = 422;
+    throw e;
+  }
+  return r.parsed_output;
+}
+
+/** 장면 사진을 Claude 에 넘길 모양으로 */
+function frameContent(frames) {
+  const content = [];
+  for (const f of frames) {
+    content.push({ type: "text", text: `${f.at ?? "?"}초` });
+    content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: f.data } });
+  }
+  return content;
+}
+
+/** 링크에서 가져온 성과 숫자·캡션을 글로 */
+function metaText(m) {
+  if (!m || typeof m !== "object") return "";
+  const line = [
+    m.uploader ? `계정: ${m.uploader}` : "",
+    m.postedAt ? `게시일: ${m.postedAt}` : "",
+    m.views != null ? `조회수: ${m.views}` : "조회수: (못 가져옴)",
+    m.likes != null ? `좋아요: ${m.likes}` : "",
+    m.comments != null ? `댓글: ${m.comments}` : "",
+    m.duration ? `길이: ${m.duration}초` : "",
+  ].filter(Boolean).join(" · ");
+  return `성과 숫자(인스타에서 가져옴): ${line}` +
+    (m.caption ? `\n캡션(본문):\n${String(m.caption).slice(0, 2000)}` : "");
+}
+
+function transcriptText(body) {
+  if (!body.transcript) return "";
+  const src = body.transcriptSource === "whisper"
+    ? "자동 받아쓰기(기계가 들음 — 틀리거나 노래 가사가 섞였을 수 있음)"
+    : "받아쓴 말(사람이 듣고 적음)";
+  return `${src}:\n${String(body.transcript).slice(0, 8000)}`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -249,37 +380,46 @@ export default async function handler(req, res) {
 
   try {
     if (body.mode === "script") {
-      const frames = Array.isArray(body.frames) ? body.frames.slice(0, 16) : [];
+      const frames = Array.isArray(body.frames) ? body.frames.slice(0, 32) : [];
       if (!frames.length) return fail(res, 400, "bad_request", "영상에서 장면을 못 떴어요.");
 
-      const content = [];
-      for (const f of frames) {
-        content.push({ type: "text", text: `${f.at ?? "?"}초` });
-        content.push({
-          type: "image",
-          source: { type: "base64", media_type: "image/jpeg", data: f.data },
-        });
-      }
+      const content = frameContent(frames);
       const extra = [
-        body.kind ? `사람이 고른 영상 형태: ${body.kind}` : "",
-        body.transcript ? `받아쓴 말(사람이 듣고 적음):\n${String(body.transcript).slice(0, 6000)}` : "",
+        body.kind ? `영상 형태: ${body.kind}` : "",
+        transcriptText(body),
+        metaText(body.meta),
         body.memo ? `메모: ${String(body.memo).slice(0, 1000)}` : "",
       ]
         .filter(Boolean)
         .join("\n\n");
       content.push({ type: "text", text: SCRIPT_PROMPT + (extra ? "\n\n---\n" + extra : "") });
 
-      const r = await client.messages.parse({
-        model: MODEL,
-        max_tokens: 8000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "high", format: zodOutputFormat(ScriptSchema) },
-        messages: [{ role: "user", content }],
+      const r = await ask(client, content, ScriptSchema);
+      return res.status(200).json(parsedOf(r, "대본 뽑기"));
+    }
+
+    if (body.mode === "review") {
+      const frames = Array.isArray(body.frames) ? body.frames.slice(0, 32) : [];
+      if (!frames.length) return fail(res, 400, "bad_request", "영상에서 장면을 못 떴어요.");
+      const ref = body.reference || {};
+      const plan = body.plan || {};
+      const content = frameContent(frames);
+      content.push({
+        type: "text",
+        text: [
+          REVIEW_PROMPT,
+          "\n--- 우리 영상에서 들린 말 ---",
+          transcriptText(body) || "(말 없음 또는 못 받아씀)",
+          "\n--- 레퍼런스 ---",
+          `훅: ${ref.hook || ""}`,
+          `구조: ${ref.structure?.flow || ""} (CTA: ${ref.structure?.cta || ""})`,
+          `대본:\n${ref.script || ""}`,
+          plan.script ? `\n--- 미리 써 둔 우리 기획 대본 ---\n${plan.script}` : "",
+          body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1000)}` : "",
+        ].join("\n"),
       });
-      if (r.stop_reason === "refusal" || !r.parsed_output) {
-        return fail(res, 422, "unreadable", "영상에서 대본을 못 뽑았어요. 장면이 너무 어둡거나 자막이 없을 수 있어요.");
-      }
-      return res.status(200).json(r.parsed_output);
+      const r = await ask(client, content, ReviewSchema);
+      return res.status(200).json(parsedOf(r, "피드백"));
     }
 
     if (body.mode === "adapt") {
@@ -318,26 +458,26 @@ export default async function handler(req, res) {
         body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1500)}` : "",
       ].join("\n");
 
-      const r = await client.messages.parse({
-        model: MODEL,
-        max_tokens: 8000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "high", format: zodOutputFormat(AdaptSchema) },
-        messages: [{ role: "user", content: [{ type: "text", text }] }],
-      });
-      if (r.stop_reason === "refusal" || !r.parsed_output) {
-        return fail(res, 422, "unreadable", "대본을 만들지 못했어요. 상품 주소를 다시 확인해 주세요.");
-      }
-      return res.status(200).json(r.parsed_output);
+      const r = await ask(client, [{ type: "text", text }], AdaptSchema);
+      return res.status(200).json(parsedOf(r, "대본 만들기"));
     }
 
-    return fail(res, 400, "bad_request", "mode 는 script 또는 adapt 여야 합니다.");
+    return fail(res, 400, "bad_request", "mode 는 script · adapt · review 중 하나여야 합니다.");
   } catch (err) {
+    if (err?.userFacing) return fail(res, err.userFacing, "unreadable", err.message);
     const status = err?.status;
-    if (status === 400 && /credit|balance/i.test(err?.message || "")) {
+    const msg = String(err?.message || "");
+    if (status === 400 && /credit|balance/i.test(msg)) {
       return fail(res, 402, "no_credit", "API 잔액이 부족해요.");
     }
     console.error(err);
-    return fail(res, 502, "upstream", "잠시 뒤 다시 시도해 주세요.");
+    // 뭉뚱그리면 고칠 수가 없다 — 어느 쪽 문제인지 한 줄로 알려준다
+    const why =
+      status === 429 ? "요청이 몰려 한도에 걸렸어요. 1분 뒤 다시 해주세요."
+      : status === 529 || /overloaded/i.test(msg) ? "Claude 서버가 붐벼요. 잠시 뒤 다시 해주세요."
+      : status === 413 || /too large|exceed/i.test(msg) ? "보낸 장면이 너무 커요. 더 짧은 영상으로 해보세요."
+      : status === 400 ? `요청 형식 문제예요: ${msg.slice(0, 160)}`
+      : `잠시 뒤 다시 시도해 주세요. (${status || "연결"} ${msg.slice(0, 120)})`;
+    return fail(res, 502, "upstream", why);
   }
 }
