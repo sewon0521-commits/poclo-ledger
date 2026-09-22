@@ -28,6 +28,7 @@ import PnlPage from "./components/PnlPage";
 import PendingPage from "./components/PendingPage";
 import PricingPage from "./components/PricingPage";
 import ReelsPage from "./components/ReelsPage";
+import CarouselPage from "./components/CarouselPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
@@ -450,6 +451,23 @@ export default function App() {
                   onFolders={S.changeReelFolders}
                   queue={S.reelQueue}
                   worker={S.reelWorker}
+                  onQueue={S.queueReel}
+                  onPoll={S.pollReels}
+                />
+              ) : page === "carousel" ? (
+                <CarouselPage
+                  stats={S.productStats}
+                  carousels={S.carousels}
+                  plans={S.carouselPlans}
+                  reels={S.reels}
+                  onSaveRef={S.saveCarousel}
+                  onRemoveRef={S.removeCarousel}
+                  onSavePlan={S.saveCarouselPlan}
+                  onRemovePlan={S.removeCarouselPlan}
+                  putFile={S.putReelFile}
+                  fileUrl={S.reelFileUrl}
+                  worker={S.reelWorker}
+                  queue={S.reelQueue}
                   onQueue={S.queueReel}
                   onPoll={S.pollReels}
                 />

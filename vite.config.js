@@ -26,7 +26,7 @@ function devApi() {
       }
 
       // api/ 폴더의 함수들을 개발 서버에도 그대로 물린다
-      for (const name of ["read-receipt", "reels"]) {
+      for (const name of ["read-receipt", "reels", "carousel"]) {
       server.middlewares.use(`/api/${name}`, async (req, res, next) => {
         if (req.method !== "POST") return next();
 

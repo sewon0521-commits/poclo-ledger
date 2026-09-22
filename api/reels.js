@@ -27,6 +27,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { readProduct } from "./_product.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "12mb" } }, maxDuration: 300 };
 
@@ -213,74 +214,6 @@ const REVIEW_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 �
 - 자막 길이(한 줄 12~18자), 첫 1초에 옷이 보이는지, 훅 문장이 바로 읽히는지, CTA가 있는지 본다.
 - 포클로 톤: 친구에게 말하듯, 과장 광고 문구 금지.
 결과는 전부 **한국어**로 쓴다.`;
-
-// ------------------------------------------------------------------ 상품 페이지 읽기
-
-/** 판매페이지 HTML에서 사람이 읽는 글만 남긴다. 태그·스크립트·스타일은 버린다. */
-function htmlToText(html) {
-  const cleaned = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|tr|h\d)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ");
-  return cleaned
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n\s*\n\s*\n+/g, "\n\n")
-    .trim();
-}
-
-/**
- * 카페24 상품 페이지에서 필요한 것만 뽑는다.
- *
- * 페이지 전체를 글자로 만들면 **메뉴가 절반**이라(카테고리 목록이 서너 번 반복된다)
- * 정작 상품 얘기가 묻힌다. 그래서 세 군데만 본다:
- *   og:title / og:description  상품명과 요약설명
- *   #span_product_price_text   판매가 (정가는 span_product_price_custom)
- *   #prdDetail 이후            MD코멘트·색상·소재·사이즈·착용정보 — 우리가 등록할 때 넣은 글
- * '배송정보' 뒤는 모든 상품이 같은 안내문이라 자른다.
- */
-async function readProduct(url) {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (poclo-ledger reels planner)" },
-    redirect: "follow",
-  });
-  if (!res.ok) throw new Error(`상품 페이지를 못 읽었어요 (${res.status})`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  // 카페24 몰은 보통 UTF-8이지만 EUC-KR인 페이지도 있다
-  const head = buf.slice(0, 2048).toString("latin1").toLowerCase();
-  const enc = /charset=["']?(euc-kr|ks_c_5601-1987|cp949)/.test(head) ? "euc-kr" : "utf-8";
-  const html = new TextDecoder(enc).decode(buf);
-
-  const og = (k) =>
-    (html.match(new RegExp(`<meta[^>]+property=["']og:${k}["'][^>]+content=["']([^"']*)`, "i")) ||
-      [])[1] || "";
-  const pick = (id) => {
-    const m = html.match(new RegExp(`id=["']${id}["'][^>]*>([^<]*)`, "i"));
-    return m ? m[1].replace(/\s+/g, " ").trim() : "";
-  };
-
-  const detailPart = (html.match(/id=["']prdDetail["']([\s\S]*)$/i) || [])[1] || html;
-  let detail = htmlToText(detailPart);
-  const cut = detail.search(/배송정보\s*\/?\s*결제정보|교환\s*\/?\s*반품/);
-  if (cut > 200) detail = detail.slice(0, cut);
-
-  const title = og("title").replace(/\s*-\s*포클로\s*$/, "").trim();
-  return {
-    title,
-    summary: og("description"),
-    price: pick("span_product_price_text"),
-    listPrice: pick("span_product_price_custom"),
-    text: detail.slice(0, 9000),
-  };
-}
 
 // ------------------------------------------------------------------ 핸들러
 

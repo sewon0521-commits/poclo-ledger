@@ -66,3 +66,6 @@ export function splitTemplate(line) {
     rest = rest.slice(m.index + m[0].length);
   }
 }
+
+/** 사무실 PC 분석기가 90초 안에 "살아 있음"을 적었으면 켜진 것으로 본다 */
+export const workerAlive = (w) => !!w?.at && Date.now() - new Date(w.at).getTime() < 90 * 1000;

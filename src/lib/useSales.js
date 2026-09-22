@@ -16,6 +16,8 @@ const CONF_KEY = "poclo_sales_conf";
 const PRICING_KEY = "poclo_pricing_items";
 const REELS_KEY = "poclo_reels_items";
 const REEL_FOLDERS_KEY = "poclo_reel_folders";
+const CAROUSELS_KEY = "poclo_carousels";
+const CAROUSEL_PLANS_KEY = "poclo_carousel_plans";
 
 const readLocal = (key, fallback) => {
   try {
@@ -95,6 +97,10 @@ export function useSales(session) {
     setReelQueueState(jobs);
   }, []);
   const [reelWorker, setReelWorker] = useState(null);
+  // 캐러셀 기획 (9/22) — 레퍼런스 'carousels', 기획안 'carousel_plans', 상품 순위 'product_stats'(새벽 갱신이 채움)
+  const [carousels, setCarousels] = useState(() => readLocal(CAROUSELS_KEY, []));
+  const [carouselPlans, setCarouselPlans] = useState(() => readLocal(CAROUSEL_PLANS_KEY, []));
+  const [productStats, setProductStats] = useState(null);
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
@@ -103,7 +109,7 @@ export function useSales(session) {
 
   const load = useCallback(async () => {
     try {
-      const [s, c, m, p, rl, rf] = await Promise.all([
+      const [s, c, m, p, rl, rf, cr, cp, ps] = await Promise.all([
         supabase.from("sales_daily").select("*").order("date"),
         supabase.from("settings").select("value").eq("key", "sales").maybeSingle(),
         // 공급가 없이 팔린 품목 — 새벽 자동 갱신(daily.py)이 채운다
@@ -111,6 +117,9 @@ export function useSales(session) {
         supabase.from("settings").select("value").eq("key", "pricing").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "reels").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "reels_folders").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "carousels").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "carousel_plans").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "product_stats").maybeSingle(),
       ]);
       if (!m.error) setMissingCost(m.data?.value || null);
       if (!p.error && p.data?.value?.items) {
@@ -121,6 +130,15 @@ export function useSales(session) {
         setReels(rl.data.value.items);
         writeLocal(REELS_KEY, rl.data.value.items);
       }
+      if (!cr.error && cr.data?.value?.items) {
+        setCarousels(cr.data.value.items);
+        writeLocal(CAROUSELS_KEY, cr.data.value.items);
+      }
+      if (!cp.error && cp.data?.value?.items) {
+        setCarouselPlans(cp.data.value.items);
+        writeLocal(CAROUSEL_PLANS_KEY, cp.data.value.items);
+      }
+      if (!ps.error) setProductStats(ps.data?.value || null);
       if (!rf.error && rf.data?.value?.items) {
         setReelFolders(rf.data.value.items);
         writeLocal(REEL_FOLDERS_KEY, rf.data.value.items);
@@ -402,17 +420,53 @@ export function useSales(session) {
     );
     setReelQueue(jobs);
     if (finished) {
-      const { data, error } = await supabase
-        .from("settings")
-        .select("value")
-        .eq("key", "reels")
-        .maybeSingle();
-      if (!error && data?.value?.items) {
-        setReels(data.value.items);
-        writeLocal(REELS_KEY, data.value.items);
+      const [r, c] = await Promise.all([
+        supabase.from("settings").select("value").eq("key", "reels").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "carousels").maybeSingle(),
+      ]);
+      if (!r.error && r.data?.value?.items) {
+        setReels(r.data.value.items);
+        writeLocal(REELS_KEY, r.data.value.items);
+      }
+      if (!c.error && c.data?.value?.items) {
+        setCarousels(c.data.value.items);
+        writeLocal(CAROUSELS_KEY, c.data.value.items);
       }
     }
   }, [online, setReelQueue]);
+
+  /** 목록에 한 줄 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 */
+  const upsertInto = (item) => (items) => {
+    const next = { ...item, savedAt: new Date().toISOString() };
+    return items.some((i) => i.id === item.id)
+      ? items.map((i) => (i.id === item.id ? { ...i, ...next } : i))
+      : [next, ...items];
+  };
+
+  const saveCarousel = useCallback(
+    (item) => changeList("carousels", CAROUSELS_KEY, carousels, setCarousels, upsertInto(item), "캐러셀 레퍼런스"),
+    [changeList, carousels],
+  );
+  const removeCarousel = useCallback(
+    async (item) => {
+      await changeList("carousels", CAROUSELS_KEY, carousels, setCarousels,
+        (items) => items.filter((i) => i.id !== item.id), "캐러셀 레퍼런스");
+      if (online && remoteOk.current) {
+        const keys = Array.from({ length: item.slides || 0 }, (_, i) => `c-${item.id}-${i + 1}.jpg`);
+        if (keys.length) await supabase.storage.from("reels").remove(keys);
+      }
+    },
+    [changeList, carousels, online],
+  );
+  const saveCarouselPlan = useCallback(
+    (item) => changeList("carousel_plans", CAROUSEL_PLANS_KEY, carouselPlans, setCarouselPlans, upsertInto(item), "캐러셀 기획안"),
+    [changeList, carouselPlans],
+  );
+  const removeCarouselPlan = useCallback(
+    (id) => changeList("carousel_plans", CAROUSEL_PLANS_KEY, carouselPlans, setCarouselPlans,
+      (items) => items.filter((i) => i.id !== id), "캐러셀 기획안"),
+    [changeList, carouselPlans],
+  );
 
   /** 릴스 기획 담기 — 같은 id 가 있으면 고치고, 없으면 맨 앞에 */
   const saveReel = useCallback(
@@ -517,6 +571,13 @@ export function useSales(session) {
     reelWorker,
     queueReel,
     pollReels,
+    carousels,
+    saveCarousel,
+    removeCarousel,
+    carouselPlans,
+    saveCarouselPlan,
+    removeCarouselPlan,
+    productStats,
     reload: load,
     saveConf,
     putSamchon,

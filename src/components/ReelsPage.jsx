@@ -3,8 +3,6 @@ import {
   Clapperboard,
   Upload,
   Wand2,
-  Copy,
-  Check,
   Trash2,
   Info,
   Loader2,
@@ -23,6 +21,7 @@ import {
   ExternalLink,
   TrendingUp,
   Mic,
+  GripVertical,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate } from "../lib/reels";
@@ -34,8 +33,11 @@ import {
   withChildren,
   pathName,
   folderCounts,
+  moveFolder,
 } from "../lib/reelFolders";
 import { Empty } from "./ui";
+import { CopyButton, WorkerStatus } from "./ContentBits";
+import { workerAlive } from "../lib/reels";
 
 /**
  * 릴스 기획 — 레퍼런스를 모으고(라이브러리), 그 구조로 우리 상품 대본을 만든다.
@@ -58,57 +60,7 @@ const KINDS = ["자막형", "목소리형", "자막+목소리"];
 const MAX_VIDEO = 40 * 1024 * 1024;
 
 const isLink = (s) => /^https?:\/\/(www\.)?(instagram\.com|instagr\.am|tiktok\.com|youtube\.com|youtu\.be)\//i.test(s.trim());
-const workerAlive = (w) => !!w?.at && Date.now() - new Date(w.at).getTime() < 90 * 1000;
 const num = (n) => (n == null ? "—" : new Intl.NumberFormat("ko-KR").format(n));
-
-function CopyButton({ text, label = "복사" }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setDone(true);
-          setTimeout(() => setDone(false), 1500);
-        } catch {
-          window.prompt("복사해서 쓰세요", text);
-        }
-      }}
-      className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50"
-    >
-      {done ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
-      {done ? "복사됨" : label}
-    </button>
-  );
-}
-
-// ------------------------------------------------------------- 분석기 상태
-
-function WorkerStatus({ worker }) {
-  const alive = workerAlive(worker);
-  return (
-    <p className={"mt-2 flex items-start gap-1.5 text-xs " + (alive ? "text-emerald-700" : "text-stone-500")}>
-      <span
-        className={
-          "mt-1 h-2 w-2 shrink-0 rounded-full " + (alive ? "bg-emerald-500" : "bg-stone-300")
-        }
-      />
-      {alive ? (
-        <span>
-          사무실 PC 분석기 켜짐{worker.busy ? " · 지금 분석 중" : ""} — 소리까지 받아써서 분석해요.
-        </span>
-      ) : (
-        <span>
-          사무실 PC 분석기가 꺼져 있어요. 맡겨 두면 켜질 때 이어서 분석해요.
-          <span className="block text-stone-400">
-            켜기: poclo-cafe24 폴더의 <b className="font-medium">8_릴스분석기_켜기.bat</b> (한 번 켜 두면 PC 켤 때마다 자동)
-          </span>
-        </span>
-      )}
-    </p>
-  );
-}
 
 // ------------------------------------------------------------- 넣기 (링크 · 파일)
 
@@ -431,13 +383,61 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
   };
   const done = () => setEditing(null);
 
+  // 끌어서 옮기기 — drag: 끄는 폴더 id, over: {id, pos} 놓일 자리(빨간 줄로 보여준다)
+  const [drag, setDrag] = useState(null);
+  const [over, setOver] = useState(null);
+  const dragged = folders.find((f) => f.id === drag);
+  const posOf = (e, f) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const y = (e.clientY - r.top) / r.height;
+    // 하위를 상위 줄 위에 놓으면 그 상위 안으로
+    if (dragged?.parent && !f.parent) return "inside";
+    return y < 0.5 ? "before" : "after";
+  };
+  const drop = () => {
+    if (drag && over) onChange((list) => moveFolder(list, drag, over.id, over.pos));
+    setDrag(null);
+    setOver(null);
+  };
+
   const row = (f, child) => (
     <li
       key={f.id}
+      draggable={!editing}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", f.id);
+        setDrag(f.id);
+      }}
+      onDragOver={(e) => {
+        if (!drag || drag === f.id) return;
+        e.preventDefault();
+        const pos = posOf(e, f);
+        if (over?.id !== f.id || over?.pos !== pos) setOver({ id: f.id, pos });
+      }}
+      onDragLeave={() => over?.id === f.id && setOver(null)}
+      onDrop={(e) => {
+        e.preventDefault();
+        drop();
+      }}
+      onDragEnd={() => {
+        setDrag(null);
+        setOver(null);
+      }}
       className={
-        "group flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-stone-50 " + (child ? "pl-8" : "")
+        "group flex cursor-grab items-center gap-2 rounded-lg border-y-2 px-3 py-2 hover:bg-stone-50 active:cursor-grabbing " +
+        (child ? "pl-8 " : "") +
+        (drag === f.id ? "opacity-40 " : "") +
+        (over?.id === f.id && over.pos === "before"
+          ? "border-t-rose-500 border-b-transparent"
+          : over?.id === f.id && over.pos === "after"
+            ? "border-t-transparent border-b-rose-500"
+            : over?.id === f.id && over.pos === "inside"
+              ? "border-transparent bg-rose-50 ring-2 ring-rose-300"
+              : "border-transparent")
       }
     >
+      <GripVertical size={13} className="shrink-0 text-stone-300 group-hover:text-stone-500" />
       {child && <span className="text-stone-300">└</span>}
       {editing?.id === f.id ? (
         <NameInput
@@ -475,7 +475,9 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
       <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
         <div>
           <h2 className="font-semibold text-stone-900">카테고리 편집</h2>
-          <p className="mt-0.5 text-xs text-stone-500">상위 폴더 아래에 하위 폴더를 둘 수 있어요</p>
+          <p className="mt-0.5 text-xs text-stone-500">
+            상위 폴더 아래에 하위 폴더를 둘 수 있어요 · 줄을 끌어서 순서를 바꾸고, 하위 폴더는 다른 상위로 옮겨요
+          </p>
         </div>
         <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
           <X size={20} />
