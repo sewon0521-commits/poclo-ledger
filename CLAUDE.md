@@ -663,3 +663,49 @@ Supabase의 `sales_daily` + `settings`, 없으면 localStorage.
   부르면 같은 목록에서 출발해 마지막 한 건만 남으므로 따로 만들었다).
 - 창은 App 이 들고 있고 **거래는 매번 살아 있는 tx 에서 다시 고른다**(조건만 저장). 스냅샷을 넘기면 체크해도 숫자가 안 바뀐다.
 - 세금계산서 수취는 **장끼 단위**다(99 = 장끼 수). 거래처 단위로 보고 싶으면 거래처별로 묶어 본다.
+
+## 23. 릴스 기획 v3 — 인스타 링크 · 소리 받아쓰기 · 우리 영상 · 상위/하위 폴더 (2026-09-22)
+
+세원: "레퍼런스랩처럼 링크만 넣으면 대본·후킹·성과까지. 우리가 찍은 영상도 첨부. 영상 넣으면 '다시 시도'만 뜨고,
+'영상이 저장되지 않았어요', 썸네일 안 보임. 폴더는 카테고리 편집에서 상위 → 하위로."
+
+### 구조 — 사무실 PC 분석기 (`poclo-cafe24/reels_worker.py`)
+
+Claude 는 영상·소리를 못 받는다(Claude Code 의 `/watch` 스킬도 같은 원리: 장면 사진 + 받아쓰기).
+인스타는 Vercel 서버에서 받으면 막히지만 **사무실 PC 에서는 yt-dlp 로 로그인 없이 받아진다**(9/22 확인).
+그래서 무거운 일은 PC 가 한다:
+
+    앱: settings['reels'] 에 항목(job:queued) + settings['reels_queue'] {jobs:[{id,target,status,step,at}]}
+    PC: 5초마다 reels_queue 만 읽음 → yt-dlp(링크) 또는 Storage(파일) → ffmpeg 장면(장면 전환 + 고르게, 16~32장)
+        → faster-whisper large-v3-turbo (CPU, 무료) 받아쓰기 → /api/reels (script | review) → 결과를 그 항목에 씀 → 일감 뺌
+    PC: 30초마다 settings['reels_worker'] {at, host, busy} — 앱이 초록/회색 점으로 보여준다
+
+- **reels 전체를 폴링하면 안 된다** — 5초마다 수백 KB 면 Supabase 무료 전송량(월 5GB)을 금방 넘는다. 작은 reels_queue 만 본다.
+- 앱은 릴스 화면이 떠 있을 때만 4초마다 `pollReels`(queue+worker, 작음). 일감이 목록에서 빠지면 그때 reels 를 한 번 다시 읽는다.
+- 켜기: `8_릴스분석기_켜기.bat` → 작업 스케줄러 **PocloReels**(로그인할 때, pythonw, 죽으면 1분 뒤 재시작). 끄기: `9_…_끄기.bat`.
+  사용자 이름은 `PC이름\WD` 모양이어야 등록된다(그냥 `WD` 는 거부). 한 PC 에 하나만 돌게 127.0.0.1:47831 을 잡는다.
+- 분석기가 꺼져 있으면 영상 파일은 **'PC 없이 지금(소리 제외)'** — 예전 브라우저 방식 — 으로도 된다. 링크는 PC 가 켜질 때까지 대기.
+- 로그인해야만 보이는 릴스가 가끔 있다("empty media response") → `poclo-cafe24/instagram_cookies.txt`(Netscape 형식) 를 두면 쓴다. 비밀번호급이라 공유 금지·gitignore.
+- **조회수는 로그인 없이 안 온다.** 좋아요는 숨긴 계정이면 엉뚱한 값(3)이 온다 → 프롬프트에 "댓글·캡션을 더 믿어라".
+
+### 분석 서버(`api/reels.js`)
+
+- "다시 시도"만 뜨던 원인 후보: 8,000 토큰 한도(생각 + 긴 JSON)에서 잘림 → 파싱 실패 → 502 로 뭉뚱그림.
+  → **스트리밍 + max_tokens 32,000**, 과부하(529)·한도(429)·5xx 는 한 번 재시도, 잘림/거절/원인별 문구를 화면에 그대로.
+- 새 칸: `performance {summary, signals}` (성과 분석), 입력 `meta`(계정·게시일·좋아요·댓글·캡션), `transcriptSource:"whisper"`
+  (받아쓰기에 노래 가사가 섞이면 대본에서 빼고 note 에 '배경음악').
+- 새 mode **review** — 우리가 찍은 영상(장면+받아쓰기) vs 레퍼런스·기획 대본 → summary · good · fixes[{at,issue,suggestion}] · hook · vsReference · caption.
+- 확인(9/22): 실제 서버로 링크 → 88초 만에 완료(받기 3초 · 장면 7초 · 받아쓰기 9초 · 분석 60초).
+
+### 영상 보관함
+
+**`reels` 버킷이 아직 없다(9/22 확인)** — "영상이 저장되지 않았어요"·썸네일 안 보임의 원인. 세원이 SQL 을 실행해야 한다
+(`supabase/schema.sql` 의 '릴스 레퍼런스 영상' 부분). 분석기는 보관이 실패해도 분석은 끝낸다(기록에 '보관 실패').
+Storage 키: `<id>`(영상) · `<id>-thumb.jpg` · `<id>-ours` · `<id>-ours-thumb.jpg`. 지우기는 넷 다 지운다.
+
+### 폴더 (`src/lib/reelFolders.js`)
+
+- settings **`reels_folders`** `{items:[{id,name,parent,aka?}]}` — reels 와 따로(changeList 가 `{items}` 로 통째로 쓰므로).
+- 한 번도 저장 안 했으면 기본 갈래 + 예전 항목의 `folder` 이름으로 보여주고, 처음 편집할 때 그대로 저장한다.
+- 항목은 `folderId`(+상위면 `folder` 이름도). 예전 항목은 이름만 있으므로 이름으로도 찾고, **이름을 바꾸면 `aka` 에 예전 이름을 남긴다.**
+- 폴더를 지우면 하위도 지워지고, 안의 릴스는 미분류로(항목은 안 지움).
