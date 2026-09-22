@@ -395,7 +395,8 @@ export function useSales(session) {
     ]);
     if (!w.error) setReelWorker(w.data?.value || null);
     if (q.error) return;
-    const jobs = q.data?.value?.jobs || [];
+    // changeList 가 {items} 로 쓴다 — 분석기도 items 를 읽는다
+    const jobs = q.data?.value?.items || [];
     const finished = queueRef.current.some(
       (p) => !jobs.some((j) => j.id === p.id && j.target === p.target),
     );

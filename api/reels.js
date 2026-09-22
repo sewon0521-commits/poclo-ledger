@@ -292,14 +292,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
  * Claude 한 번 부르기 — 스트리밍으로 받아 끝난 메시지의 parsed_output 을 돌려준다.
  * 과부하(529)·한도(429)·잠깐 끊김(5xx)은 한 번만 쉬었다가 다시 부른다.
  */
-async function ask(client, content, schema) {
+async function ask(client, content, schema, effort = "high") {
   for (let attempt = 0; ; attempt++) {
     try {
       const stream = client.messages.stream({
         model: MODEL,
         max_tokens: 32000,
         thinking: { type: "adaptive" },
-        output_config: { effort: "high", format: zodOutputFormat(schema) },
+        output_config: { effort, format: zodOutputFormat(schema) },
         messages: [{ role: "user", content }],
       });
       return await stream.finalMessage();
@@ -377,6 +377,8 @@ export default async function handler(req, res) {
   }
 
   const body = req.body || {};
+  // 사무실 PC 분석기는 빠르게(medium) 부른다 — high 는 생각이 길어 1분을 넘겼다 (9/22 세원 "10분째야")
+  const effort = ["low", "medium", "high"].includes(body.effort) ? body.effort : "high";
   const client = new Anthropic();
 
   try {
@@ -395,7 +397,7 @@ export default async function handler(req, res) {
         .join("\n\n");
       content.push({ type: "text", text: SCRIPT_PROMPT + (extra ? "\n\n---\n" + extra : "") });
 
-      const r = await ask(client, content, ScriptSchema);
+      const r = await ask(client, content, ScriptSchema, effort);
       return res.status(200).json(parsedOf(r, "대본 뽑기"));
     }
 
@@ -419,7 +421,7 @@ export default async function handler(req, res) {
           body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1000)}` : "",
         ].join("\n"),
       });
-      const r = await ask(client, content, ReviewSchema);
+      const r = await ask(client, content, ReviewSchema, effort);
       return res.status(200).json(parsedOf(r, "피드백"));
     }
 
