@@ -756,7 +756,8 @@ export default function AccountsPage({
     const id = newId("r");
     await onSaveReel({
       id,
-      title: (a.text || a.title || "광고 영상").split("\n")[0].slice(0, 40),
+      // 문구 없는 광고가 많다 — 그때는 "cloudemotion 광고 · 8/5 시작"
+      title: (a.text || a.title || "").split("\n")[0].slice(0, 40) || `${a.page || acc.handle} 광고 · ${md(a.startAt)} 시작`,
       source: { type: "adlib", adId: a.id },
       meta: { url: `https://www.facebook.com/ads/library/?id=${a.id}`, uploader: a.page, postedAt: a.startAt, caption: a.text, ad: true },
       memo: `광고 소재 · ${a.page || acc.handle} · ${a.startAt} 게재 시작`,
