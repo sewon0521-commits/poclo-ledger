@@ -665,7 +665,7 @@ function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove }) {
           <span className="block truncate text-sm font-medium text-stone-900">{item.title}</span>
           <span className="mt-0.5 block truncate text-[11px] text-stone-400">
             {folderName}
-            {item.meta?.uploader && ` · @${item.meta.uploader}`}
+            {item.shop?.name ? ` · ${item.shop.name}` : item.meta?.uploader ? ` · @${item.meta.uploader}` : ""}
             {item.plan?.product?.name && ` · ${item.plan.product.name}`}
           </span>
         </button>
@@ -676,6 +676,36 @@ function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove }) {
 }
 
 // ------------------------------------------------------------- 상세 · 대본 만들기
+
+/**
+ * 영상 아래 — 어느 쇼핑몰 것인지, 그 상품 링크 (세원 9/23: "영상 아래 칸에 쇼핑몰 이름, 해당 상품의 링크로 바로 갈 수 있게").
+ * 고치면 칸을 벗어날 때 저장된다.
+ */
+function ShopBox({ item, onSave }) {
+  const shop = item.shop || {};
+  const [name, setName] = useState(shop.name || item.meta?.name || "");
+  const [url, setUrl] = useState(shop.url || "");
+  const save = () => {
+    const next = { name: name.trim(), url: url.trim() };
+    if (next.name !== (shop.name || "") || next.url !== (shop.url || "")) onSave({ ...item, shop: next });
+  };
+  const ok = /^https?:\/\//.test(url.trim());
+  const input = "w-full rounded-md border border-stone-600 bg-stone-900 px-2 py-1.5 text-xs text-white outline-none placeholder:text-stone-500 focus:border-rose-400";
+  return (
+    <div className="mt-2 space-y-1.5 rounded-lg bg-stone-800 p-2">
+      <div className="text-[11px] font-semibold text-stone-300">어느 쇼핑몰 · 어떤 상품</div>
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={save} placeholder="쇼핑몰 이름 (예: 어반몬드)" className={input} />
+      <div className="flex gap-1.5">
+        <input value={url} onChange={(e) => setUrl(e.target.value)} onBlur={save} placeholder="상품 링크 붙여넣기" className={input + " min-w-0 flex-1"} />
+        {ok && (
+          <a href={url.trim()} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 rounded-md bg-rose-600 px-2 text-[11px] font-medium text-white hover:bg-rose-500">
+            <ExternalLink size={11} /> 열기
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function Meta({ meta }) {
   if (!meta) return null;
@@ -830,6 +860,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
             </div>
           )}
           <Meta meta={item.meta} />
+          <ShopBox key={item.id} item={item} onSave={onSave} />
         </div>
 
         <div className="min-w-0 p-4">
@@ -1391,7 +1422,7 @@ export default function ReelsPage({
       (i) =>
         inSel(i) &&
         (!needle ||
-          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo])
+          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name])
             .toLowerCase()
             .includes(needle)),
     );

@@ -29,6 +29,7 @@ import PendingPage from "./components/PendingPage";
 import PricingPage from "./components/PricingPage";
 import ReelsPage from "./components/ReelsPage";
 import CarouselPage from "./components/CarouselPage";
+import AccountsPage from "./components/AccountsPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
@@ -474,6 +475,20 @@ export default function App() {
                   queue={S.reelQueue}
                   onQueue={S.queueReel}
                   onPoll={S.pollReels}
+                />
+              ) : page === "accounts" ? (
+                <AccountsPage
+                  accounts={S.accounts}
+                  onSave={S.saveAccount}
+                  onRemove={S.removeAccount}
+                  load={S.loadAccount}
+                  fileUrls={S.reelFileUrls}
+                  worker={S.reelWorker}
+                  queue={S.reelQueue}
+                  onQueue={S.queueReel}
+                  onPoll={S.pollReels}
+                  onSaveReel={S.saveReel}
+                  onSaveCarousel={S.saveCarousel}
                 />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />

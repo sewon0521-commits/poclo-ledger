@@ -14,6 +14,7 @@ import {
   Calculator,
   Clapperboard,
   GalleryHorizontal,
+  Radar,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -69,6 +70,7 @@ export const SECTIONS = [
         items: [
           { key: "reels", label: "릴스 기획", icon: Clapperboard },
           { key: "carousel", label: "캐러셀 기획", icon: GalleryHorizontal },
+          { key: "accounts", label: "계정 아카이브", icon: Radar },
         ],
       },
     ],

@@ -19,6 +19,7 @@ const REEL_FOLDERS_KEY = "poclo_reel_folders";
 const CAROUSELS_KEY = "poclo_carousels";
 const CAROUSEL_PLANS_KEY = "poclo_carousel_plans";
 const REEL_PLANS_KEY = "poclo_reel_plans";
+const ACCOUNTS_KEY = "poclo_accounts";
 
 const readLocal = (key, fallback) => {
   try {
@@ -104,6 +105,8 @@ export function useSales(session) {
   const [productStats, setProductStats] = useState(null);
   // 상품에서 시작한 릴스 기획 (9/22) — settings 'reel_plans'
   const [reelPlans, setReelPlans] = useState(() => readLocal(REEL_PLANS_KEY, []));
+  // 계정 아카이브 (9/23) — 목록은 'accounts', 계정마다 기록은 'acct_<id>' (열 때만 읽는다)
+  const [accounts, setAccounts] = useState(() => readLocal(ACCOUNTS_KEY, []));
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
@@ -112,7 +115,7 @@ export function useSales(session) {
 
   const load = useCallback(async () => {
     try {
-      const [s, c, m, p, rl, rf, cr, cp, ps, rp] = await Promise.all([
+      const [s, c, m, p, rl, rf, cr, cp, ps, rp, ac] = await Promise.all([
         supabase.from("sales_daily").select("*").order("date"),
         supabase.from("settings").select("value").eq("key", "sales").maybeSingle(),
         // 공급가 없이 팔린 품목 — 새벽 자동 갱신(daily.py)이 채운다
@@ -124,6 +127,7 @@ export function useSales(session) {
         supabase.from("settings").select("value").eq("key", "carousel_plans").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "product_stats").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "reel_plans").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "accounts").maybeSingle(),
       ]);
       if (!m.error) setMissingCost(m.data?.value || null);
       if (!p.error && p.data?.value?.items) {
@@ -143,6 +147,10 @@ export function useSales(session) {
         writeLocal(CAROUSEL_PLANS_KEY, cp.data.value.items);
       }
       if (!ps.error) setProductStats(ps.data?.value || null);
+      if (!ac.error && ac.data?.value?.items) {
+        setAccounts(ac.data.value.items);
+        writeLocal(ACCOUNTS_KEY, ac.data.value.items);
+      }
       if (!rp.error && rp.data?.value?.items) {
         setReelPlans(rp.data.value.items);
         writeLocal(REEL_PLANS_KEY, rp.data.value.items);
@@ -428,10 +436,15 @@ export function useSales(session) {
     );
     setReelQueue(jobs);
     if (finished) {
-      const [r, c] = await Promise.all([
+      const [r, c, a] = await Promise.all([
         supabase.from("settings").select("value").eq("key", "reels").maybeSingle(),
         supabase.from("settings").select("value").eq("key", "carousels").maybeSingle(),
+        supabase.from("settings").select("value").eq("key", "accounts").maybeSingle(),
       ]);
+      if (!a.error && a.data?.value?.items) {
+        setAccounts(a.data.value.items);
+        writeLocal(ACCOUNTS_KEY, a.data.value.items);
+      }
       if (!r.error && r.data?.value?.items) {
         setReels(r.data.value.items);
         writeLocal(REELS_KEY, r.data.value.items);
@@ -474,6 +487,36 @@ export function useSales(session) {
     (id) => changeList("carousel_plans", CAROUSEL_PLANS_KEY, carouselPlans, setCarouselPlans,
       (items) => items.filter((i) => i.id !== id), "캐러셀 기획안"),
     [changeList, carouselPlans],
+  );
+
+  const saveAccount = useCallback(
+    (item) => changeList("accounts", ACCOUNTS_KEY, accounts, setAccounts, upsertInto(item), "계정"),
+    [changeList, accounts],
+  );
+  const removeAccount = useCallback(
+    async (id) => {
+      await changeList("accounts", ACCOUNTS_KEY, accounts, setAccounts, (items) => items.filter((i) => i.id !== id), "계정");
+      if (online && remoteOk.current) await supabase.from("settings").delete().eq("key", `acct_${id}`);
+    },
+    [changeList, accounts, online],
+  );
+  /** 계정 하나의 기록 (게시물·광고·스캔 이력) — 열 때만 읽는다 */
+  const loadAccount = useCallback(
+    async (id) => {
+      if (!(online && remoteOk.current)) return null;
+      const { data, error } = await supabase.from("settings").select("value").eq("key", `acct_${id}`).maybeSingle();
+      return error ? null : data?.value || null;
+    },
+    [online],
+  );
+  /** 썸네일 여러 장을 한 번에 서명 주소로 */
+  const reelFileUrls = useCallback(
+    async (keys) => {
+      if (!(online && remoteOk.current) || !keys.length) return {};
+      const { data } = await supabase.storage.from("reels").createSignedUrls(keys, 60 * 60 * 4);
+      return Object.fromEntries((data || []).filter((d) => d.signedUrl).map((d) => [d.path, d.signedUrl]));
+    },
+    [online],
   );
 
   const saveReelPlan = useCallback(
@@ -598,6 +641,11 @@ export function useSales(session) {
     productStats,
     reelPlans,
     saveReelPlan,
+    accounts,
+    saveAccount,
+    removeAccount,
+    loadAccount,
+    reelFileUrls,
     removeReelPlan,
     reload: load,
     saveConf,
