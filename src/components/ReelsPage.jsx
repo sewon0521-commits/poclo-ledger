@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate } from "../lib/reels";
+import LookPicker from "./LookPicker";
+import { emptyLook } from "../lib/looks";
 import { newId } from "../lib/id";
 import {
   seedFolders,
@@ -39,7 +41,7 @@ import {
 } from "../lib/reelFolders";
 import { Empty } from "./ui";
 import ProductReelTab from "./ProductReel";
-import { CopyButton, WorkerStatus } from "./ContentBits";
+import { CopyButton, WorkerStatus, EditableTitle } from "./ContentBits";
 import { workerAlive } from "../lib/reels";
 
 /**
@@ -67,7 +69,7 @@ const num = (n) => (n == null ? "—" : new Intl.NumberFormat("ko-KR").format(n)
 
 // ------------------------------------------------------------- 넣기 (링크 · 파일)
 
-function AddBar({ worker, onLink, onFile, onBrowser, notice }) {
+function AddBar({ worker, onLink, onFile, onBrowser, onKeep, notice }) {
   const [tab, setTab] = useState("link");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState(null);
@@ -76,6 +78,8 @@ function AddBar({ worker, onLink, onFile, onBrowser, notice }) {
   const [transcript, setTranscript] = useState("");
   const [over, setOver] = useState(false);
   const [step, setStep] = useState("");
+  // 실루엣 잘 나온 영상처럼 **보관만** 할 때 (세원 9/23: "저장 목적으로 저장하는 영상들이 있긴하거든")
+  const [keepOnly, setKeepOnly] = useState(false);
   const busy = !!step;
   const alive = workerAlive(worker);
 
@@ -179,16 +183,24 @@ function AddBar({ worker, onLink, onFile, onBrowser, notice }) {
           </label>
           {file && (
             <div className="mt-3 flex flex-wrap gap-2 border-t border-stone-100 pt-3">
+              <label className="flex w-full cursor-pointer items-center gap-2 text-xs text-stone-600">
+                <input type="checkbox" checked={keepOnly} onChange={(e) => setKeepOnly(e.target.checked)} className="accent-rose-700" />
+                분석 없이 보관만 — 실루엣·참고용으로 모아 두는 영상 (폴더에 담기고 대본은 안 뽑아요)
+              </label>
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => wrap("영상 올리는 중…", () => onFile(file, memo))}
+                onClick={() =>
+                  keepOnly
+                    ? wrap("보관하는 중…", () => onKeep(file, memo))
+                    : wrap("영상 올리는 중…", () => onFile(file, memo))
+                }
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 font-semibold text-white disabled:bg-stone-300"
               >
                 {busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
-                {busy ? step : "올려서 분석 맡기기 (소리 포함)"}
+                {busy ? step : keepOnly ? "보관만 하기" : "올려서 분석 맡기기 (소리 포함)"}
               </button>
-              {!alive && (
+              {!alive && !keepOnly && (
                 <button
                   type="button"
                   disabled={busy}
@@ -627,7 +639,7 @@ function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove }) {
                 : "bg-white/90 text-stone-600")
           }
         >
-          {pending ? status.text : item.plan ? "대본 완성" : "분석 완료"}
+          {pending ? status.text : item.keepOnly ? "보관만" : item.plan ? "대본 완성" : "분석 완료"}
         </span>
         {item.ours && (
           <span className="absolute top-2 right-2 rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
@@ -693,12 +705,18 @@ function Meta({ meta }) {
   );
 }
 
-function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs }) {
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, stats }) {
   const r = item.reference || {};
   const status = statusOf(item, queue);
   const [tab, setTab] = useState(item.plan ? "write" : "script");
-  const [url, setUrl] = useState(item.plan ? item.productUrl || "" : "");
-  const [memo, setMemo] = useState("");
+  // 룩 단위로 상품을 담는다 (9/23). 예전에 주소 하나로 만든 기획은 그 주소를 룩 1 로 옮긴다.
+  const [looks, setLooks] = useState(() =>
+    item.looks?.length
+      ? item.looks
+      : [emptyLook(item.productUrl ? [{ url: item.productUrl, name: "예전에 넣은 상품" }] : [])],
+  );
+  const [memo, setMemo] = useState(item.planMemo || "");
+  const [direction, setDirection] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [filled, setFilled] = useState(item.filled || item.plan?.filled || []);
@@ -716,18 +734,33 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
   const done = fillTemplate(r.template, filled);
   const folderId = folderIdOf(item, folders);
 
-  const run = async () => {
+  const run = async (again = false) => {
     setMsg("");
     setBusy(true);
     try {
-      const res = await adaptScript({ reference: r, url: url.trim(), memo });
+      const res = await adaptScript({
+        reference: r,
+        looks,
+        memo,
+        // 다시 만들 때는 앞서 나온 훅·대본을 피한다 (9/23 세원: "대본을 아예 갈아엎을 수 있게")
+        avoid: again ? `${plan?.hook || ""}\n${plan?.script || ""}` : "",
+        direction: again ? direction : "",
+      });
       if (!res.ok) {
         setMsg(res.message);
         return;
       }
       setPlan(res.data);
       setFilled(res.data.filled || []);
-      onSave({ ...item, plan: res.data, filled: res.data.filled || [], productUrl: url.trim() });
+      onSave({
+        ...item,
+        plan: res.data,
+        filled: res.data.filled || [],
+        looks,
+        planMemo: memo,
+        productUrl: looks[0]?.products?.[0]?.url || "",
+      });
+      setDirection("");
       setTab("write");
     } finally {
       setBusy(false);
@@ -745,9 +778,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
     <div className="flex max-h-[90vh] flex-col">
       <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
         <div className="min-w-0">
-          <h2 id="reel-title" className="truncate font-semibold text-stone-900">
-            {item.title}
-          </h2>
+          <EditableTitle value={item.title} onChange={(t) => onSave({ ...item, title: t })} />
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
             {r.structure?.hookType && (
               <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700">{r.structure.hookType}</span>
@@ -957,37 +988,43 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
 
               {tab === "write" && (
                 <>
-                  <div className="rounded-xl border border-stone-200 p-3">
-                    <div className="mb-1.5 text-xs font-semibold text-stone-500">
-                      우리 상품 주소를 넣으면 아래 빈칸이 자동으로 채워져요
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="relative min-w-0 flex-1">
-                        <Link2 size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-stone-400" />
-                        <input
-                          value={url}
-                          onChange={(e) => setUrl(e.target.value)}
-                          placeholder="https://ppoclo.cafe24.com/product/..."
-                          className={FIELD + " pl-8 text-sm"}
-                        />
-                      </span>
-                      <button
-                        type="button"
-                        disabled={!url.trim() || busy}
-                        onClick={run}
-                        className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
-                      >
-                        {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                        {busy ? "채우는 중…" : plan ? "다시 채우기" : "빈칸 채우기"}
-                      </button>
-                    </div>
-                    <input
+                  <div className="space-y-2 rounded-xl border border-stone-200 p-3">
+                    <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
+                    <textarea
                       value={memo}
                       onChange={(e) => setMemo(e.target.value)}
-                      placeholder="메모 (선택) — 예: 가을 신상으로 밀 것"
-                      className={FIELD + " mt-2 text-sm"}
+                      placeholder="메모 · 후킹 아이디어 (여기 적은 건 훅·대본에 최우선으로 반영해요) — 예: '이 가격에 이 원단?' 으로 시작"
+                      className={FIELD + " h-16 resize-y text-sm"}
                     />
-                    {msg && <p className="mt-2 text-sm text-rose-700">{msg}</p>}
+                    <button
+                      type="button"
+                      disabled={!looks.some((l) => l.products.length) || busy}
+                      onClick={() => run(false)}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-rose-700 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
+                    >
+                      {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                      {busy ? "만드는 중… (1분쯤)" : plan ? "이 내용으로 다시 만들기" : "이 상품으로 대본 만들기"}
+                    </button>
+                    {plan && (
+                      <div className="flex flex-wrap gap-2 border-t border-stone-100 pt-2">
+                        <input
+                          value={direction}
+                          onChange={(e) => setDirection(e.target.value)}
+                          placeholder="다른 방향으로 — 예: 정보형으로, 가격 빼고, 더 짧게 (비우면 완전히 다른 각도)"
+                          className={FIELD + " min-w-0 flex-1 text-sm"}
+                        />
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => run(true)}
+                          className="flex items-center gap-1.5 rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 disabled:opacity-50"
+                          title="앞서 만든 훅·대본은 피하고 새로 뽑아요"
+                        >
+                          <RotateCw size={14} /> 갈아엎기
+                        </button>
+                      </div>
+                    )}
+                    {msg && <p className="text-sm text-rose-700">{msg}</p>}
                   </div>
 
                   {r.template && (
@@ -1476,6 +1513,39 @@ export default function ReelsPage({
     }
   };
 
+  /** 분석 없이 보관만 — 썸네일은 브라우저가 한 장 떠서 넣는다 */
+  const keepOnly = async (file, memo) => {
+    setNotice("");
+    if (file.size > MAX_VIDEO) {
+      setNotice("영상이 40MB를 넘어요. 짧게 자르거나 화질을 낮춰서 넣어 주세요.");
+      return false;
+    }
+    const id = newId("r");
+    try {
+      const { thumb } = await extractFrames(file, { longEdge: 480 });
+      if (thumb) await putFile(`${id}-thumb.jpg`, thumb, "image/jpeg");
+    } catch {
+      /* 썸네일은 없어도 보관은 된다 */
+    }
+    const hasVideo = await putFile(id, file, file.type || "video/mp4");
+    if (!hasVideo) {
+      setNotice("영상을 보관함에 못 올렸어요. 화면 위 안내를 확인해 주세요.");
+      return false;
+    }
+    await onSave({
+      id,
+      title: file.name.replace(/\.[^.]+$/, ""),
+      source: { type: "file", name: file.name },
+      keepOnly: true,
+      memo,
+      ...targetFolder(),
+      hasVideo,
+      job: { status: "done", at: new Date().toISOString() },
+      thumbAt: new Date().toISOString(),
+      filled: [],
+    });
+  };
+
   const retry = async (item, target) => {
     const job = { status: "queued", at: new Date().toISOString() };
     await onSave(target === "ours" ? { ...item, ours: { ...item.ours, job } } : { ...item, job });
@@ -1540,7 +1610,7 @@ export default function ReelsPage({
         />
       ) : (
       <>
-      <AddBar worker={worker} onLink={queueLink} onFile={queueFile} onBrowser={analyzeHere} notice={notice} />
+      <AddBar worker={worker} onLink={queueLink} onFile={queueFile} onBrowser={analyzeHere} onKeep={keepOnly} notice={notice} />
 
       <FolderBar
         items={items}
@@ -1594,6 +1664,7 @@ export default function ReelsPage({
               onClose={() => setOpen(null)}
               onRetry={retry}
               onOurs={uploadOurs}
+              stats={stats}
             />
           </div>
         </div>

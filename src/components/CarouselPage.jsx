@@ -19,7 +19,7 @@ import {
 import { newId } from "../lib/id";
 import { analyzeCarousel, planCarousel, shrinkImage, refSummary } from "../lib/carousel";
 import { workerAlive } from "../lib/reels";
-import { CopyButton, WorkerStatus } from "./ContentBits";
+import { CopyButton, WorkerStatus, EditableTitle } from "./ContentBits";
 import { Empty } from "./ui";
 
 /**
@@ -50,11 +50,15 @@ function Overlay({ children, onClose, wide }) {
   );
 }
 
-function Head({ title, sub, onClose }) {
+function Head({ title, sub, onClose, onTitle }) {
   return (
     <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
       <div className="min-w-0">
-        <h2 className="truncate font-semibold text-stone-900">{title}</h2>
+        {onTitle ? (
+          <EditableTitle value={title} onChange={onTitle} />
+        ) : (
+          <h2 className="truncate font-semibold text-stone-900">{title}</h2>
+        )}
         {sub && <div className="mt-0.5 text-xs text-stone-500">{sub}</div>}
       </div>
       <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 shrink-0 p-1 text-stone-400 hover:text-stone-700">
@@ -382,7 +386,7 @@ function SlidePreview({ s, img, tag }) {
   );
 }
 
-function PlanView({ item, onRemove, onClose }) {
+function PlanView({ item, onRemove, onSave, onClose }) {
   const p = item.plan || {};
   // 묶음이면 상품마다 사진 목록이 따로 (productImages[k][n]). 예전 기획안은 images 하나.
   const sets = p.productImages || (p.images ? [p.images] : []);
@@ -395,7 +399,8 @@ function PlanView({ item, onRemove, onClose }) {
   return (
     <div className="flex max-h-[92vh] flex-col">
       <Head
-        title={`캐러셀 · ${item.products?.length > 1 ? item.products.map((x) => x.name.replace(/^\[[^\]]*\]\s*/, "")).join(" + ") : item.product?.name || ""}`}
+        title={item.title || `캐러셀 · ${item.products?.length > 1 ? item.products.map((x) => x.name.replace(/^\[[^\]]*\]\s*/, "")).join(" + ") : item.product?.name || ""}`}
+        onTitle={(t) => onSave({ ...item, title: t })}
         sub={[item.product?.reason, new Date(item.createdAt).toLocaleString("ko-KR")].filter(Boolean).join(" · ")}
         onClose={onClose}
       />
@@ -633,7 +638,7 @@ function RefCard({ item, thumb, status, onOpen }) {
         </span>
       </span>
       <span className="block px-3 py-2">
-        <span className="block truncate text-sm font-medium text-stone-900">{a.title || item.title}</span>
+        <span className="block truncate text-sm font-medium text-stone-900">{item.title || a.title}</span>
         <span className="mt-0.5 block truncate text-[11px] text-stone-400">
           {item.meta?.uploader ? `@${item.meta.uploader}` : "직접 올림"}
           {item.meta?.likes != null && ` · 좋아요 ${item.meta.likes}`}
@@ -644,7 +649,7 @@ function RefCard({ item, thumb, status, onOpen }) {
   );
 }
 
-function RefDetail({ item, status, fileUrl, onRetry, onRemove, onClose }) {
+function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClose }) {
   const a = item.analysis || {};
   const [urls, setUrls] = useState([]);
   useEffect(() => {
@@ -662,7 +667,8 @@ function RefDetail({ item, status, fileUrl, onRetry, onRemove, onClose }) {
   return (
     <div className="flex max-h-[92vh] flex-col">
       <Head
-        title={a.title || item.title}
+        title={item.title || a.title}
+        onTitle={(t) => onSaveRef({ ...item, title: t })}
         sub={[a.format, item.meta?.uploader && `@${item.meta.uploader}`, item.meta?.postedAt].filter(Boolean).join(" · ")}
         onClose={onClose}
       />
@@ -949,14 +955,14 @@ export default function CarouselPage({
       )}
       {viewPlan && (
         <Overlay wide onClose={() => setViewPlan(null)}>
-          <PlanView item={plans.find((p) => p.id === viewPlan.id) || viewPlan} onRemove={onRemovePlan} onClose={() => setViewPlan(null)} />
+          <PlanView item={plans.find((p) => p.id === viewPlan.id) || viewPlan} onRemove={onRemovePlan} onSave={onSavePlan} onClose={() => setViewPlan(null)} />
         </Overlay>
       )}
       {openRef && (
         <Overlay onClose={() => setOpenRef(null)}>
           {(() => {
             const it = carousels.find((c) => c.id === openRef.id) || openRef;
-            return <RefDetail item={it} status={statusOf(it, queue)} fileUrl={fileUrl} onRetry={retry} onRemove={onRemoveRef} onClose={() => setOpenRef(null)} />;
+            return <RefDetail item={it} status={statusOf(it, queue)} fileUrl={fileUrl} onRetry={retry} onRemove={onRemoveRef} onSaveRef={onSaveRef} onClose={() => setOpenRef(null)} />;
           })()}
         </Overlay>
       )}

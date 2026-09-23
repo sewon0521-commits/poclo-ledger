@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
-import { Search, Link2, Flame, Sprout, Loader2, Sparkles, X, Trash2, ExternalLink, Camera, Clapperboard } from "lucide-react";
+import { useState } from "react";
+import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt } from "lucide-react";
 import { productReel, candidateOf, fillTemplate } from "../lib/reels";
 import { newId } from "../lib/id";
-import { CopyButton } from "./ContentBits";
+import { shortName as short, emptyLook } from "../lib/looks";
+import LookPicker, { ProductSearch } from "./LookPicker";
+import { CopyButton, EditableTitle } from "./ContentBits";
 import { Empty } from "./ui";
 
 /**
@@ -16,101 +18,27 @@ import { Empty } from "./ui";
 
 const FIELD =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-rose-600";
-const short = (name) => String(name || "").replace(/^\[[^\]]*\]\s*/, "");
-const won = (n) => (n ? new Intl.NumberFormat("ko-KR").format(n) + "원" : "");
 
-function ProductPicker({ stats, onPick }) {
-  const [q, setQ] = useState("");
-  const [url, setUrl] = useState("");
-  const all = useMemo(() => stats?.all || [], [stats]);
-  const hits = useMemo(() => {
-    const n = q.trim().replace(/\s+/g, "").toLowerCase();
-    if (!n) return [];
-    return all.filter((p) => p.name.replace(/\s+/g, "").toLowerCase().includes(n)).slice(0, 8);
-  }, [q, all]);
-  const quick = [
-    ...(stats?.best || []).slice(0, 6).map((p) => ({ ...p, group: "best" })),
-    ...(stats?.rising || []).slice(0, 4).map((p) => ({ ...p, group: "rising" })),
-  ];
-
+function FirstPick({ stats, onPick }) {
   return (
     <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4">
       <div className="text-sm font-semibold text-stone-800">어떤 상품으로 릴스를 만들까요?</div>
-      <div className="relative">
-        <Search size={14} className="absolute top-3.5 left-3 text-stone-400" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={all.length ? `상품 이름으로 찾기 — 판매 중 ${all.length}개 (예: 클레어, 벌룬팬츠)` : "상품 목록은 새벽 자동 갱신 뒤에 생겨요 — 지금은 링크로"}
-          className={FIELD + " pl-8 text-sm"}
-        />
-        {hits.length > 0 && (
-          <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-stone-200 bg-white py-1 shadow-lg">
-            {hits.map((p) => (
-              <button
-                key={p.no}
-                type="button"
-                onClick={() => {
-                  setQ("");
-                  onPick({ ...p, reason: p.q30 ? `최근 30일 ${p.q30}장` : "" });
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-stone-50"
-              >
-                {p.image && <img src={p.image} alt="" className="h-10 w-8 rounded object-cover" loading="lazy" />}
-                <span className="min-w-0 flex-1 truncate">{short(p.name)}</span>
-                <span className="text-xs text-stone-400">{p.q30 ? `30일 ${p.q30}장` : won(p.price)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="flex gap-2">
-        <span className="relative min-w-0 flex-1">
-          <Link2 size={14} className="absolute top-3.5 left-3 text-stone-400" />
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="또는 상품 링크 붙여넣기" className={FIELD + " pl-8 text-sm"} />
-        </span>
-        <button
-          type="button"
-          disabled={!/^https?:\/\//.test(url.trim())}
-          onClick={() => {
-            onPick({ url: url.trim(), name: "링크로 고른 상품", reason: "" });
-            setUrl("");
-          }}
-          className="rounded-lg bg-stone-800 px-3 text-sm font-medium text-white disabled:bg-stone-300"
-        >
-          고르기
-        </button>
-      </div>
-      {quick.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-xs text-stone-400">또는 바로 누르기</div>
-          <div className="flex flex-wrap gap-1.5">
-            {quick.map((p) => (
-              <button
-                key={p.group + p.no}
-                type="button"
-                onClick={() => onPick(p)}
-                className="flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 py-1 pr-3 pl-1 text-xs hover:border-rose-300"
-                title={p.reason}
-              >
-                {p.image && <img src={p.image} alt="" className="h-6 w-6 rounded-full object-cover" />}
-                {p.group === "best" ? <Flame size={11} className="text-rose-600" /> : <Sprout size={11} className="text-emerald-600" />}
-                <span className="max-w-[10rem] truncate text-stone-700">{short(p.name)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <ProductSearch stats={stats} onPick={onPick} />
+      <p className="text-[11px] text-stone-400">고른 뒤에 룩을 더하거나 한 룩에 상의·하의를 같이 담을 수 있어요.</p>
     </div>
   );
 }
 
-function Make({ product, library, onDone, onCancel }) {
+function Make({ draft, stats, library, onDone, onCancel }) {
   const done = library.filter((i) => i.reference?.structure);
-  const [refId, setRefId] = useState("auto");
-  const [memo, setMemo] = useState("");
+  const [refId, setRefId] = useState(draft.refId || "auto");
+  const [looks, setLooks] = useState(draft.looks);
+  const [memo, setMemo] = useState(draft.memo || "");
+  const [direction, setDirection] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const again = !!draft.prev;
+  const first = looks[0]?.products?.[0] || {};
 
   const run = async () => {
     setMsg("");
@@ -118,26 +46,32 @@ function Make({ product, library, onDone, onCancel }) {
     try {
       const pool = refId === "auto" ? done : done.filter((i) => i.id === refId);
       const r = await productReel({
-        url: product.url,
-        stats: product.reason ? { reason: product.reason } : {},
+        looks,
+        stats: first.reason ? { reason: first.reason } : {},
         candidates: pool.slice(0, 12).map(candidateOf),
         memo,
+        // 갈아엎기 — 앞서 만든 훅·대본은 피한다
+        avoid: again ? `${draft.prev.hook || ""}\n${draft.prev.script || ""}` : "",
+        direction: again ? direction : "",
       });
       if (!r.ok) {
         setMsg(r.message);
         return;
       }
       const ref = done.find((i) => i.id === r.data.chosen) || null;
+      const names = (r.data.productTitles || []).map(short);
       await onDone({
-        id: newId("rp"),
-        product: { no: product.no || null, name: r.data.productTitle || product.name, url: product.url, image: product.image || r.data.images?.[0] || "", reason: product.reason || "" },
+        id: draft.id || newId("rp"),
+        title: draft.title || (names.length > 1 ? `${names[0]} 외 ${names.length - 1} · 룩 ${looks.length}` : short(names[0] || first.name)),
+        product: { no: first.no || null, name: r.data.productTitle || first.name, url: first.url, image: first.image || r.data.images?.[0] || "", reason: first.reason || "" },
+        looks,
         refId: ref?.id || "",
         refTitle: ref ? ref.reference?.title || ref.title : "",
         auto: refId === "auto",
         memo,
         plan: r.data,
         filled: r.data.filled || [],
-        createdAt: new Date().toISOString(),
+        createdAt: draft.createdAt || new Date().toISOString(),
       });
     } finally {
       setBusy(false);
@@ -146,19 +80,15 @@ function Make({ product, library, onDone, onCancel }) {
 
   return (
     <div className="space-y-3 rounded-2xl border border-rose-200 bg-rose-50/40 p-4">
-      <div className="flex items-start gap-3">
-        {product.image && <img src={product.image} alt="" className="h-20 w-16 rounded-lg object-cover" />}
-        <div className="min-w-0 flex-1 text-sm">
-          <div className="font-semibold text-stone-900">{short(product.name)}</div>
-          {product.reason && <div className="mt-0.5 text-xs text-rose-700">{product.reason}</div>}
-          <a href={product.url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-sky-700 hover:underline">
-            <ExternalLink size={11} /> 상품 페이지
-          </a>
-        </div>
-        <button type="button" onClick={onCancel} aria-label="다른 상품" className="p-1 text-stone-400 hover:text-stone-700">
+      <div className="flex items-start justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-rose-900">
+          <Shirt size={14} /> {again ? "다시 만들기" : "릴스 기획 만들기"}
+        </span>
+        <button type="button" onClick={onCancel} aria-label="닫기" className="p-1 text-stone-400 hover:text-stone-700">
           <X size={18} />
         </button>
       </div>
+      <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
       <label className="block text-xs font-semibold text-stone-500">
         어떤 레퍼런스 구조로?
         <select value={refId} onChange={(e) => setRefId(e.target.value)} className={FIELD + " mt-1 text-sm font-normal"}>
@@ -170,22 +100,35 @@ function Make({ product, library, onDone, onCancel }) {
           ))}
         </select>
       </label>
-      <input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모 (선택) — 예: 출근룩으로, 셀카 정적 움직임으로 찍을 것" className={FIELD + " text-sm"} />
+      <textarea
+        value={memo}
+        onChange={(e) => setMemo(e.target.value)}
+        placeholder="메모 · 후킹 아이디어 (여기 적은 건 훅·대본에 최우선으로 반영해요) — 예: '이 가격에 이 원단?' 으로 시작, 셀카 정적 움직임"
+        className={FIELD + " h-16 resize-y text-sm"}
+      />
+      {again && (
+        <input
+          value={direction}
+          onChange={(e) => setDirection(e.target.value)}
+          placeholder="다른 방향으로 — 예: 정보형으로, 가격 빼고, 더 짧게 (비우면 완전히 다른 각도)"
+          className={FIELD + " text-sm"}
+        />
+      )}
       {msg && <p className="text-sm text-rose-700">{msg}</p>}
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || !looks.some((l) => l.products.length)}
         onClick={run}
         className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 font-semibold text-white disabled:bg-stone-300"
       >
         {busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-        {busy ? "상품 사진·레퍼런스 보고 기획하는 중… (1분쯤)" : "이 상품으로 릴스 기획"}
+        {busy ? "상품 사진·레퍼런스 보고 기획하는 중… (1분쯤)" : again ? "갈아엎어서 다시 만들기" : "이 상품으로 릴스 기획"}
       </button>
     </div>
   );
 }
 
-function PlanView({ item, library, onRemove, onOpenRef, onClose }) {
+function PlanView({ item, library, onRemove, onOpenRef, onSave, onAgain, onClose }) {
   const p = item.plan || {};
   const ref = library.find((i) => i.id === item.refId);
   const tpl = ref?.reference?.template;
@@ -194,7 +137,10 @@ function PlanView({ item, library, onRemove, onOpenRef, onClose }) {
     <div className="flex max-h-[92vh] flex-col">
       <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
         <div className="min-w-0">
-          <h2 className="truncate font-semibold text-stone-900">릴스 · {short(item.product?.name)}</h2>
+          <EditableTitle
+            value={item.title || `릴스 · ${short(item.product?.name)}`}
+            onChange={(t) => onSave({ ...item, title: t })}
+          />
           <div className="mt-0.5 text-xs text-stone-500">
             {item.refTitle ? `레퍼런스: ${item.refTitle}${item.auto ? " (알아서 고름)" : ""}` : "레퍼런스 없이 기본 판매형 구조"}
           </div>
@@ -204,6 +150,18 @@ function PlanView({ item, library, onRemove, onOpenRef, onClose }) {
         </button>
       </header>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+        {p.looks?.filter((l) => l.n > 0).length > 1 && (
+          <div className="rounded-xl border border-stone-200 px-3 py-2">
+            <div className="text-xs font-semibold text-stone-500">룩 {p.looks.filter((l) => l.n > 0).length}개</div>
+            <ul className="mt-1 space-y-0.5 text-xs text-stone-600">
+              {p.looks.filter((l) => l.n > 0).map((l) => (
+                <li key={l.n}>
+                  <b className="font-semibold text-stone-800">룩 {l.n}</b> {l.name} — {l.point}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {p.chosenWhy && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-950">
             <div className="text-xs font-semibold text-rose-800">왜 이 구조</div>
@@ -241,7 +199,10 @@ function PlanView({ item, library, onRemove, onOpenRef, onClose }) {
             <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200">
               {p.scenes.map((s, i) => (
                 <li key={i} className="flex gap-3 px-3 py-2">
-                  <span className="w-14 shrink-0 text-xs text-stone-400">{s.at}</span>
+                  <span className="w-14 shrink-0 text-xs text-stone-400">
+                    {s.at}
+                    {s.look > 0 && <span className="block text-[10px] text-rose-600">룩 {s.look}</span>}
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-stone-700">{s.shot}</span>
                     {s.text && <span className="block text-xs text-rose-700">“{s.text}”</span>}
@@ -294,33 +255,40 @@ function PlanView({ item, library, onRemove, onOpenRef, onClose }) {
         >
           <Trash2 size={13} /> 지우기
         </button>
-        <a href={item.product?.url} target="_blank" rel="noreferrer" className="text-xs text-sky-700 hover:underline">
-          상품 페이지 열기
-        </a>
+        <span className="flex items-center gap-3">
+          <button type="button" onClick={() => onAgain(item)} className="flex items-center gap-1 text-xs font-medium text-rose-700 hover:underline">
+            <RotateCw size={12} /> 다시 만들기 (갈아엎기)
+          </button>
+          <a href={item.product?.url} target="_blank" rel="noreferrer" className="text-xs text-sky-700 hover:underline">
+            상품 페이지 열기
+          </a>
+        </span>
       </footer>
     </div>
   );
 }
 
 export default function ProductReelTab({ stats, library, plans, onSavePlan, onRemovePlan, onOpenRef }) {
-  const [product, setProduct] = useState(null);
+  // draft = {looks, memo, prev?, id?, title?} — 새로 만들거나, 기존 기획을 갈아엎을 때
+  const [draft, setDraft] = useState(null);
   const [view, setView] = useState(null);
 
   return (
     <div className="space-y-4">
-      {product ? (
+      {draft ? (
         <Make
-          product={product}
+          draft={draft}
+          stats={stats}
           library={library}
-          onCancel={() => setProduct(null)}
+          onCancel={() => setDraft(null)}
           onDone={async (item) => {
             await onSavePlan(item);
-            setProduct(null);
+            setDraft(null);
             setView(item);
           }}
         />
       ) : (
-        <ProductPicker stats={stats} onPick={setProduct} />
+        <FirstPick stats={stats} onPick={(p) => setDraft({ looks: [emptyLook([p])], memo: "" })} />
       )}
 
       {plans.length === 0 ? (
@@ -337,7 +305,7 @@ export default function ProductReelTab({ stats, library, plans, onSavePlan, onRe
                 </span>
               )}
               <span className="min-w-0">
-                <span className="line-clamp-2 text-sm font-medium text-stone-900">{short(p.product?.name)}</span>
+                <span className="line-clamp-2 text-sm font-medium text-stone-900">{p.title || short(p.product?.name)}</span>
                 <span className="mt-1 line-clamp-2 block text-xs font-semibold text-rose-700">{p.plan?.hook}</span>
                 <span className="mt-1 block truncate text-[11px] text-stone-400">
                   {p.refTitle || "기본 구조"} · {new Date(p.createdAt).toLocaleDateString("ko-KR")}
@@ -356,6 +324,19 @@ export default function ProductReelTab({ stats, library, plans, onSavePlan, onRe
               item={plans.find((x) => x.id === view.id) || view}
               library={library}
               onRemove={onRemovePlan}
+              onSave={onSavePlan}
+              onAgain={(item) => {
+                setView(null);
+                setDraft({
+                  id: item.id,
+                  title: item.title,
+                  createdAt: item.createdAt,
+                  looks: item.looks?.length ? item.looks : [emptyLook([item.product])],
+                  memo: item.memo || "",
+                  refId: item.auto ? "auto" : item.refId,
+                  prev: item.plan,
+                });
+              }}
               onOpenRef={(ref) => {
                 setView(null);
                 onOpenRef(ref);

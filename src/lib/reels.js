@@ -36,9 +36,15 @@ async function call(body) {
 export const readScript = ({ frames, kind, transcript, memo }) =>
   call({ mode: "script", frames, kind, transcript, memo });
 
-/** 우리 상품 주소 + 레퍼런스 후보들 → 가장 맞는 레퍼런스를 골라 우리 릴스 기획 */
-export const productReel = ({ url, stats, candidates, memo }) =>
-  call({ mode: "product", url, stats, candidates, memo });
+/** 룩 카드를 서버가 읽는 모양으로 — [{products:[{url}]}] */
+export const looksPayload = (looks) =>
+  (looks || [])
+    .map((l) => ({ products: (l.products || []).filter((p) => p.url).map((p) => ({ url: p.url })) }))
+    .filter((l) => l.products.length);
+
+/** 우리 상품(룩 단위) + 레퍼런스 후보들 → 가장 맞는 레퍼런스를 골라 우리 릴스 기획 */
+export const productReel = ({ looks, stats, candidates, memo, avoid, direction }) =>
+  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction });
 
 /** 라이브러리 항목을 후보 요약으로 (서버 프롬프트가 길어지지 않게) */
 export const candidateOf = (it) => {
@@ -59,8 +65,8 @@ export const candidateOf = (it) => {
 };
 
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
-export const adaptScript = ({ reference, url, memo }) =>
-  call({ mode: "adapt", reference, url, memo });
+export const adaptScript = ({ reference, looks, memo, avoid, direction }) =>
+  call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction });
 
 // ---------------------------------------------------------------- 빈칸 틀
 

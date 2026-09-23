@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Pencil } from "lucide-react";
 import { workerAlive } from "../lib/reels";
 
 // 콘텐츠 화면(릴스 기획 · 캐러셀 기획)이 같이 쓰는 조각.
@@ -53,3 +53,48 @@ export function WorkerStatus({ worker }) {
   );
 }
 
+
+/**
+ * 눌러서 고치는 제목 (세원 2026-09-23: "제목을 변경 가능하게 바꿔줘").
+ * 엔터·칸 밖 누르기로 저장, Esc 로 취소.
+ */
+export function EditableTitle({ value, onChange, className = "" }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          const v = draft.trim();
+          if (v && v !== value) onChange(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(value || "");
+            setEditing(false);
+          }
+        }}
+        className={"w-full rounded-md border border-rose-500 px-2 py-0.5 text-base font-semibold outline-none " + className}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(value || "");
+        setEditing(true);
+      }}
+      title="눌러서 제목 고치기"
+      className={"group flex min-w-0 items-center gap-1 text-left " + className}
+    >
+      <span className="truncate font-semibold text-stone-900">{value}</span>
+      <Pencil size={12} className="shrink-0 text-stone-300 group-hover:text-stone-500" />
+    </button>
+  );
+}

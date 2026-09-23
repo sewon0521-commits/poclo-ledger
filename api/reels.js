@@ -133,13 +133,23 @@ const SCRIPT_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. �
 
 const AdaptSchema = z.object({
   product: z.object({
-    name: z.string().describe("상품명"),
+    name: z.string().describe("대표 상품명(룩이 여럿이면 첫 룩의 주인공)"),
     price: z.string().describe("판매가. 페이지에서 읽은 그대로. 못 찾으면 빈 문자열"),
     look: z.string().describe("어떤 옷인지 2~3줄 (핏·소재·색·분위기)"),
     points: z.array(z.string()).describe("소구점 3~5개. 이 옷을 사게 만드는 이유"),
     target: z.string().describe("누구에게 팔 옷인지"),
     cautions: z.string().describe("영상에서 말하면 안 되거나 조심할 점. 없으면 빈 문자열"),
   }),
+  looks: z
+    .array(
+      z.object({
+        n: z.number().describe("룩 번호 (룩 1, 룩 2 …)"),
+        name: z.string().describe("이 룩을 부르는 짧은 이름. 예: '출근룩 - 니트 + 벌룬팬츠'"),
+        items: z.array(z.string()).describe("이 룩에 들어가는 상품명들"),
+        point: z.string().describe("이 룩에서 보여줄 한 가지. 예: '앉았다 일어나도 안 눌리는 주름'"),
+      }),
+    )
+    .describe("룩이 여러 개면 룩마다 한 줄. 상품이 하나면 룩 1 하나만"),
   filled: z
     .array(
       z.object({
@@ -154,6 +164,7 @@ const AdaptSchema = z.object({
     .array(
       z.object({
         at: z.string().describe("시점. 예: '0~2초'"),
+        look: z.number().describe("이 장면의 룩 번호. 룩과 상관없는 장면이면 0"),
         shot: z.string().describe("무엇을 어떻게 찍을지 (구도·동작). 촬영할 사람이 그대로 따라 할 수 있게"),
         text: z.string().describe("그 장면 자막"),
       }),
@@ -169,6 +180,8 @@ const ADAPT_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기
 아래에 (1) 잘 된 레퍼런스 릴스의 대본과 구조, (2) 우리가 팔 상품의 판매페이지에서 긁어온 글이 있다.
 
 **할 일**
+0. **룩이 여러 개면 룩 순서가 대본 순서다.** 룩 1 → 룩 2 → 룩 3 으로 넘어가게 짜고,
+   룩마다 한 가지씩만 보여줘라(전부 설명하면 늘어진다). 한 룩에 상품이 여럿이면 같이 입은 코디다.
 1. 상품 글을 읽고 **어떤 옷인지, 누구에게, 무엇으로 설득할지**를 먼저 정리해라.
 2. 레퍼런스의 **구조(훅 방식 → 전개 → CTA)를 그대로 빌려서**, 내용만 우리 상품으로 바꾼 대본을 써라.
    베끼는 게 아니라 **틀을 가져오는 것**이다.
@@ -183,6 +196,10 @@ const ADAPT_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기
 - 자막은 짧게 끊어 읽히게. 한 줄에 12~18자.
 - 가격은 상품 글에 있는 값만 쓴다. 없으면 가격 얘기를 빼라.
 - 사실이 아닌 소재·기능을 지어내지 마라. 상품 글에 있는 것만 쓴다.
+
+**메모는 세원이 준 지시다.** 메모에 훅 아이디어·하고 싶은 말이 있으면 **그걸 최우선으로 살려서**
+훅과 대본에 넣어라(말투만 다듬는 건 괜찮다). 메모가 레퍼런스 구조와 부딪히면 메모를 따르고,
+왜 그렇게 했는지 why 에 한 줄 적어라.
 
 결과는 전부 **한국어**로 쓴다.`;
 
@@ -204,6 +221,9 @@ const PRODUCT_REEL_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴
 판매 숫자(잘 팔림/뜨는 중)에 맞는 각도인지. 후보에 빈칸 틀(template/slots)이 있으면 그 빈칸을 전부 채워라(filled).
 후보가 없으면 chosen 은 빈 문자열로 두고 일반적으로 잘 되는 판매형 릴스 구조로 기획해라.
 상품 사진(사진 1…)을 보고 어떤 컷처럼 찍을지 shots 에 적어라.
+
+**룩이 여러 개면** 룩 순서가 대본 순서다. 룩마다 한 가지씩만 보여주고, 한 룩의 여러 상품은 같이 입은 코디로 다뤄라.
+**메모는 세원이 준 지시다.** 훅 아이디어가 있으면 최우선으로 살려라.
 
 **포클로 톤** — 20~30대 여성이 친구에게 말하듯. 과장 광고 문구 금지. 자막 한 줄 12~18자.
 가격·소재는 상품 글에 있는 것만. 결과는 전부 **한국어**.`;
@@ -297,6 +317,78 @@ function frameContent(frames) {
   return content;
 }
 
+/**
+ * 상품 주소들을 읽는다. looks: [{products:[{url}]}] (룩 단위) 또는 url 하나.
+ * 세원 9/23: "룩 3개를 소개해주는 릴스라면 상품 주소를 다양하게 넣어야" → 룩으로 묶어서 받는다.
+ */
+async function readLooks(body) {
+  const looks = Array.isArray(body.looks) && body.looks.length
+    ? body.looks
+    : [{ products: [{ url: body.url }] }];
+  const flat = [];
+  for (const [i, look] of looks.entries()) {
+    for (const p of look.products || []) {
+      const url = String(p?.url || "").trim();
+      if (!/^https?:\/\//i.test(url)) throw Object.assign(new Error("상품 주소(https://...)를 넣어주세요."), { userFacing: 400 });
+      if (flat.length < 8) flat.push({ url, look: i + 1 });
+    }
+  }
+  if (!flat.length) throw Object.assign(new Error("상품 주소(https://...)를 넣어주세요."), { userFacing: 400 });
+  const read = await Promise.all(flat.map((f) => readProduct(f.url)));
+  read.forEach((r, i) => Object.assign(flat[i], r));
+  return { products: flat, count: looks.length };
+}
+
+/** 읽은 상품들을 룩 단위 글로 */
+function looksText(products, count) {
+  const many = count > 1 || products.length > 1;
+  const lines = [];
+  for (let n = 1; n <= count; n++) {
+    const inLook = products.filter((p) => p.look === n);
+    if (!inLook.length) continue;
+    if (many) lines.push(`\n[룩 ${n}] ${inLook.map((p) => p.title).join(" + ")}`);
+    for (const p of inLook) {
+      lines.push(
+        [
+          `상품: ${p.title}`,
+          `  주소: ${p.url}`,
+          `  요약설명: ${p.summary}`,
+          `  판매가: ${p.price}${p.listPrice ? ` (정가 ${p.listPrice})` : ""}`,
+          `  상세:\n${(p.text || "").slice(0, many ? 2200 : 9000)}`,
+        ].join("\n"),
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/** 상품 사진을 '룩 K · 사진 N' 으로 붙인다 (합쳐 12장까지) */
+function photoBlocks(products) {
+  const per = Math.max(2, Math.floor(12 / products.length));
+  const out = [];
+  const urls = [];
+  products.forEach((p) => {
+    (p.images || []).slice(0, per).forEach((u) => {
+      urls.push(u);
+      out.push({ type: "text", text: `${p.title} · 사진 ${urls.length}` });
+      out.push({ type: "image", source: { type: "url", url: u } });
+    });
+  });
+  return { blocks: out, urls };
+}
+
+/** 다시 만들기 — 앞에 나온 것을 피하고 다른 방향으로 (세원 9/23: "대본을 아예 갈아엎을 수 있게") */
+function redoText(body) {
+  if (!body.avoid && !body.direction) return "";
+  return [
+    "\n--- 다시 만들기 ---",
+    body.avoid ? `앞서 만든 것(이건 피해라, 같은 훅·같은 전개로 또 쓰지 마라):\n${String(body.avoid).slice(0, 2000)}` : "",
+    body.direction ? `이번엔 이렇게: ${String(body.direction).slice(0, 500)}` : "완전히 다른 각도·다른 훅 방식으로 새로 써라.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** 링크에서 가져온 성과 숫자·캡션을 글로 */
 function metaText(m) {
   if (!m || typeof m !== "object") return "";
@@ -383,14 +475,15 @@ export default async function handler(req, res) {
     }
 
     if (body.mode === "product") {
-      const url = String(body.url || "").trim();
-      if (!/^https?:\/\//i.test(url)) return fail(res, 400, "bad_request", "상품 주소(https://...)를 넣어주세요.");
-      let product;
+      let got;
       try {
-        product = await readProduct(url);
+        got = await readLooks(body);
       } catch (err) {
+        if (err.userFacing === 400) return fail(res, 400, "bad_request", err.message);
         return fail(res, 422, "product_unreadable", err.message || "상품 페이지를 못 읽었어요.");
       }
+      const { products, count } = got;
+      const photos = photoBlocks(products);
       const cands = Array.isArray(body.candidates) ? body.candidates.slice(0, 12) : [];
       const st = body.stats || {};
       const text = [
@@ -414,21 +507,14 @@ export default async function handler(req, res) {
               )
               .join("\n\n")
           : "(없음)",
-        "\n--- 우리 상품 ---",
-        `주소: ${url}`,
-        `상품명: ${product.title}`,
-        `요약설명: ${product.summary}`,
-        `판매가: ${product.price}${product.listPrice ? ` (정가 ${product.listPrice})` : ""}`,
+        count > 1 ? `\n--- 우리 상품 (룩 ${count}개) ---` : "\n--- 우리 상품 ---",
+        looksText(products, count),
         st.reason ? `판매 숫자: ${st.reason}` : "",
-        `상세:\n${product.text}`,
-        body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1500)}` : "",
+        body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
+        redoText(body),
       ].join("\n");
-      const imgs = product.images.slice(0, 6);
-      const content = (use) => {
-        const c = [{ type: "text", text }];
-        if (use) imgs.forEach((u, i) => c.push({ type: "text", text: `사진 ${i + 1}` }, { type: "image", source: { type: "url", url: u } }));
-        return c;
-      };
+      const imgs = photos.urls;
+      const content = (use) => [{ type: "text", text }, ...(use ? photos.blocks : [])];
       let r;
       try {
         r = await ask(client, content(true), ProductReelSchema, effort);
@@ -436,23 +522,27 @@ export default async function handler(req, res) {
         if (err?.status === 400 && /image|url|fetch/i.test(String(err?.message))) r = await ask(client, content(false), ProductReelSchema, effort);
         else throw err;
       }
-      return res.status(200).json({ ...parsedOf(r, "릴스 기획"), productTitle: product.title, images: imgs });
+      return res.status(200).json({
+        ...parsedOf(r, "릴스 기획"),
+        productTitle: products[0].title,
+        productTitles: products.map((p) => p.title),
+        images: imgs,
+      });
     }
 
     if (body.mode === "adapt") {
-      const url = String(body.url || "").trim();
-      if (!/^https?:\/\//i.test(url)) {
-        return fail(res, 400, "bad_request", "상품 주소(https://...)를 넣어주세요.");
-      }
-      let product;
+      let got;
       try {
-        product = await readProduct(url);
+        got = await readLooks(body);
       } catch (err) {
+        if (err.userFacing === 400) return fail(res, 400, "bad_request", err.message);
         return fail(res, 422, "product_unreadable", err.message || "상품 페이지를 못 읽었어요.");
       }
-      if (product.text.length < 80) {
+      const { products, count } = got;
+      if (products.every((p) => (p.text || "").length < 80)) {
         return fail(res, 422, "product_empty", "상품 페이지에서 글을 거의 못 찾았어요. 상세가 이미지뿐이면 상품 설명을 메모에 적어주세요.");
       }
+      const photos = photoBlocks(products);
 
       const ref = body.reference || {};
       const text = [
@@ -466,17 +556,25 @@ export default async function handler(req, res) {
         ref.slots?.length
           ? `빈칸 목록:\n${ref.slots.map((s) => `- ${s.key}: ${s.hint} (레퍼런스에선 "${s.original}")`).join("\n")}`
           : "",
-        "\n--- 우리 상품 판매페이지 ---",
-        `주소: ${url}`,
-        `상품명: ${product.title}`,
-        `요약설명: ${product.summary}`,
-        `판매가: ${product.price}${product.listPrice ? ` (정가 ${product.listPrice})` : ""}`,
-        `상세:\n${product.text}`,
-        body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1500)}` : "",
+        count > 1 ? `\n--- 우리 상품 판매페이지 (룩 ${count}개) ---` : "\n--- 우리 상품 판매페이지 ---",
+        looksText(products, count),
+        body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
+        redoText(body),
       ].join("\n");
 
-      const r = await ask(client, [{ type: "text", text }], AdaptSchema);
-      return res.status(200).json(parsedOf(r, "대본 만들기"));
+      const content = (use) => [{ type: "text", text }, ...(use ? photos.blocks : [])];
+      let r;
+      try {
+        r = await ask(client, content(true), AdaptSchema, effort);
+      } catch (err) {
+        if (err?.status === 400 && /image|url|fetch/i.test(String(err?.message))) r = await ask(client, content(false), AdaptSchema, effort);
+        else throw err;
+      }
+      return res.status(200).json({
+        ...parsedOf(r, "대본 만들기"),
+        productTitles: products.map((p) => p.title),
+        images: photos.urls,
+      });
     }
 
     return fail(res, 400, "bad_request", "mode 는 script · adapt · product · review 중 하나여야 합니다.");
