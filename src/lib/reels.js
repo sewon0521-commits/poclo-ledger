@@ -97,3 +97,20 @@ export function splitTemplate(line) {
 
 /** 사무실 PC 분석기가 90초 안에 "살아 있음"을 적었으면 켜진 것으로 본다 */
 export const workerAlive = (w) => !!w?.at && Date.now() - new Date(w.at).getTime() < 90 * 1000;
+
+// ---------------------------------------------------------------- 레퍼런스 틀 한눈에 (RefPicker)
+
+/** '비주얼 무드형 : 자막 없이 …' → { name: '비주얼 무드형', note: '자막 없이 …' } */
+export function hookKind(t) {
+  const s = String(t || "");
+  const i = s.search(/\s*[:：]\s*/);
+  return i > 0 ? { name: s.slice(0, i).trim(), note: s.slice(i).replace(/^\s*[:：]\s*/, "") } : { name: s, note: "" };
+}
+
+/** 흐름 '훅 → 고민 → 착용컷' → ['훅','고민','착용컷'] (괄호 설명은 뗀다) */
+export function flowSteps(f) {
+  return String(f || "")
+    .split(/\s*(?:→|->|>)\s*/)
+    .map((x) => x.replace(/\s*\([^)]*\)\s*/g, "").trim())
+    .filter(Boolean);
+}

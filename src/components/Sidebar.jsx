@@ -1,4 +1,6 @@
-import { X } from "lucide-react";
+import { useState } from "react";
+import { X, Volume2, VolumeX } from "lucide-react";
+import { soundOn, setSoundOn, tick } from "../lib/clickSound";
 import { SECTIONS, sectionOf, firstPageOf } from "../lib/nav";
 
 function Rail({ section, onSection }) {
@@ -25,7 +27,28 @@ function Rail({ section, onSection }) {
           </button>
         );
       })}
+      <SoundToggle />
     </div>
+  );
+}
+
+/** 누르는 소리 켜고 끄기 — 기기마다 따로 기억 */
+function SoundToggle() {
+  const [on, setOn] = useState(soundOn);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setSoundOn(!on);
+        setOn(!on);
+        if (!on) tick();
+      }}
+      aria-label={on ? "누르는 소리 끄기" : "누르는 소리 켜기"}
+      title={on ? "누르는 소리 끄기" : "누르는 소리 켜기"}
+      className="mt-auto flex h-9 w-9 items-center justify-center rounded-xl text-stone-400 hover:bg-stone-100 hover:text-stone-600"
+    >
+      {on ? <Volume2 size={17} /> : <VolumeX size={17} />}
+    </button>
   );
 }
 

@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt } from "lucide-react";
-import { productReel, candidateOf, fillTemplate } from "../lib/reels";
+import { productReel, candidateOf, fillTemplate, hookKind } from "../lib/reels";
 import { newId } from "../lib/id";
 import { shortName as short, emptyLook } from "../lib/looks";
 import LookPicker, { ProductSearch } from "./LookPicker";
 import { CopyButton, EditableTitle } from "./ContentBits";
 import { Empty } from "./ui";
+import RefPicker, { RefSummary } from "./RefPicker";
 
 /**
  * 우리 상품에서 시작하는 릴스 기획 (세원 2026-09-22):
@@ -29,7 +30,7 @@ function FirstPick({ stats, onPick }) {
   );
 }
 
-function Make({ draft, stats, library, onDone, onCancel }) {
+function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   const done = library.filter((i) => i.reference?.structure);
   const [refId, setRefId] = useState(draft.refId || "auto");
   const [looks, setLooks] = useState(draft.looks);
@@ -89,17 +90,7 @@ function Make({ draft, stats, library, onDone, onCancel }) {
         </button>
       </div>
       <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
-      <label className="block text-xs font-semibold text-stone-500">
-        어떤 레퍼런스 구조로?
-        <select value={refId} onChange={(e) => setRefId(e.target.value)} className={FIELD + " mt-1 text-sm font-normal"}>
-          <option value="auto">알아서 골라줘 — 라이브러리 {done.length}개 중 이 상품에 가장 맞는 것</option>
-          {done.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.reference?.title || i.title} · {i.reference?.structure?.hookType || ""}
-            </option>
-          ))}
-        </select>
-      </label>
+      <RefPicker library={library} value={refId} onChange={setRefId} fileUrl={fileUrl} folders={folders} />
       <textarea
         value={memo}
         onChange={(e) => setMemo(e.target.value)}
@@ -128,9 +119,17 @@ function Make({ draft, stats, library, onDone, onCancel }) {
   );
 }
 
-function PlanView({ item, library, onRemove, onOpenRef, onSave, onAgain, onClose }) {
+function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain, onClose }) {
   const p = item.plan || {};
   const ref = library.find((i) => i.id === item.refId);
+  const [refThumb, setRefThumb] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (ref && fileUrl) fileUrl(`${ref.id}-thumb.jpg`).then((u) => alive && setRefThumb(u));
+    return () => {
+      alive = false;
+    };
+  }, [ref, fileUrl]);
   const tpl = ref?.reference?.template;
   const filledScript = tpl ? fillTemplate(tpl, item.filled) : "";
   return (
@@ -142,7 +141,7 @@ function PlanView({ item, library, onRemove, onOpenRef, onSave, onAgain, onClose
             onChange={(t) => onSave({ ...item, title: t })}
           />
           <div className="mt-0.5 text-xs text-stone-500">
-            {item.refTitle ? `레퍼런스: ${item.refTitle}${item.auto ? " (알아서 고름)" : ""}` : "레퍼런스 없이 기본 판매형 구조"}
+            {ref ? `틀: ${hookKind(ref.reference?.structure?.hookType).name || item.refTitle}${item.auto ? " (알아서 고름)" : ""}` : item.refTitle ? `틀: ${item.refTitle}` : "레퍼런스 없이 기본 판매형 구조"}
           </div>
         </div>
         <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
@@ -162,15 +161,16 @@ function PlanView({ item, library, onRemove, onOpenRef, onSave, onAgain, onClose
             </ul>
           </div>
         )}
+        {ref && (
+          <div className="rounded-xl border border-stone-200 px-3 py-2.5">
+            <div className="mb-2 text-xs font-semibold text-stone-500">이 틀로 찍어요{item.auto ? " · 알아서 고름" : ""}</div>
+            <RefSummary item={ref} thumb={refThumb} onOpen={onOpenRef} />
+          </div>
+        )}
         {p.chosenWhy && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-950">
-            <div className="text-xs font-semibold text-rose-800">왜 이 구조</div>
+            <div className="text-xs font-semibold text-rose-800">왜 이 틀</div>
             <p className="mt-0.5 leading-relaxed">{p.chosenWhy}</p>
-            {ref && (
-              <button type="button" onClick={() => onOpenRef(ref)} className="mt-1 text-xs font-medium text-rose-700 underline">
-                레퍼런스 열어 보기
-              </button>
-            )}
           </div>
         )}
         <div className="rounded-xl bg-stone-50 px-3 py-2.5">
@@ -268,7 +268,7 @@ function PlanView({ item, library, onRemove, onOpenRef, onSave, onAgain, onClose
   );
 }
 
-export default function ProductReelTab({ stats, library, plans, onSavePlan, onRemovePlan, onOpenRef }) {
+export default function ProductReelTab({ stats, library, plans, fileUrl, folders, onSavePlan, onRemovePlan, onOpenRef }) {
   // draft = {looks, memo, prev?, id?, title?} — 새로 만들거나, 기존 기획을 갈아엎을 때
   const [draft, setDraft] = useState(null);
   const [view, setView] = useState(null);
@@ -280,6 +280,8 @@ export default function ProductReelTab({ stats, library, plans, onSavePlan, onRe
           draft={draft}
           stats={stats}
           library={library}
+          fileUrl={fileUrl}
+          folders={folders}
           onCancel={() => setDraft(null)}
           onDone={async (item) => {
             await onSavePlan(item);
@@ -308,7 +310,8 @@ export default function ProductReelTab({ stats, library, plans, onSavePlan, onRe
                 <span className="line-clamp-2 text-sm font-medium text-stone-900">{p.title || short(p.product?.name)}</span>
                 <span className="mt-1 line-clamp-2 block text-xs font-semibold text-rose-700">{p.plan?.hook}</span>
                 <span className="mt-1 block truncate text-[11px] text-stone-400">
-                  {p.refTitle || "기본 구조"} · {new Date(p.createdAt).toLocaleDateString("ko-KR")}
+                  {hookKind(library.find((i) => i.id === p.refId)?.reference?.structure?.hookType).name || p.refTitle || "기본 구조"} ·{" "}
+                  {new Date(p.createdAt).toLocaleDateString("ko-KR")}
                 </span>
               </span>
             </button>
@@ -323,6 +326,7 @@ export default function ProductReelTab({ stats, library, plans, onSavePlan, onRe
             <PlanView
               item={plans.find((x) => x.id === view.id) || view}
               library={library}
+              fileUrl={fileUrl}
               onRemove={onRemovePlan}
               onSave={onSavePlan}
               onAgain={(item) => {

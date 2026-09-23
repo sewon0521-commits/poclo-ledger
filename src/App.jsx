@@ -36,6 +36,7 @@ import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
+const NO_PRODUCTS = [];
 
 function loadTaxType() {
   try {
@@ -439,6 +440,7 @@ export default function App() {
                   onConf={S.saveConf}
                   items={S.pricing}
                   vendors={vendors}
+                  products={S.productStats?.all || NO_PRODUCTS}
                   onSave={S.savePricing}
                   onRemove={S.removePricing}
                 />

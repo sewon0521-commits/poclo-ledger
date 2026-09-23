@@ -41,6 +41,7 @@ import {
 } from "../lib/reelFolders";
 import { Empty } from "./ui";
 import ProductReelTab from "./ProductReel";
+import TrimVideo from "./TrimVideo";
 import { CopyButton, WorkerStatus, EditableTitle } from "./ContentBits";
 import { workerAlive } from "../lib/reels";
 
@@ -746,7 +747,7 @@ function Meta({ meta }) {
   );
 }
 
-function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, stats, onAnalyze }) {
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze }) {
   const r = item.reference || {};
   const status = statusOf(item, queue);
   const [tab, setTab] = useState(item.plan ? "write" : "script");
@@ -863,8 +864,15 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
       <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto sm:grid-cols-[minmax(0,260px)_1fr]">
         <div className="bg-stone-900 p-2">
           {urls.video ? (
-            // eslint-disable-next-line jsx-a11y/media-has-caption
-            <video src={urls.video} controls playsInline className="w-full rounded-lg" />
+            <TrimVideo
+              src={urls.video}
+              trim={item.trim}
+              hasOrig={item.hasOrig}
+              step={queue.find((j) => j.id === item.id && j.target === "trim")?.step}
+              className="w-full rounded-lg"
+              onTrim={(s, e) => onTrim(item, "trim", s, e)}
+              onRestore={() => onTrim(item, "trim", null)}
+            />
           ) : urls.thumb ? (
             <img src={urls.thumb} alt="" className="w-full rounded-lg" />
           ) : (
@@ -1181,7 +1189,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               )}
 
               {tab === "ours" && (
-                <OursTab item={item} queue={queue} ourUrl={urls.ours} onUpload={onOurs} onRetry={onRetry} />
+                <OursTab item={item} queue={queue} ourUrl={urls.ours} onUpload={onOurs} onRetry={onRetry} onTrim={onTrim} />
               )}
             </>
           )}
@@ -1208,7 +1216,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
 }
 
 /** 우리가 찍은 영상 — 올리면 레퍼런스·기획과 비교해 고칠 점을 받는다 */
-function OursTab({ item, queue, ourUrl, onUpload, onRetry }) {
+function OursTab({ item, queue, ourUrl, onUpload, onRetry, onTrim }) {
   const ours = item.ours;
   const status = ours ? statusOf(item, queue, "ours") : null;
   const [file, setFile] = useState(null);
@@ -1275,8 +1283,15 @@ function OursTab({ item, queue, ourUrl, onUpload, onRetry }) {
   return (
     <div className="space-y-3">
       {ourUrl && (
-        // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video src={ourUrl} controls playsInline className="max-h-80 w-full rounded-lg bg-black" />
+        <TrimVideo
+          src={ourUrl}
+          trim={ours.trim}
+          hasOrig={ours.hasOrig}
+          step={queue.find((j) => j.id === item.id && j.target === "trim-ours")?.step}
+          className="max-h-80 w-full rounded-lg bg-black"
+          onTrim={(s, e) => onTrim(item, "trim-ours", s, e)}
+          onRestore={() => onTrim(item, "trim-ours", null)}
+        />
       )}
       {status.kind !== "done" ? (
         <div
@@ -1619,6 +1634,16 @@ export default function ReelsPage({
     await onQueue(item.id, target);
   };
 
+  /** 앞뒤 자르기 맡기기 — start 가 null 이면 원래대로 (target "trim" | "trim-ours") */
+  const trimVideo = async (item, target, start, end) => {
+    const trim =
+      start === null
+        ? { status: "queued", restore: true, at: new Date().toISOString() }
+        : { status: "queued", start, end, at: new Date().toISOString() };
+    await onSave(target === "trim-ours" ? { ...item, ours: { ...item.ours, trim } } : { ...item, trim });
+    await onQueue(item.id, target, start === null ? { restore: true } : {});
+  };
+
   const uploadOurs = async (item, file, memo) => {
     if (file.size > MAX_VIDEO) {
       window.alert("영상이 40MB를 넘어요. 짧게 자르거나 화질을 낮춰서 넣어 주세요.");
@@ -1671,6 +1696,8 @@ export default function ReelsPage({
           stats={stats}
           library={items}
           plans={plans}
+          fileUrl={fileUrl}
+          folders={folders}
           onSavePlan={onSavePlan}
           onRemovePlan={onRemovePlan}
           onOpenRef={openItem}
@@ -1731,6 +1758,7 @@ export default function ReelsPage({
               onClose={() => setOpen(null)}
               onRetry={retry}
               onOurs={uploadOurs}
+              onTrim={trimVideo}
               stats={stats}
               onAnalyze={analyzeLater}
             />

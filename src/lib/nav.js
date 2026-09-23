@@ -1,10 +1,9 @@
 // 화면 갈래. 왼쪽 좁은 띠에서 큰 갈래를 고르고, 옆 패널에서 화면을 고른다.
-// 큰 갈래는 다섯 — 홈 / 일 / 돈 / 사람 / 콘텐츠.
+// 큰 갈래는 넷 — 홈 / 일 / 돈 / 콘텐츠. ('사람'은 9/23 세원 요청으로 뺐다 — 쓸 일이 없어서)
 import {
   Home,
   ListChecks,
   Wallet,
-  Users,
   Palette,
   Store,
   BookOpen,
@@ -53,12 +52,6 @@ export const SECTIONS = [
       },
       { group: "정산·세무", items: [{ key: "invoice", label: "세금계산서 대조", icon: Scale }] },
     ],
-  },
-  {
-    key: "people",
-    label: "사람",
-    icon: Users,
-    groups: [{ group: "기본", items: [{ key: "people", label: "고객", icon: Users }] }],
   },
   {
     key: "content",

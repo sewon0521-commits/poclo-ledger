@@ -617,8 +617,17 @@ export function useSales(session) {
   );
 
   const removePricing = useCallback(
-    (id) => changePricing((items) => items.filter((i) => i.id !== id)),
-    [changePricing],
+    async (id) => {
+      const gone = pricing.find((i) => i.id === id);
+      await changePricing((items) => items.filter((i) => i.id !== id));
+      // 카페24 상품과 이어진 줄을 지우면 새벽 잇기(pricing_link.py)가 다시 담지 않게 번호를 남긴다
+      if (gone?.productNo && online && remoteOk.current) {
+        const { data } = await supabase.from("settings").select("value").eq("key", "pricing_skip").maybeSingle();
+        const nos = [...new Set([...(data?.value?.nos || []), gone.productNo])];
+        await supabase.from("settings").upsert({ key: "pricing_skip", value: { nos } });
+      }
+    },
+    [changePricing, pricing, online],
   );
 
   const clearAll = useCallback(async () => {

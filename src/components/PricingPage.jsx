@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Calculator, Plus, Search, Trash2, Target, Info, RotateCcw, Store, Check } from "lucide-react";
+import { Calculator, Plus, Search, Trash2, Target, Info, RotateCcw, Store, Check, Link2, X } from "lucide-react";
 import { won, pct, DEFAULT_COSTS, TARGET_AD_RATE } from "../lib/sales";
 import { dayLabel } from "../lib/calc";
 import { useDays } from "../lib/view";
@@ -23,7 +23,7 @@ import EditNum from "./EditNum";
 //  4. 숫자 형식기는 하나를 돌려 쓴다(sales.won) — toLocaleString("ko-KR")은 부를 때마다 새로 만든다.
 
 const ALL = { from: "", to: "" };
-const EMPTY = { id: "", name: "", vendor: "", vendorId: "", supply: "", price: "" };
+const EMPTY = { id: "", name: "", vendor: "", vendorId: "", supply: "", price: "", productNo: null };
 const PAGE = 60;
 
 const digits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
@@ -114,6 +114,128 @@ function VendorInput({ vendors, name, vendorId, onChange }) {
         </ul>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- 상품명 칸
+
+/** '가온 셔링 밴딩 롱 스커트 (4color)' → '가온 셔링 밴딩 롱 스커트' (새벽 잇기 pricing_link.display_name 과 같게) */
+const ourName = (n) => String(n || "").replace(/\s*\((\d+\s*colou?r|one\s*colou?r)\)\s*$/i, "").trim();
+
+/**
+ * 상품명 — 그냥 쳐도 되고(상품명 짓기 전 메모 이름), 이미 등록한 우리 상품을 골라도 된다.
+ * 메모 이름으로 담아 두면 등록한 다음 새벽에 우리 상품명으로 저절로 바뀐다 (poclo-cafe24/pricing_link.py).
+ */
+function NameInput({ products, draft, onChange }) {
+  const [open, setOpen] = useState(false);
+  const hits = useMemo(() => {
+    const n = searchKey(draft.name);
+    if (!n || draft.productNo) return [];
+    return products.filter((p) => searchKey(p.name).includes(n)).slice(0, 6);
+  }, [products, draft.name, draft.productNo]);
+  return (
+    <div className="relative">
+      <input
+        value={draft.name}
+        onChange={(e) => {
+          onChange({ name: e.target.value, productNo: null });
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        placeholder="메모 이름(예: 폴링sk) 또는 우리 상품 찾기"
+        className={FIELD + (draft.productNo ? " pr-20" : "")}
+      />
+      {draft.productNo && (
+        <span className="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+          <Link2 size={11} /> 우리 상품
+        </span>
+      )}
+      {open && hits.length > 0 && (
+        <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-stone-300 bg-white py-1 shadow-lg">
+          {hits.map((p) => (
+            <li key={p.no}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange({ name: ourName(p.name), productNo: p.no, ...(draft.price ? {} : { price: String(p.price || "") }) });
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-stone-50"
+              >
+                {p.image && <img src={p.image} alt="" className="h-9 w-7 shrink-0 rounded object-cover" loading="lazy" />}
+                <span className="min-w-0 flex-1 truncate text-stone-900">{ourName(p.name)}</span>
+                <span className="shrink-0 text-xs text-stone-400 tabular-nums">{won(p.price)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 이 상품 맞나요
+
+/**
+ * 새벽 잇기가 '애매하다'고 남긴 짝(item.suggest) — 세원이 한 번 눌러 확정한다.
+ * 맞아요 → 우리 상품명으로 바뀌고 메모 이름은 아래 작게. 아니에요 → 다음 새벽엔 다른 후보를 찾는다.
+ */
+function SuggestBox({ items, onSave }) {
+  const list = items.filter((i) => i.suggest && !i.productNo);
+  if (!list.length) return null;
+  const drop = (x) => {
+    const rest = { ...x };
+    delete rest.suggest;
+    return rest;
+  };
+  return (
+    <section className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+      <h3 className="text-sm font-semibold text-amber-900">이 상품 맞나요? {list.length}개</h3>
+      <p className="mt-0.5 text-xs text-amber-800/80">
+        메모 이름과 우리 상품이 거의 맞는데 확실하지 않은 것만 모았어요. 나머지는 새벽마다 저절로 우리 상품명으로 바뀌어요.
+      </p>
+      <ul className="mt-3 divide-y divide-amber-100 overflow-hidden rounded-xl border border-amber-100 bg-white">
+        {list.map((x) => {
+          const g = x.suggest;
+          return (
+            <li key={x.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
+              {g.image ? (
+                <img src={g.image} alt="" className="h-12 w-9 shrink-0 rounded object-cover" loading="lazy" />
+              ) : (
+                <span className="h-12 w-9 shrink-0 rounded bg-stone-100" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-stone-500">
+                  {x.name} <span className="text-stone-400">· {x.vendor || "거래처 없음"} · 공급가 {won(x.supply)}</span>
+                </span>
+                <span className="block truncate font-medium text-stone-900">→ {g.name}</span>
+                <span className="block truncate text-[11px] text-stone-400">
+                  {g.vendor} · 공급가 {won(g.sp)} · 판매가 {won(g.price)} — 같은 점: {g.why}
+                </span>
+              </span>
+              <span className="flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onSave({ ...drop(x), name: g.name, memoName: x.memoName || x.name, productNo: g.no })}
+                  className="flex items-center gap-1 rounded-lg bg-stone-800 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-stone-900"
+                >
+                  <Check size={13} /> 맞아요
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSave({ ...drop(x), notNo: [...(x.notNo || []), g.no] })}
+                  className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50"
+                >
+                  <X size={13} /> 아니에요
+                </button>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -212,7 +334,7 @@ function Assumptions({ rates, settings, onSettings }) {
 
 // ---------------------------------------------------------------- 계산 카드
 
-function CalcCard({ draft, setDraft, rates, settings, vendors, onSave }) {
+function CalcCard({ draft, setDraft, rates, settings, vendors, products, onSave }) {
   const supply = toNum(draft.supply);
   const chosen = toNum(draft.price);
   const rows = useMemo(
@@ -246,12 +368,7 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, onSave }) {
       <div className="grid gap-3 sm:grid-cols-4">
         <label className="text-sm sm:col-span-2">
           <span className="mb-1 block text-stone-500">상품명</span>
-          <input
-            value={draft.name}
-            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            placeholder="예: 둥실 벌룬 와이드 팬츠"
-            className={FIELD}
-          />
+          <NameInput products={products} draft={draft} onChange={(patch) => setDraft({ ...draft, ...patch })} />
         </label>
         <div className="text-sm sm:col-span-2">
           <span className="mb-1 block text-stone-500">거래처</span>
@@ -376,6 +493,7 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, onSave }) {
                     vendorId: draft.vendorId || "",
                     supply,
                     price,
+                    ...(draft.productNo ? { productNo: draft.productNo } : {}),
                   })
                 }
                 className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-rose-700 py-2.5 font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-stone-300"
@@ -405,7 +523,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
   const rows = useMemo(() => {
     const needle = searchKey(q);
     const out = items
-      .filter((i) => !needle || searchKey(i.name + i.vendor).includes(needle))
+      .filter((i) => !needle || searchKey(i.name + i.vendor + (i.memoName || "")).includes(needle))
       .map((i) => ({ ...i, r: priceResult(i.supply, i.price, rates, settings) }));
     if (sort === "low") out.sort((a, b) => a.r.margin - b.r.margin);
     if (sort === "high") out.sort((a, b) => b.r.margin - a.r.margin);
@@ -438,7 +556,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
                 setQ(e.target.value);
                 setLimit(PAGE);
               }}
-              placeholder="상품명·거래처"
+              placeholder="상품명·메모 이름·거래처"
               className="w-40 rounded-lg border border-stone-300 bg-white py-1.5 pr-2 pl-8 text-sm"
             />
           </div>
@@ -508,6 +626,11 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
                     >
                       {x.name}
                     </button>
+                    {x.memoName && x.memoName !== x.name && (
+                      <span className="block truncate text-[11px] text-stone-400" title="메모할 때 적은 이름 (거래처 상품명)">
+                        {x.memoName}
+                      </span>
+                    )}
                   </td>
                   <td className="truncate px-3 py-1.5 text-left text-stone-500" title={x.vendor}>
                     {x.vendorId && <Store size={11} className="mr-1 inline align-[-1px] text-emerald-600" />}
@@ -563,7 +686,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
 
 // ------------------------------------------------------------------- 화면
 
-export default function PricingPage({ rows, conf, onConf, items, vendors, onSave, onRemove }) {
+export default function PricingPage({ rows, conf, onConf, items, vendors, products, onSave, onRemove }) {
   const days = useDays(rows, ALL, conf);
   const costs = useMemo(() => ({ ...DEFAULT_COSTS, ...conf.costs }), [conf.costs]);
 
@@ -591,6 +714,7 @@ export default function PricingPage({ rows, conf, onConf, items, vendors, onSave
       vendorId: x.vendorId || "",
       supply: String(x.supply),
       price: String(x.price),
+      productNo: x.productNo || null,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
@@ -617,6 +741,7 @@ export default function PricingPage({ rows, conf, onConf, items, vendors, onSave
         <h2 className="text-xl font-bold text-stone-900">판매가 계산기</h2>
         <p className="mt-0.5 text-sm text-stone-500">
           공급가를 넣으면 판매가마다 한 벌에 얼마 남는지 나와요. 정한 가격은 담아서 모아 둬요.
+          메모 이름(거래처 상품명)으로 담아도 등록한 다음 새벽에 우리 상품명으로 바뀌고, 새로 등록한 상품은 저절로 담겨요.
         </p>
       </div>
 
@@ -632,11 +757,14 @@ export default function PricingPage({ rows, conf, onConf, items, vendors, onSave
         rates={rates}
         settings={settings}
         vendors={vendors}
+        products={products}
         onSave={async (item) => {
           await onSave(item);
           setDraft(EMPTY);
         }}
       />
+
+      <SuggestBox items={items} onSave={onSave} />
 
       <SavedList
         items={items}
