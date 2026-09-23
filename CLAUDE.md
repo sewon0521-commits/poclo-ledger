@@ -769,3 +769,23 @@ Storage 키: `<id>`(영상) · `<id>-thumb.jpg` · `<id>-ours` · `<id>-ours-thu
   카드·목록은 `item.title` 을 먼저 본다(분석이 지은 이름보다 사람이 고친 이름 우선).
 - **분석 없이 보관만**: 영상 파일 탭 체크 → 썸네일만 떠서 Storage 에 보관(`keepOnly: true`, 카드에 '보관만').
   실루엣·참고용 영상은 대본이 없어 분석해도 얻을 게 없다.
+
+## 27. 계정 아카이브 · 쇼핑몰 칸 · 디자인 스킬 (2026-09-23 밤)
+
+- **릴스 영상 아래 '어느 쇼핑몰 · 어떤 상품'**(`ShopBox`): `item.shop {name, url}`, 칸 벗어나면 저장, 링크 있으면 '열기'.
+  이름은 인스타 계정 이름(meta.name)으로 미리 채움. 카드·검색에도 쇼핑몰 이름.
+- **계정 아카이브**(콘텐츠 › 계정 아카이브, `AccountsPage.jsx`, `poclo-cafe24/account_scan.py`): 쇼필공 레퍼런스랩 '계정 아카이브' 참고.
+  인스타 링크(+광고 라이브러리 링크) → 스캔 → 그날부터 **하루 한 번 저절로**(분석기가 10분마다 20시간 넘은 계정을 일감으로).
+  - 설치된 크롬을 창 없이(playwright channel=chrome, headless=new). 인스타 프로필 목록 API 는 로그인 없이 401 →
+    **페이지 HTML 안 JSON**(`polaris_ordered_timeline_connection`, 최근 12개)을 읽고, 새·최근 게시물만 instaloader 로 날짜·좋아요·댓글.
+  - 광고: 페이지 안 JSON(`search_results_connection`) 30개가 로그인 없는 한계(더 불러오기 = Rate limit exceeded).
+    형식별(전체·영상·사진·밈)로 나눠 **45~49개**(cloudemotion 143개 중). 목록에서 빠진 광고는 `?id=` 페이지로 is_active·end_date 확인 →
+    꺼졌으면 **메타 종료일**이 중단일, 켜져 있으면 `outOfTop`(노출 순위 밖). 하루 15개까지.
+  - 저장: settings `accounts`(목록) · `acct_<id>`({posts, ads, scans}), 썸네일 Storage `acct/<id>/p-<code>.jpg`·`a-<adid>.jpg`
+    (인스타·페북 이미지 주소는 만료). 게시물에서 '라이브러리에 담기' → 기존 릴스/캐러셀 분석 흐름.
+  - 9/23 cloud.emotion 등록(세원이 레퍼런스랩에 넣은 계정): 게시물 12 · 광고 49 추적 중.
+- **분석기 검은 창**(9/23): pythonw 로 돌 때 ffmpeg 가 매번 콘솔 창을 띄움 → `run_quiet`(CREATE_NO_WINDOW). yt-dlp·playwright 는 스스로 숨김.
+- **API 잔액 부족**(9/23): Opus 5 는 입력 100만 토큰당 $5 · 출력 $25. 충전은 platform.claude.com → Settings → Billing.
+  잔액 0이면 장끼 읽기(지원 작업)도 멈춘다.
+- **디자인 스킬 5개 설치**(`~/.claude/skills`, 모든 창): frontend-design(공식) · ui-ux-pro-max(스크립트는 로컬 CSV 검색만, 경로 고침) ·
+  hallmark · emil-design-eng · web-design-guidelines. 설치 전 전부 읽어 봄(외부 전송·삭제 없음). 리디자인 방향은 세원 선택 대기.
