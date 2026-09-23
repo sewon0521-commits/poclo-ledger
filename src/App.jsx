@@ -296,7 +296,8 @@ export default function App() {
           <span className="font-bold text-stone-900">포클로</span>
         </header>
 
-        <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
+        {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" ? "max-w-6xl" : "max-w-4xl")}>
           <div className="mb-4 flex justify-end">
             <SyncBadge
               live={L.live}
@@ -482,6 +483,7 @@ export default function App() {
                   onSave={S.saveAccount}
                   onRemove={S.removeAccount}
                   load={S.loadAccount}
+                  patchData={S.patchAccountData}
                   fileUrls={S.reelFileUrls}
                   worker={S.reelWorker}
                   queue={S.reelQueue}

@@ -317,9 +317,9 @@ export default function ProductReelTab({ stats, library, plans, onSavePlan, onRe
       )}
 
       {view && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-4">
+        <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
           <button type="button" aria-label="닫기" onClick={() => setView(null)} className="absolute inset-0 cursor-default" />
-          <div className="relative z-10 w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
+          <div className="sheet relative z-10 w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
             <PlanView
               item={plans.find((x) => x.id === view.id) || view}
               library={library}

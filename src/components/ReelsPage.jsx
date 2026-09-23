@@ -78,8 +78,6 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, notice }) {
   const [transcript, setTranscript] = useState("");
   const [over, setOver] = useState(false);
   const [step, setStep] = useState("");
-  // 실루엣 잘 나온 영상처럼 **보관만** 할 때 (세원 9/23: "저장 목적으로 저장하는 영상들이 있긴하거든")
-  const [keepOnly, setKeepOnly] = useState(false);
   const busy = !!step;
   const alive = workerAlive(worker);
 
@@ -149,11 +147,20 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, notice }) {
           <button
             type="button"
             disabled={busy || !isLink(url)}
-            onClick={() => wrap("맡기는 중…", () => onLink(url.trim(), memo))}
+            onClick={() => wrap("담는 중…", () => onLink(url.trim(), memo, false))}
+            className="rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm font-medium text-stone-700 disabled:opacity-50"
+            title="영상·썸네일만 보관해요. 돈이 들지 않아요. 나중에 눌러서 분석할 수 있어요"
+          >
+            보관만
+          </button>
+          <button
+            type="button"
+            disabled={busy || !isLink(url)}
+            onClick={() => wrap("맡기는 중…", () => onLink(url.trim(), memo, true))}
             className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
           >
             {busy ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-            {busy ? step : "분석 맡기기"}
+            {busy ? step : "분석하기"}
           </button>
         </div>
       ) : (
@@ -183,24 +190,28 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, notice }) {
           </label>
           {file && (
             <div className="mt-3 flex flex-wrap gap-2 border-t border-stone-100 pt-3">
-              <label className="flex w-full cursor-pointer items-center gap-2 text-xs text-stone-600">
-                <input type="checkbox" checked={keepOnly} onChange={(e) => setKeepOnly(e.target.checked)} className="accent-rose-700" />
-                분석 없이 보관만 — 실루엣·참고용으로 모아 두는 영상 (폴더에 담기고 대본은 안 뽑아요)
-              </label>
               <button
                 type="button"
                 disabled={busy}
-                onClick={() =>
-                  keepOnly
-                    ? wrap("보관하는 중…", () => onKeep(file, memo))
-                    : wrap("영상 올리는 중…", () => onFile(file, memo))
-                }
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 font-semibold text-white disabled:bg-stone-300"
+                onClick={() => wrap("보관하는 중…", () => onKeep(file, memo))}
+                className="flex flex-1 flex-col items-center justify-center rounded-xl border border-stone-300 bg-white py-2 font-semibold text-stone-800 disabled:opacity-50"
               >
-                {busy ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
-                {busy ? step : keepOnly ? "보관만 하기" : "올려서 분석 맡기기 (소리 포함)"}
+                {busy && step.startsWith("보관") ? step : "보관만"}
+                <span className="text-[11px] font-normal text-stone-400">실루엣·참고용 · 돈 안 들어요</span>
               </button>
-              {!alive && !keepOnly && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => wrap("영상 올리는 중…", () => onFile(file, memo))}
+                className="flex flex-1 flex-col items-center justify-center rounded-xl bg-rose-700 py-2 font-semibold text-white disabled:bg-stone-300"
+              >
+                <span className="flex items-center gap-1.5">
+                  {busy && !step.startsWith("보관") ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
+                  {busy && !step.startsWith("보관") ? step : "분석하기"}
+                </span>
+                <span className="text-[11px] font-normal text-rose-100">대본·구조까지 · 한 번 약 100~200원</span>
+              </button>
+              {!alive && (
                 <button
                   type="button"
                   disabled={busy}
@@ -735,7 +746,7 @@ function Meta({ meta }) {
   );
 }
 
-function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, stats }) {
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, stats, onAnalyze }) {
   const r = item.reference || {};
   const status = statusOf(item, queue);
   const [tab, setTab] = useState(item.plan ? "write" : "script");
@@ -864,7 +875,21 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
         </div>
 
         <div className="min-w-0 p-4">
-          {status.kind !== "done" ? (
+          {status.kind === "done" && item.keepOnly ? (
+            <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-5 text-sm">
+              <div className="font-semibold text-stone-800">보관만 한 영상이에요</div>
+              <p className="mt-1 text-xs leading-relaxed text-stone-500">
+                대본·구조 분석은 아직 안 했어요. 필요할 때 누르면 사무실 PC 분석기가 소리까지 받아써서 분석해요 (한 번 약 100~200원).
+              </p>
+              <button
+                type="button"
+                onClick={() => onAnalyze(item)}
+                className="mt-3 flex items-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2 text-sm font-semibold text-white"
+              >
+                <Wand2 size={14} /> 분석하기
+              </button>
+            </div>
+          ) : status.kind !== "done" ? (
             <div
               className={
                 "rounded-xl border px-4 py-5 text-sm " +
@@ -1463,12 +1488,12 @@ export default function ReelsPage({
     return f ? { folderId: f.id, folder: f.parent ? "" : f.name } : { folderId: null, folder: "" };
   };
 
-  const queueLink = async (url, memo) => {
+  const queueLink = async (url, memo, analyze = true) => {
     setNotice("");
     const id = newId("r");
     await onSave({
       id,
-      title: "분석 대기 — " + url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40),
+      title: (analyze ? "분석 대기 — " : "보관 대기 — ") + url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40),
       source: { type: "link", url },
       meta: { url },
       memo,
@@ -1477,7 +1502,13 @@ export default function ReelsPage({
       job: { status: "queued", at: new Date().toISOString() },
       filled: [],
     });
-    await onQueue(id, "ref");
+    await onQueue(id, "ref", analyze ? {} : { analyze: false });
+  };
+
+  /** 보관만 한 영상을 나중에 분석 (9/23 세원: "나중에 분석이 필요하면 영상 눌러서 따로 분석하기") */
+  const analyzeLater = async (item) => {
+    await onSave({ ...item, job: { status: "queued", at: new Date().toISOString() } });
+    await onQueue(item.id, "ref");
   };
 
   const queueFile = async (file, memo) => {
@@ -1681,9 +1712,9 @@ export default function ReelsPage({
       )}
 
       {open && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-4">
+        <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
           <button type="button" aria-label="닫기" onClick={() => setOpen(null)} className="absolute inset-0 cursor-default" />
-          <div className="relative z-10 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
+          <div className="sheet relative z-10 w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
             <Detail
               key={open.id}
               item={items.find((i) => i.id === open.id) || open}
@@ -1696,15 +1727,16 @@ export default function ReelsPage({
               onRetry={retry}
               onOurs={uploadOurs}
               stats={stats}
+              onAnalyze={analyzeLater}
             />
           </div>
         </div>
       )}
 
       {editCats && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-4">
+        <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
           <button type="button" aria-label="닫기" onClick={() => setEditCats(false)} className="absolute inset-0 cursor-default" />
-          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl">
+          <div className="sheet relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl">
             <CategoryEditor
               items={items}
               folders={folders}

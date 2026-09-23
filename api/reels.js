@@ -30,6 +30,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { readProduct } from "./_product.js";
+import { costOf } from "./_cost.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "12mb" } }, maxDuration: 300 };
 
@@ -304,7 +305,7 @@ function parsedOf(r, what) {
     e.userFacing = 422;
     throw e;
   }
-  return r.parsed_output;
+  return { ...r.parsed_output, _cost: costOf(r.usage) };
 }
 
 /** 장면 사진을 Claude 에 넘길 모양으로 */

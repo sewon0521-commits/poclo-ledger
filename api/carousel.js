@@ -18,6 +18,7 @@ import { readProduct } from "./_product.js";
 export const config = { api: { bodyParser: { sizeLimit: "12mb" } }, maxDuration: 300 };
 
 const MODEL = "claude-opus-5";
+import { costOf } from "./_cost.js";
 
 // ------------------------------------------------------------------ 1) 레퍼런스 분석
 
@@ -159,7 +160,7 @@ async function ask(client, content, schema, effort) {
         e.userFacing = 422;
         throw e;
       }
-      return r.parsed_output;
+      return { ...r.parsed_output, _cost: costOf(r.usage) };
     } catch (err) {
       const st = err?.status;
       if (attempt === 0 && (st === 429 || st === 529 || (st >= 500 && st < 600))) {

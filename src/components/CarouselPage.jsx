@@ -41,9 +41,9 @@ const isInsta = (s) => /instagram\.com\/(?:[^/]+\/)?(p|reels?|tv)\//i.test(s.tri
 
 function Overlay({ children, onClose, wide }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-2 sm:p-4">
+    <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className={"relative z-10 w-full overflow-hidden rounded-2xl bg-white shadow-xl " + (wide ? "max-w-4xl" : "max-w-2xl")}>
+      <div className={"sheet relative z-10 w-full overflow-hidden rounded-2xl bg-white shadow-xl " + (wide ? "max-w-4xl" : "max-w-2xl")}>
         {children}
       </div>
     </div>
@@ -634,7 +634,7 @@ function RefCard({ item, thumb, status, onOpen }) {
             (status.kind === "error" ? "bg-rose-600 text-white" : pending ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-600")
           }
         >
-          {pending ? status.text : `${item.slides || "?"}장 · ${a.format || "분석 완료"}`}
+          {pending ? status.text : item.keepOnly ? `${item.slides || "?"}장 · 보관만` : `${item.slides || "?"}장 · ${a.format || "분석 완료"}`}
         </span>
       </span>
       <span className="block px-3 py-2">
@@ -684,7 +684,15 @@ function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClos
           </div>
         )}
 
-        {status.kind !== "done" ? (
+        {status.kind === "done" && item.keepOnly ? (
+          <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-4 text-sm">
+            <div className="font-semibold text-stone-800">보관만 한 캐러셀이에요</div>
+            <p className="mt-1 text-xs text-stone-500">장 사진만 모아 뒀어요. 표지 훅·구조가 필요하면 분석하세요 (한 번 약 100~200원).</p>
+            <button type="button" onClick={() => onRetry(item)} className="mt-3 flex items-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2 text-sm font-semibold text-white">
+              <RotateCw size={13} /> 분석하기
+            </button>
+          </div>
+        ) : status.kind !== "done" ? (
           <div className={"rounded-xl border px-4 py-4 text-sm " + (status.kind === "error" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-900")}>
             <div className="flex items-center gap-2 font-semibold">
               {status.kind === "error" ? <Info size={15} /> : <Loader2 size={15} className="animate-spin" />}

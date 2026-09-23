@@ -403,8 +403,9 @@ export function useSales(session) {
    * 분석기는 이 작은 목록만 5초마다 본다 — 릴스 전체를 매번 읽으면 전송량이 금방 찬다.
    */
   const queueReel = useCallback(
-    async (id, target) => {
-      const job = { id, target, status: "queued", step: "", at: new Date().toISOString() };
+    // extra: { analyze: false } → 분석기가 영상·썸네일만 보관하고 Claude 는 안 부른다 (9/23 비용)
+    async (id, target, extra = {}) => {
+      const job = { id, target, status: "queued", step: "", at: new Date().toISOString(), ...extra };
       await changeList(
         "reels_queue",
         "poclo_reels_queue",
@@ -509,6 +510,20 @@ export function useSales(session) {
     },
     [online],
   );
+  /** 계정 기록 한 군데 고치기(소재 숨기기 등) — 서버 최신을 읽어 고쳐 쓴다 */
+  const patchAccountData = useCallback(
+    async (id, change) => {
+      if (!(online && remoteOk.current)) return null;
+      const key = `acct_${id}`;
+      const { data } = await supabase.from("settings").select("value").eq("key", key).maybeSingle();
+      const next = change(data?.value || { posts: {}, ads: {} });
+      const { error } = await supabase.from("settings").upsert({ key, value: next });
+      if (error) setNotice("계정 기록을 저장하지 못했어요. 잠시 뒤 다시 해주세요.");
+      return next;
+    },
+    [online],
+  );
+
   /** 썸네일 여러 장을 한 번에 서명 주소로 */
   const reelFileUrls = useCallback(
     async (keys) => {
@@ -645,6 +660,7 @@ export function useSales(session) {
     saveAccount,
     removeAccount,
     loadAccount,
+    patchAccountData,
     reelFileUrls,
     removeReelPlan,
     reload: load,

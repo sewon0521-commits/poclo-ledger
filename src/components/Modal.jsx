@@ -25,12 +25,12 @@ export default function Modal({ open, onClose, children, labelledBy }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-stone-900/40 p-4 sm:items-center">
+    <div className="backdrop-in fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-stone-900/45 p-4 sm:items-center">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="my-auto w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="sheet my-auto w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
         {children}
       </div>

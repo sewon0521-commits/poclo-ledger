@@ -12,6 +12,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { costOf } from "./_cost.js";
 
 const blank = "못 읽으면 빈 문자열";
 
@@ -192,6 +193,7 @@ export default async function handler(req, res) {
     };
 
     return res.status(200).json({
+      _cost: costOf(response.usage),
       vendor: g.vendor || "",
       address: g.address || "",
       phone: g.phone || "",
