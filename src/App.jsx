@@ -294,7 +294,7 @@ export default function App() {
           <button type="button" onClick={() => setMenuOpen(true)} aria-label="메뉴" className="p-1">
             <Menu size={22} />
           </button>
-          <span className="font-bold text-stone-900">포클로</span>
+          <span className="font-bold text-stone-900">포클로ERP</span>
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}

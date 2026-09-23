@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { X, Volume2, VolumeX } from "lucide-react";
-import { soundOn, setSoundOn, tick } from "../lib/clickSound";
+import { useEffect, useRef, useState } from "react";
+import { X, Volume2, VolumeX, Check } from "lucide-react";
+import { SOUNDS, soundKind, setSoundKind, tick } from "../lib/clickSound";
 import { SECTIONS, sectionOf, firstPageOf } from "../lib/nav";
 
 function Rail({ section, onSection }) {
@@ -32,23 +32,52 @@ function Rail({ section, onSection }) {
   );
 }
 
-/** 누르는 소리 켜고 끄기 — 기기마다 따로 기억 */
+/** 누르는 소리 고르기 — 눌러서 들어 보고 고른다. 기기마다 따로 기억 */
 function SoundToggle() {
-  const [on, setOn] = useState(soundOn);
+  const [kind, setKind] = useState(soundKind);
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => box.current && !box.current.contains(e.target) && setOpen(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
   return (
-    <button
-      type="button"
-      onClick={() => {
-        setSoundOn(!on);
-        setOn(!on);
-        if (!on) tick();
-      }}
-      aria-label={on ? "누르는 소리 끄기" : "누르는 소리 켜기"}
-      title={on ? "누르는 소리 끄기" : "누르는 소리 켜기"}
-      className="mt-auto flex h-9 w-9 items-center justify-center rounded-xl text-stone-400 hover:bg-stone-100 hover:text-stone-600"
-    >
-      {on ? <Volume2 size={17} /> : <VolumeX size={17} />}
-    </button>
+    <div ref={box} data-sound-menu className="relative mt-auto">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="누르는 소리 고르기"
+        title="누르는 소리 고르기"
+        className="flex h-9 w-9 items-center justify-center rounded-xl text-stone-400 hover:bg-stone-100 hover:text-stone-600"
+      >
+        {kind === "off" ? <VolumeX size={17} /> : <Volume2 size={17} />}
+      </button>
+      {open && (
+        <div className="sheet absolute bottom-0 left-full z-50 ml-2 w-60 rounded-xl border border-stone-200 bg-white py-1.5 shadow-lg">
+          <div className="px-3 pt-1 pb-1.5 text-[11px] font-semibold text-stone-400">누르는 소리 · 눌러서 들어 보기</div>
+          {SOUNDS.map(([k, name, hint]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => {
+                setSoundKind(k);
+                setKind(k);
+                tick(k);
+              }}
+              className={"flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-stone-50 " + (kind === k ? "bg-rose-50" : "")}
+            >
+              <span className="mt-0.5 w-3.5 shrink-0 text-rose-700">{kind === k && <Check size={14} />}</span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-stone-800">{name}</span>
+                <span className="block text-[11px] text-stone-400">{hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -57,7 +86,7 @@ function Panel({ section, page, onPage }) {
   return (
     <nav className="w-52 shrink-0 border-r border-stone-200 bg-white p-3">
       <div className="px-2 pt-1 pb-3">
-        <div className="font-bold text-stone-900">포클로</div>
+        <div className="font-bold text-stone-900">포클로ERP</div>
         <div className="text-xs text-stone-400">{current.label}</div>
       </div>
       {current.groups.map((g) => (

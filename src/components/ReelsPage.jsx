@@ -38,6 +38,10 @@ import {
   pathName,
   folderCounts,
   moveFolder,
+  canMove,
+  pathOf,
+  ordered,
+  MAX_DEPTH,
 } from "../lib/reelFolders";
 import { Empty } from "./ui";
 import ProductReelTab from "./ProductReel";
@@ -293,9 +297,12 @@ function Chip({ active, onClick, children, count }) {
 function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ }) {
   const { total, none } = useMemo(() => folderCounts(items, folders), [items, folders]);
   const tops = folders.filter((f) => !f.parent);
-  const selFolder = folders.find((f) => f.id === sel);
-  const openParent = selFolder ? selFolder.parent || selFolder.id : null;
-  const kids = openParent ? childrenOf(openParent, folders) : [];
+  // 고른 폴더까지의 길 [상위, 하위, 세부] — 상위를 고르면 하위 줄, 하위를 고르면 세부 줄이 열린다
+  const path = sel === "all" || sel === "none" ? [] : pathOf(sel, folders);
+  const rows = [
+    ["하위", path[0]],
+    ["세부", path[1]],
+  ].filter(([, p]) => p && childrenOf(p.id, folders).length > 0);
 
   return (
     <div className="mb-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
@@ -313,7 +320,7 @@ function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ }) {
           {tops.map((f) => (
             <Chip
               key={f.id}
-              active={sel === f.id || selFolder?.parent === f.id}
+              active={path[0]?.id === f.id}
               onClick={() => onSel(f.id)}
               count={total.get(f.id) || 0}
             >
@@ -331,19 +338,20 @@ function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ }) {
         </button>
       </div>
 
-      {kids.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-stone-100 pt-2">
-          <span className="mr-1 w-8 shrink-0 text-xs text-stone-400">하위</span>
-          <Chip active={sel === openParent} onClick={() => onSel(openParent)}>
+      {rows.map(([label, parent], lv) => (
+        <div key={parent.id} className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-stone-100 pt-2">
+          <span className="mr-1 w-8 shrink-0 text-xs text-stone-400">{label}</span>
+          <Chip active={sel === parent.id} onClick={() => onSel(parent.id)}>
             전부
           </Chip>
-          {kids.map((k) => (
-            <Chip key={k.id} active={sel === k.id} onClick={() => onSel(k.id)} count={total.get(k.id) || 0}>
+          {childrenOf(parent.id, folders).map((k) => (
+            <Chip key={k.id} active={path[lv + 1]?.id === k.id} onClick={() => onSel(k.id)} count={total.get(k.id) || 0}>
               {k.name}
+              {lv === 0 && childrenOf(k.id, folders).length > 0 && <ChevronRight size={12} className="opacity-60" />}
             </Chip>
           ))}
         </div>
-      )}
+      ))}
 
       <div className="relative mt-2">
         <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
@@ -401,12 +409,12 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
     onChange((list) => [...list, { id: newId("f"), name, parent }]);
   const remove = (f) => {
     const n = total.get(f.id) || 0;
-    const kids = childrenOf(f.id, folders).length;
+    const gone = withChildren(f.id, folders);
     const msg =
       `'${f.name}' 폴더를 지울까요?` +
-      (kids ? `\n하위 폴더 ${kids}개도 같이 지워져요.` : "") +
+      (gone.length > 1 ? `\n그 아래 폴더 ${gone.length - 1}개도 같이 지워져요.` : "") +
       (n ? `\n안에 든 릴스 ${n}개는 지워지지 않고 미분류로 가요.` : "");
-    if (window.confirm(msg)) onChange((list) => list.filter((x) => x.id !== f.id && x.parent !== f.id));
+    if (window.confirm(msg)) onChange((list) => list.filter((x) => !gone.includes(x.id)));
   };
   const done = () => setEditing(null);
 
@@ -417,8 +425,9 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
   const posOf = (e, f) => {
     const r = e.currentTarget.getBoundingClientRect();
     const y = (e.clientY - r.top) / r.height;
-    // 하위를 상위 줄 위에 놓으면 그 상위 안으로
+    // 하위·세부를 상위 줄에 놓으면 그 안으로. 하위 줄 가운데에 놓으면 그 하위의 세부로.
     if (dragged?.parent && !f.parent) return "inside";
+    if (dragged?.parent && y > 0.3 && y < 0.7 && canMove(folders, drag, f.id, "inside")) return "inside";
     return y < 0.5 ? "before" : "after";
   };
   const drop = () => {
@@ -427,7 +436,7 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
     setOver(null);
   };
 
-  const row = (f, child) => (
+  const row = (f, depth) => (
     <li
       key={f.id}
       draggable={!editing}
@@ -440,6 +449,7 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
         if (!drag || drag === f.id) return;
         e.preventDefault();
         const pos = posOf(e, f);
+        if (!canMove(folders, drag, f.id, pos)) return;
         if (over?.id !== f.id || over?.pos !== pos) setOver({ id: f.id, pos });
       }}
       onDragLeave={() => over?.id === f.id && setOver(null)}
@@ -453,7 +463,7 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
       }}
       className={
         "group flex cursor-grab items-center gap-2 rounded-lg border-y-2 px-3 py-2 hover:bg-stone-50 active:cursor-grabbing " +
-        (child ? "pl-8 " : "") +
+        (depth === 1 ? "pl-8 " : depth === 2 ? "pl-14 " : "") +
         (drag === f.id ? "opacity-40 " : "") +
         (over?.id === f.id && over.pos === "before"
           ? "border-t-rose-500 border-b-transparent"
@@ -465,7 +475,7 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
       }
     >
       <GripVertical size={13} className="shrink-0 text-stone-300 group-hover:text-stone-500" />
-      {child && <span className="text-stone-300">└</span>}
+      {depth > 0 && <span className="text-stone-300">└</span>}
       {editing?.id === f.id ? (
         <NameInput
           initial={f.name}
@@ -476,7 +486,12 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
           onCancel={done}
         />
       ) : (
-        <span className={"min-w-0 flex-1 truncate text-sm " + (child ? "text-stone-700" : "font-semibold text-stone-900")}>
+        <span
+          className={
+            "min-w-0 flex-1 truncate text-sm " +
+            (depth === 0 ? "font-semibold text-stone-900" : depth === 1 ? "font-medium text-stone-700" : "text-stone-600")
+          }
+        >
           {f.name}
         </span>
       )}
@@ -485,8 +500,14 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
         <button type="button" onClick={() => setEditing({ id: f.id })} aria-label="이름 고치기" className="rounded p-1 hover:bg-stone-200 hover:text-stone-700">
           <Pencil size={13} />
         </button>
-        {!child && (
-          <button type="button" onClick={() => setEditing({ parent: f.id })} aria-label="하위 폴더 만들기" className="rounded p-1 hover:bg-stone-200 hover:text-stone-700">
+        {depth < MAX_DEPTH && (
+          <button
+            type="button"
+            onClick={() => setEditing({ parent: f.id })}
+            aria-label={depth === 0 ? "하위 폴더 만들기" : "세부 폴더 만들기"}
+            title={depth === 0 ? "하위 폴더 만들기" : "세부 폴더 만들기 (예: 팬츠 · 스커트 · 상의)"}
+            className="rounded p-1 hover:bg-stone-200 hover:text-stone-700"
+          >
             <Plus size={14} />
           </button>
         )}
@@ -497,13 +518,34 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
     </li>
   );
 
+  // 폴더 하나 + 그 아래 폴더들 + (새로 만드는 중이면) 이름 칸
+  const tree = (f, depth) => (
+    <div key={f.id}>
+      {row(f, depth)}
+      {childrenOf(f.id, folders).map((c) => tree(c, depth + 1))}
+      {editing?.parent === f.id && (
+        <li className={"flex items-center gap-2 py-1.5 pr-3 " + (depth === 0 ? "pl-8" : "pl-14")}>
+          <span className="text-stone-300">└</span>
+          <NameInput
+            placeholder={depth === 0 ? "하위 폴더 이름 — 예: [팬츠] 설명 영상" : "세부 폴더 이름 — 예: 팬츠 · 스커트 · 상의"}
+            onDone={(v) => {
+              add(v, f.id);
+              done();
+            }}
+            onCancel={done}
+          />
+        </li>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex max-h-[85vh] flex-col">
       <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
         <div>
           <h2 className="font-semibold text-stone-900">카테고리 편집</h2>
           <p className="mt-0.5 text-xs text-stone-500">
-            상위 폴더 아래에 하위 폴더를 둘 수 있어요 · 줄을 끌어서 순서를 바꾸고, 하위 폴더는 다른 상위로 옮겨요
+            상위 › 하위 › 세부, 세 단계까지 만들어요 (+ 누르기) · 줄을 끌어서 순서를 바꾸고, 다른 폴더 줄 가운데에 놓으면 그 안으로 들어가요
           </p>
         </div>
         <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
@@ -511,25 +553,7 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
         </button>
       </header>
       <ul className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        {tops.map((f) => (
-          <div key={f.id}>
-            {row(f, false)}
-            {childrenOf(f.id, folders).map((c) => row(c, true))}
-            {editing?.parent === f.id && (
-              <li className="flex items-center gap-2 py-1.5 pr-3 pl-8">
-                <span className="text-stone-300">└</span>
-                <NameInput
-                  placeholder="하위 폴더 이름 — 예: [팬츠] 설명 영상"
-                  onDone={(v) => {
-                    add(v, f.id);
-                    done();
-                  }}
-                  onCancel={done}
-                />
-              </li>
-            )}
-          </div>
-        ))}
+        {tops.map((f) => tree(f, 0))}
         {editing?.top && (
           <li className="flex items-center gap-2 px-3 py-1.5">
             <NameInput
@@ -587,7 +611,6 @@ function FolderPicker({ item, folders, onMove }) {
     setOpen(false);
     if (id !== current) onMove(id);
   };
-  const tops = folders.filter((f) => !f.parent);
   return (
     <span ref={box} className="relative shrink-0">
       <button
@@ -605,18 +628,18 @@ function FolderPicker({ item, folders, onMove }) {
       {open && (
         <span className="absolute right-0 bottom-8 z-30 block max-h-72 w-56 overflow-y-auto rounded-xl border border-stone-200 bg-white py-1 text-left shadow-lg">
           <span className="block px-3 pt-1.5 pb-1 text-[11px] font-semibold text-stone-400">어느 폴더로?</span>
-          {[{ id: null, name: "미분류" }, ...tops.flatMap((f) => [f, ...childrenOf(f.id, folders)])].map((f) => (
+          {[{ id: null, name: "미분류", depth: 0 }, ...ordered(folders)].map((f) => (
             <button
               key={f.id || "none"}
               type="button"
               onClick={() => pick(f.id)}
               className={
                 "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm hover:bg-stone-50 " +
-                (f.parent ? "pl-7 text-stone-600 " : "font-medium text-stone-800 ") +
+                (f.depth === 2 ? "pl-11 text-stone-500 " : f.depth === 1 ? "pl-7 text-stone-600 " : "font-medium text-stone-800 ") +
                 (f.id === current ? "bg-rose-50 text-rose-800" : "")
               }
             >
-              {f.parent && <span className="text-stone-300">└</span>}
+              {f.depth > 0 && <span className="text-stone-300">└</span>}
               <span className="min-w-0 flex-1 truncate">{f.name}</span>
               {f.id === current && <Check size={13} className="shrink-0 text-rose-700" />}
             </button>
@@ -845,14 +868,11 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               className="rounded border border-stone-300 bg-white px-1.5 py-0.5 text-stone-600"
             >
               <option value="">미분류</option>
-              {folders
-                .filter((f) => !f.parent)
-                .flatMap((f) => [f, ...childrenOf(f.id, folders)])
-                .map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.parent ? `　└ ${f.name}` : f.name}
-                  </option>
-                ))}
+              {ordered(folders).map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.depth ? `${"　".repeat(f.depth)}└ ${f.name}` : f.name}
+                </option>
+              ))}
             </select>
           </div>
         </div>

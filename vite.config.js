@@ -87,9 +87,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon-192.png", "icon-512.png", "apple-touch-icon.png"],
       manifest: {
-        name: "포클로 매입 장부",
-        short_name: "포클로 장부",
-        description: "사입 매입·부가세 관리 장부",
+        name: "포클로ERP",
+        short_name: "포클로ERP",
+        description: "포클로 매입·매출·콘텐츠 업무 앱",
         lang: "ko",
         start_url: "/",
         scope: "/",

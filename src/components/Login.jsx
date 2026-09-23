@@ -37,7 +37,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-stone-50 px-4">
       <form onSubmit={submit} className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-stone-900">포클로 매입 장부</h1>
+          <h1 className="text-2xl font-bold text-stone-900">포클로ERP</h1>
           <p className="mt-1 text-sm text-stone-500">로그인하면 같은 장부를 함께 봐요.</p>
         </div>
 
