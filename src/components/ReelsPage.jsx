@@ -393,11 +393,39 @@ function NameInput({ initial = "", placeholder, onDone, onCancel }) {
   );
 }
 
+const CAT_OPEN_KEY = "poclo_reel_cats_open";
+
 function CategoryEditor({ items, folders, onChange, onClose }) {
   // editing: {id} 이름 고치기 | {parent} 하위 새로 | {top:true} 상위 새로
   const [editing, setEditing] = useState(null);
   const { total } = useMemo(() => folderCounts(items, folders), [items, folders]);
   const tops = folders.filter((f) => !f.parent);
+
+  // 접고 펴기 (9/24 세원: "항상 펼쳐져 있으니까 헷갈려, 열고 닫을 수 있는 토글") — 처음엔 상위만 보이게 접혀 있다.
+  // 펼친 폴더는 기기에 기억한다.
+  const [openIds, setOpenIds] = useState(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(CAT_OPEN_KEY) || "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  const keepOpen = (next) => {
+    setOpenIds(next);
+    try {
+      localStorage.setItem(CAT_OPEN_KEY, JSON.stringify([...next]));
+    } catch {
+      /* 기억 못 해도 이번 화면에서는 된다 */
+    }
+  };
+  const toggle = (id) => {
+    const next = new Set(openIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    keepOpen(next);
+  };
+  const parents = folders.filter((f) => childrenOf(f.id, folders).length > 0);
+  const allOpen = parents.length > 0 && parents.every((f) => openIds.has(f.id));
 
   const rename = (id, name) =>
     onChange((list) =>
@@ -476,6 +504,19 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
     >
       <GripVertical size={13} className="shrink-0 text-stone-300 group-hover:text-stone-500" />
       {depth > 0 && <span className="text-stone-300">└</span>}
+      {childrenOf(f.id, folders).length > 0 ? (
+        <button
+          type="button"
+          onClick={() => toggle(f.id)}
+          aria-label={openIds.has(f.id) ? "접기" : "펼치기"}
+          aria-expanded={openIds.has(f.id)}
+          className="-m-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-stone-200 hover:text-stone-700"
+        >
+          <ChevronRight size={15} className={"transition-transform " + (openIds.has(f.id) ? "rotate-90" : "")} />
+        </button>
+      ) : (
+        <span className="w-4 shrink-0" />
+      )}
       {editing?.id === f.id ? (
         <NameInput
           initial={f.name}
@@ -503,7 +544,10 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
         {depth < MAX_DEPTH && (
           <button
             type="button"
-            onClick={() => setEditing({ parent: f.id })}
+            onClick={() => {
+              if (!openIds.has(f.id)) toggle(f.id);
+              setEditing({ parent: f.id });
+            }}
             aria-label={depth === 0 ? "하위 폴더 만들기" : "세부 폴더 만들기"}
             title={depth === 0 ? "하위 폴더 만들기" : "세부 폴더 만들기 (예: 팬츠 · 스커트 · 상의)"}
             className="rounded p-1 hover:bg-stone-200 hover:text-stone-700"
@@ -522,7 +566,7 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
   const tree = (f, depth) => (
     <div key={f.id}>
       {row(f, depth)}
-      {childrenOf(f.id, folders).map((c) => tree(c, depth + 1))}
+      {openIds.has(f.id) && childrenOf(f.id, folders).map((c) => tree(c, depth + 1))}
       {editing?.parent === f.id && (
         <li className={"flex items-center gap-2 py-1.5 pr-3 " + (depth === 0 ? "pl-8" : "pl-14")}>
           <span className="text-stone-300">└</span>
@@ -547,6 +591,15 @@ function CategoryEditor({ items, folders, onChange, onClose }) {
           <p className="mt-0.5 text-xs text-stone-500">
             상위 › 하위 › 세부, 세 단계까지 만들어요 (+ 누르기) · 줄을 끌어서 순서를 바꾸고, 다른 폴더 줄 가운데에 놓으면 그 안으로 들어가요
           </p>
+          {parents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => keepOpen(allOpen ? new Set() : new Set(parents.map((f) => f.id)))}
+              className="mt-1.5 text-xs font-medium text-rose-700 hover:underline"
+            >
+              {allOpen ? "모두 접기" : "모두 펼치기"}
+            </button>
+          )}
         </div>
         <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
           <X size={20} />
