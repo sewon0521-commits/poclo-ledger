@@ -3,6 +3,7 @@
 import {
   Home,
   ListChecks,
+  NotebookPen,
   Wallet,
   Palette,
   Store,
@@ -27,7 +28,7 @@ export const SECTIONS = [
     key: "work",
     label: "일",
     icon: ListChecks,
-    groups: [{ group: "기본", items: [{ key: "work", label: "할 일", icon: ListChecks }] }],
+    groups: [{ group: "기본", items: [{ key: "journal", label: "업무일지", icon: NotebookPen }] }],
   },
   {
     key: "money",

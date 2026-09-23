@@ -32,6 +32,7 @@ import CarouselPage from "./components/CarouselPage";
 import AccountsPage from "./components/AccountsPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
+import JournalPage from "./components/JournalPage";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
 
@@ -494,6 +495,8 @@ export default function App() {
                   onSaveReel={S.saveReel}
                   onSaveCarousel={S.saveCarousel}
                 />
+              ) : page === "journal" ? (
+                <JournalPage online={L.mode === "remote" && !!L.session} />
               ) : page === "work" || page === "people" || page === "content" ? (
                 <Soon page={page} />
               ) : page === "ledger" ? (
