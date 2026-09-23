@@ -1,5 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NotebookPen, ChevronLeft, ChevronRight, Search, Check, X, Plus, Loader2, CornerDownRight } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  NotebookPen,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Check,
+  X,
+  Plus,
+  Loader2,
+  CornerDownRight,
+  List,
+  Clock,
+  Sparkles,
+  Pencil,
+} from "lucide-react";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
 import { newId } from "../lib/id";
 
@@ -23,17 +37,117 @@ function readMe() {
   }
 }
 
-// ---------------------------------------------------------------- 한 페이지 (쓰는 대로 저장)
+// ---------------------------------------------------------------- 읽기 좋게 그리기
+//
+// 9/24 세원: "볼 때 가독성이 좀 떨어진다" → 글을 그대로 뿌리지 않고 가볍게 모양을 낸다.
+//   ■ 제목 / # 제목   → 소제목        - · • · * 로 시작  → 점 목록        1. 로 시작 → 번호 목록
+//   14:20 으로 시작   → 시각을 흐리게   빈 줄             → 문단 사이
+// 쓰는 쪽에서는 이 기호를 단추로 넣는다(아래 Editor).
 
-function Page({ initial, editable, onSave }) {
+const HEAD = /^\s*(?:■|#{1,3})\s*(.+)$/;
+const BULLET = /^\s*[-•*·]\s+(.*)$/;
+const NUMBER = /^\s*(\d+)[.)]\s+(.*)$/;
+const TIME = /^(\d{1,2}:\d{2})\s+(.*)$/;
+
+function Line({ text }) {
+  const m = text.match(TIME);
+  if (!m) return text;
+  return (
+    <>
+      <span className="mr-1.5 text-[13px] text-stone-400 tabular-nums">{m[1]}</span>
+      {m[2]}
+    </>
+  );
+}
+
+function Rendered({ text }) {
+  const blocks = [];
+  for (const raw of String(text || "").split("\n")) {
+    let m;
+    if ((m = raw.match(HEAD))) blocks.push({ t: "h", text: m[1] });
+    else if ((m = raw.match(BULLET))) {
+      const last = blocks[blocks.length - 1];
+      if (last?.t === "ul") last.items.push(m[1]);
+      else blocks.push({ t: "ul", items: [m[1]] });
+    } else if ((m = raw.match(NUMBER))) {
+      const last = blocks[blocks.length - 1];
+      if (last?.t === "ol") last.items.push([m[1], m[2]]);
+      else blocks.push({ t: "ol", items: [[m[1], m[2]]] });
+    } else if (!raw.trim()) blocks.push({ t: "gap" });
+    else blocks.push({ t: "p", text: raw });
+  }
+  return (
+    <div className="max-w-2xl text-[15px] leading-7 text-stone-800">
+      {blocks.map((b, i) =>
+        b.t === "h" ? (
+          <h4 key={i} className="mt-5 mb-1 flex items-center gap-2 text-sm font-semibold text-rose-800 first:mt-0">
+            <span className="h-3.5 w-1 rounded-full bg-rose-300" />
+            {b.text}
+          </h4>
+        ) : b.t === "ul" ? (
+          <ul key={i} className="space-y-0.5">
+            {b.items.map((x, j) =>
+              x.trim() ? (
+                <li key={j} className="flex gap-2.5">
+                  <span className="mt-[11px] h-1.5 w-1.5 shrink-0 rounded-full bg-stone-300" />
+                  <span className="min-w-0">
+                    <Line text={x} />
+                  </span>
+                </li>
+              ) : null,
+            )}
+          </ul>
+        ) : b.t === "ol" ? (
+          <ol key={i} className="space-y-0.5">
+            {b.items.map(([n, x], j) => (
+              <li key={j} className="flex gap-2">
+                <span className="w-5 shrink-0 text-right text-stone-400 tabular-nums">{n}.</span>
+                <span className="min-w-0">
+                  <Line text={x} />
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : b.t === "gap" ? (
+          <div key={i} className="h-2.5" />
+        ) : (
+          <p key={i}>
+            <Line text={b.text} />
+          </p>
+        ),
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 쓰기 (쓰는 대로 저장)
+//
+// 9/24 세원: "아무것도 없이 빈 종이여서 쓸 때 불편" → 칸을 강제하지는 않고(자유 글쓰기는 그대로)
+//   - 빈 날엔 '오늘 틀로 시작' 한 번 누르면 소제목 두 개가 깔린다
+//   - 위 단추로 소제목(오늘 한 일 · 도매·거래처 · 상품·촬영 · 콘텐츠 · CS·배송 · 메모·생각) · 목록 · 지금 시각을 넣는다
+//   - '- ' 로 시작한 줄에서 엔터를 치면 다음 줄도 '- ' (빈 줄에서 한 번 더 엔터면 목록 끝)
+
+const HEADS = ["오늘 한 일", "도매·거래처", "상품·촬영", "콘텐츠", "CS·배송", "메모·생각"];
+const STARTER = "■ 오늘 한 일\n- \n\n■ 메모·생각\n- ";
+
+function Editor({ initial, onSave }) {
   const [text, setText] = useState(initial);
   const [state, setState] = useState("idle"); // idle | saving | saved | error
+  const box = useRef(null);
   const latest = useRef(initial);
   const saved = useRef(initial);
   const timer = useRef(null);
   const saveRef = useRef(onSave);
+  const caretTo = useRef(null);
   useEffect(() => {
     saveRef.current = onSave;
+  });
+  // 글을 코드로 바꾸면 커서가 끝으로 튄다 — 그리기 직후(다음 글자 치기 전에) 제자리로
+  useLayoutEffect(() => {
+    if (caretTo.current == null || !box.current) return;
+    box.current.focus();
+    box.current.setSelectionRange(caretTo.current, caretTo.current);
+    caretTo.current = null;
   });
 
   const flush = useCallback(async () => {
@@ -60,38 +174,180 @@ function Page({ initial, editable, onSave }) {
     };
   }, [flush]);
 
-  if (!editable) {
-    return initial.trim() ? (
-      <p className="min-h-[12rem] px-5 py-4 text-[15px] leading-7 whitespace-pre-wrap text-stone-800">{initial}</p>
-    ) : (
-      <p className="min-h-[12rem] px-5 py-4 text-sm text-stone-400">이날은 쓴 글이 없어요.</p>
-    );
-  }
+  const put = (next, caret) => {
+    setText(next);
+    latest.current = next;
+    setState("idle");
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 800);
+    if (caret != null) caretTo.current = caret;
+  };
+
+  /** 커서 자리에 넣기 — block 이면 새 줄에서 시작하고, 앞 글과 한 줄 띄운다 */
+  const insert = (str, block) => {
+    const el = box.current;
+    const s = el ? el.selectionStart : text.length;
+    const e = el ? el.selectionEnd : text.length;
+    const before = text.slice(0, s);
+    let pre = "";
+    if (block && before) pre = before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+    const ins = pre + str;
+    put(before + ins + text.slice(e), s + ins.length);
+  };
+
+  const onChange = (e) => {
+    const v = e.target.value;
+    const pos = e.target.selectionStart;
+    // 목록 줄에서 엔터 → 다음 줄도 목록. 빈 목록 줄에서 엔터 → 목록 끝
+    if (v.length === text.length + 1 && v[pos - 1] === "\n") {
+      const lineStart = v.lastIndexOf("\n", pos - 2) + 1;
+      const prev = v.slice(lineStart, pos - 1);
+      const b = prev.match(/^(\s*)([-•*·])\s+(.*)$/);
+      const n = prev.match(/^(\s*)(\d+)([.)])\s+(.*)$/);
+      if (b && !b[3].trim()) return put(v.slice(0, lineStart) + v.slice(pos), lineStart);
+      if (n && !n[4].trim()) return put(v.slice(0, lineStart) + v.slice(pos), lineStart);
+      const add = b ? `${b[1]}${b[2]} ` : n ? `${n[1]}${Number(n[2]) + 1}${n[3]} ` : "";
+      if (add) return put(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
+    }
+    put(v);
+  };
+
+  const now = () => {
+    const d = new Date();
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")} `;
+  };
 
   return (
-    <div className="relative">
-      <textarea
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          latest.current = e.target.value;
-          setState("idle");
-          clearTimeout(timer.current);
-          timer.current = setTimeout(flush, 800);
-        }}
-        onBlur={flush}
-        placeholder={"오늘 있었던 일, 생각, 메모… 아무렇게나 써요.\n쓰는 대로 저장돼요."}
-        className="block min-h-[20rem] w-full resize-none bg-transparent px-5 py-4 text-[15px] leading-7 text-stone-800 outline-none [field-sizing:content] placeholder:text-stone-300"
-      />
-      <span className="pointer-events-none absolute top-2 right-3 text-[11px] text-stone-400">
-        {state === "saving" ? (
-          <Loader2 size={12} className="inline animate-spin" />
-        ) : state === "saved" ? (
-          "저장됨"
-        ) : state === "error" ? (
-          <span className="text-rose-600">저장 못 함 — 인터넷 확인</span>
-        ) : null}
-      </span>
+    <div>
+      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-stone-100 px-4 py-2 [scrollbar-width:none]">
+        {HEADS.map((h) => (
+          <button
+            key={h}
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => insert(`■ ${h}\n- `, true)}
+            className="shrink-0 rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs font-medium text-stone-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800"
+          >
+            {h}
+          </button>
+        ))}
+        <span className="mx-1 h-4 w-px shrink-0 bg-stone-200" />
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => insert("- ", true)}
+          className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs text-stone-500 hover:bg-stone-100"
+        >
+          <List size={13} /> 목록
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => insert(now(), false)}
+          className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs text-stone-500 hover:bg-stone-100"
+        >
+          <Clock size={13} /> 지금 시각
+        </button>
+        <span className="ml-auto shrink-0 pl-2 text-[11px] text-stone-400">
+          {state === "saving" ? (
+            <Loader2 size={12} className="inline animate-spin" />
+          ) : state === "saved" ? (
+            "저장됨"
+          ) : state === "error" ? (
+            <span className="text-rose-600">저장 못 함</span>
+          ) : null}
+        </span>
+      </div>
+
+      <div className="relative">
+        <textarea
+          ref={box}
+          value={text}
+          onChange={onChange}
+          onBlur={flush}
+          placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. 쓰는 대로 저장돼요."
+          className="block min-h-[22rem] w-full max-w-3xl resize-none bg-transparent px-6 py-5 text-[15px] leading-7 text-stone-800 outline-none [field-sizing:content] placeholder:text-stone-300"
+        />
+        {!text && (
+          <button
+            type="button"
+            onClick={() => put(STARTER, STARTER.indexOf("- ") + 2)}
+            className="absolute top-16 left-6 flex items-center gap-1.5 rounded-lg border border-dashed border-rose-300 bg-rose-50/60 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-50"
+          >
+            <Sparkles size={14} /> 오늘 틀로 시작 — 오늘 한 일 · 메모·생각
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 한 페이지 — 오늘 내 일지는 바로 쓰기, 지난 날은 읽기 좋게 보여 주고 '고치기' */
+function Page({ initial, editable, isToday, onSave }) {
+  const [editing, setEditing] = useState(editable && (isToday || !initial.trim()));
+  if (editing) return <Editor initial={initial} onSave={onSave} />;
+  return (
+    <div className="relative px-6 py-5">
+      {initial.trim() ? (
+        <Rendered text={initial} />
+      ) : (
+        <p className="min-h-[10rem] text-sm text-stone-400">이날은 쓴 글이 없어요.</p>
+      )}
+      {editable && (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="absolute top-3 right-3 flex items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-xs font-medium text-stone-600 hover:bg-stone-50"
+        >
+          <Pencil size={12} /> 고치기
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 모아 보기
+
+/** 쓴 날들을 위에서 아래로 이어서 — 하루씩 넘기지 않고 쭉 읽기 */
+function Feed({ data, name, onOpen }) {
+  const [limit, setLimit] = useState(10);
+  const days = useMemo(() => {
+    const set = new Set([...Object.keys(data.days), ...data.todos.filter((t) => t.doneOn).map((t) => t.doneOn)]);
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [data]);
+  if (!days.length) return <p className="rounded-2xl border border-stone-200 bg-white px-6 py-12 text-center text-sm text-stone-400">{name}님이 아직 쓴 날이 없어요.</p>;
+  return (
+    <div className="space-y-3">
+      {days.slice(0, limit).map((d) => {
+        const done = data.todos.filter((t) => t.doneOn === d);
+        return (
+          <article key={d} className="rounded-2xl border border-stone-200 bg-white">
+            <header className="flex items-center justify-between border-b border-stone-100 px-6 py-2.5">
+              <button type="button" onClick={() => onOpen(d)} className="font-semibold text-stone-900 hover:text-rose-700">
+                {dayTitle(d)}
+              </button>
+              {done.length > 0 && <span className="text-xs text-stone-400">할 일 {done.length}개 끝냄</span>}
+            </header>
+            <div className="px-6 py-4">
+              {data.days[d]?.text?.trim() ? <Rendered text={data.days[d].text} /> : <p className="text-sm text-stone-400">글 없음</p>}
+              {done.length > 0 && (
+                <ul className="mt-3 flex flex-wrap gap-1.5 border-t border-dashed border-stone-100 pt-3">
+                  {done.map((t) => (
+                    <li key={t.id} className="flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-600">
+                      <Check size={11} className="text-rose-700" /> {t.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </article>
+        );
+      })}
+      {days.length > limit && (
+        <button type="button" onClick={() => setLimit((n) => n + 10)} className="w-full rounded-xl border border-stone-200 bg-white py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50">
+          더 보기 · {days.length - limit}일 남음
+        </button>
+      )}
     </div>
   );
 }
@@ -323,6 +579,7 @@ export default function JournalPage({ online }) {
   const [today, setToday] = useState(dayKey);
   const [date, setDate] = useState(dayKey);
   const [q, setQ] = useState("");
+  const [view, setView] = useState("day"); // day 하루씩 | feed 모아 보기
 
   const load = useCallback(async () => {
     try {
@@ -440,14 +697,34 @@ export default function JournalPage({ online }) {
             </button>
           )}
         </div>
-        <div className="relative w-full sm:w-64">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+        <div className="flex shrink-0 gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+          {[
+            ["day", "하루씩"],
+            ["feed", "모아 보기"],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => {
+                setView(k);
+                setQ("");
+              }}
+              className={"rounded-lg px-3 py-1.5 font-medium " + (view === k && !q ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full sm:w-56">
           <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="두 사람 일지에서 찾기"
-            className="w-full rounded-lg border border-stone-200 bg-white py-1.5 pr-2 pl-8 text-sm outline-none focus:border-rose-600"
+            className="w-full rounded-lg border border-stone-200 bg-white py-2 pr-2 pl-8 text-sm outline-none focus:border-rose-600"
           />
+        </div>
         </div>
       </div>
 
@@ -461,6 +738,17 @@ export default function JournalPage({ online }) {
             setWho(k);
             setDate(d);
             setQ("");
+            setView("day");
+          }}
+        />
+      ) : view === "feed" ? (
+        <Feed
+          key={who}
+          data={data}
+          name={nameOf(who)}
+          onOpen={(d) => {
+            setDate(d);
+            setView("day");
           }}
         />
       ) : (
@@ -493,7 +781,13 @@ export default function JournalPage({ online }) {
             </header>
             {loaded ? (
               <>
-                <Page key={`${who}-${date}`} initial={data.days[date]?.text || ""} editable={editable} onSave={savePage} />
+                <Page
+                  key={`${who}-${date}-${editable}`}
+                  initial={data.days[date]?.text || ""}
+                  editable={editable}
+                  isToday={date === today}
+                  onSave={savePage}
+                />
                 <Todos todos={data.todos} date={date} today={today} editable={editable} onChange={(fn) => change((v) => ({ ...v, todos: fn(v.todos) })).catch(() => {})} />
               </>
             ) : (
