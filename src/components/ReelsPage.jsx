@@ -825,6 +825,11 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700">{r.structure.hookType}</span>
             )}
             {r.kind && <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-600">{r.kind}</span>}
+            {item.cost?.won > 0 && (
+              <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-500" title="이 영상 분석에 든 API 비용 (대략)">
+                분석 약 {item.cost.won}원
+              </span>
+            )}
             {r.seconds > 0 && (
               <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-600">{r.seconds}초</span>
             )}

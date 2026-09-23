@@ -789,3 +789,25 @@ Storage 키: `<id>`(영상) · `<id>-thumb.jpg` · `<id>-ours` · `<id>-ours-thu
   잔액 0이면 장끼 읽기(지원 작업)도 멈춘다.
 - **디자인 스킬 5개 설치**(`~/.claude/skills`, 모든 창): frontend-design(공식) · ui-ux-pro-max(스크립트는 로컬 CSV 검색만, 경로 고침) ·
   hallmark · emil-design-eng · web-design-guidelines. 설치 전 전부 읽어 봄(외부 전송·삭제 없음). 리디자인 방향은 세원 선택 대기.
+
+## 28. 비용 줄이기 · 보관만 · 계정 아카이브 v2 · 디자인 통일 (2026-09-23 밤)
+
+- **분석 비용 기록**: `api/_cost.js` `costOf(usage)` → 모든 Claude 응답에 `_cost {input, output, usd, won}`(1달러 ≈ 1,400원 대략).
+  분석기는 `item.cost` 로 저장, 릴스 상세에 "분석 약 N원". 장끼 읽기(`read-receipt`)도 `_cost` 를 돌려준다.
+- **비용 줄이기**(세원: "릴스 1개 분석할 때마다 많이 들어가네, 최대한 축약"): 장면 16~32장 → **10~18장**, 긴 변 720 → **560px**,
+  레퍼런스·캐러셀 분석 effort **low**(기획 adapt·product 는 그대로). 실측(9/23) 영상 광고 8초 분석 **139원**(입력 7,976 · 출력 2,386 토큰).
+- **보관만 / 분석하기**(세원: "실루엣만 나오는 영상은 분석이 필요 없거든. 나중에 필요하면 눌러서 분석"):
+  링크·파일 모두 두 버튼. 보관만 = 분석기가 영상·썸네일만(`job.analyze:false`, `item.keepOnly`), Claude 안 부름. 상세의 '분석하기' → 다시 맡김.
+  캐러셀 레퍼런스도 같은 방식(run_carousel 이 analyze:false 면 장 사진만).
+- **계정 아카이브 v2**(세원 레퍼런스랩 화면 4장): 왼쪽 세로 계정 목록(초록 점 = 모니터링 중, `paused` 면 매일 스캔 건너뜀) → 오른쪽 바로 열림.
+  탭 릴스 / **사진·캐러셀(합침 — 장 수만 다를 뿐)** / 광고 소재. 광고는 **날짜 타임라인**(최근 60일, 오늘이 오른쪽 끝, 등급 S 30일+ · A 14일+ · B 7일+ · C).
+  게시물·광고를 누르면 **상세 창**(댓글비율·좋아요·댓글·캡션 / 게재 기간·문구) → '…에서 보기'로 나간다. '이 소재 삭제' = `hidden`.
+  **영상 광고 → 레퍼런스 라이브러리**: `source {type:"adlib", adId}` → 분석기 `download_ad` 가 ?id= 페이지 JSON 의 video_hd_url 로 영상을 받는다.
+  9/23 cloudemotion 8/5 시작 영상 광고를 실제로 담음(보관 17초, 분석 71초·139원). 담으면 계정 기록에 `imported`.
+  넓은 화면이 필요해 App main 폭이 이 화면만 max-w-6xl.
+- **디자인 통일**(세원: "색상이랑 UI 는 그대로, 글꼴이나 클릭할 때 밤티 안 나게"):
+  - **Pretendard 를 실제로 불러옴**(`pretendard` 패키지 dynamic subset, main.jsx). 예전엔 이름만 있어 윈도우에서 **맑은 고딕**이었다.
+  - **버튼 글씨가 전부 16px 로 고정돼 있던 버그**: index.css 의 층 없는 `button{font-size:16px}` 가 Tailwind text-sm 을 이겼다 →
+    폰(≤640px)의 입력칸에만 16px(아이폰 확대 방지).
+  - 누를 때 scale(0.97) + ease-out 150ms(emil-design-eng), 떠 있는 창 `.sheet` 220ms 올라오기, 배경 `.backdrop-in`, focus-visible 링, 움직임 줄이기 존중.
+  - 탭은 ERP 공통 모양(회색 바탕 흰 알약)으로 — 계정 아카이브도 맞춤.
