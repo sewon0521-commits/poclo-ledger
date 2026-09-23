@@ -209,6 +209,7 @@ function AdTile({ a, url }) {
         </div>
         {a.text && <div className="line-clamp-3 text-stone-700">{a.text}</div>}
         {a.cta && <div className="text-stone-400">버튼: {a.cta}</div>}
+        {a.active && a.outOfTop && <div className="text-amber-700">아직 게재 중 · 노출 순위 밖으로 밀림</div>}
       </div>
     </div>
   );
