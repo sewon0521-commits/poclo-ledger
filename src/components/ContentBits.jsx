@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Copy, Check, Pencil } from "lucide-react";
+import { useRef, useState } from "react";
+import { Copy, Check, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
 import { workerAlive } from "../lib/reels";
 
 // 콘텐츠 화면(릴스 기획 · 캐러셀 기획)이 같이 쓰는 조각.
@@ -96,5 +96,89 @@ export function EditableTitle({ value, onChange, className = "" }) {
       <span className="truncate font-semibold text-stone-900">{value}</span>
       <Pencil size={12} className="shrink-0 text-stone-300 group-hover:text-stone-500" />
     </button>
+  );
+}
+
+/**
+ * 캐러셀 장 넘겨 보기 (9/24 세원: "캐러셀 사진도 넘길 수 있게").
+ * 손가락으로 밀거나(가로 스크롤 스냅) 양옆 화살표·키보드 ←/→ 로 한 장씩. 아래 점과 'n / N'.
+ * urls 에 아직 안 받은 장(null)이 있으면 회색 칸.
+ */
+export function SlideViewer({ urls, className = "", fit = "contain" }) {
+  const box = useRef(null);
+  const [at, setAt] = useState(0);
+  const n = urls.length;
+  const go = (i) => {
+    const el = box.current;
+    if (!el) return;
+    const k = Math.max(0, Math.min(n - 1, i));
+    el.scrollTo({ left: k * el.clientWidth, behavior: "smooth" });
+  };
+  return (
+    <div
+      className={"group relative " + className}
+      tabIndex={n > 1 ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight") go(at + 1);
+        if (e.key === "ArrowLeft") go(at - 1);
+      }}
+    >
+      <div
+        ref={box}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setAt(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
+        }}
+        className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {urls.map((u, i) => (
+          <div key={i} className="flex h-full w-full shrink-0 snap-center items-center justify-center">
+            {u ? (
+              <img src={u} alt={`${i + 1}번째 장`} className={"h-full w-full " + (fit === "cover" ? "object-cover" : "object-contain")} draggable={false} />
+            ) : (
+              <div className="h-full w-full bg-stone-200" />
+            )}
+          </div>
+        ))}
+      </div>
+      {n > 1 && (
+        <>
+          {at > 0 && (
+            <button
+              type="button"
+              onClick={() => go(at - 1)}
+              aria-label="이전 장"
+              className="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow"
+            >
+              <ChevronLeft size={18} />
+            </button>
+          )}
+          {at < n - 1 && (
+            <button
+              type="button"
+              onClick={() => go(at + 1)}
+              aria-label="다음 장"
+              className="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow"
+            >
+              <ChevronRight size={18} />
+            </button>
+          )}
+          <span className="absolute right-3 bottom-3 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white tabular-nums">
+            {at + 1} / {n}
+          </span>
+          <span className="absolute inset-x-0 bottom-3 flex justify-center gap-1">
+            {urls.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => go(i)}
+                aria-label={`${i + 1}번째 장`}
+                className={"h-1.5 rounded-full transition-all " + (i === at ? "w-4 bg-white" : "w-1.5 bg-white/60")}
+              />
+            ))}
+          </span>
+        </>
+      )}
+    </div>
   );
 }

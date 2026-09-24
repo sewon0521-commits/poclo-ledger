@@ -19,7 +19,7 @@ import {
 import { newId } from "../lib/id";
 import { analyzeCarousel, planCarousel, shrinkImage, refSummary } from "../lib/carousel";
 import { workerAlive } from "../lib/reels";
-import { CopyButton, WorkerStatus, EditableTitle } from "./ContentBits";
+import { CopyButton, WorkerStatus, EditableTitle, SlideViewer } from "./ContentBits";
 import { Empty } from "./ui";
 
 /**
@@ -674,14 +674,7 @@ function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClos
       />
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {urls.length > 0 && (
-          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-            {urls.map((u, i) => (
-              <div key={i} className="relative w-40 shrink-0">
-                {u ? <img src={u} alt="" className="aspect-[4/5] w-full rounded-lg object-cover" /> : <div className="aspect-[4/5] rounded-lg bg-stone-100" />}
-                <span className="absolute top-1 left-1 rounded bg-black/60 px-1.5 text-[10px] text-white">{i + 1}</span>
-              </div>
-            ))}
-          </div>
+          <SlideViewer urls={urls} className="mx-auto aspect-[4/5] w-full max-w-sm overflow-hidden rounded-xl bg-stone-100" />
         )}
 
         {status.kind === "done" && item.keepOnly ? (

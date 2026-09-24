@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Radar, Loader2, RotateCw, Trash2, X, ExternalLink, Play, Layers, Info, SlidersHorizontal, Check } from "lucide-react";
 import { newId } from "../lib/id";
-import { WorkerStatus } from "./ContentBits";
+import { WorkerStatus, SlideViewer } from "./ContentBits";
 import { Empty } from "./ui";
 
 /**
@@ -174,13 +174,38 @@ function ImportButtons({ label, done, onImport }) {
   );
 }
 
-function PostSheet({ acc, p, url, onClose, onImport, onHide }) {
+/** 캐러셀 장 사진 보관 이름 — 표지 'acct/<id>/p-<code>.jpg' 옆에 '-1.jpg' … (분석기 run_account) */
+const slideKeys = (p) => (p.kind === "carousel" && p.thumb && p.slideKeys > 0 ? Array.from({ length: p.slideKeys }, (_, i) => p.thumb.replace(/\.jpg$/, `-${i + 1}.jpg`)) : []);
+
+function PostSheet({ acc, p, url, fileUrls, onClose, onImport, onHide }) {
   const r = ratio(p);
   const young = p.takenAt && diff(p.takenAt, today()) <= 2;
+  // 캐러셀이면 장 사진을 받아 와서 넘겨 본다 (9/24)
+  const keys = slideKeys(p);
+  const [slides, setSlides] = useState(null);
+  const want = keys.join("|");
+  useEffect(() => {
+    if (!want) return;
+    let alive = true;
+    const ks = want.split("|");
+    fileUrls(ks).then((m) => alive && setSlides(ks.map((k) => m[k] || null)));
+    return () => {
+      alive = false;
+    };
+  }, [want, fileUrls]);
   return (
     <Sheet onClose={onClose}>
       <div className="relative flex min-h-[40vh] items-center justify-center bg-stone-100 sm:w-[46%]">
-        {url ? <img src={url} alt="" className="h-full max-h-[92vh] w-full object-cover" /> : null}
+        {slides ? (
+          <SlideViewer urls={slides} className="h-[60vh] w-full sm:h-[80vh]" />
+        ) : url ? (
+          <img src={url} alt="" className="h-full max-h-[92vh] w-full object-cover" />
+        ) : null}
+        {p.kind === "carousel" && !keys.length && (
+          <span className="absolute inset-x-3 bottom-3 rounded-lg bg-black/60 px-2.5 py-1.5 text-center text-[11px] text-white">
+            나머지 장은 다음 스캔 때 받아 와요
+          </span>
+        )}
         {young && (
           <span className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> 성과 확인 중
@@ -660,6 +685,7 @@ function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemo
           acc={acc}
           p={(data?.posts || {})[openPost.code] || openPost}
           url={urls[openPost.thumb]}
+          fileUrls={fileUrls}
           onClose={() => setOpenPost(null)}
           onHide={async () => {
             await mark("posts", openPost.code, { hidden: true });
