@@ -106,8 +106,37 @@ export function EditableTitle({ value, onChange, className = "" }) {
  */
 export function SlideViewer({ urls, className = "", fit = "contain" }) {
   const box = useRef(null);
+  const drag = useRef(null); // 마우스로 끌기 {x, left, moved}
   const [at, setAt] = useState(0);
   const n = urls.length;
+
+  // 9/24 세원: "드래그하면 옆으로 가게" — 손가락은 원래 밀리고, 마우스도 끌어서 넘긴다.
+  // 끄는 동안은 스냅을 끄고 손을 떼면 1/6 넘게 끌었으면 옆 장으로.
+  const onDown = (e) => {
+    if (e.pointerType !== "mouse" || n < 2) return;
+    const el = box.current;
+    drag.current = { x: e.clientX, left: el.scrollLeft, moved: 0, from: at };
+    el.style.scrollSnapType = "none";
+    el.setPointerCapture(e.pointerId);
+  };
+  const onMove = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    d.moved = e.clientX - d.x;
+    box.current.scrollLeft = d.left - d.moved;
+  };
+  const onUp = () => {
+    const d = drag.current;
+    if (!d) return;
+    drag.current = null;
+    const el = box.current;
+    const w = el.clientWidth;
+    const k = Math.abs(d.moved) > w / 6 ? d.from + (d.moved < 0 ? 1 : -1) : d.from;
+    el.scrollTo({ left: Math.max(0, Math.min(n - 1, k)) * w, behavior: "smooth" });
+    setTimeout(() => {
+      if (el) el.style.scrollSnapType = "";
+    }, 350);
+  };
   const go = (i) => {
     const el = box.current;
     if (!el) return;
@@ -125,11 +154,15 @@ export function SlideViewer({ urls, className = "", fit = "contain" }) {
     >
       <div
         ref={box}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
         onScroll={(e) => {
           const el = e.currentTarget;
           setAt(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
         }}
-        className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={"flex h-full w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden " + (n > 1 ? "cursor-grab active:cursor-grabbing" : "")}
       >
         {urls.map((u, i) => (
           <div key={i} className="flex h-full w-full shrink-0 snap-center items-center justify-center">

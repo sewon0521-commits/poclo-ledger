@@ -311,13 +311,46 @@ function Page({ initial, editable, isToday, onSave }) {
 /** 쓴 날들을 위에서 아래로 이어서 — 하루씩 넘기지 않고 쭉 읽기 */
 function Feed({ data, name, onOpen }) {
   const [limit, setLimit] = useState(10);
-  const days = useMemo(() => {
+  const all = useMemo(() => {
     const set = new Set([...Object.keys(data.days), ...data.todos.filter((t) => t.doneOn).map((t) => t.doneOn)]);
     return [...set].sort((a, b) => b.localeCompare(a));
   }, [data]);
-  if (!days.length) return <p className="rounded-2xl border border-stone-200 bg-white px-6 py-12 text-center text-sm text-stone-400">{name}님이 아직 쓴 날이 없어요.</p>;
+  // 달마다 보기 (9/24 세원: "모아 보기에 월마다 볼 수 있게") — 쓴 날이 있는 달만 단추로, 처음엔 가장 최근 달
+  const months = useMemo(() => {
+    const m = new Map();
+    for (const d of all) m.set(d.slice(0, 7), (m.get(d.slice(0, 7)) || 0) + 1);
+    return [...m.entries()];
+  }, [all]);
+  const [month, setMonth] = useState(() => all[0]?.slice(0, 7) || "all");
+  const days = month === "all" ? all : all.filter((d) => d.startsWith(month));
+  const label = (k) => {
+    const [y, m] = k.split("-").map(Number);
+    return y === new Date().getFullYear() ? `${m}월` : `${y}년 ${m}월`;
+  };
+  const bar = months.length > 0 && (
+    <div className="mb-3 flex flex-wrap items-center gap-1.5">
+      {[["all", "전체", all.length], ...months.map(([k, c]) => [k, label(k), c])].map(([k, text, c]) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => {
+            setMonth(k);
+            setLimit(10);
+          }}
+          className={
+            "rounded-full border px-3 py-1 text-sm font-medium " +
+            (month === k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")
+          }
+        >
+          {text} <span className={month === k ? "text-rose-200" : "text-stone-400"}>{c}일</span>
+        </button>
+      ))}
+    </div>
+  );
+  if (!all.length) return <p className="rounded-2xl border border-stone-200 bg-white px-6 py-12 text-center text-sm text-stone-400">{name}님이 아직 쓴 날이 없어요.</p>;
   return (
     <div className="space-y-3">
+      {bar}
       {days.slice(0, limit).map((d) => {
         const done = data.todos.filter((t) => t.doneOn === d);
         return (
