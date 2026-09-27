@@ -84,7 +84,7 @@ function SoundToggle() {
 function Panel({ section, page, onPage }) {
   const current = SECTIONS.find((s) => s.key === section) || SECTIONS[0];
   return (
-    <nav className="w-52 shrink-0 border-r border-stone-200 bg-white p-3">
+    <nav className="w-52 shrink-0 overflow-y-auto border-r border-stone-200 bg-white p-3">
       <div className="px-2 pt-1 pb-3">
         <div className="font-bold text-stone-900">포클로ERP</div>
         <div className="text-xs text-stone-400">{current.label}</div>
@@ -119,7 +119,8 @@ export default function Sidebar({ page, onPage, open, onClose }) {
   return (
     <>
       {/* 데스크톱: 띠 + 패널 */}
-      <div className="hidden md:flex">
+      {/* 화면을 내려도 메뉴는 제자리에 (9/28 세원: "스크롤을 내리면 목록 칸이 같이 딸려 내려가는데 그대로 놔둬줘") */}
+      <div className="sticky top-0 hidden h-screen shrink-0 self-start md:flex">
         <Rail section={section} onSection={goSection} />
         <Panel section={section} page={page} onPage={onPage} />
       </div>
