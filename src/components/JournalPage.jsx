@@ -387,80 +387,110 @@ function Feed({ data, name, onOpen }) {
 
 // ---------------------------------------------------------------- 할 일
 
-function Todos({ todos, date, today, editable, onChange }) {
+/** 할 일 한 줄 적는 칸 — 엔터로만 넣는다 (9/28 세원: "적다가 다른 화면을 누르면 그냥 들어가 버린다") */
+function TodoInput({ placeholder, onAdd }) {
   const [draft, setDraft] = useState("");
+  return (
+    <div className="mt-1 flex items-center gap-2.5 px-1">
+      <Plus size={16} className="shrink-0 text-stone-300" />
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        // 한글 입력은 엔터 keydown 이 조합 끝내기로 먹힌다 — keyup 에서 넣으면 한 번에 들어간다
+        onKeyUp={(e) => {
+          if (e.key !== "Enter" || !draft.trim()) return;
+          onAdd(draft.trim());
+          setDraft("");
+        }}
+        onKeyDown={(e) => e.key === "Escape" && setDraft("")}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-stone-300"
+      />
+    </div>
+  );
+}
+
+/** 할 일이 보이기 시작하는 날 — '내일 할 일'로 적은 건 startOn, 아니면 적은 날 */
+const startOf = (t) => t.startOn || t.createdOn;
+
+function TodoRow({ t, date, today, editable, onChange }) {
+  return (
+    <li className="group flex items-start gap-2.5 rounded-lg px-1 py-1 hover:bg-stone-50">
+      <button
+        type="button"
+        disabled={!editable}
+        onClick={() => onChange((list) => list.map((x) => (x.id === t.id ? { ...x, done: !x.done, doneOn: x.done ? null : today } : x)))}
+        aria-label={t.done ? "안 한 걸로" : "했어요"}
+        className={
+          "mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border " +
+          (t.done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 bg-white text-transparent hover:border-stone-400")
+        }
+      >
+        <Check size={12} strokeWidth={3} />
+      </button>
+      <span className={"min-w-0 flex-1 text-sm leading-6 " + (t.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>
+        {t.text}
+        {!t.done && startOf(t) < date && (
+          <span className="ml-1.5 inline-flex items-center gap-0.5 align-[1px] text-[11px] text-amber-700 no-underline">
+            <CornerDownRight size={10} /> {shortDay(startOf(t))}부터
+          </span>
+        )}
+      </span>
+      {editable && (
+        <button
+          type="button"
+          onClick={() => onChange((list) => list.filter((x) => x.id !== t.id))}
+          aria-label="할 일 지우기"
+          className="mt-0.5 p-0.5 text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-600 focus-visible:opacity-100"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </li>
+  );
+}
+
+/**
+ * 할 일. 날짜에 묶지 않아서 안 끝난 건 끝낼 때까지 오늘 페이지에 계속 보인다('9/22부터').
+ * 9/28 '내일 할 일' 칸: startOn = 내일 로 적어 두면 오늘은 아래 칸에만 있고, 내일이 되면 '할 일'로 올라온다.
+ */
+function Todos({ todos, date, today, editable, onChange }) {
+  const tomorrow = shiftDay(today, 1);
   const shown = useMemo(() => {
     const list =
       date === today
-        ? todos.filter((t) => !t.done || t.doneOn === today)
-        : todos.filter((t) => t.doneOn === date || (t.createdOn === date && !t.done));
-    return [...list].sort((a, b) => Number(a.done) - Number(b.done) || a.createdOn.localeCompare(b.createdOn));
+        ? todos.filter((t) => (!t.done && startOf(t) <= today) || t.doneOn === today)
+        : todos.filter((t) => t.doneOn === date || (startOf(t) === date && !t.done));
+    return [...list].sort((a, b) => Number(a.done) - Number(b.done) || startOf(a).localeCompare(startOf(b)));
   }, [todos, date, today]);
-
-  const add = () => {
-    const text = draft.trim();
-    if (!text) return;
-    setDraft("");
-    onChange((list) => [...list, { id: newId("t"), text, done: false, doneOn: null, createdOn: today }]);
-  };
+  const later = useMemo(() => todos.filter((t) => !t.done && startOf(t) > today), [todos, today]);
+  const add = (text, startOn) =>
+    onChange((list) => [...list, { id: newId("t"), text, done: false, doneOn: null, createdOn: today, ...(startOn ? { startOn } : {}) }]);
 
   return (
     <div className="border-t border-stone-100 px-5 py-4">
-      <div className="mb-2 text-xs font-semibold text-stone-500">{date === today ? "할 일" : "이날 할 일"}</div>
+      <div className="mb-2 text-xs font-semibold text-stone-500">{date === today ? "오늘 할 일" : "이날 할 일"}</div>
       {shown.length === 0 && !editable && <p className="text-sm text-stone-400">없어요.</p>}
       <ul className="space-y-0.5">
         {shown.map((t) => (
-          <li key={t.id} className="group flex items-start gap-2.5 rounded-lg px-1 py-1 hover:bg-stone-50">
-            <button
-              type="button"
-              disabled={!editable}
-              onClick={() =>
-                onChange((list) =>
-                  list.map((x) => (x.id === t.id ? { ...x, done: !x.done, doneOn: x.done ? null : today } : x)),
-                )
-              }
-              aria-label={t.done ? "안 한 걸로" : "했어요"}
-              className={
-                "mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border " +
-                (t.done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 bg-white text-transparent hover:border-stone-400")
-              }
-            >
-              <Check size={12} strokeWidth={3} />
-            </button>
-            <span className={"min-w-0 flex-1 text-sm leading-6 " + (t.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>
-              {t.text}
-              {!t.done && t.createdOn < date && (
-                <span className="ml-1.5 inline-flex items-center gap-0.5 align-[1px] text-[11px] text-amber-700 no-underline">
-                  <CornerDownRight size={10} /> {shortDay(t.createdOn)}부터
-                </span>
-              )}
-            </span>
-            {editable && (
-              <button
-                type="button"
-                onClick={() => onChange((list) => list.filter((x) => x.id !== t.id))}
-                aria-label="할 일 지우기"
-                className="mt-0.5 p-0.5 text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-600 focus-visible:opacity-100"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </li>
+          <TodoRow key={t.id} t={t} date={date} today={today} editable={editable} onChange={onChange} />
         ))}
       </ul>
-      {editable && date === today && (
-        <div className="mt-1 flex items-center gap-2.5 px-1">
-          <Plus size={16} className="shrink-0 text-stone-300" />
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyUp={(e) => e.key === "Enter" && add()}
-            onBlur={add}
-            placeholder="할 일 추가 (엔터)"
-            className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-stone-300"
-          />
+      {editable && date === today && <TodoInput placeholder="오늘 할 일 추가 (엔터)" onAdd={(t) => add(t)} />}
+
+      {date === today && (editable || later.length > 0) && (
+        <div className="mt-4 border-t border-dashed border-stone-100 pt-3">
+          <div className="mb-2 text-xs font-semibold text-stone-500">내일 할 일</div>
+          {later.length === 0 && !editable && <p className="text-sm text-stone-400">없어요.</p>}
+          <ul className="space-y-0.5">
+            {later.map((t) => (
+              <TodoRow key={t.id} t={t} date={date} today={today} editable={editable} onChange={onChange} />
+            ))}
+          </ul>
+          {editable && <TodoInput placeholder="내일 할 일 추가 (엔터) — 내일이 되면 '오늘 할 일'로 올라와요" onAdd={(t) => add(t, tomorrow)} />}
         </div>
       )}
+
       {editable && date !== today && (
         <p className="mt-1 px-1 text-[11px] text-stone-400">새 할 일은 오늘 페이지에서 적어요. 못 한 건 끝낼 때까지 오늘로 넘어와요.</p>
       )}
