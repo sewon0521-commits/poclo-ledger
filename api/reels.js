@@ -272,7 +272,7 @@ function ownBlocks(own) {
 /**
  * 채팅으로 고치기 (9/29 세원: "내가 채팅으로 제안할 수도 있게. AI 가 알아듣고 세부적인 부분 변경").
  * 만든 기획(훅·대본·촬영 순서·본문) + 지금까지 대화 + 새 요청 → 고친 기획 + 무엇을 바꿨는지 한두 줄.
- * 사진은 다시 안 보낸다(글만) — 한 번에 몇십 원.
+ * 사진은 다시 안 보낸다(글만). 기획 전체를 다시 돌려받아서 한 번에 약 100원 안팎.
  */
 const ReviseSchema = z.object({
   reply: z.string().describe("무엇을 어떻게 바꿨는지 한두 줄, 존댓말. 요청이 애매하면 어떻게 해석했는지도"),
@@ -578,7 +578,7 @@ export default async function handler(req, res) {
         history.length ? `\n--- 앞서 나눈 대화 ---\n${history.map((h) => `${h.role === "me" ? "세원" : "AI"}: ${h.text}`).join("\n")}` : "",
         `\n--- 이번 요청 ---\n${ask1}`,
       ].join("\n");
-      const r = await ask(client, [{ type: "text", text }], ReviseSchema, "medium");
+      const r = await ask(client, [{ type: "text", text }], ReviseSchema, "low"); // 9/29 시험 medium 125원 → 생각을 줄여 아낀다
       return res.status(200).json(parsedOf(r, "고친 기획"));
     }
 

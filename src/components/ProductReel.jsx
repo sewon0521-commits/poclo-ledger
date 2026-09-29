@@ -348,7 +348,7 @@ function PlanChat({ item, onSave }) {
         </button>
       </div>
       {msg && <p className="px-3 pb-2 text-xs text-rose-700">{msg}</p>}
-      {chat.length === 0 && <p className="px-3 pb-2.5 text-[11px] text-stone-400">요청한 부분만 고쳐서 바로 위 기획에 반영해요. 한 번에 약 30~60원.</p>}
+      {chat.length === 0 && <p className="px-3 pb-2.5 text-[11px] text-stone-400">요청한 부분만 고쳐서 바로 위 기획에 반영해요. 한 번에 약 100원 안팎.</p>}
     </div>
   );
 }
