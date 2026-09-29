@@ -93,6 +93,9 @@ export function mixPayload(library, mix) {
   return out;
 }
 
+/** 채팅으로 고치기 (9/29) — 지금 기획 + 대화 + 요청 → 고친 기획 + reply */
+export const reviseReel = ({ plan, history, message }) => call({ mode: "revise", plan, history, message });
+
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
 export const adaptScript = ({ reference, looks, memo, avoid, direction }) =>
   call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction });

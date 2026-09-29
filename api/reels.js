@@ -269,6 +269,36 @@ function ownBlocks(own) {
   return out;
 }
 
+/**
+ * 채팅으로 고치기 (9/29 세원: "내가 채팅으로 제안할 수도 있게. AI 가 알아듣고 세부적인 부분 변경").
+ * 만든 기획(훅·대본·촬영 순서·본문) + 지금까지 대화 + 새 요청 → 고친 기획 + 무엇을 바꿨는지 한두 줄.
+ * 사진은 다시 안 보낸다(글만) — 한 번에 몇십 원.
+ */
+const ReviseSchema = z.object({
+  reply: z.string().describe("무엇을 어떻게 바꿨는지 한두 줄, 존댓말. 요청이 애매하면 어떻게 해석했는지도"),
+  hook: z.string().describe("고친 훅 (안 바꿀 거면 원래 그대로)"),
+  script: z.string().describe("고친 대본 전체 (안 바꾼 줄은 그대로)"),
+  scenes: z
+    .array(
+      z.object({
+        at: z.string(),
+        look: z.number(),
+        shot: z.string(),
+        text: z.string(),
+      }),
+    )
+    .describe("고친 촬영 순서 전체 (안 바꾼 장면은 그대로)"),
+  caption: z.string().describe("고친 본문 (안 바꿀 거면 그대로)"),
+  hashtags: z.array(z.string()).describe("해시태그 (안 바꿀 거면 그대로)"),
+});
+
+const REVISE_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기획자다. 아래는 이미 만든 우리 릴스 기획이고,
+운영자(세원)가 채팅으로 고쳐 달라고 한다. **요청한 부분만** 고치고 나머지는 글자 하나 바꾸지 말고 그대로 돌려줘라.
+- 대본을 고치면 촬영 순서의 자막(text)도 맞춰 고친다. 장면을 더하거나 빼 달라면 시점(at)을 다시 매긴다.
+- 상품 글에 없는 소재·기능·가격을 지어내지 않는다. 과장 광고 문구 금지.
+- 자막 말투는 원래 대본 말투를 따른다(요청이 말투를 바꾸라는 게 아니면).
+- reply 에 무엇을 바꿨는지 짧게. 요청이 불가능하거나 상품 정보에 없으면 그렇다고 말하고 가장 가까운 대안으로.`;
+
 const PRODUCT_REEL_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기획자다.
 이번엔 **상품이 먼저 정해졌다.** 아래 레퍼런스 후보(우리 라이브러리에 모아 둔, 잘 된 릴스 분석) 중에서
 **이 상품에 가장 맞는 구조 하나**를 골라(chosen), 그 구조를 빌려 우리 상품 릴스를 기획해라.
@@ -529,6 +559,27 @@ export default async function handler(req, res) {
       });
       const r = await ask(client, content, ReviewSchema, effort);
       return res.status(200).json(parsedOf(r, "피드백"));
+    }
+
+    if (body.mode === "revise") {
+      const plan = body.plan || {};
+      const history = (Array.isArray(body.history) ? body.history : []).slice(-10);
+      const ask1 = String(body.message || "").trim().slice(0, 1500);
+      if (!ask1) return fail(res, 400, "bad_request", "무엇을 고칠지 적어 주세요.");
+      const text = [
+        REVISE_PROMPT,
+        "\n--- 지금 기획 ---",
+        plan.product ? `상품: ${plan.product}` : "",
+        `훅: ${plan.hook || ""}`,
+        `대본:\n${plan.script || ""}`,
+        `촬영 순서:\n${(plan.scenes || []).map((x) => `- [${x.at}] (룩 ${x.look || 0}) ${x.shot} / 자막: ${x.text || ""}`).join("\n")}`,
+        `본문:\n${plan.caption || ""}`,
+        `해시태그: ${(plan.hashtags || []).join(" ")}`,
+        history.length ? `\n--- 앞서 나눈 대화 ---\n${history.map((h) => `${h.role === "me" ? "세원" : "AI"}: ${h.text}`).join("\n")}` : "",
+        `\n--- 이번 요청 ---\n${ask1}`,
+      ].join("\n");
+      const r = await ask(client, [{ type: "text", text }], ReviseSchema, "medium");
+      return res.status(200).json(parsedOf(r, "고친 기획"));
     }
 
     if (body.mode === "product") {

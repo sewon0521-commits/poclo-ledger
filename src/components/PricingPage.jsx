@@ -515,7 +515,9 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, products, onSave 
 
 // ---------------------------------------------------------------- 모은 목록
 
-const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPatch, onRemove }) {
+const SavedList = memo(function SavedList({ items, rates, settings, images, onEdit, onPatch, onRemove }) {
+  // 썸네일 크게 보기 (9/29 세원: "어떤 제품인지 감이 안 와서 상품명 왼쪽에 작게, 누르면 크게")
+  const [big, setBig] = useState(null);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("recent"); // recent | low | high
   const [limit, setLimit] = useState(PAGE);
@@ -593,6 +595,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
         <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white [contain-intrinsic-size:auto_1800px] [content-visibility:auto]">
           <table className="w-full min-w-[760px] table-fixed text-sm">
             <colgroup>
+              <col className="w-12" />
               <col />
               <col className="w-28" />
               <col className="w-24" />
@@ -604,6 +607,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
             </colgroup>
             <thead>
               <tr className="border-b border-stone-200 text-xs text-stone-400">
+                <th />
                 <th className="px-3 py-2.5 text-left font-medium">상품</th>
                 <th className="px-3 py-2.5 text-left font-medium">거래처</th>
                 <th className="px-3 py-2.5 text-right font-medium">공급가</th>
@@ -617,6 +621,15 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
             <tbody className="divide-y divide-stone-100 tabular-nums">
               {shown.map((x) => (
                 <tr key={x.id} className="hover:bg-stone-50">
+                  <td className="py-1 pl-3">
+                    {images.get(x.productNo) ? (
+                      <button type="button" onClick={() => setBig({ src: images.get(x.productNo), name: x.name })} aria-label="사진 크게 보기" className="block">
+                        <img src={images.get(x.productNo)} alt="" loading="lazy" className="h-10 w-8 rounded object-cover ring-1 ring-stone-200 hover:ring-rose-400" />
+                      </button>
+                    ) : (
+                      <span className="block h-10 w-8 rounded bg-stone-100" title="카페24 상품과 아직 안 이어졌어요" />
+                    )}
+                  </td>
                   <td className="truncate px-3 py-1.5 text-left">
                     <button
                       type="button"
@@ -680,6 +693,14 @@ const SavedList = memo(function SavedList({ items, rates, settings, onEdit, onPa
           )}
         </div>
       )}
+      {big && (
+        <div className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 p-4" onClick={() => setBig(null)}>
+          <figure className="sheet max-h-[90vh] max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <img src={big.src.replace("/medium/", "/big/")} onError={(e) => (e.currentTarget.src = big.src)} alt="" className="max-h-[80vh] w-full object-contain" />
+            <figcaption className="px-4 py-2.5 text-sm font-medium text-stone-800">{big.name}</figcaption>
+          </figure>
+        </div>
+      )}
     </section>
   );
 });
@@ -697,6 +718,8 @@ export default function PricingPage({ rows, conf, onConf, items, vendors, produc
   const rates = useMemo(() => fresh, [freshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const settings = useMemo(() => ({ ...DEFAULT_PRICING, ...conf.pricing }), [conf.pricing]);
+  // 상품 번호 → 사진 (판매 중 상품, 새벽 갱신). 목록이 memo 라 한 번 만든 걸 돌려 쓴다
+  const images = useMemo(() => new Map(products.map((p) => [p.no, p.image]).filter(([, u]) => u)), [products]);
   const [draft, setDraft] = useState(EMPTY);
 
   // 목록 쪽 핸들러는 고정 — 바뀌면 memo 가 소용없다
@@ -770,6 +793,7 @@ export default function PricingPage({ rows, conf, onConf, items, vendors, produc
         items={items}
         rates={rates}
         settings={settings}
+        images={images}
         onEdit={onEdit}
         onPatch={onPatch}
         onRemove={onRemoveItem}

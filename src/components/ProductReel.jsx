@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt } from "lucide-react";
-import { productReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS } from "../lib/reels";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Pencil, Send, Undo2, MessageSquare } from "lucide-react";
+import { productReel, reviseReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS } from "../lib/reels";
 import { extractFrames } from "../lib/video";
 import { newId } from "../lib/id";
 import { shortName as short, emptyLook } from "../lib/looks";
@@ -31,6 +31,24 @@ function FirstPick({ stats, onPick }) {
   );
 }
 
+// 만들던 기획 — 다른 화면에 갔다 와도 그대로 (9/29). 우리 영상 '파일'은 기억 못 한다(라이브러리 것만)
+const DRAFT_KEY = "poclo_reel_draft";
+function readDraft() {
+  try {
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+function writeDraft(d) {
+  try {
+    if (d) localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+    else localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* 기억 못 해도 된다 */
+  }
+}
+
 function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   const done = library.filter((i) => i.reference?.structure);
   const [refId, setRefId] = useState(draft.refId || "auto");
@@ -46,11 +64,19 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const again = !!draft.prev;
+  const waiting = !!draft.running;
+  // 고르는 대로 기억해 둔다 — 화면을 떠났다 와도 이어서
+  useEffect(() => {
+    const prev = readDraft() || {};
+    writeDraft({ ...prev, ...draft, looks, memo, refId, mix, own: own.filter((o) => o.kind === "lib").map((o) => ({ key: o.key, kind: o.kind, id: o.id, title: o.title })) });
+  }, [draft, looks, memo, refId, mix, own]);
   const first = looks[0]?.products?.[0] || {};
 
   const run = async () => {
     setMsg("");
     setBusy(true);
+    // 만드는 중에 다른 화면으로 가도 요청은 계속되고, 끝나면 목록에 들어온다 — 돌아왔을 때 '만드는 중' 으로 보이게
+    writeDraft({ ...(readDraft() || {}), running: Date.now() });
     try {
       // 우리 영상 소스 → 소스마다 장면 8장쯤 (Claude 는 영상을 못 받는다 — 사진으로)
       const ownPayload = [];
@@ -83,6 +109,8 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
       });
       if (!r.ok) {
         setMsg(r.message);
+        const d = readDraft();
+        if (d) writeDraft({ ...d, running: null });
         return;
       }
       const ref = done.find((i) => i.id === r.data.chosen) || null;
@@ -104,6 +132,8 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
       });
     } catch (err) {
       setMsg(err?.message || "기획을 만들지 못했어요.");
+      const d = readDraft();
+      if (d) writeDraft({ ...d, running: null });
     } finally {
       setStep("");
       setBusy(false);
@@ -139,13 +169,186 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
       {msg && <p className="text-sm text-rose-700">{msg}</p>}
       <button
         type="button"
-        disabled={busy || !looks.some((l) => l.products.length)}
+        disabled={busy || waiting || !looks.some((l) => l.products.length)}
         onClick={run}
         className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 font-semibold text-white disabled:bg-stone-300"
       >
         {busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
         {busy ? step || "상품 사진·레퍼런스 보고 기획하는 중… (1분쯤)" : again ? "갈아엎어서 다시 만들기" : "이 상품으로 릴스 기획"}
       </button>
+    </div>
+  );
+}
+
+/** 글 한 덩어리 — '고치기' 누르면 바로 고친다 (9/29 세원: "AI가 새로 쓴 대본을 내가 수정할 수 있게") */
+function EditableText({ label, value, onSave, strong, copy, tone = "border" }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState(value || "");
+  const box = tone === "soft" ? "rounded-xl bg-stone-50 px-3 py-2.5" : "rounded-xl border border-stone-200 px-3 py-2.5";
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-stone-500">{label}</span>
+        <span className="flex items-center gap-2">
+          {!edit && (
+            <button
+              type="button"
+              onClick={() => {
+                setV(value || "");
+                setEdit(true);
+              }}
+              className="flex items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
+            >
+              <Pencil size={12} /> 고치기
+            </button>
+          )}
+          {copy && !edit && <CopyButton text={value || ""} />}
+        </span>
+      </div>
+      {edit ? (
+        <div className="space-y-1.5">
+          <textarea
+            value={v}
+            autoFocus
+            onChange={(e) => setV(e.target.value)}
+            className="block min-h-[6rem] w-full rounded-xl border border-rose-400 px-3 py-2.5 leading-relaxed text-stone-800 outline-none [field-sizing:content]"
+          />
+          <span className="flex justify-end gap-1.5">
+            <button type="button" onClick={() => setEdit(false)} className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600">
+              그만두기
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onSave(v);
+                setEdit(false);
+              }}
+              className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              저장
+            </button>
+          </span>
+        </div>
+      ) : (
+        <p className={box + " leading-relaxed whitespace-pre-wrap " + (strong ? "font-semibold text-stone-900" : "text-stone-800")}>{value}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 채팅으로 고치기 (9/29 세원: "채팅으로 제안하면 AI가 알아듣고 세부적인 부분 변경").
+ * 요청 → 훅·대본·촬영 순서·본문 중 요청한 곳만 고쳐서 바로 기획안에 반영. 고치기 전 것은 5번까지 되돌릴 수 있다.
+ */
+function PlanChat({ item, onSave }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const end = useRef(null);
+  const chat = item.chat || [];
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [chat.length, busy]);
+
+  const send = async () => {
+    const m = text.trim();
+    if (!m || busy) return;
+    setBusy(true);
+    setMsg("");
+    const p = item.plan || {};
+    const r = await reviseReel({
+      plan: { product: item.product?.name, hook: p.hook, script: p.script, scenes: p.scenes, caption: p.caption, hashtags: p.hashtags },
+      history: chat.map((c) => ({ role: c.role, text: c.text })),
+      message: m,
+    });
+    setBusy(false);
+    if (!r.ok) {
+      setMsg(r.message);
+      return;
+    }
+    setText("");
+    const { reply, hook, script, scenes, caption, hashtags, _cost } = r.data;
+    const now = new Date().toISOString();
+    onSave({
+      ...item,
+      plan: { ...p, hook, script, scenes, caption, hashtags },
+      undo: [{ hook: p.hook, script: p.script, scenes: p.scenes, caption: p.caption, hashtags: p.hashtags }, ...(item.undo || [])].slice(0, 5),
+      chat: [...chat, { role: "me", text: m, at: now }, { role: "ai", text: reply, at: now, won: _cost?.won }],
+    });
+  };
+
+  const undo = () => {
+    const [last, ...rest] = item.undo || [];
+    if (!last) return;
+    onSave({
+      ...item,
+      plan: { ...item.plan, ...last },
+      undo: rest,
+      chat: [...chat, { role: "ai", text: "방금 고친 것을 되돌렸어요.", at: new Date().toISOString() }],
+    });
+  };
+
+  return (
+    <div className="rounded-xl border border-sky-200 bg-sky-50/40">
+      <div className="flex items-center justify-between border-b border-sky-100 px-3 py-2">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-sky-900">
+          <MessageSquare size={13} /> AI에게 고쳐 달라고 하기
+        </span>
+        {(item.undo || []).length > 0 && (
+          <button type="button" onClick={undo} className="flex items-center gap-1 text-xs font-medium text-sky-800 hover:underline">
+            <Undo2 size={12} /> 방금 고친 것 되돌리기
+          </button>
+        )}
+      </div>
+      {chat.length > 0 && (
+        <ul className="max-h-60 space-y-2 overflow-y-auto px-3 py-2.5">
+          {chat.map((c, i) => (
+            <li key={i} className={"flex " + (c.role === "me" ? "justify-end" : "justify-start")}>
+              <span
+                className={
+                  "max-w-[85%] rounded-2xl px-3 py-1.5 text-[13px] leading-relaxed whitespace-pre-wrap " +
+                  (c.role === "me" ? "rounded-br-md bg-rose-700 text-white" : "rounded-bl-md bg-white text-stone-800 ring-1 ring-sky-100")
+                }
+              >
+                {c.text}
+                {c.won > 0 && <span className="ml-1.5 text-[10px] text-stone-400">약 {c.won}원</span>}
+              </span>
+            </li>
+          ))}
+          {busy && (
+            <li className="flex items-center gap-1.5 text-xs text-sky-800">
+              <Loader2 size={12} className="animate-spin" /> 고치는 중… (20~40초)
+            </li>
+          )}
+          <li ref={end} />
+        </ul>
+      )}
+      <div className="flex items-end gap-2 px-3 py-2.5">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          rows={1}
+          placeholder="예: 훅을 더 짧게 / 3번째 장면은 거울 셀카로 / 가격 얘기 빼줘 / 말투를 존댓말로"
+          className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm outline-none [field-sizing:content] focus:border-sky-500"
+        />
+        <button
+          type="button"
+          disabled={busy || !text.trim()}
+          onClick={send}
+          aria-label="보내기"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-700 text-white disabled:bg-stone-300"
+        >
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+        </button>
+      </div>
+      {msg && <p className="px-3 pb-2 text-xs text-rose-700">{msg}</p>}
+      {chat.length === 0 && <p className="px-3 pb-2.5 text-[11px] text-stone-400">요청한 부분만 고쳐서 바로 위 기획에 반영해요. 한 번에 약 30~60원.</p>}
     </div>
   );
 }
@@ -232,10 +435,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
             <p className="mt-0.5 leading-relaxed">{p.chosenWhy}</p>
           </div>
         )}
-        <div className="rounded-xl bg-stone-50 px-3 py-2.5">
-          <div className="text-xs font-semibold text-stone-500">첫 1~3초 훅</div>
-          <p className="mt-0.5 font-semibold text-stone-900">{p.hook}</p>
-        </div>
+        <EditableText key={`h${p.hook}`} label="첫 1~3초 훅" value={p.hook} strong tone="soft" onSave={(v) => onSave({ ...item, plan: { ...p, hook: v } })} />
         {filledScript && (
           <div>
             <div className="mb-1 flex items-center justify-between">
@@ -245,13 +445,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
             <p className="rounded-xl border border-stone-200 px-3 py-2.5 leading-relaxed whitespace-pre-wrap text-stone-800">{filledScript}</p>
           </div>
         )}
-        <div>
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs font-semibold text-stone-500">AI가 새로 쓴 대본</span>
-            <CopyButton text={p.script || ""} />
-          </div>
-          <p className="rounded-xl border border-stone-200 px-3 py-2.5 leading-relaxed whitespace-pre-wrap text-stone-800">{p.script}</p>
-        </div>
+        <EditableText key={`s${p.script}`} label="AI가 새로 쓴 대본" value={p.script} copy onSave={(v) => onSave({ ...item, plan: { ...p, script: v } })} />
         {p.scenes?.length > 0 && (
           <div>
             <div className="mb-1 text-xs font-semibold text-stone-500">촬영 순서</div>
@@ -292,14 +486,9 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
             </div>
           </div>
         )}
-        <div className="rounded-xl bg-stone-50 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-stone-500">인스타 본문</span>
-            <CopyButton text={`${p.caption || ""}\n\n${(p.hashtags || []).join(" ")}`} label="본문 복사" />
-          </div>
-          <p className="mt-1 leading-relaxed whitespace-pre-wrap text-stone-700">{p.caption}</p>
-          <p className="mt-1.5 text-xs text-stone-500">{(p.hashtags || []).join(" ")}</p>
-        </div>
+        <EditableText key={`c${p.caption}`} label="인스타 본문" value={p.caption} tone="soft" copy onSave={(v) => onSave({ ...item, plan: { ...p, caption: v } })} />
+        <p className="-mt-1.5 px-1 text-xs text-stone-500">{(p.hashtags || []).join(" ")}</p>
+        <PlanChat item={item} onSave={onSave} />
       </div>
       <footer className="flex shrink-0 items-center justify-between border-t border-stone-200 px-4 py-2.5">
         <button
@@ -329,11 +518,31 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
 
 export default function ProductReelTab({ stats, library, plans, fileUrl, folders, onSavePlan, onRemovePlan, onOpenRef }) {
   // draft = {looks, memo, prev?, id?, title?} — 새로 만들거나, 기존 기획을 갈아엎을 때
-  const [draft, setDraft] = useState(null);
+  const [draft, setDraftState] = useState(() => {
+    const d = readDraft();
+    // 5분 넘게 '만드는 중' 이면 끊긴 것으로 본다
+    return d && d.running && Date.now() - d.running > 5 * 60 * 1000 ? { ...d, running: null } : d;
+  });
+  const setDraft = (d) => {
+    setDraftState(d);
+    writeDraft(d);
+  };
   const [view, setView] = useState(null);
+  // 떠나 있는 동안 맡긴 기획이 끝났으면(목록에 새로 들어왔으면) 만들던 칸을 닫는다
+  const runningSince = draft?.running;
+  const landed = runningSince && plans.some((x) => x.createdAt && new Date(x.createdAt).getTime() >= runningSince - 1000);
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    if (landed) setDraft(null);
+  }, [landed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-4">
+      {draft?.running && !landed && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <Loader2 size={15} className="animate-spin" /> 아까 맡긴 기획을 만드는 중이에요. 끝나면 아래 목록에 들어와요.
+        </div>
+      )}
       {draft ? (
         <Make
           draft={draft}

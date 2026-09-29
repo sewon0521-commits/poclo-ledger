@@ -1550,7 +1550,22 @@ export default function ReelsPage({
   onRemovePlan,
 }) {
   // 레퍼런스 라이브러리 | 우리 상품으로 기획 (9/22 세원: "우리 상품을 말하거나 링크·클릭하면 그 상품에 맞는 릴스로")
-  const [mode, setMode] = useState("library");
+  // 다른 화면에 갔다 와도 보던 탭 그대로 (9/29 세원: "섞어서 만들래 하다가 딴 곳 갔더니 없어져서")
+  const [mode, setModeState] = useState(() => {
+    try {
+      return localStorage.getItem("poclo_reels_mode") === "product" ? "product" : "library";
+    } catch {
+      return "library";
+    }
+  });
+  const setMode = (m) => {
+    setModeState(m);
+    try {
+      localStorage.setItem("poclo_reels_mode", m);
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
   const [notice, setNotice] = useState("");
   const [q, setQ] = useState("");
   const [bestOnly, setBestOnly] = useState(false);
