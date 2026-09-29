@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt } from "lucide-react";
 import { productReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS } from "../lib/reels";
+import { extractFrames } from "../lib/video";
 import { newId } from "../lib/id";
 import { shortName as short, emptyLook } from "../lib/looks";
 import LookPicker, { ProductSearch } from "./LookPicker";
@@ -36,6 +37,9 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   // 섞어 만들기 (9/29) — {hook, flow, shots, script}: 부분마다 빌려 올 레퍼런스 id
   const [mix, setMix] = useState(draft.mix || {});
   const mixing = refId === "mix";
+  // 우리가 찍은 영상 소스 (9/29) — [{key, kind:"lib"|"file", id?, title, file?}]. 파일은 이 화면에서만 들고 있다
+  const [own, setOwn] = useState(() => (draft.own || []).filter((o) => o.kind === "lib"));
+  const [step, setStep] = useState("");
   const [looks, setLooks] = useState(draft.looks);
   const [memo, setMemo] = useState(draft.memo || "");
   const [direction, setDirection] = useState("");
@@ -48,6 +52,23 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
     setMsg("");
     setBusy(true);
     try {
+      // 우리 영상 소스 → 소스마다 장면 8장쯤 (Claude 는 영상을 못 받는다 — 사진으로)
+      const ownPayload = [];
+      if (mixing) {
+        for (const [i, o] of own.entries()) {
+          setStep(`우리 영상 ${i + 1}/${own.length} 장면 뜨는 중…`);
+          let blob = o.file;
+          if (!blob) {
+            const u = await fileUrl(o.id);
+            if (!u) throw new Error(`'${o.title}' 영상을 보관함에서 못 찾았어요.`);
+            blob = await (await fetch(u)).blob();
+          }
+          const { frames, seconds } = await extractFrames(blob, { longEdge: 560, quality: 0.65 });
+          const pick = frames.length > 8 ? frames.filter((_, k) => k % Math.ceil(frames.length / 8) === 0) : frames;
+          ownPayload.push({ title: o.title, seconds, frames: pick });
+        }
+      }
+      setStep("");
       const pool = refId === "auto" ? done : mixing ? [] : done.filter((i) => i.id === refId);
       const r = await productReel({
         looks,
@@ -58,7 +79,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         // 갈아엎기 — 앞서 만든 훅·대본은 피한다
         avoid: again ? `${draft.prev.hook || ""}\n${draft.prev.script || ""}` : "",
         direction: again ? direction : "",
-        mix: mixing ? mixPayload(library, mix) : undefined,
+        mix: mixing ? { ...mixPayload(library, mix), own: ownPayload } : undefined,
       });
       if (!r.ok) {
         setMsg(r.message);
@@ -75,12 +96,16 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         refTitle: ref ? ref.reference?.title || ref.title : "",
         auto: refId === "auto",
         mix: mixing ? mix : null,
+        own: mixing ? own.map((o) => ({ key: o.key, kind: o.kind, id: o.id, title: o.title })) : [],
         memo,
         plan: r.data,
         filled: r.data.filled || [],
         createdAt: draft.createdAt || new Date().toISOString(),
       });
+    } catch (err) {
+      setMsg(err?.message || "기획을 만들지 못했어요.");
     } finally {
+      setStep("");
       setBusy(false);
     }
   };
@@ -96,7 +121,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         </button>
       </div>
       <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
-      <RefPicker library={library} value={refId} onChange={setRefId} mix={mix} onMix={setMix} fileUrl={fileUrl} folders={folders} />
+      <RefPicker library={library} value={refId} onChange={setRefId} mix={mix} onMix={setMix} own={own} onOwn={setOwn} fileUrl={fileUrl} folders={folders} />
       <textarea
         value={memo}
         onChange={(e) => setMemo(e.target.value)}
@@ -119,7 +144,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 font-semibold text-white disabled:bg-stone-300"
       >
         {busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-        {busy ? "상품 사진·레퍼런스 보고 기획하는 중… (1분쯤)" : again ? "갈아엎어서 다시 만들기" : "이 상품으로 릴스 기획"}
+        {busy ? step || "상품 사진·레퍼런스 보고 기획하는 중… (1분쯤)" : again ? "갈아엎어서 다시 만들기" : "이 상품으로 릴스 기획"}
       </button>
     </div>
   );
@@ -186,6 +211,12 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
                   </li>
                 );
               })}
+              {(item.own || []).map((o, i) => (
+                <li key={o.key} className="flex items-baseline gap-2">
+                  <span className="w-20 shrink-0 font-semibold text-sky-800">소스 {i + 1}</span>
+                  <span className="min-w-0 truncate text-stone-600">우리 영상 · {o.title}</span>
+                </li>
+              ))}
             </ul>
           </div>
         )}
@@ -367,6 +398,7 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
                   memo: item.memo || "",
                   refId: item.mix ? "mix" : item.auto ? "auto" : item.refId,
                   mix: item.mix || {},
+                  own: item.own || [],
                   prev: item.plan,
                 });
               }}

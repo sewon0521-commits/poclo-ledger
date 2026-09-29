@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Search, Clapperboard, Check, Shuffle, X } from "lucide-react";
+import { Sparkles, Search, Clapperboard, Check, Shuffle, X, Video, Upload } from "lucide-react";
 import { folderIdOf, withChildren } from "../lib/reelFolders";
 import { hookKind, flowSteps, MIX_PARTS } from "../lib/reels";
 
@@ -70,12 +70,14 @@ function partPreview(key, it) {
   return String(r.script || "").split("\n").filter(Boolean).slice(0, 2).join(" / ") || "대본 없음";
 }
 
-export default function RefPicker({ library, value, onChange, mix = {}, onMix, fileUrl, folders }) {
+export default function RefPicker({ library, value, onChange, mix = {}, onMix, own = [], onOwn, fileUrl, folders }) {
   // BEST(9/29) 를 맨 앞에
   const done = useMemo(() => {
     const d = library.filter((i) => i.reference?.structure);
     return [...d.filter((i) => i.best), ...d.filter((i) => !i.best)];
   }, [library]);
+  // 우리 영상 소스 후보 — 영상이 보관된 것 전부(보관만 한 실루엣 영상 포함), 최근 것 먼저 (9/29)
+  const clips = useMemo(() => library.filter((i) => i.hasVideo), [library]);
   // picking: 카드 목록을 연 까닭 — "one"(틀 하나) | MIX_PARTS 의 key(섞을 부분) | null(닫힘)
   const [picking, setPicking] = useState(null);
   const [q, setQ] = useState("");
@@ -91,7 +93,7 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, f
   // 썸네일은 서명 주소라 목록이 열릴 때(닫혀 있으면 고른 것만) 받아 온다
   useEffect(() => {
     if (!fileUrl) return;
-    const want = picking ? done.slice(0, 48) : picked ? [picked] : mixed;
+    const want = picking === "own" ? clips.slice(0, 48) : picking ? done.slice(0, 48) : picked ? [picked] : mixed;
     let alive = true;
     (async () => {
       for (const it of want) {
@@ -104,7 +106,7 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, f
     return () => {
       alive = false;
     };
-  }, [picking, done, picked, mixed, fileUrl, thumbs]);
+  }, [picking, done, clips, picked, mixed, fileUrl, thumbs]);
 
   const tops = useMemo(() => {
     const list = (folders || []).filter((f) => !f.parent);
@@ -218,10 +220,89 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, f
               </li>
             );
           })}
+          <li className={"px-3 py-2.5 " + (picking === "own" ? "bg-sky-50/60" : "")}>
+            <div className="flex items-center gap-3">
+              <span className="w-20 shrink-0">
+                <span className="block text-xs font-semibold text-sky-800">우리 영상 소스</span>
+                <span className="block text-[10px] leading-tight text-stone-400">이미 찍은 컷 — AI가 보고 장면에 배치</span>
+              </span>
+              <span className="flex min-w-0 flex-1 flex-wrap gap-1">
+                {own.length === 0 && <span className="text-xs text-stone-400">넣으면 이 컷들 위주로 촬영 순서를 짜요 (최대 3개)</span>}
+                {own.map((o, i) => (
+                  <span key={o.key} className="flex items-center gap-1 rounded-full bg-sky-100 py-0.5 pr-1 pl-2 text-[11px] font-medium text-sky-900">
+                    소스 {i + 1} · <span className="max-w-[8rem] truncate">{o.title}</span>
+                    <button type="button" onClick={() => onOwn(own.filter((x) => x.key !== o.key))} aria-label="빼기" className="rounded-full p-0.5 hover:bg-sky-200">
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </span>
+              <span className="flex shrink-0 items-center gap-1">
+                <label className={"flex cursor-pointer items-center gap-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs font-medium text-stone-600 hover:border-sky-300 " + (own.length >= 3 ? "pointer-events-none opacity-40" : "")}>
+                  <Upload size={12} /> 파일
+                  <input
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f && own.length < 3) onOwn([...own, { key: `f${Date.now()}`, kind: "file", title: f.name.replace(/\.[^.]+$/, ""), file: f }]);
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={own.length >= 3}
+                  onClick={() => setPicking((p) => (p === "own" ? null : "own"))}
+                  className="flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs font-medium text-stone-600 hover:border-sky-300 disabled:opacity-40"
+                >
+                  <Video size={12} /> 라이브러리에서
+                </button>
+              </span>
+            </div>
+          </li>
         </ul>
       )}
 
-      {picking && (
+      {picking === "own" && (
+        <div className="space-y-2 rounded-xl border border-sky-200 bg-white p-3">
+          <div className="text-xs font-semibold text-sky-800">우리 영상 소스로 쓸 영상 고르기 · 보관만 한 실루엣 영상도 돼요</div>
+          <ul className="grid max-h-[22rem] grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-5">
+            {clips.map((it) => {
+              const on = own.some((o) => o.id === it.id);
+              return (
+                <li key={it.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (on) onOwn(own.filter((o) => o.id !== it.id));
+                      else if (own.length < 3) onOwn([...own, { key: it.id, kind: "lib", id: it.id, title: it.title }]);
+                    }}
+                    className={"block w-full overflow-hidden rounded-lg border text-left " + (on ? "border-sky-600 ring-2 ring-sky-500" : "border-stone-200 hover:border-stone-300")}
+                  >
+                    <span className="relative block aspect-[3/4] bg-stone-100">
+                      {thumbs[it.id] && <img src={thumbs[it.id]} alt="" className="h-full w-full object-cover" loading="lazy" />}
+                      {on && (
+                        <span className="absolute top-1 left-1 flex h-5 w-5 items-center justify-center rounded-full bg-sky-600 text-white">
+                          <Check size={12} />
+                        </span>
+                      )}
+                      {it.keepOnly && <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 text-[9px] text-white">보관만</span>}
+                    </span>
+                    <span className="block truncate px-1.5 py-1 text-[11px] text-stone-700">{it.title}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <button type="button" onClick={() => setPicking(null)} className="w-full rounded-lg bg-stone-800 py-2 text-xs font-semibold text-white">
+            다 골랐어요 ({own.length}/3)
+          </button>
+        </div>
+      )}
+
+      {picking && picking !== "own" && (
         <div className="space-y-2 rounded-xl border border-stone-200 bg-white p-3">
           {partLabel && <div className="text-xs font-semibold text-rose-800">‘{partLabel}’ 을(를) 빌려 올 영상 고르기</div>}
           <div className="flex flex-wrap items-center gap-1.5">

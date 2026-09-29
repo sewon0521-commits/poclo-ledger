@@ -237,8 +237,36 @@ function mixText(mix) {
     part("hook", "첫 1~3초 훅", [h.hook && `훅: ${h.hook}`, h.hookType && `훅 방식: ${h.hookType}`, h.formula?.line && `훅 공식: A=${h.formula.a} / B=${h.formula.b} — ${h.formula.why || ""}`, h.empathy && `공감 포인트: ${h.empathy}`]),
     part("flow", "내용 흐름", [f.flow && `흐름: ${f.flow}`, f.cta && `CTA: ${f.cta}`, f.lines?.length && `문장 역할:\n${f.lines.map((l) => "  " + l).join("\n")}`]),
     part("shots", "구도·촬영", [s.seconds && `길이: 약 ${s.seconds}초`, s.scenes?.length && `장면:\n${s.scenes.map((l) => "  " + l).join("\n")}`]),
+    ownText(mix.own),
     part("script", "대본 말투", [w.kind && `형태: ${w.kind}`, w.script && `대본:\n${w.script}`]),
   ].join("\n");
+}
+
+/**
+ * 우리가 찍은 영상 소스 (9/29 세원: "섞어서 만들래에서 구도·촬영에 우리 영상 소스를 넣으면 AI 가 알아서 파악하게").
+ * 브라우저가 소스마다 장면 사진을 떠서 보낸다 → 사진은 글 뒤에 '소스 N · 몇 초' 로 붙인다(ownBlocks).
+ */
+function ownText(own) {
+  if (!Array.isArray(own) || !own.length) return "";
+  return [
+    `\n[우리가 이미 찍은 영상 소스 ${own.length}개] — 아래 사진 중 '소스 N · 몇 초' 로 표시된 장면들`,
+    ...own.map((o, i) => `  소스 ${i + 1}: ${o.title || "이름 없음"} (약 ${o.seconds || "?"}초)`),
+    "이 소스들은 **실제로 쓸 컷**이다. 사진을 보고 무엇이 찍혀 있는지(구도·동작·옷·장소)를 파악해서,",
+    "scenes 를 이 컷들 위주로 짜라 — 각 장면 shot 앞에 어느 소스 몇 초 컷인지 적는다(예: '[소스 2 · 3.5초] 측면 워킹').",
+    "소스에 없는데 꼭 필요한 컷만 '[추가 촬영]' 으로 표시하고 무엇을 찍을지 적어라. 구도·촬영 레퍼런스가 따로 있으면 그 스타일로 소스를 배치·편집하는 방법을 제안해라.",
+    "chosenWhy 에 소스를 어떻게 썼는지 한 줄 넣어라.",
+  ].join("\n");
+}
+
+function ownBlocks(own) {
+  const out = [];
+  (Array.isArray(own) ? own : []).slice(0, 3).forEach((o, i) => {
+    for (const f of (o.frames || []).slice(0, 10)) {
+      out.push({ type: "text", text: `소스 ${i + 1} · ${f.at ?? "?"}초` });
+      out.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: f.data } });
+    }
+  });
+  return out;
 }
 
 const PRODUCT_REEL_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기획자다.
@@ -544,7 +572,8 @@ export default async function handler(req, res) {
         redoText(body),
       ].join("\n");
       const imgs = photos.urls;
-      const content = (use) => [{ type: "text", text }, ...(use ? photos.blocks : [])];
+      const own = ownBlocks(mix?.own);
+      const content = (use) => [{ type: "text", text }, ...own, ...(use ? photos.blocks : [])];
       let r;
       try {
         r = await ask(client, content(true), ProductReelSchema, effort);
