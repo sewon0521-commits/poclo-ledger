@@ -214,6 +214,33 @@ const ProductReelSchema = AdaptSchema.extend({
     .describe("촬영 때 참고할 상품 사진 — 어떤 컷처럼 찍을지"),
 });
 
+/**
+ * 섞어 만들기 (9/29 세원: "초반 후킹은 이 영상, 내용은 저 영상, 구도는 또 다른 영상, 대본은 부분부분 짬뽕").
+ * 후보에서 하나를 고르는 대신, 부분마다 정해 준 레퍼런스를 빌려 한 편으로 잇는다.
+ */
+function mixText(mix) {
+  const part = (k, label, lines) =>
+    mix[k] ? [`\n[${label}] ← 레퍼런스 [${mix[k].id}] ${mix[k].title || ""}`, ...lines.filter(Boolean)].join("\n") : `\n[${label}] ← 정해 준 레퍼런스 없음. 상품에 맞게 네가 정한다.`;
+  const h = mix.hook || {};
+  const f = mix.flow || {};
+  const s = mix.shots || {};
+  const w = mix.script || {};
+  return [
+    "\n--- 이번엔 섞어 만든다 ---",
+    "후보에서 하나를 고르지 말고, 아래처럼 **부분마다 다른 레퍼런스**를 빌려 우리 상품 릴스 한 편으로 이어라.",
+    "- 훅: 그 레퍼런스의 훅 공식·시작 방식을 빌려 우리 상품 말로 새로 쓴다(문장을 베끼지 않는다).",
+    "- 내용 흐름: 그 레퍼런스의 전개 순서·장면 수·CTA 방식을 따른다.",
+    "- 구도·촬영: scenes 의 shot 과 shots 를 그 레퍼런스의 구도·카메라·동작으로 짠다.",
+    "- 대본 말투: 문장 길이·말투·리듬(반말/존댓말, 끊어 치기 등)을 그 레퍼런스처럼.",
+    "부분끼리 어긋나면(예: 무자막 구도인데 말 많은 대본) 자연스럽게 맞추고, chosenWhy 에 **무엇을 어디서 빌려 어떻게 이었는지** 2~4줄로 적어라.",
+    "chosen 에는 훅을 빌린 레퍼런스 id(없으면 흐름 레퍼런스 id). 빈칸 틀은 쓰지 않으니 filled 는 빈 배열.",
+    part("hook", "첫 1~3초 훅", [h.hook && `훅: ${h.hook}`, h.hookType && `훅 방식: ${h.hookType}`, h.formula?.line && `훅 공식: A=${h.formula.a} / B=${h.formula.b} — ${h.formula.why || ""}`, h.empathy && `공감 포인트: ${h.empathy}`]),
+    part("flow", "내용 흐름", [f.flow && `흐름: ${f.flow}`, f.cta && `CTA: ${f.cta}`, f.lines?.length && `문장 역할:\n${f.lines.map((l) => "  " + l).join("\n")}`]),
+    part("shots", "구도·촬영", [s.seconds && `길이: 약 ${s.seconds}초`, s.scenes?.length && `장면:\n${s.scenes.map((l) => "  " + l).join("\n")}`]),
+    part("script", "대본 말투", [w.kind && `형태: ${w.kind}`, w.script && `대본:\n${w.script}`]),
+  ].join("\n");
+}
+
 const PRODUCT_REEL_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기획자다.
 이번엔 **상품이 먼저 정해졌다.** 아래 레퍼런스 후보(우리 라이브러리에 모아 둔, 잘 된 릴스 분석) 중에서
 **이 상품에 가장 맞는 구조 하나**를 골라(chosen), 그 구조를 빌려 우리 상품 릴스를 기획해라.
@@ -488,10 +515,11 @@ export default async function handler(req, res) {
       const photos = photoBlocks(products);
       const cands = Array.isArray(body.candidates) ? body.candidates.slice(0, 12) : [];
       const st = body.stats || {};
+      const mix = body.mix && typeof body.mix === "object" ? body.mix : null;
       const text = [
         PRODUCT_REEL_PROMPT,
-        "\n--- 레퍼런스 후보 ---",
-        cands.length
+        mix ? mixText(mix) : "\n--- 레퍼런스 후보 ---",
+        mix ? "" : cands.length
           ? cands
               .map((c) =>
                 [
@@ -508,7 +536,7 @@ export default async function handler(req, res) {
                   .join("\n"),
               )
               .join("\n\n")
-          : "(없음)",
+          : mix ? "" : "(없음)",
         count > 1 ? `\n--- 우리 상품 (룩 ${count}개) ---` : "\n--- 우리 상품 ---",
         looksText(products, count),
         st.reason ? `판매 숫자: ${st.reason}` : "",

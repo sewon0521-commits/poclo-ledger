@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, Search, Clapperboard, Check, ChevronDown } from "lucide-react";
+import { Sparkles, Search, Clapperboard, Check, Shuffle, X } from "lucide-react";
 import { folderIdOf, withChildren } from "../lib/reelFolders";
-import { hookKind, flowSteps } from "../lib/reels";
+import { hookKind, flowSteps, MIX_PARTS } from "../lib/reels";
 
 /**
  * 우리 상품 릴스를 '어떤 틀로' 찍을지 고르는 칸 (9/23 세원: "어떤 레퍼런스 구조로? 여기가 겁나 헷갈려.
@@ -61,23 +61,37 @@ export function RefSummary({ item, thumb, onOpen }) {
   );
 }
 
-export default function RefPicker({ library, value, onChange, fileUrl, folders }) {
+/** 섞어 만들기 칸마다 보여 줄 한 줄 — 그 부분이 레퍼런스에서 어떻게 생겼는지 */
+function partPreview(key, it) {
+  const r = it.reference || {};
+  if (key === "hook") return silent(r.hook) ? "자막 없이 영상으로 시작" : `“${r.hook || ""}”`;
+  if (key === "flow") return <Steps flow={r.structure?.flow} max={4} />;
+  if (key === "shots") return (r.scenes || []).slice(0, 2).map((s) => s.visual).join(" / ") || "장면 정보 없음";
+  return String(r.script || "").split("\n").filter(Boolean).slice(0, 2).join(" / ") || "대본 없음";
+}
+
+export default function RefPicker({ library, value, onChange, mix = {}, onMix, fileUrl, folders }) {
   // BEST(9/29) 를 맨 앞에
   const done = useMemo(() => {
     const d = library.filter((i) => i.reference?.structure);
     return [...d.filter((i) => i.best), ...d.filter((i) => !i.best)];
   }, [library]);
-  const [open, setOpen] = useState(false);
+  // picking: 카드 목록을 연 까닭 — "one"(틀 하나) | MIX_PARTS 의 key(섞을 부분) | null(닫힘)
+  const [picking, setPicking] = useState(null);
   const [q, setQ] = useState("");
   const [folder, setFolder] = useState("all");
   const [thumbs, setThumbs] = useState({});
 
-  const picked = value !== "auto" ? done.find((i) => i.id === value) : null;
+  const picked = value !== "auto" && value !== "mix" ? done.find((i) => i.id === value) : null;
+  const mixed = useMemo(
+    () => (value === "mix" ? MIX_PARTS.map(([k]) => done.find((i) => i.id === mix[k])).filter(Boolean) : []),
+    [value, mix, done],
+  );
 
-  // 썸네일은 서명 주소라 목록이 열릴 때(닫혀 있으면 고른 것 하나만) 받아 온다
+  // 썸네일은 서명 주소라 목록이 열릴 때(닫혀 있으면 고른 것만) 받아 온다
   useEffect(() => {
     if (!fileUrl) return;
-    const want = open ? done.slice(0, 48) : picked ? [picked] : [];
+    const want = picking ? done.slice(0, 48) : picked ? [picked] : mixed;
     let alive = true;
     (async () => {
       for (const it of want) {
@@ -90,7 +104,7 @@ export default function RefPicker({ library, value, onChange, fileUrl, folders }
     return () => {
       alive = false;
     };
-  }, [open, done, picked, fileUrl, thumbs]);
+  }, [picking, done, picked, mixed, fileUrl, thumbs]);
 
   const tops = useMemo(() => {
     const list = (folders || []).filter((f) => !f.parent);
@@ -116,58 +130,100 @@ export default function RefPicker({ library, value, onChange, fileUrl, folders }
     });
   }, [done, q, folder, folders]);
 
+  const choose = (it) => {
+    if (picking === "one") onChange(it.id);
+    else onMix({ ...mix, [picking]: it.id });
+    setPicking(null);
+  };
+  const isOn = (it) => (picking === "one" ? value === it.id : mix[picking] === it.id);
+  const partLabel = MIX_PARTS.find(([k]) => k === picking)?.[1];
+
+  const mode = (key, icon, title, hint, onClick) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "flex items-start gap-2.5 rounded-xl border p-3 text-left " +
+        ((key === "one" ? picked : value === key) ? "border-rose-600 bg-white ring-1 ring-rose-600" : "border-stone-200 bg-white hover:border-stone-300")
+      }
+    >
+      {icon}
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-stone-900">{title}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-stone-500">{hint}</span>
+      </span>
+    </button>
+  );
+
   return (
     <div className="space-y-2">
       <div className="text-xs font-semibold text-stone-500">어떤 릴스 틀로 찍을까요?</div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => {
-            onChange("auto");
-            setOpen(false);
-          }}
-          className={
-            "flex items-start gap-2.5 rounded-xl border p-3 text-left " +
-            (value === "auto" ? "border-rose-600 bg-white ring-1 ring-rose-600" : "border-stone-200 bg-white hover:border-stone-300")
-          }
-        >
-          <Sparkles size={16} className="mt-0.5 shrink-0 text-rose-700" />
-          <span>
-            <span className="block text-sm font-semibold text-stone-900">알아서 골라줘</span>
-            <span className="mt-0.5 block text-xs leading-relaxed text-stone-500">
-              라이브러리 {done.length}개 중 이 상품에 가장 맞는 틀을 고르고, 왜 골랐는지 적어 줘요.
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className={
-            "flex items-start gap-2.5 rounded-xl border p-3 text-left " +
-            (value !== "auto" ? "border-rose-600 bg-white ring-1 ring-rose-600" : "border-stone-200 bg-white hover:border-stone-300")
-          }
-        >
-          <Clapperboard size={16} className="mt-0.5 shrink-0 text-stone-600" />
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center justify-between gap-1 text-sm font-semibold text-stone-900">
-              내가 고를게
-              <ChevronDown size={15} className={"shrink-0 text-stone-400 transition-transform " + (open ? "rotate-180" : "")} />
-            </span>
-            <span className="mt-0.5 block text-xs leading-relaxed text-stone-500">
-              {picked ? "아래에서 고른 틀로 만들어요." : "영상을 보고 시작·흐름이 마음에 드는 걸 골라요."}
-            </span>
-          </span>
-        </button>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {mode("auto", <Sparkles size={16} className="mt-0.5 shrink-0 text-rose-700" />, "알아서 골라줘", `라이브러리 ${done.length}개 중 이 상품에 가장 맞는 틀을 골라요.`, () => {
+          onChange("auto");
+          setPicking(null);
+        })}
+        {mode("one", <Clapperboard size={16} className="mt-0.5 shrink-0 text-stone-600" />, "하나 고를게", picked ? "고른 틀 그대로 만들어요." : "마음에 드는 영상 하나의 틀로.", () =>
+          setPicking((p) => (p === "one" ? null : "one")),
+        )}
+        {mode("mix", <Shuffle size={16} className="mt-0.5 shrink-0 text-stone-600" />, "섞어서 만들래", "훅·내용·구도·대본을 영상마다 골라 한 편으로.", () => {
+          onChange("mix");
+          setPicking(null);
+        })}
       </div>
 
-      {picked && !open && (
+      {picked && !picking && (
         <div className="rounded-xl border border-stone-200 bg-white p-3">
           <RefSummary item={picked} thumb={thumbs[picked.id]} />
         </div>
       )}
 
-      {open && (
+      {value === "mix" && (
+        <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 bg-white">
+          {MIX_PARTS.map(([k, label, hint]) => {
+            const it = done.find((i) => i.id === mix[k]);
+            return (
+              <li key={k} className={"flex items-center gap-3 px-3 py-2.5 " + (picking === k ? "bg-rose-50/60" : "")}>
+                <span className="w-20 shrink-0">
+                  <span className="block text-xs font-semibold text-stone-800">{label}</span>
+                  <span className="block text-[10px] leading-tight text-stone-400">{hint}</span>
+                </span>
+                {it ? (
+                  <>
+                    <span className="h-14 w-10 shrink-0 overflow-hidden rounded-md bg-stone-100">
+                      {thumbs[it.id] && <img src={thumbs[it.id]} alt="" className="h-full w-full object-cover" />}
+                    </span>
+                    <span className="min-w-0 flex-1 space-y-0.5">
+                      <span className="block truncate text-xs font-semibold text-stone-700">{hookKind(it.reference?.structure?.hookType).name || it.title}</span>
+                      <span className="line-clamp-1 block text-xs text-stone-500">{partPreview(k, it)}</span>
+                    </span>
+                  </>
+                ) : (
+                  <span className="min-w-0 flex-1 text-xs text-stone-400">안 고르면 상품에 맞게 알아서</span>
+                )}
+                <span className="flex shrink-0 items-center gap-1">
+                  {it && (
+                    <button type="button" onClick={() => onMix({ ...mix, [k]: null })} aria-label={`${label} 비우기`} className="rounded p-1 text-stone-300 hover:text-rose-600">
+                      <X size={14} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPicking((p) => (p === k ? null : k))}
+                    className="rounded-lg border border-stone-200 bg-white px-2.5 py-1 text-xs font-medium text-stone-600 hover:border-rose-300 hover:text-rose-800"
+                  >
+                    {it ? "바꾸기" : "고르기"}
+                  </button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {picking && (
         <div className="space-y-2 rounded-xl border border-stone-200 bg-white p-3">
+          {partLabel && <div className="text-xs font-semibold text-rose-800">‘{partLabel}’ 을(를) 빌려 올 영상 고르기</div>}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="relative">
               <Search size={13} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
@@ -185,9 +241,7 @@ export default function RefPicker({ library, value, onChange, fileUrl, folders }
                     key={f.id}
                     type="button"
                     onClick={() => setFolder(f.id)}
-                    className={
-                      "rounded-md px-2 py-1 font-medium " + (folder === f.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")
-                    }
+                    className={"rounded-md px-2 py-1 font-medium " + (folder === f.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
                   >
                     {f.name} <span className="text-stone-400">{f.n}</span>
                   </button>
@@ -205,15 +259,12 @@ export default function RefPicker({ library, value, onChange, fileUrl, folders }
               {shown.map((it) => {
                 const r = it.reference || {};
                 const k = hookKind(r.structure?.hookType);
-                const on = value === it.id;
+                const on = isOn(it);
                 return (
                   <li key={it.id}>
                     <button
                       type="button"
-                      onClick={() => {
-                        onChange(it.id);
-                        setOpen(false);
-                      }}
+                      onClick={() => choose(it)}
                       className={
                         "flex w-full gap-3 rounded-xl border p-2 text-left " +
                         (on ? "border-rose-600 bg-rose-50/50 ring-1 ring-rose-600" : "border-stone-200 hover:border-stone-300 hover:bg-stone-50")
@@ -228,9 +279,7 @@ export default function RefPicker({ library, value, onChange, fileUrl, folders }
                           </span>
                         )}
                         {r.seconds > 0 && (
-                          <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 text-[10px] text-white tabular-nums">
-                            {Math.round(r.seconds)}초
-                          </span>
+                          <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 text-[10px] text-white tabular-nums">{Math.round(r.seconds)}초</span>
                         )}
                         {on && (
                           <span className="absolute top-1 left-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-700 text-white">
@@ -243,10 +292,16 @@ export default function RefPicker({ library, value, onChange, fileUrl, folders }
                           {it.best && <span className="shrink-0 rounded bg-amber-400 px-1 text-[10px] font-bold text-amber-950">BEST</span>}
                           <span className="truncate">{k.name || it.title}</span>
                         </span>
-                        <span className="line-clamp-2 block text-xs leading-snug text-stone-600">
-                          {silent(r.hook) ? <span className="text-stone-400">자막 없이 영상으로 시작</span> : `“${r.hook || ""}”`}
-                        </span>
-                        <Steps flow={r.structure?.flow} max={4} />
+                        {picking === "one" || picking === "hook" ? (
+                          <>
+                            <span className="line-clamp-2 block text-xs leading-snug text-stone-600">
+                              {silent(r.hook) ? <span className="text-stone-400">자막 없이 영상으로 시작</span> : `“${r.hook || ""}”`}
+                            </span>
+                            <Steps flow={r.structure?.flow} max={4} />
+                          </>
+                        ) : (
+                          <span className="line-clamp-3 block text-xs leading-snug text-stone-600">{partPreview(picking, it)}</span>
+                        )}
                       </span>
                     </button>
                   </li>

@@ -43,8 +43,8 @@ export const looksPayload = (looks) =>
     .filter((l) => l.products.length);
 
 /** 우리 상품(룩 단위) + 레퍼런스 후보들 → 가장 맞는 레퍼런스를 골라 우리 릴스 기획 */
-export const productReel = ({ looks, stats, candidates, memo, avoid, direction }) =>
-  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction });
+export const productReel = ({ looks, stats, candidates, memo, avoid, direction, mix }) =>
+  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction, mix });
 
 /** 라이브러리 항목을 후보 요약으로 (서버 프롬프트가 길어지지 않게) */
 export const candidateOf = (it) => {
@@ -63,6 +63,35 @@ export const candidateOf = (it) => {
     script: r.script,
   };
 };
+
+// ---------------------------------------------------------------- 섞어 만들기 (9/29)
+// 세원: "레퍼런스를 그대로 가져오기보다 초반 후킹은 이 영상, 내용은 저 영상, 구도는 또 다른 영상, 대본은 부분부분 — 짬뽕시킬 수 있게"
+
+export const MIX_PARTS = [
+  ["hook", "첫 1~3초 훅", "이 영상의 시작 방식·훅 공식을 빌려요"],
+  ["flow", "내용 흐름", "이 영상의 전개 순서(무엇을 어떤 순서로 보여 주는지)"],
+  ["shots", "구도·촬영", "이 영상의 장면 구도·카메라·동작"],
+  ["script", "대본 말투", "이 영상의 말투·문장 길이·리듬"],
+];
+
+/** 부분마다 필요한 것만 서버로 (프롬프트가 길어지지 않게) */
+export function mixPayload(library, mix) {
+  const out = {};
+  for (const [key] of MIX_PARTS) {
+    const it = library.find((i) => i.id === mix?.[key]);
+    if (!it) continue;
+    const r = it.reference || {};
+    out[key] = {
+      id: it.id,
+      title: r.title || it.title,
+      ...(key === "hook" && { hook: r.hook, hookType: r.structure?.hookType, formula: r.hookFormula, empathy: r.empathy }),
+      ...(key === "flow" && { flow: r.structure?.flow, cta: r.structure?.cta, lines: (r.lines || []).map((l) => `${l.role}: ${l.text}`).slice(0, 12) }),
+      ...(key === "shots" && { scenes: (r.scenes || []).map((s) => `${s.at} ${s.visual}`).slice(0, 14), seconds: r.seconds }),
+      ...(key === "script" && { script: String(r.script || "").slice(0, 900), kind: r.kind }),
+    };
+  }
+  return out;
+}
 
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
 export const adaptScript = ({ reference, looks, memo, avoid, direction }) =>

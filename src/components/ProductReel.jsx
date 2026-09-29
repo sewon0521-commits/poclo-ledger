@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt } from "lucide-react";
-import { productReel, candidateOf, fillTemplate, hookKind } from "../lib/reels";
+import { productReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS } from "../lib/reels";
 import { newId } from "../lib/id";
 import { shortName as short, emptyLook } from "../lib/looks";
 import LookPicker, { ProductSearch } from "./LookPicker";
@@ -33,6 +33,9 @@ function FirstPick({ stats, onPick }) {
 function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   const done = library.filter((i) => i.reference?.structure);
   const [refId, setRefId] = useState(draft.refId || "auto");
+  // 섞어 만들기 (9/29) — {hook, flow, shots, script}: 부분마다 빌려 올 레퍼런스 id
+  const [mix, setMix] = useState(draft.mix || {});
+  const mixing = refId === "mix";
   const [looks, setLooks] = useState(draft.looks);
   const [memo, setMemo] = useState(draft.memo || "");
   const [direction, setDirection] = useState("");
@@ -45,7 +48,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
     setMsg("");
     setBusy(true);
     try {
-      const pool = refId === "auto" ? done : done.filter((i) => i.id === refId);
+      const pool = refId === "auto" ? done : mixing ? [] : done.filter((i) => i.id === refId);
       const r = await productReel({
         looks,
         stats: first.reason ? { reason: first.reason } : {},
@@ -55,6 +58,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         // 갈아엎기 — 앞서 만든 훅·대본은 피한다
         avoid: again ? `${draft.prev.hook || ""}\n${draft.prev.script || ""}` : "",
         direction: again ? direction : "",
+        mix: mixing ? mixPayload(library, mix) : undefined,
       });
       if (!r.ok) {
         setMsg(r.message);
@@ -70,6 +74,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         refId: ref?.id || "",
         refTitle: ref ? ref.reference?.title || ref.title : "",
         auto: refId === "auto",
+        mix: mixing ? mix : null,
         memo,
         plan: r.data,
         filled: r.data.filled || [],
@@ -91,7 +96,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         </button>
       </div>
       <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
-      <RefPicker library={library} value={refId} onChange={setRefId} fileUrl={fileUrl} folders={folders} />
+      <RefPicker library={library} value={refId} onChange={setRefId} mix={mix} onMix={setMix} fileUrl={fileUrl} folders={folders} />
       <textarea
         value={memo}
         onChange={(e) => setMemo(e.target.value)}
@@ -142,7 +147,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
             onChange={(t) => onSave({ ...item, title: t })}
           />
           <div className="mt-0.5 text-xs text-stone-500">
-            {ref ? `틀: ${hookKind(ref.reference?.structure?.hookType).name || item.refTitle}${item.auto ? " (알아서 고름)" : ""}` : item.refTitle ? `틀: ${item.refTitle}` : "레퍼런스 없이 기본 판매형 구조"}
+            {item.mix ? "틀: 섞어서 만듦" : ref ? `틀: ${hookKind(ref.reference?.structure?.hookType).name || item.refTitle}${item.auto ? " (알아서 고름)" : ""}` : item.refTitle ? `틀: ${item.refTitle}` : "레퍼런스 없이 기본 판매형 구조"}
           </div>
         </div>
         <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
@@ -162,7 +167,29 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
             </ul>
           </div>
         )}
-        {ref && (
+        {item.mix && (
+          <div className="rounded-xl border border-stone-200 px-3 py-2.5">
+            <div className="mb-1.5 text-xs font-semibold text-stone-500">섞어서 만들었어요</div>
+            <ul className="space-y-1 text-xs">
+              {MIX_PARTS.map(([k, label]) => {
+                const it = library.find((i) => i.id === item.mix[k]);
+                return (
+                  <li key={k} className="flex items-baseline gap-2">
+                    <span className="w-20 shrink-0 font-semibold text-stone-700">{label}</span>
+                    {it ? (
+                      <button type="button" onClick={() => onOpenRef(it)} className="min-w-0 truncate text-left text-rose-700 hover:underline">
+                        {hookKind(it.reference?.structure?.hookType).name || it.title} · {it.title}
+                      </button>
+                    ) : (
+                      <span className="text-stone-400">알아서</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+        {ref && !item.mix && (
           <div className="rounded-xl border border-stone-200 px-3 py-2.5">
             <div className="mb-2 text-xs font-semibold text-stone-500">이 틀로 찍어요{item.auto ? " · 알아서 고름" : ""}</div>
             <RefSummary item={ref} thumb={refThumb} onOpen={onOpenRef} />
@@ -170,7 +197,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
         )}
         {p.chosenWhy && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-950">
-            <div className="text-xs font-semibold text-rose-800">왜 이 틀</div>
+            <div className="text-xs font-semibold text-rose-800">{item.mix ? "어떻게 섞었나" : "왜 이 틀"}</div>
             <p className="mt-0.5 leading-relaxed">{p.chosenWhy}</p>
           </div>
         )}
@@ -338,7 +365,8 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
                   createdAt: item.createdAt,
                   looks: item.looks?.length ? item.looks : [emptyLook([item.product])],
                   memo: item.memo || "",
-                  refId: item.auto ? "auto" : item.refId,
+                  refId: item.mix ? "mix" : item.auto ? "auto" : item.refId,
+                  mix: item.mix || {},
                   prev: item.plan,
                 });
               }}
