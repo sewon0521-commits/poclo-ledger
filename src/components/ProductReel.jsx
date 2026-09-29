@@ -49,7 +49,8 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
       const r = await productReel({
         looks,
         stats: first.reason ? { reason: first.reason } : {},
-        candidates: pool.slice(0, 12).map(candidateOf),
+        // BEST(우리가 고른 좋은 레퍼런스)를 먼저 후보로 (9/29)
+        candidates: [...pool.filter((i) => i.best), ...pool.filter((i) => !i.best)].slice(0, 12).map(candidateOf),
         memo,
         // 갈아엎기 — 앞서 만든 훅·대본은 피한다
         avoid: again ? `${draft.prev.hook || ""}\n${draft.prev.script || ""}` : "",

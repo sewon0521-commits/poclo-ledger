@@ -51,7 +51,7 @@ export const candidateOf = (it) => {
   const r = it.reference || {};
   return {
     id: it.id,
-    title: r.title || it.title,
+    title: (it.best ? "★BEST " : "") + (r.title || it.title),
     hook: r.hook,
     hookType: r.structure?.hookType,
     flow: r.structure?.flow,

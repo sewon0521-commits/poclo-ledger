@@ -24,6 +24,7 @@ import {
   GripVertical,
   FolderInput,
   Check,
+  Star,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate } from "../lib/reels";
@@ -294,7 +295,7 @@ function Chip({ active, onClick, children, count }) {
   );
 }
 
-function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ }) {
+function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnly, setBestOnly, bestCount }) {
   const { total, none } = useMemo(() => folderCounts(items, folders), [items, folders]);
   const tops = folders.filter((f) => !f.parent);
   // 고른 폴더까지의 길 [상위, 하위, 세부] — 상위를 고르면 하위 줄, 하위를 고르면 세부 줄이 열린다
@@ -353,14 +354,27 @@ function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ }) {
         </div>
       ))}
 
-      <div className="relative mt-2">
-        <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="대본·계정·상품 검색"
-          className="w-full rounded-lg border border-stone-200 bg-white py-1.5 pr-2 pl-8 text-sm sm:w-60"
-        />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-60">
+          <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="대본·계정·상품 검색"
+            className="w-full rounded-lg border border-stone-200 bg-white py-1.5 pr-2 pl-8 text-sm"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setBestOnly(!bestOnly)}
+          aria-pressed={bestOnly}
+          className={
+            "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold " +
+            (bestOnly ? "border-amber-400 bg-amber-400 text-amber-950" : "border-stone-200 bg-white text-stone-600 hover:border-amber-300")
+          }
+        >
+          <Star size={12} className={bestOnly ? "fill-amber-950" : "fill-amber-400 text-amber-400"} /> BEST만 {bestCount}
+        </button>
       </div>
     </div>
   );
@@ -703,11 +717,16 @@ function FolderPicker({ item, folders, onMove }) {
   );
 }
 
-function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove }) {
+function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove, onBest }) {
   const r = item.reference || {};
   const pending = status.kind !== "done";
   return (
-    <div className="rounded-xl border border-stone-200 bg-white transition hover:border-stone-300 hover:shadow-sm">
+    <div
+      className={
+        "rounded-xl border bg-white transition hover:shadow-sm " +
+        (item.best ? "border-amber-300 ring-1 ring-amber-300" : "border-stone-200 hover:border-stone-300")
+      }
+    >
       <button type="button" onClick={() => onOpen(item)} className="block w-full overflow-hidden rounded-t-xl text-left">
       <span className="relative block aspect-[3/4] bg-stone-100">
         {thumbUrl ? (
@@ -729,11 +748,14 @@ function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove }) {
         >
           {pending ? status.text : item.keepOnly ? "보관만" : item.plan ? "대본 완성" : "분석 완료"}
         </span>
-        {item.ours && (
-          <span className="absolute top-2 right-2 rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
-            우리 영상
-          </span>
-        )}
+        <span className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          {item.best && (
+            <span className="flex items-center gap-0.5 rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
+              <Star size={10} className="fill-amber-950" /> BEST
+            </span>
+          )}
+          {item.ours && <span className="rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">우리 영상</span>}
+        </span>
         {item.hasVideo && !pending && (
           <span className="absolute inset-0 flex items-center justify-center">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white">
@@ -757,9 +779,31 @@ function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove }) {
             {item.plan?.product?.name && ` · ${item.plan.product.name}`}
           </span>
         </button>
+        <BestToggle on={!!item.best} onChange={onBest} />
         <FolderPicker item={item} folders={folders} onMove={onMove} />
       </div>
     </div>
+  );
+}
+
+/** BEST 표시 — 우리한테 더 맞고 좋은 레퍼런스 (9/29 세원). 누르면 켜고 끈다. 켜진 건 어느 폴더에서든 맨 앞 */
+function BestToggle({ on, onChange, big }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      aria-pressed={on}
+      aria-label={on ? "BEST 빼기" : "BEST로 올리기"}
+      title={on ? "BEST 빼기" : "BEST로 올리기 — 이 폴더 맨 앞에 와요"}
+      className={
+        "flex shrink-0 items-center justify-center gap-1 rounded-md border " +
+        (big ? "px-2 py-0.5 text-[11px] font-semibold " : "h-7 w-7 ") +
+        (on ? "border-amber-300 bg-amber-50 text-amber-600" : "border-transparent text-stone-300 hover:border-stone-200 hover:bg-stone-50 hover:text-amber-500")
+      }
+    >
+      <Star size={big ? 12 : 15} className={on ? "fill-amber-400 text-amber-500" : ""} />
+      {big && (on ? "BEST" : "BEST로")}
+    </button>
   );
 }
 
@@ -896,7 +940,10 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
     <div className="flex max-h-[90vh] flex-col">
       <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
         <div className="min-w-0">
-          <EditableTitle value={item.title} onChange={(t) => onSave({ ...item, title: t })} />
+          <div className="flex items-start gap-2">
+            <EditableTitle value={item.title} onChange={(t) => onSave({ ...item, title: t })} />
+            <BestToggle big on={!!item.best} onChange={(b) => onSave({ ...item, best: b, bestAt: b ? new Date().toISOString() : null })} />
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
             {r.structure?.hookType && (
               <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700">{r.structure.hookType}</span>
@@ -1506,6 +1553,7 @@ export default function ReelsPage({
   const [mode, setMode] = useState("library");
   const [notice, setNotice] = useState("");
   const [q, setQ] = useState("");
+  const [bestOnly, setBestOnly] = useState(false);
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
@@ -1536,15 +1584,18 @@ export default function ReelsPage({
               const ids = new Set(withChildren(sel, folders));
               return (it) => ids.has(folderIdOf(it, folders));
             })();
-    return items.filter(
+    const list = items.filter(
       (i) =>
         inSel(i) &&
+        (!bestOnly || i.best) &&
         (!needle ||
           JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name])
             .toLowerCase()
             .includes(needle)),
     );
-  }, [items, q, sel, folders]);
+    // BEST 는 보고 있는 폴더 안에서 맨 앞 (나중에 올린 BEST 가 더 앞). 나머지는 원래 순서
+    return [...list.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...list.filter((i) => !i.best)];
+  }, [items, q, sel, folders, bestOnly]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
@@ -1787,6 +1838,9 @@ export default function ReelsPage({
         onEdit={() => setEditCats(true)}
         q={q}
         setQ={setQ}
+        bestOnly={bestOnly}
+        setBestOnly={setBestOnly}
+        bestCount={items.filter((i) => i.best).length}
       />
 
       {shown.length === 0 ? (
@@ -1809,6 +1863,7 @@ export default function ReelsPage({
                 const f = folders.find((x) => x.id === id);
                 onSave({ ...it, folderId: id, folder: f && !f.parent ? f.name : "" });
               }}
+              onBest={(b) => onSave({ ...it, best: b, bestAt: b ? new Date().toISOString() : null })}
             />
           ))}
         </div>

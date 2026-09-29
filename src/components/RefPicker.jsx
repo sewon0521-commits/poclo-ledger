@@ -62,7 +62,11 @@ export function RefSummary({ item, thumb, onOpen }) {
 }
 
 export default function RefPicker({ library, value, onChange, fileUrl, folders }) {
-  const done = useMemo(() => library.filter((i) => i.reference?.structure), [library]);
+  // BEST(9/29) 를 맨 앞에
+  const done = useMemo(() => {
+    const d = library.filter((i) => i.reference?.structure);
+    return [...d.filter((i) => i.best), ...d.filter((i) => !i.best)];
+  }, [library]);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [folder, setFolder] = useState("all");
@@ -235,7 +239,10 @@ export default function RefPicker({ library, value, onChange, fileUrl, folders }
                         )}
                       </span>
                       <span className="min-w-0 flex-1 space-y-1">
-                        <span className="block truncate text-sm font-semibold text-stone-900">{k.name || it.title}</span>
+                        <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-900">
+                          {it.best && <span className="shrink-0 rounded bg-amber-400 px-1 text-[10px] font-bold text-amber-950">BEST</span>}
+                          <span className="truncate">{k.name || it.title}</span>
+                        </span>
                         <span className="line-clamp-2 block text-xs leading-snug text-stone-600">
                           {silent(r.hook) ? <span className="text-stone-400">자막 없이 영상으로 시작</span> : `“${r.hook || ""}”`}
                         </span>
