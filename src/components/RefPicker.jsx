@@ -231,7 +231,7 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
                 {own.map((o, i) => (
                   <span key={o.key} className="flex items-center gap-1 rounded-full bg-sky-100 py-0.5 pr-1 pl-2 text-[11px] font-medium text-sky-900">
                     소스 {i + 1} · <span className="max-w-[8rem] truncate">{o.title}</span>
-                    <button type="button" onClick={() => onOwn(own.filter((x) => x.key !== o.key))} aria-label="빼기" className="rounded-full p-0.5 hover:bg-sky-200">
+                    <button type="button" onClick={() => onOwn((cur) => cur.filter((x) => x.key !== o.key))} aria-label="빼기" className="rounded-full p-0.5 hover:bg-sky-200">
                       <X size={11} />
                     </button>
                   </span>
@@ -247,7 +247,7 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       e.target.value = "";
-                      if (f && own.length < 3) onOwn([...own, { key: `f${Date.now()}`, kind: "file", title: f.name.replace(/\.[^.]+$/, ""), file: f }]);
+                      if (f) onOwn((cur) => (cur.length < 3 ? [...cur, { key: `f${Date.now()}`, kind: "file", title: f.name.replace(/\.[^.]+$/, ""), file: f }] : cur));
                     }}
                   />
                 </label>
@@ -276,8 +276,14 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
                   <button
                     type="button"
                     onClick={() => {
-                      if (on) onOwn(own.filter((o) => o.id !== it.id));
-                      else if (own.length < 3) onOwn([...own, { key: it.id, kind: "lib", id: it.id, title: it.title }]);
+                      // 빨리 여러 개 눌러도 앞서 고른 게 안 지워지게 — 최신 목록에서 바꾼다
+                      onOwn((cur) =>
+                        cur.some((o) => o.id === it.id)
+                          ? cur.filter((o) => o.id !== it.id)
+                          : cur.length < 3
+                            ? [...cur, { key: it.id, kind: "lib", id: it.id, title: it.title }]
+                            : cur,
+                      );
                     }}
                     className={"block w-full overflow-hidden rounded-lg border text-left " + (on ? "border-sky-600 ring-2 ring-sky-500" : "border-stone-200 hover:border-stone-300")}
                   >
