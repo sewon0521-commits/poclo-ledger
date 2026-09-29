@@ -232,7 +232,7 @@ function mixText(mix) {
     "- 내용 흐름: 그 레퍼런스의 전개 순서·장면 수·CTA 방식을 따른다.",
     "- 구도·촬영: scenes 의 shot 과 shots 를 그 레퍼런스의 구도·카메라·동작으로 짠다.",
     "- 대본 말투: 문장 길이·말투·리듬(반말/존댓말, 끊어 치기 등)을 그 레퍼런스처럼.",
-    "부분끼리 어긋나면(예: 무자막 구도인데 말 많은 대본) 자연스럽게 맞추고, chosenWhy 에 **무엇을 어디서 빌려 어떻게 이었는지** 2~4줄로 적어라.",
+    "부분끼리 어긋나면(예: 무자막 구도인데 말 많은 대본) 자연스럽게 맞추고, chosenWhy 에 **무엇을 어디서 빌려 어떻게 이었는지** 2~4줄로 적어라. 레퍼런스는 id(rm…) 말고 **제목으로** 불러라(사람이 읽는다).",
     "chosen 에는 훅을 빌린 레퍼런스 id(없으면 흐름 레퍼런스 id). 빈칸 틀은 쓰지 않으니 filled 는 빈 배열.",
     part("hook", "첫 1~3초 훅", [h.hook && `훅: ${h.hook}`, h.hookType && `훅 방식: ${h.hookType}`, h.formula?.line && `훅 공식: A=${h.formula.a} / B=${h.formula.b} — ${h.formula.why || ""}`, h.empathy && `공감 포인트: ${h.empathy}`]),
     part("flow", "내용 흐름", [f.flow && `흐름: ${f.flow}`, f.cta && `CTA: ${f.cta}`, f.lines?.length && `문장 역할:\n${f.lines.map((l) => "  " + l).join("\n")}`]),
