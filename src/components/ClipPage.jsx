@@ -13,7 +13,7 @@ import { Chips, Photo } from "./ShootBits";
  */
 
 // 예전 단추(9/30~10/1 첫 판)는 읽는 코드가 단추 안에 박혀 있어서 고친 게 안 닿는다 — 새 단추는 v 를 같이 보낸다
-const OLD_BUTTON = "예전 '포클로에 담기' 단추예요. 즐겨찾기에서 그 단추를 지우고, 포클로ERP › 촬영 › 신상 관리 › '신상마켓에서 담기'에서 새 단추를 다시 끌어다 놓아 주세요.";
+const OLD_BUTTON = "예전 '포클로에 담기' 단추예요. 즐겨찾기에서 그 단추를 지우고, 포클로ERP › 촬영 › 신상 관리 › '신마에서 담기'에서 새 단추를 다시 끌어다 놓아 주세요.";
 export default function ClipPage({ payload, online, vendors = [], onVendor, ready = true }) {
   const [item, setItem] = useState(null);
   const [state, setState] = useState("saving"); // saving | saved | dup | error
@@ -45,7 +45,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           await changeKey("clip_debug", online, (v) => ({ items: [seenAs, ...(v.items || [])].slice(0, 5) })).catch(() => {});
           if (!alive()) return;
           setItem(null);
-          setMsg(payload.v ? "상품 화면을 못 읽었어요. 신상마켓에서 상품을 눌러 상세 화면(가격·상세정보)이 보이는 상태에서 다시 눌러 주세요." : OLD_BUTTON);
+          setMsg(payload.v ? "상품 화면을 못 읽었어요. 신마에서 상품을 눌러 상세 화면(가격·상세정보)이 보이는 상태에서 다시 눌러 주세요." : OLD_BUTTON);
           setState("error");
           return;
         }
@@ -190,7 +190,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
         {msg && state !== "error" && <p className="text-xs text-rose-700">{msg}</p>}
         {!payload.v && state !== "error" && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">{OLD_BUTTON}</p>}
 
-        <p className="px-1 text-xs leading-relaxed text-stone-500">이 창은 그대로 두고, 신상마켓으로 돌아가 다음 상품에서 또 '포클로에 담기'를 누르세요. 여기에 이어서 담겨요.</p>
+        <p className="px-1 text-xs leading-relaxed text-stone-500">이 창은 그대로 두고, 신마로 돌아가 다음 상품에서 또 '포클로에 담기'를 누르세요. 여기에 이어서 담겨요.</p>
 
         {recent.length > 1 && (
           <div className="rounded-2xl border border-stone-200 bg-white p-3">

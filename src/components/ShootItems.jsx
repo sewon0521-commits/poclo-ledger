@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, MSG_SLOT, requestText } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -300,7 +300,7 @@ export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }
         right={
           x.url && (
             <a href={x.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline">
-              <ExternalLink size={13} /> 신상마켓
+              <ExternalLink size={13} /> 신마에서 열기
             </a>
           )
         }
@@ -384,10 +384,15 @@ export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }
                 )}
               </div>
             )}
-            <Label title="신상마켓 링크">
+            <Label title="신마 링크">
               <span className="relative block">
                 <Link2 size={14} className="absolute top-2.5 left-3 text-stone-400" />
-                <input value={x.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://sinsangmarket.kr/…" className={FIELD + " pl-8"} />
+                <input value={x.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://sinsangmarket.kr/…" className={FIELD + " pl-8" + (x.url ? " pr-20" : "")} />
+                {/^https?:\/\//.test(x.url || "") && (
+                  <a href={x.url} target="_blank" rel="noreferrer" className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100">
+                    <ExternalLink size={12} /> 열기
+                  </a>
+                )}
               </span>
             </Label>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -617,6 +622,11 @@ const copy = async (text) => {
  * m = {vendor, list(그 거래처의 요청 단계 상품), picks(글에 넣을 상품 id), kind, kakao, phone, copied}
  */
 function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
+  // 연락처 — 담을 때 제품 설명에서 읽은 것 먼저, 없으면 돈 › 거래처의 전화·메모
+  const memo = contactOf(m.memo);
+  const pick = (k) => m.list.map((x) => x.contact?.[k]).find(Boolean) || "";
+  const kakao = pick("kakao") || memo.kakao;
+  const phone = pick("mobile") || m.phone || pick("tel") || memo.mobile || memo.tel;
   const [kind, setKind] = useState(m.kind);
   const [picks, setPicks] = useState(m.picks);
   const [custom, setCustom] = useState(null); // 이번 글만 손으로 고친 것
@@ -650,6 +660,48 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
             </button>
           ))}
         </div>
+
+        {kind === "first" && (
+          <div className="space-y-1.5 rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-sm">
+            <span className="text-xs font-semibold text-amber-900">처음 거래하는 곳 — 먼저 카톡 친구 추가</span>
+            {kakao || phone ? (
+              <>
+                {kakao && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">
+                      카톡 아이디 <b className="select-all">{kakao}</b>
+                    </span>
+                    <button type="button" onClick={() => say(kakao, `카톡 아이디 ${kakao} 를 복사했어요. 카톡 › 친구 추가 › ID 로 찾기에 붙여넣으세요.`)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium">
+                      <Copy size={12} /> 복사
+                    </button>
+                  </div>
+                )}
+                {phone && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">
+                      전화 <b className="select-all">{phone}</b>
+                    </span>
+                    <button type="button" onClick={() => say(phone, `전화번호 ${phone} 를 복사했어요. 카톡 › 친구 추가 › 연락처로 찾기에 쓰세요.`)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium">
+                      <Copy size={12} /> 복사
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-xs text-amber-900">제품 설명에 카톡 아이디·전화가 없어요. 신마에서 거래처 연락처를 확인하세요.</p>
+                {m.list
+                  .filter((x) => /^https?:\/\//.test(x.url || ""))
+                  .slice(0, 3)
+                  .map((x) => (
+                    <a key={x.id} href={x.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline">
+                      <ExternalLink size={12} /> 신마에서 열기 · {x.name}
+                    </a>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="space-y-1">
           <span className="text-xs font-semibold text-stone-500">글에 넣을 상품 {names.length}개</span>
@@ -712,11 +764,6 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
       </div>
       <footer className="shrink-0 space-y-2 border-t border-stone-200 p-3">
         <div className="flex gap-2">
-          {m.kakao && (
-            <button type="button" onClick={() => say(m.kakao, `카톡 아이디 ${m.kakao} 를 복사했어요. 카톡 › 친구 추가 › ID 로 찾기에 붙여넣으세요.`)} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-stone-300 bg-white py-2.5 text-sm font-medium text-stone-700">
-              <Copy size={14} /> 카톡 아이디 ({m.kakao})
-            </button>
-          )}
           <button type="button" disabled={!names.length || tpl !== null} onClick={() => say(text, "글을 복사했어요. 카톡에서 거래처 방을 열고 붙여넣기(Ctrl+V) 하세요.")} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300">
             <Copy size={14} /> 글 복사
           </button>
@@ -760,10 +807,10 @@ function ClipGuide({ onClose }) {
   }, []);
   return (
     <Sheet onClose={onClose}>
-      <SheetHead title="신상마켓에서 한 번에 담기" onClose={onClose} />
+      <SheetHead title="신마에서 한 번에 담기" onClose={onClose} />
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-sm leading-relaxed text-stone-700">
         <p>
-          신상마켓은 밖에서 자동으로 읽어 오는 걸 막아 둬서, <b>세원님이 보고 있는 상품 화면에서 단추를 한 번 누르면</b> 그 화면의 사진·상품명·거래처·위치·가격·색상·사이즈·혼용률을 그대로 담아 오게 했어요.
+          신마는 밖에서 자동으로 읽어 오는 걸 막아 둬서, <b>세원님이 보고 있는 상품 화면에서 단추를 한 번 누르면</b> 그 화면의 사진·상품명·거래처·위치·가격·색상·사이즈·혼용률을 그대로 담아 오게 했어요.
         </p>
         <ol className="space-y-3">
           <li className="rounded-xl border border-stone-200 p-3">
@@ -778,7 +825,7 @@ function ClipGuide({ onClose }) {
             </a>
           </li>
           <li className="rounded-xl border border-stone-200 p-3">
-            <b className="text-stone-900">② 신상마켓에서 상품을 연 채로 그 즐겨찾기 누르기</b>
+            <b className="text-stone-900">② 신마에서 상품을 연 채로 그 즐겨찾기 누르기</b>
             <p className="mt-1 text-xs text-stone-500">
               작은 창이 뜨면서 '요청' 단계에 바로 담기고, 거래처도 돈 › 거래처와 이어져요(없으면 새로 등록). 제품 설명에 적힌 전화·카톡·인스타도 같이 넣어요 — 접혀 있으면 단추가 알아서 펼쳐서 읽어요. 창은 그대로 두고 다음 상품에서 또
               누르세요.
@@ -866,7 +913,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         const vid = l[0].vendorId;
         // 거래해 본 곳 — 매입 장부에 장끼가 있거나, 샘플이 요청 다음 단계까지 간 적이 있다
         const known = !!vid && (dealt?.has(vid) || items.some((x) => x.vendorId === vid && x.stage !== "request" && !x.refused));
-        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l, req: { vendor: t, kakao: c?.kakao || "", kind: known ? "again" : "first" } };
+        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l, req: { vendor: t, phone: v?.phone || "", memo: v?.memo || "", kind: known ? "again" : "first" } };
       });
     if (tab === "returns")
       return by(dueOf, (a, b) => a[0].localeCompare(b[0])).map(([due, l]) => {
@@ -894,7 +941,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setGuide(true)} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
-          <MousePointerClick size={16} /> 신상마켓에서 담기
+          <MousePointerClick size={16} /> 신마에서 담기
         </button>
         <button type="button" onClick={() => setEdit({ item: {} })} className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm font-medium text-stone-700">
           <Plus size={16} /> 직접 넣기
@@ -977,7 +1024,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
 
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-          {items.length === 0 ? "'신상마켓에서 담기'로 샘플 요청한 상품을 모아 보세요. 담으면 '요청'에 들어오고, 단추를 누를 때마다 다음 단계로 넘어가요." : "여기에는 상품이 없어요."}
+          {items.length === 0 ? "'신마에서 담기'로 샘플 요청한 상품을 모아 보세요. 담으면 '요청'에 들어오고, 단추를 누를 때마다 다음 단계로 넘어가요." : "여기에는 상품이 없어요."}
         </p>
       ) : (
         <div className="space-y-4">

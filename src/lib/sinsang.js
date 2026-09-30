@@ -112,15 +112,27 @@ function headOrTail(s) {
  *   '가을신상)유카 셔링 하이넥 집업 바람막이 점퍼' → '유카 셔링 하이넥 집업 바람막이'
  *   '신상) 로이 하이넥 집업 니트 (도톰 니트가디건)' → '로이 하이넥 집업'      '가을 신상) 로즈sk' → '로즈sk'
  *   '에이골덴SK )) FW 재진행 골덴 코듀로이 셔링 플리츠 플레어 뒷밴딩' → '에이골덴SK'   (앞이 이름, 뒤는 설명)
- * ① 맨 앞 '…)' 가 꾸밈말(가을신상)이면 떼고, 이름이면 그것만 남긴다 ② 괄호·대괄호 안을 뗀다
- * ③ 끝 낱말이 큰 갈래 말(점퍼·니트…)이고 바로 앞이 이미 옷 모양 말(집업·바람막이…)이면 끝 낱말을 뗀다.
+ * 세원 10/1 (카톡에 적을 때 안 길어지게): 이름 한 낱말 뒤에 검색용 낱말을 늘어놓은 상품명은 **앞 낱말만**
+ *   '코이셔링PT 쭈리 fw가을 부츠컷 발레코어 팬츠 밴딩 체형보정' → '코이셔링PT'   '26FW)제나폴딩P 와이드부츠컷 면바지…' → '제나폴딩P'
+ *   '345 사계절 3컬러 와이드 절개 팬츠 허리밴딩 청바지' → '345'  (번호로 부르는 상품)
+ *   '부츠컷팬츠 셔링팬츠 밴딩팬츠 레이어드팬츠…' → '부츠컷팬츠'   '[블룸PT] 부츠컷팬츠 셔링팬츠…' → '블룸PT' (맨 앞 괄호 안이 이름이면 그것)
+ * ① 맨 앞 괄호 안이 이름(코드·번호)이면 그것 ② 맨 앞 '…)' 가 꾸밈말(가을신상)이면 떼고, 이름이면 그것만 ③ 괄호·대괄호 안을 뗀다
+ * ④ 첫 낱말이 번호(345) · 코드(한글+영문 끝: PT·SK·P) · 옷 이름(부츠컷팬츠)이면 그것만
+ * ⑤ 아니면 끝 낱말이 큰 갈래 말(점퍼·니트…)이고 바로 앞이 이미 옷 모양 말(집업·바람막이…)일 때 끝 낱말을 뗀다.
  */
+const CODE = /[가-힣][A-Za-z]{1,4}$/;
+const NUMBER = /^(?!(19|20)\d\d$)\d{2,5}$/;
+const NOUN = /(팬츠|바지|슬랙스|청바지|데님|스커트|치마|원피스|니트|티셔츠|티|셔츠|블라우스|자켓|재킷|점퍼|코트|가디건|조끼|베스트|후드|맨투맨|나시|집업|바람막이|패딩|야상|세트)$/;
+
 export function cleanName(title) {
   let s = String(title || "").trim();
+  const lead = s.match(/^[[(]\s*([^\])]+?)\s*[\])]/);
+  if (lead && (CODE.test(lead[1]) || NUMBER.test(lead[1]))) return lead[1];
   s = headOrTail(headOrTail(s));
   s = s.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").replace(/[★☆♥♡●◆■()[\]]/g, " ");
   s = s.replace(/\s+/g, " ").trim();
   const w = s.split(" ");
+  if (w.length > 1 && (NUMBER.test(w[0]) || CODE.test(w[0]) || (NOUN.test(w[0]) && w[0].replace(NOUN, "").length >= 2))) return w[0];
   if (w.length >= 3 && GENERIC.test(w[w.length - 1]) && SHAPE.test(w[w.length - 2])) w.pop();
   return w.join(" ") || String(title || "").trim();
 }
@@ -183,15 +195,16 @@ export function contactOf(text) {
   }
   const kUrl = s.match(/(?:pf|open)\.kakao\.com\/[^\s<>"']+/i);
   const kId =
-    s.match(/(?:카카오\s*톡?|카톡|kakao\s*talk|kakao)[^\n:：]{0,14}[:：]\s*@?([A-Za-z0-9][\w.-]{2,29})/i) ||
+    s.match(/(?:카카오\s*톡?|카톡|kakao\s*talk|kakao)[^\n:：)\]》]{0,14}[:：)\]》]\s*@?([A-Za-z0-9][\w.-]{2,29})/i) ||
     s.match(/(?:카카오\s*톡?|카톡|kakao\s*talk|kakao)\s*(?:주문\s*)?(?:id|아이디)?\s*@?([A-Za-z][\w.-]{2,29})/i);
   c.kakao = kUrl ? kUrl[0] : kId && !/^(https?|www|id)$/i.test(kId[1]) ? kId[1] : "";
   const ig =
     s.match(/instagram\.com\/([A-Za-z0-9_.]+)/i) ||
-    s.match(/(?:인스타\s*그램|인스타|insta\s*gram|insta)\s*(?:아이디|계정|주소|id)?\s*[:：]?\s*@?([A-Za-z0-9_.]{3,30})/i) ||
-    s.match(/(?:^|\s)@([A-Za-z0-9_.]{3,30})/);
-  const insta = ig ? ig[1].replace(/\.$/, "") : "";
-  c.insta = insta && !/^(https?|www|com|id)$/i.test(insta) && insta !== c.kakao ? insta : "";
+    s.match(/(?:인스타\s*그램|인스타|insta\s*gram|insta(?!\s*gram))\s*(?:아이디|계정|주소|id)?\s*[:：)\]》=-]?\s*@?([A-Za-z0-9_.]{3,30})/i);
+  // 그냥 '@아이디' 만 적힌 건 인스타로 본다 — 카톡 아이디를 '@' 로 적은 것과 겹치면 뺀다
+  const bare = ig ? null : s.match(/(?:^|\s)@([A-Za-z0-9_.]{3,30})/);
+  const insta = (ig || bare)?.[1]?.replace(/\.$/, "") || "";
+  c.insta = insta && !/^(https?|www|com|id|gram)$/i.test(insta) && !(bare && insta === c.kakao) ? insta : "";
   const site = (s.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) || []).find((u) => !/instagram\.com|kakao\.com/i.test(u));
   c.site = site || "";
   return c;
@@ -254,8 +267,8 @@ export const DEFAULT_MSGS = {
 감사합니다.`,
 };
 
-/** 틀의 [상품명] 자리에 상품 이름들을 넣는다 */
-export const requestText = (tpl, names) => String(tpl || "").split(MSG_SLOT).join(names.join(", "));
+/** 틀의 [상품명] 자리에 상품 이름들을 넣는다 — 세원 10/1: "[345,348] 이런 식으로 [] 괄호" */
+export const requestText = (tpl, names) => String(tpl || "").split(MSG_SLOT).join(`[${names.join(",")}]`);
 
 // ---------------------------------------------------------------- 신상마켓에서 담기
 //
