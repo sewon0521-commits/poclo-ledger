@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X } from "lucide-react";
+import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, dueOf, daysLeft, dueLabel, moveTo, bookmarklet } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
 
 /**
- * 신상 관리 — 상품 한 장이 요청 → 입고·픽 → 촬영 → 등록 → 완료로 옮겨 다닌다 (lib/sinsang.js 머리말).
+ * 신상 관리 — 상품 한 장이 요청 → 입고·픽 → 촬영 → 등록 → 업데이트 완료로 옮겨 다닌다 (lib/sinsang.js 머리말).
  * 노션에서는 단계마다 다른 쪽을 열어 같은 상품을 다시 찾았다. 여기서는 탭만 바꾸고, 다음 단계로 넘기는 단추가 카드에 바로 있다.
- * 반납 기한(입고일 + 14일)은 저절로 계산해 어느 단계에서든 카드에 보여 주고, '반납·결제' 탭에 날짜순으로 모은다.
+ * 반납 기한(입고일 + 14일)은 저절로 계산해 어느 단계에서든 카드에 보여 주고, '반납·결제 예정' 탭에 날짜순으로 모은다.
+ * 결제와 반납은 같이 된다(일부만 결제하고 나머지는 반납). 반납하면 '반납 완료' 탭으로 간다.
  */
 
 const who = () => {
@@ -21,6 +22,11 @@ const who = () => {
 };
 
 const srcOf = (x, urls) => urls[x.photo] || x.photoUrl || "";
+const list = (s) =>
+  String(s || "")
+    .split(/[,/·]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
 
 function DueBadge({ x, today, className = "" }) {
   const due = dueOf(x);
@@ -34,15 +40,20 @@ const BTN = "flex-1 rounded-lg py-1.5 text-xs font-semibold ";
 const MAIN = BTN + "bg-rose-700 text-white hover:bg-rose-800";
 const SUB = BTN + "border border-stone-200 bg-white text-stone-600 hover:bg-stone-50";
 
-function Toggle({ on, onClick, children }) {
+/** 켜고 끄는 단추 — 켜져도 크기가 안 바뀌게 체크 자리는 늘 잡아 둔다 */
+function Toggle({ on, onClick, children, wide }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-pressed={on}
-      className={"flex flex-1 items-center justify-center gap-1 rounded-lg border py-1 text-[11px] font-medium " + (on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-500")}
+      aria-pressed={!!on}
+      className={
+        "flex items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-medium " +
+        (wide ? "w-full " : "flex-1 ") +
+        (on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-500")
+      }
     >
-      {on && <Check size={11} />} {children}
+      <Check size={11} className={on ? "" : "opacity-0"} /> {children}
     </button>
   );
 }
@@ -56,6 +67,20 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
   };
   const go = (stage, extra = {}) => act({ ...moveTo(x, stage, today), ...extra });
   const retryDue = x.stage === "request" && x.retryOn && x.retryOn <= today;
+  // 카드 아래 한 줄 — 늘 한 줄을 차지해서 눌러도 카드 높이가 안 바뀐다
+  const line = retryDue
+    ? { text: `재요청 ${md(x.retryOn)} — ${x.memo || "다시 요청할 날이에요"}`, tone: "font-medium text-rose-700" }
+    : x.returnedOn
+      ? { text: `반납 ${md(x.returnedOn)}${x.paid ? ` · 결제 ${paidLabel(x.paid)}` : ""}`, tone: "text-stone-600" }
+      : x.paid
+        ? { text: `결제 ${paidLabel(x.paid)}${x.paid.all ? " (전부)" : ""}`, tone: "text-teal-700" }
+        : x.packed
+          ? { text: `포장 ${md(x.packedOn) || "완료"}`, tone: "text-sky-700" }
+          : x.retryOn && x.stage === "request"
+            ? { text: `재요청 ${md(x.retryOn)}`, tone: "text-stone-500" }
+            : (x.notes || []).length
+              ? { text: `💬 ${x.notes[x.notes.length - 1].text}`, tone: "text-stone-400" }
+              : { text: " ", tone: "" };
 
   return (
     <div className={"overflow-hidden rounded-xl border bg-white " + (selected ? "border-rose-600 ring-2 ring-rose-600" : "border-stone-200")}>
@@ -70,13 +95,14 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
               <Check size={14} />
             </span>
           ) : (
-            tab !== x.stage && tab !== "returns" && <span className="absolute top-1.5 right-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-stone-600">{stageName(x.stage)}</span>
+            tab !== x.stage && <span className="absolute top-1.5 right-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-stone-600">{stageName(x.stage)}</span>
           )}
           <span className="absolute bottom-1.5 left-1.5 flex flex-wrap gap-1">
             <DueBadge x={x} today={today} />
-            {x.returning && !x.settle && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납 예정</span>}
-            {x.packed && !x.settle && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white">포장 완료</span>}
-            {x.settle && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">{x.settle === "paid" ? "결제함" : "반납함"}</span>}
+            {x.returning && !closed(x) && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납 예정</span>}
+            {x.packed && !x.returnedOn && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white">포장 완료</span>}
+            {x.paid && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-medium text-white">결제함</span>}
+            {x.returnedOn && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납함</span>}
           </span>
         </span>
         <span className="block px-2.5 pt-2 pb-1.5">
@@ -85,9 +111,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
             {x.vendor && <span className="font-normal text-stone-500"> / {x.vendor}</span>}
           </span>
           <span className="block truncate text-[11px] text-stone-400">{[x.place, won(x.price), x.kind].filter(Boolean).join(" · ") || "정보 없음"}</span>
-          {retryDue && <span className="mt-0.5 block truncate text-[11px] font-medium text-rose-700">재요청 {md(x.retryOn)} — {x.memo || "다시 요청할 날이에요"}</span>}
-          {!retryDue && x.retryOn && x.stage === "request" && <span className="mt-0.5 block truncate text-[11px] text-stone-500">재요청 {md(x.retryOn)}</span>}
-          {(x.notes || []).length > 0 && <span className="mt-0.5 block truncate text-[11px] text-stone-400">💬 {x.notes[x.notes.length - 1].text}</span>}
+          <span className={"block truncate text-[11px] " + line.tone}>{line.text}</span>
         </span>
       </button>
 
@@ -125,13 +149,11 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
           )}
           {tab === "shot" && (
             <>
-              <div className="grid grid-cols-2 gap-1">
-                {CHANNELS.map(([k, label]) => (
-                  <Toggle key={k} on={x.channels?.[k]} onClick={act({ channels: { ...(x.channels || {}), [k]: !x.channels?.[k] } })}>
-                    {label}
-                  </Toggle>
-                ))}
-              </div>
+              {CHANNELS.map(([k, label]) => (
+                <Toggle key={k} wide on={x.channels?.[k]} onClick={act({ channels: { ...(x.channels || {}), [k]: !x.channels?.[k] } })}>
+                  {label} 업로드
+                </Toggle>
+              ))}
               <button type="button" onClick={go("done")} className={MAIN + " w-full"}>
                 업데이트 완료
               </button>
@@ -139,25 +161,30 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
           )}
           {tab === "returns" && (
             <>
-              <Toggle
-                on={x.packed}
-                onClick={act(
-                  x.packed
-                    ? { packed: false }
-                    : { packed: true, notes: [...(x.notes || []), { by: who(), text: "포장 완료", at: new Date().toISOString() }] },
-                )}
-              >
-                <PackageCheck size={12} /> 포장 완료
+              <Toggle wide on={x.packed} onClick={act(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
+                <PackageCheck size={12} /> 포장 완료{x.packed && x.packedOn ? ` · ${md(x.packedOn)}` : ""}
               </Toggle>
               <div className="flex gap-1">
-                <button type="button" onClick={act({ settle: "returned", settledOn: today })} className={MAIN}>
+                <button type="button" onClick={act({ returnedOn: today, settle: null, ...(x.paid ? { paid: x.paid } : {}) })} className={MAIN}>
                   거래처 반납
                 </button>
-                <button type="button" onClick={act({ settle: "paid", settledOn: today, returning: false })} className={SUB}>
-                  샘플 결제
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpen({ pay: true });
+                  }}
+                  className={SUB}
+                >
+                  {x.paid ? "결제 고치기" : "샘플 결제"}
                 </button>
               </div>
             </>
+          )}
+          {tab === "returned" && (
+            <button type="button" onClick={act({ returnedOn: "", settle: null, ...(x.paid ? { paid: { ...x.paid, all: false } } : {}) })} className={SUB + " flex w-full items-center justify-center gap-1"}>
+              <Undo2 size={12} /> 예정으로 되돌리기
+            </button>
           )}
           {tab === "drop" && (
             <button type="button" onClick={go("arrived")} className={SUB + " flex w-full items-center justify-center gap-1"}>
@@ -183,14 +210,46 @@ function Label({ children, title }) {
   );
 }
 
-export function ItemSheet({ item, d, online, vendors, today, onClose }) {
-  const [x, setX] = useState({ ...EMPTY, ...item });
+/** 적어도 되고, 아래 칩(이 상품의 색상·사이즈)을 눌러 넣어도 되는 칸 */
+function OptInput({ value, onChange, options, placeholder }) {
+  const have = list(value);
+  const flip = (t) => onChange((have.includes(t) ? have.filter((x) => x !== t) : [...have, t]).join(", "));
+  return (
+    <span className="block space-y-1">
+      <input value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={FIELD} />
+      {options.length > 0 && (
+        <span className="flex flex-wrap gap-1">
+          {options.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => flip(t)}
+              className={"rounded-full border px-2 py-0.5 text-[11px] " + (have.includes(t) ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}
+            >
+              {t}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }) {
+  const [x, setX] = useState(() => {
+    const base = { ...EMPTY, ...item };
+    // 카드에서 '샘플 결제'로 들어왔으면 결제 칸을 열어 둔다
+    return startPay && !base.paid ? { ...base, paid: { on: today, colors: "", sizes: "", qty: "", amount: "" } } : base;
+  });
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState("");
   const [note, setNote] = useState("");
+  const [editNote, setEditNote] = useState(-1);
   const set = (patch) => setX((p) => ({ ...p, ...patch }));
   const sample = x.type !== "buy";
   const due = dueOf(x);
+  const colorList = list(x.colors);
+  const sizeList = list(x.sizes);
 
   const upload = async (file) => {
     if (!file) return;
@@ -204,18 +263,21 @@ export function ItemSheet({ item, d, online, vendors, today, onClose }) {
       setBusy(false);
     }
   };
-  const save = async (extra = {}) => {
-    await d.saveItems(upsert({ ...x, ...extra, id: x.id || newId("i"), createdAt: x.createdAt || new Date().toISOString() }));
+  const save = async () => {
+    await d.saveItems(upsert({ ...x, settle: null, id: x.id || newId("i"), createdAt: x.createdAt || new Date().toISOString() }));
     onClose();
+  };
+  const putNotes = (notes) => {
+    set({ notes });
+    if (x.id) d.saveItems(upsert({ id: x.id, notes }));
   };
   const addNote = () => {
     const text = note.trim();
     if (!text) return;
     setNote("");
-    const notes = [...(x.notes || []), { by: who(), text, at: new Date().toISOString() }];
-    set({ notes });
-    if (x.id) d.saveItems(upsert({ id: x.id, notes }));
+    putNotes([...(x.notes || []), { by: who(), text, at: new Date().toISOString() }]);
   };
+  const pay = (p) => set({ paid: { ...(x.paid || {}), ...p } });
 
   return (
     <Sheet onClose={onClose} wide>
@@ -274,12 +336,16 @@ export function ItemSheet({ item, d, online, vendors, today, onClose }) {
           </div>
 
           <div className="min-w-0 space-y-3">
+            <div className="space-y-1">
+              <span className="text-xs font-semibold text-stone-500">종류</span>
+              <Chips list={d.tags.clothes} value={x.kind} onChange={(v) => set({ kind: v })} />
+            </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <Label title="상품명 (거래처 상품명)">
                 <input value={x.name} onChange={(e) => set({ name: e.target.value })} placeholder="예: 코듀로이반팬츠" className={FIELD} />
               </Label>
-              <Label title="거래처">
-                <input value={x.vendor} onChange={(e) => set({ vendor: e.target.value })} list="sinsang-vendors" placeholder="예: 플랫유" className={FIELD} />
+              <Label title="거래처 (돈 › 거래처와 같은 이름)">
+                <input value={x.vendor} onChange={(e) => set({ vendor: e.target.value, vendorId: vendors.find((v) => v.name === e.target.value)?.id || "" })} list="sinsang-vendors" placeholder="예: 플랫유 flatyou" className={FIELD} />
                 <datalist id="sinsang-vendors">
                   {vendors.map((v) => (
                     <option key={v.id} value={v.name} />
@@ -299,10 +365,23 @@ export function ItemSheet({ item, d, online, vendors, today, onClose }) {
                 <input value={x.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://sinsangmarket.kr/…" className={FIELD + " pl-8"} />
               </span>
             </Label>
-            <div className="space-y-1">
-              <span className="text-xs font-semibold text-stone-500">종류</span>
-              <Chips list={d.tags.clothes} value={x.kind} onChange={(v) => set({ kind: v })} />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Label title="색상">
+                <input value={x.colors || ""} onChange={(e) => set({ colors: e.target.value })} className={FIELD} />
+              </Label>
+              <Label title="사이즈">
+                <input value={x.sizes || ""} onChange={(e) => set({ sizes: e.target.value })} className={FIELD} />
+              </Label>
+              <Label title="혼용률">
+                <input value={x.fabric || ""} onChange={(e) => set({ fabric: e.target.value })} className={FIELD} />
+              </Label>
+              <Label title="제조국">
+                <input value={x.origin || ""} onChange={(e) => set({ origin: e.target.value })} className={FIELD} />
+              </Label>
             </div>
+            <Label title="메모">
+              <textarea value={x.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 깔깨져서 목~일밤 재요청" className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
+            </Label>
 
             <div className="space-y-2 rounded-xl border border-stone-200 p-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -332,18 +411,18 @@ export function ItemSheet({ item, d, online, vendors, today, onClose }) {
                   <input type="date" value={x.arrivedOn || ""} onChange={(e) => set({ arrivedOn: e.target.value })} className={FIELD} />
                 </Label>
                 <Label title="입고된 색상·사이즈">
-                  <input value={x.arrivedOpts || ""} onChange={(e) => set({ arrivedOpts: e.target.value })} placeholder="예: S 진청, 흑청" className={FIELD} />
+                  <OptInput value={x.arrivedOpts} onChange={(v) => set({ arrivedOpts: v })} options={[...colorList, ...sizeList]} placeholder="예: 블랙, 진베이지 / M" />
                 </Label>
                 {sample && (
                   <Label title={`반납까지 며칠 (기본 ${RETURN_DAYS}일)`}>
                     <input value={x.returnDays || ""} onChange={(e) => set({ returnDays: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder={String(RETURN_DAYS)} className={FIELD} />
                   </Label>
                 )}
-                <Label title="촬영 예정일">
+                <Label title="촬영 날짜">
                   <input type="date" value={x.shootDate || ""} onChange={(e) => set({ shootDate: e.target.value })} className={FIELD} />
                 </Label>
-                <Label title="사입가">
-                  <input value={x.buyPrice || ""} onChange={(e) => set({ buyPrice: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="비우면 도매가" className={FIELD} />
+                <Label title="촬영 색상 및 사이즈">
+                  <OptInput value={x.shootOpts} onChange={(v) => set({ shootOpts: v })} options={[...colorList, ...sizeList]} placeholder="예: 블랙 / Free" />
                 </Label>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -353,56 +432,104 @@ export function ItemSheet({ item, d, online, vendors, today, onClose }) {
                   </Toggle>
                 ))}
               </div>
+
               {sample && (
-                <div className="flex flex-wrap gap-1.5 border-t border-stone-100 pt-2">
-                  <Toggle on={x.returning} onClick={() => set({ returning: !x.returning })}>
-                    반납 등록
-                  </Toggle>
-                  <Toggle on={x.packed} onClick={() => set({ packed: !x.packed })}>
-                    포장 완료
-                  </Toggle>
-                  <Toggle on={x.settle === "returned"} onClick={() => set(x.settle === "returned" ? { settle: null } : { settle: "returned", settledOn: today })}>
-                    거래처 반납함
-                  </Toggle>
-                  <Toggle on={x.settle === "paid"} onClick={() => set(x.settle === "paid" ? { settle: null } : { settle: "paid", settledOn: today })}>
-                    샘플 결제함
-                  </Toggle>
+                <div className="space-y-2 border-t border-stone-100 pt-2">
+                  <div className="text-xs font-semibold text-stone-500">반납 · 결제</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Toggle on={x.returning} onClick={() => set({ returning: !x.returning })}>
+                      반납 등록
+                    </Toggle>
+                    <Toggle on={x.packed} onClick={() => set(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
+                      포장 완료
+                    </Toggle>
+                    <Toggle on={!!x.paid} onClick={() => set({ paid: x.paid ? null : { on: today, colors: "", sizes: "", qty: "", amount: "" }, settle: null })}>
+                      샘플 결제함
+                    </Toggle>
+                    <Toggle on={!!x.returnedOn} onClick={() => set({ returnedOn: x.returnedOn ? "" : today, settle: null })}>
+                      거래처 반납함
+                    </Toggle>
+                  </div>
+                  {x.packed && (
+                    <Label title="포장한 날">
+                      <input type="date" value={x.packedOn || ""} onChange={(e) => set({ packedOn: e.target.value })} className={FIELD} />
+                    </Label>
+                  )}
+                  {x.paid && (
+                    <div className="space-y-2 rounded-lg bg-teal-50/70 p-2.5">
+                      <div className="text-xs font-semibold text-teal-900">샘플 결제 — 무엇을 얼마에 샀나요</div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Label title="결제한 색상">
+                          <OptInput value={x.paid.colors} onChange={(v) => pay({ colors: v })} options={colorList} placeholder="예: 블랙" />
+                        </Label>
+                        <Label title="결제한 사이즈">
+                          <OptInput value={x.paid.sizes} onChange={(v) => pay({ sizes: v })} options={sizeList} placeholder="예: M" />
+                        </Label>
+                        <Label title="몇 장">
+                          <input value={x.paid.qty || ""} onChange={(e) => pay({ qty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="1" className={FIELD} />
+                        </Label>
+                        <Label title="결제 금액 (원)">
+                          <input value={x.paid.amount || ""} onChange={(e) => pay({ amount: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder={x.price ? String(x.price) : "0"} className={FIELD} />
+                        </Label>
+                        <Label title="결제한 날">
+                          <input type="date" value={x.paid.on || ""} onChange={(e) => pay({ on: e.target.value })} className={FIELD} />
+                        </Label>
+                      </div>
+                      <Toggle wide on={x.paid.all} onClick={() => pay({ all: !x.paid.all })}>
+                        받은 걸 전부 결제했어요 (반납할 것 없음)
+                      </Toggle>
+                    </div>
+                  )}
+                  {x.returnedOn && (
+                    <div className="space-y-1 rounded-lg bg-stone-50 p-2.5">
+                      <Label title="거래처에 반납한 날">
+                        <input type="date" value={x.returnedOn} onChange={(e) => set({ returnedOn: e.target.value })} className={FIELD} />
+                      </Label>
+                      {x.paid && !x.paid.all && (
+                        <p className="text-[11px] text-stone-500">
+                          결제한 <b className="text-stone-700">{paidLabel({ colors: x.paid.colors, sizes: x.paid.sizes, qty: x.paid.qty }) || "것"}</b> 을 빼고 나머지를 반납했어요.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Label title="색상">
-                <input value={x.colors || ""} onChange={(e) => set({ colors: e.target.value })} className={FIELD} />
-              </Label>
-              <Label title="사이즈">
-                <input value={x.sizes || ""} onChange={(e) => set({ sizes: e.target.value })} className={FIELD} />
-              </Label>
-              <Label title="혼용률">
-                <input value={x.fabric || ""} onChange={(e) => set({ fabric: e.target.value })} className={FIELD} />
-              </Label>
-              <Label title="제조국">
-                <input value={x.origin || ""} onChange={(e) => set({ origin: e.target.value })} className={FIELD} />
-              </Label>
-            </div>
-            <Label title="메모">
-              <textarea value={x.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 깔깨져서 목~일밤 재요청" className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
-            </Label>
 
             {x.id && (
               <div className="rounded-xl bg-stone-50 p-3">
                 <div className="mb-1.5 text-xs font-semibold text-stone-500">댓글</div>
                 <ul className="space-y-1">
                   {(x.notes || []).map((n, i) => (
-                    <li key={i} className="flex items-baseline gap-2 text-sm">
+                    <li key={i} className="group flex items-center gap-2 text-sm">
                       <span className="shrink-0 text-xs font-semibold text-stone-700">{n.by || "—"}</span>
-                      <span className="min-w-0 flex-1 text-stone-700">{n.text}</span>
+                      {editNote === i ? (
+                        <input
+                          autoFocus
+                          defaultValue={n.text}
+                          onBlur={(e) => {
+                            const t = e.target.value.trim();
+                            putNotes(t ? x.notes.map((m, k) => (k === i ? { ...m, text: t } : m)) : x.notes.filter((_, k) => k !== i));
+                            setEditNote(-1);
+                          }}
+                          onKeyUp={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                          className="min-w-0 flex-1 rounded-md border border-rose-400 px-2 py-0.5 text-sm outline-none"
+                        />
+                      ) : (
+                        <span className="min-w-0 flex-1 text-stone-700">{n.text}</span>
+                      )}
                       <span className="shrink-0 text-[11px] text-stone-400">{md(String(n.at).slice(0, 10))}</span>
+                      <button type="button" onClick={() => setEditNote(i)} aria-label="댓글 고치기" className="shrink-0 p-0.5 text-stone-400 hover:text-stone-700">
+                        <Pencil size={12} />
+                      </button>
+                      <button type="button" onClick={() => putNotes(x.notes.filter((_, k) => k !== i))} aria-label="댓글 지우기" className="shrink-0 p-0.5 text-stone-400 hover:text-rose-600">
+                        <X size={13} />
+                      </button>
                     </li>
                   ))}
                 </ul>
                 <div className="mt-2 flex gap-1.5">
-                  <input value={note} onChange={(e) => setNote(e.target.value)} onKeyUp={(e) => e.key === "Enter" && addNote()} placeholder="댓글 (엔터) — 예: 포장 완료" className={FIELD} />
+                  <input value={note} onChange={(e) => setNote(e.target.value)} onKeyUp={(e) => e.key === "Enter" && addNote()} placeholder="댓글 (엔터)" className={FIELD} />
                   <button type="button" onClick={addNote} aria-label="댓글 달기" className="rounded-lg bg-stone-800 px-3 text-white">
                     <Send size={14} />
                   </button>
@@ -428,7 +555,7 @@ export function ItemSheet({ item, d, online, vendors, today, onClose }) {
         ) : (
           <span />
         )}
-        <button type="button" disabled={busy || !(x.name.trim() || x.photo || x.url.trim())} onClick={() => save()} className="rounded-xl bg-rose-700 px-6 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300">
+        <button type="button" disabled={busy || !(x.name.trim() || x.photo || x.url.trim())} onClick={save} className="rounded-xl bg-rose-700 px-6 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300">
           저장
         </button>
       </footer>
@@ -440,37 +567,47 @@ export function ItemSheet({ item, d, online, vendors, today, onClose }) {
 
 function ClipGuide({ onClose }) {
   const link = useRef(null);
-  // React 는 javascript: 주소를 막는다 — 그린 뒤에 직접 넣는다
+  const [ready, setReady] = useState(false);
+  // React 는 javascript: 주소를 막는다 — 그린 뒤에 직접 넣는다. 읽는 코드(clip.js)도 단추 안에 같이 넣어 둔다(불러오기가 막힐 때 쓸 것)
   useEffect(() => {
-    link.current?.setAttribute("href", bookmarklet(window.location.origin));
+    let alive = true;
+    fetch("/clip.js")
+      .then((r) => r.text())
+      .then((core) => {
+        if (!alive) return;
+        link.current?.setAttribute("href", bookmarklet(window.location.origin, core));
+        setReady(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
   return (
     <Sheet onClose={onClose}>
       <SheetHead title="신상마켓에서 한 번에 담기" onClose={onClose} />
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-sm leading-relaxed text-stone-700">
         <p>
-          신상마켓은 밖에서 자동으로 읽어 오는 걸 막아 둬서, <b>세원님이 보고 있는 상품 화면에서 단추를 한 번 누르면</b> 그 화면의 사진·상품명·거래처·위치·가격·색상·사이즈·혼용률을 그대로 담아 오게 했어요. (캡처해서 붙이던 걸 대신해요)
+          신상마켓은 밖에서 자동으로 읽어 오는 걸 막아 둬서, <b>세원님이 보고 있는 상품 화면에서 단추를 한 번 누르면</b> 그 화면의 사진·상품명·거래처·위치·가격·색상·사이즈·혼용률을 그대로 담아 오게 했어요.
         </p>
         <ol className="space-y-3">
           <li className="rounded-xl border border-stone-200 p-3">
-            <b className="text-stone-900">① 처음 한 번 — 아래 단추를 즐겨찾기 막대로 끌어다 놓기</b>
-            <p className="mt-1 text-xs text-stone-500">즐겨찾기 막대가 안 보이면 크롬에서 Ctrl + Shift + B.</p>
+            <b className="text-stone-900">① 아래 단추를 즐겨찾기 막대로 끌어다 놓기</b>
+            <p className="mt-1 text-xs text-stone-500">막대가 안 보이면 크롬에서 Ctrl + Shift + B. 예전에 끌어다 놓은 '포클로에 담기'가 있으면 지우고 다시 놓아 주세요.</p>
             <a
               ref={link}
               onClick={(e) => e.preventDefault()}
-              className="mt-2 inline-flex cursor-grab items-center gap-1.5 rounded-full bg-rose-700 px-4 py-2 text-sm font-semibold text-white shadow active:cursor-grabbing"
+              className={"mt-2 inline-flex cursor-grab items-center gap-1.5 rounded-full bg-rose-700 px-4 py-2 text-sm font-semibold text-white shadow active:cursor-grabbing " + (ready ? "" : "opacity-50")}
             >
               <MousePointerClick size={15} /> 포클로에 담기
             </a>
           </li>
           <li className="rounded-xl border border-stone-200 p-3">
             <b className="text-stone-900">② 신상마켓에서 상품을 연 채로 그 즐겨찾기 누르기</b>
-            <p className="mt-1 text-xs text-stone-500">작은 창이 뜨면서 '요청' 단계에 바로 담겨요. 샘플/사입, 종류가 다르면 그 창에서 고치면 돼요. 창은 그대로 두고 다음 상품에서 또 누르세요.</p>
+            <p className="mt-1 text-xs text-stone-500">작은 창이 뜨면서 '요청' 단계에 바로 담기고, 거래처도 돈 › 거래처와 이어져요(없으면 새로 등록). 창은 그대로 두고 다음 상품에서 또 누르세요.</p>
           </li>
         </ol>
-        <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">
-          폰에서는 이 단추를 쓸 수 없어요. 폰에서는 '직접 넣기'에 링크를 붙이고 캡처를 넣어 주세요. 처음 담아 보고 상품명·거래처가 엉뚱하게 들어가면 알려 주세요 — 신상마켓 화면에 맞춰 고칠게요.
-        </p>
+        <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">폰에서는 이 단추를 쓸 수 없어요. 폰에서는 '직접 넣기'에 링크를 붙이고 캡처를 넣어 주세요.</p>
       </div>
     </Sheet>
   );
@@ -478,9 +615,9 @@ function ClipGuide({ onClose }) {
 
 // ---------------------------------------------------------------- 한 화면 흐름
 
-const TABS = [...STAGES.map(([k, label]) => [k, label]), ["returns", "반납·결제"], ["drop", "보류·드랍"]];
+const TABS = [...STAGES.map(([k, label]) => [k, label]), ["drop", "보류·드랍"], ["returns", "반납·결제 예정"], ["returned", "반납 완료"]];
 
-export default function Pipeline({ d, online, vendors }) {
+export default function Pipeline({ d, online, vendors, onVendor }) {
   const today = dayKey();
   const items = useMemo(() => d.items.map(normalize), [d.items]);
   const [tab, setTab] = useState("request");
@@ -488,10 +625,34 @@ export default function Pipeline({ d, online, vendors }) {
   const [kind, setKind] = useState("");
   const [q, setQ] = useState("");
   const [weekOnly, setWeekOnly] = useState(false);
-  const [edit, setEdit] = useState(null);
+  const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
 
-  const inTab = (x, t) => (t === "returns" ? !!dueOf(x) : x.stage === t);
+  // 담아 둔 상품을 돈 › 거래처와 잇는다 (10/1 세원: "거래처에 어차피 등록해야 하는데 없으면 추가, 있으면 매칭")
+  // 신상마켓에서 담은 것(goodsId 있음) 중 아직 안 이어진 것만 — 이름은 한글 먼저로 고치고, 상품명도 다듬는다.
+  const linking = useRef(false);
+  useEffect(() => {
+    if (linking.current || !onVendor) return;
+    const todo = items.filter((x) => x.goodsId && x.vendor && x.place && !x.vendorId);
+    if (!todo.length) return;
+    linking.current = true;
+    (async () => {
+      let known = [...vendors];
+      const patches = [];
+      for (const x of todo) {
+        let v = findVendor(x.vendor, x.place, known);
+        if (!v) {
+          v = onVendor({ name: vendorName(x.vendor), address: x.place || "", memo: "신상 관리에서 등록" });
+          known = [...known, v];
+        }
+        patches.push({ id: x.id, vendor: v.name, vendorId: v.id, name: cleanName(x.fullName || x.name) });
+      }
+      await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => ({ ...it, ...(patches.find((p) => p.id === it.id) || {}) })) }));
+      linking.current = false;
+    })();
+  }, [items, vendors, onVendor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const inTab = (x, t) => (t === "returns" ? !!dueOf(x) : t === "returned" ? x.type !== "buy" && closed(x) : x.stage === t);
   const count = (t) => items.filter((x) => inTab(x, t)).length;
   const dues = items.filter((x) => dueOf(x)).map((x) => daysLeft(dueOf(x), today));
   const overdue = dues.filter((n) => n < 0).length;
@@ -511,21 +672,21 @@ export default function Pipeline({ d, online, vendors }) {
     );
   }, [items, tab, type, kind, q, weekOnly, weekAgo]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제는 기한 날짜별, 나머지는 한 덩어리
+  // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
-    if (tab === "request") {
+    const by = (keyOf, sort) => {
       const m = new Map();
-      for (const x of shown) m.set(x.vendor || "거래처 없음", [...(m.get(x.vendor || "거래처 없음") || []), x]);
-      return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "ko")).map(([title, list]) => ({ title: `${title} · ${list.length}`, list }));
-    }
-    if (tab === "returns") {
-      const m = new Map();
-      for (const x of [...shown].sort((a, b) => dueOf(a).localeCompare(dueOf(b)))) m.set(dueOf(x), [...(m.get(dueOf(x)) || []), x]);
-      return [...m.entries()].map(([due, list]) => {
+      for (const x of shown) m.set(keyOf(x), [...(m.get(keyOf(x)) || []), x]);
+      return [...m.entries()].sort(sort);
+    };
+    if (tab === "request") return by((x) => x.vendor || "거래처 없음", (a, b) => a[0].localeCompare(b[0], "ko")).map(([t, l]) => ({ title: `${t} · ${l.length}`, list: l }));
+    if (tab === "returns")
+      return by(dueOf, (a, b) => a[0].localeCompare(b[0])).map(([due, l]) => {
         const n = daysLeft(due, today);
-        return { title: `${dayTitle(due)} · ${dueLabel(n)} · ${list.length}개`, tone: n < 0 ? "text-rose-700" : n <= 3 ? "text-amber-700" : "text-stone-600", list };
+        return { title: `${dayTitle(due)} · ${dueLabel(n)} · ${l.length}개`, tone: n < 0 ? "text-rose-700" : n <= 3 ? "text-amber-700" : "text-stone-600", list: l };
       });
-    }
+    if (tab === "returned")
+      return by((x) => x.returnedOn || x.paid?.on || "", (a, b) => b[0].localeCompare(a[0])).map(([day, l]) => ({ title: day ? `${dayTitle(day)} · ${l.length}개` : `날짜 없음 · ${l.length}개`, list: l }));
     return [{ title: "", list: shown }];
   }, [shown, tab, today]);
 
@@ -537,7 +698,7 @@ export default function Pipeline({ d, online, vendors }) {
         <button type="button" onClick={() => setGuide(true)} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <MousePointerClick size={16} /> 신상마켓에서 담기
         </button>
-        <button type="button" onClick={() => setEdit({})} className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm font-medium text-stone-700">
+        <button type="button" onClick={() => setEdit({ item: {} })} className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm font-medium text-stone-700">
           <Plus size={16} /> 직접 넣기
         </button>
         {(overdue > 0 || soon > 0 || retry > 0) && (
@@ -577,10 +738,12 @@ export default function Pipeline({ d, online, vendors }) {
       </div>
       <p className="mb-2 px-1 text-xs text-stone-500">
         {tab === "returns"
-          ? `입고일 + ${RETURN_DAYS}일로 반납 기한을 저절로 계산해요. 포장하면 '포장 완료', 보냈으면 '거래처 반납', 사기로 했으면 '샘플 결제'.`
-          : tab === "drop"
-            ? "반납 등록했거나 보류한 상품이에요."
-            : STAGES.find(([k]) => k === tab)?.[2]}
+          ? `입고일 + ${RETURN_DAYS}일로 반납 기한을 저절로 계산해요. 일부만 사면 '샘플 결제'에 적고, 나머지를 보냈으면 '거래처 반납' → '반납 완료'로 넘어가요.`
+          : tab === "returned"
+            ? "거래처에 반납했거나 받은 걸 전부 결제한 샘플이에요. 반납한 날짜별로 모았어요."
+            : tab === "drop"
+              ? "반납 등록했거나 보류한 상품이에요."
+              : STAGES.find(([k]) => k === tab)?.[2]}
       </p>
 
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -616,7 +779,7 @@ export default function Pipeline({ d, online, vendors }) {
 
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-          {items.length === 0 ? "'신상마켓에서 담기'로 샘플 요청한 상품을 모아 보세요. 담으면 '요청'에 들어오고, 단추를 누를 때마다 다음 단계로 넘어가요." : "이 단계에는 상품이 없어요."}
+          {items.length === 0 ? "'신상마켓에서 담기'로 샘플 요청한 상품을 모아 보세요. 담으면 '요청'에 들어오고, 단추를 누를 때마다 다음 단계로 넘어가요." : "여기에는 상품이 없어요."}
         </p>
       ) : (
         <div className="space-y-4">
@@ -625,7 +788,7 @@ export default function Pipeline({ d, online, vendors }) {
               {g.title && <h3 className={"mb-1.5 px-1 text-sm font-semibold " + (g.tone || "text-stone-700")}>{g.title}</h3>}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={() => setEdit(x)} onPatch={patch(x)} />
+                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} />
                 ))}
               </div>
             </section>
@@ -633,7 +796,7 @@ export default function Pipeline({ d, online, vendors }) {
         </div>
       )}
 
-      {edit && <ItemSheet item={edit} d={d} online={online} vendors={vendors} today={today} onClose={() => setEdit(null)} />}
+      {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} today={today} onClose={() => setEdit(null)} />}
       {guide && <ClipGuide onClose={() => setGuide(false)} />}
     </div>
   );

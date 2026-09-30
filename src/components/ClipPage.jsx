@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, won, loadKey, changeKey, upsert, putPhoto } from "../lib/shoot";
-import { parseClip, normalize, stageName } from "../lib/sinsang";
+import { parseClip, normalize, stageName, findVendor } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { Chips, Photo } from "./ShootBits";
 
@@ -10,16 +10,18 @@ import { Chips, Photo } from "./ShootBits";
  * 넘어온 글·사진을 읽어 **바로 '요청' 단계에 담는다** — 세원이 한 번에 수십 개를 담으니 확인 단추를 두지 않는다.
  * 샘플/사입 · 종류 · 이름이 다르면 이 창에서 고치면 그 자리에서 저장된다. 같은 상품(상품번호)을 또 누르면 새로 담지 않는다.
  */
-export default function ClipPage({ payload, online }) {
+export default function ClipPage({ payload, online, vendors = [], onVendor, ready = true }) {
   const [item, setItem] = useState(null);
   const [state, setState] = useState("saving"); // saving | saved | dup | error
   const [msg, setMsg] = useState("");
   const [recent, setRecent] = useState([]);
   const [photo, setPhoto] = useState("");
+  const [vendorNote, setVendorNote] = useState("");
   const last = useRef("");
   const seq = useRef(0);
 
   useEffect(() => {
+    if (!ready) return; // 거래처 목록을 다 읽은 뒤에 — 안 그러면 있는 거래처를 또 만든다
     const sig = JSON.stringify([payload.u, payload.t?.slice(0, 200)]);
     if (last.current === sig) return;
     last.current = sig;
@@ -33,7 +35,16 @@ export default function ClipPage({ payload, online }) {
       setPhoto(p.photoData || p.photoUrl);
       try {
         const cur = (await loadKey("shoot_items", online)).items || [];
-        const same = cur.map(normalize).find((x) => (p.goodsId && x.goodsId === p.goodsId) || (p.url && x.url === p.url));
+        // 상품 화면을 못 읽었으면 담지 않는다 — 옆 칸(필터)을 상품으로 잘못 담은 적이 있다. 읽은 글은 남겨서 고칠 때 본다
+        if (!p.ok) {
+          await changeKey("clip_debug", online, (v) => ({ items: [{ at: new Date().toISOString(), u: payload.u, t: payload.t }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
+          if (!alive()) return;
+          setItem(null);
+          setMsg("상품 화면을 못 읽었어요. 신상마켓에서 상품을 눌러 상세 화면(가격·상세정보)이 보이는 상태에서 다시 눌러 주세요.");
+          setState("error");
+          return;
+        }
+        const same = cur.map(normalize).find((x) => (p.goodsId ? x.goodsId === p.goodsId : p.url && x.url === p.url));
         if (same) {
           if (!alive()) return;
           setItem(same);
@@ -49,13 +60,18 @@ export default function ClipPage({ payload, online }) {
             key = "";
           }
         }
+        // 돈 › 거래처와 잇기 — 같은 곳이 있으면 그 이름으로, 없으면 새로 등록 (한글 이름 먼저)
+        let v = findVendor(p.vendor, p.place, vendors);
+        if (!v && p.vendor && onVendor) v = onVendor({ name: p.vendor, address: p.place || "", memo: "신상 관리에서 등록" });
+        setVendorNote(v ? (findVendor(p.vendor, p.place, vendors) ? `거래처 '${v.name}' 와 이었어요` : `거래처 '${v.name}' 을(를) 새로 등록했어요`) : "");
         const made = {
           id: newId("i"),
           type: "sample",
           stage: "request",
           name: p.name,
           fullName: p.fullName,
-          vendor: p.vendor,
+          vendor: v?.name || p.vendor,
+          vendorId: v?.id || "",
           place: p.place,
           kind: p.kind,
           price: p.price || "",
@@ -81,7 +97,7 @@ export default function ClipPage({ payload, online }) {
         setState("error");
       }
     })();
-  }, [payload, online]);
+  }, [payload, online, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patch = async (p) => {
     const next = { ...item, ...p };
@@ -119,8 +135,9 @@ export default function ClipPage({ payload, online }) {
               <div className="min-w-0 flex-1 space-y-1.5">
                 <input key={item.id + "n"} defaultValue={item.name} onBlur={(e) => e.target.value !== item.name && patch({ name: e.target.value.trim() })} placeholder="상품명" className={FIELD + " font-semibold"} />
                 <input key={item.id + "v"} defaultValue={item.vendor} onBlur={(e) => e.target.value !== item.vendor && patch({ vendor: e.target.value.trim() })} placeholder="거래처" className={FIELD} />
-                <p className="text-xs text-stone-500">{[item.place, won(item.price)].filter(Boolean).join(" · ") || "위치·가격을 못 읽었어요"}</p>
+                <p className="text-xs text-stone-500">{[item.place, won(item.price)].filter(Boolean).join(" · ")}</p>
                 <p className="line-clamp-2 text-[11px] text-stone-400">{[item.colors, item.sizes, item.fabric].filter(Boolean).join(" · ")}</p>
+                {vendorNote && state === "saved" && <p className="text-[11px] text-emerald-700">{vendorNote}</p>}
               </div>
             </div>
             <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-sm">
@@ -142,11 +159,7 @@ export default function ClipPage({ payload, online }) {
             >
               {item.asked && <Check size={14} />} 거래처에 샘플 요청함
             </button>
-            {(!item.name || !item.vendor || !item.price) && state !== "dup" && (
-              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                못 읽은 칸이 있어요. 상품 화면이 다 뜬 뒤에 눌렀는지 봐 주세요. 계속 그러면 이 창을 캡처해서 알려 주세요.
-              </p>
-            )}
+            {!item.price && state !== "dup" && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">가격을 못 읽었어요(가격이 안 보이는 상품일 수 있어요). 신상 관리에서 상품을 눌러 적어 주세요.</p>}
           </div>
         )}
         {msg && state !== "error" && <p className="text-xs text-rose-700">{msg}</p>}

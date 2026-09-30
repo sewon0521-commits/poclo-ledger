@@ -541,7 +541,7 @@ function CodiCard({ c, d, onEdit, onShow, onDone }) {
   );
 }
 
-function ListView({ d, online, vendors }) {
+function ListView({ d, online, vendors, onVendor }) {
   const [tab, setTab] = useState("items");
   const [codiEdit, setCodiEdit] = useState(null);
   const [show, setShow] = useState(null);
@@ -584,7 +584,7 @@ function ListView({ d, online, vendors }) {
       </div>
 
       {tab === "items" ? (
-        <Pipeline d={d} online={online} vendors={vendors} />
+        <Pipeline d={d} online={online} vendors={vendors} onVendor={onVendor} />
       ) : (
         <>
           {days.length > 0 && (
@@ -636,7 +636,7 @@ function ListView({ d, online, vendors }) {
   );
 }
 
-export default function ShootPage({ view, online, vendors = [] }) {
+export default function ShootPage({ view, online, vendors = [], onVendor }) {
   const d = useData(online);
   return (
     <div>
@@ -655,7 +655,7 @@ export default function ShootPage({ view, online, vendors = [] }) {
       ) : view === "refs" ? (
         <RefsView d={d} online={online} />
       ) : (
-        <ListView d={d} online={online} vendors={vendors} />
+        <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} />
       )}
     </div>
   );

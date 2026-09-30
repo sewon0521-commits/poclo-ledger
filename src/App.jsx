@@ -340,7 +340,7 @@ export default function App() {
   }
 
   if (L.mode === "remote" && !L.session) return <Login />;
-  if (clip) return <ClipPage payload={clip} online={L.mode === "remote" && !!L.session} />;
+  if (clip) return <ClipPage payload={clip} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
 
   return (
     <div className="flex min-h-screen bg-stone-50 text-stone-800">
@@ -582,7 +582,7 @@ export default function App() {
                   onSaveCarousel={S.saveCarousel}
                 />
               ) : page === "shoot" || page === "shootRefs" ? (
-                <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} />
+                <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} />
               ) : page === "journal" ? (
                 <JournalPage online={L.mode === "remote" && !!L.session} />
               ) : page === "work" || page === "people" || page === "content" ? (
