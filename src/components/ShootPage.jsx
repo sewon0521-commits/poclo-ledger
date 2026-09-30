@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Camera, Plus, X, Loader2, ImagePlus, Link2, Trash2, Pencil, Images, Check, CalendarDays, Shirt } from "lucide-react";
-import { DEFAULT_TAGS, STATUSES, statusOf, loadKey, changeKey, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt } from "lucide-react";
+import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
 import { newId } from "../lib/id";
-import { SlideViewer } from "./ContentBits";
+import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
+import Pipeline, { ItemCard } from "./ShootItems";
+import { normalize, moveTo } from "../lib/sinsang";
+import { dayKey } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
@@ -13,9 +16,6 @@ import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders"
  * 폰에서 보기 쉬운 게 먼저 — 큰 사진, 누르면 전체 화면 넘겨 보기.
  */
 
-const FIELD = "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-rose-600";
-const md = (d) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : "");
-const won = (n) => (Number(n) ? Number(n).toLocaleString("ko-KR") + "원" : "");
 
 // ---------------------------------------------------------------- 공통 조각
 
@@ -120,116 +120,6 @@ function useData(online) {
       }
     },
   };
-}
-
-function Sheet({ onClose, children, wide }) {
-  useEffect(() => {
-    const k = (e) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", k);
-    return () => document.removeEventListener("keydown", k);
-  }, [onClose]);
-  return (
-    <div className="backdrop-in fixed inset-0 z-50 flex items-end justify-center bg-stone-900/50 sm:items-center sm:p-4">
-      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className={"sheet relative z-10 flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl " + (wide ? "sm:max-w-3xl" : "sm:max-w-lg")}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function SheetHead({ title, onClose, right }) {
-  return (
-    <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
-      <h3 className="min-w-0 truncate font-semibold text-stone-900">{title}</h3>
-      <span className="flex items-center gap-2">
-        {right}
-        <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
-          <X size={20} />
-        </button>
-      </span>
-    </header>
-  );
-}
-
-/** 꼬리표 칩 줄 — multi 면 여러 개, 아니면 하나(다시 누르면 풀림) */
-function Chips({ list, value, onChange, multi, all, onAdd }) {
-  const has = (t) => (multi ? (value || []).includes(t) : value === t);
-  return (
-    <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
-      {all && (
-        <button
-          type="button"
-          onClick={() => onChange(multi ? [] : "")}
-          className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium " + ((multi ? !value?.length : !value) ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}
-        >
-          {all}
-        </button>
-      )}
-      {list.map((t) => (
-        <button
-          key={t}
-          type="button"
-          onClick={() => onChange(multi ? (has(t) ? value.filter((x) => x !== t) : [...(value || []), t]) : has(t) ? "" : t)}
-          className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium " + (has(t) ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
-        >
-          {t}
-        </button>
-      ))}
-      {onAdd && (
-        <button
-          type="button"
-          onClick={() => {
-            const n = window.prompt("새 꼬리표 이름");
-            if (n?.trim()) onAdd(n.trim());
-          }}
-          className="shrink-0 rounded-full border border-dashed border-stone-300 px-2.5 py-1.5 text-xs text-stone-500 hover:border-rose-300 hover:text-rose-700"
-        >
-          + 꼬리표
-        </button>
-      )}
-    </div>
-  );
-}
-
-function Photo({ url, className = "", onClick }) {
-  const inner = url ? (
-    <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" />
-  ) : (
-    <span className="flex h-full w-full items-center justify-center text-stone-300">
-      <Camera size={18} />
-    </span>
-  );
-  return onClick ? (
-    <button type="button" onClick={onClick} className={"block overflow-hidden bg-stone-100 " + className}>
-      {inner}
-    </button>
-  ) : (
-    <span className={"block overflow-hidden bg-stone-100 " + className}>{inner}</span>
-  );
-}
-
-/** 전체 화면 넘겨 보기 — 촬영 때 폰으로 */
-function Viewer({ slides, start = 0, onClose, footer }) {
-  const [at] = useState(start);
-  useEffect(() => {
-    const k = (e) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", k);
-    return () => document.removeEventListener("keydown", k);
-  }, [onClose]);
-  const ordered = [...slides.slice(at), ...slides.slice(0, at)];
-  return (
-    <div className="backdrop-in fixed inset-0 z-[60] flex flex-col bg-black">
-      <div className="flex shrink-0 items-center justify-between px-3 py-2 text-white">
-        <span className="text-sm text-white/70">{slides.length}장</span>
-        <button type="button" onClick={onClose} aria-label="닫기" className="rounded-full p-2 hover:bg-white/10">
-          <X size={22} />
-        </button>
-      </div>
-      <SlideViewer urls={ordered.map((s) => s.url)} className="min-h-0 w-full flex-1" />
-      {footer && <div className="shrink-0 px-4 py-3 text-sm text-white/80">{footer}</div>}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------- 촬영 레퍼런스
@@ -506,156 +396,6 @@ function RefsView({ d, online }) {
   );
 }
 
-// ---------------------------------------------------------------- 촬영 목록 — 상품
-
-const EMPTY_ITEM = { name: "", vendor: "", place: "", kind: "", price: "", url: "", photo: "", status: "want", shootDate: "", options: "", size: "", memo: "" };
-
-function ItemEdit({ item, d, online, vendors, onClose }) {
-  const [x, setX] = useState({ ...EMPTY_ITEM, ...item });
-  const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState("");
-  const set = (patch) => setX((p) => ({ ...p, ...patch }));
-  const upload = async (file) => {
-    if (!file) return;
-    setBusy(true);
-    setPreview(URL.createObjectURL(file));
-    try {
-      set({ photo: await putPhoto(file, online) });
-    } catch (e) {
-      d.setMsg(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Sheet onClose={onClose}>
-      <SheetHead title={item.id ? "상품 고치기" : "상품 넣기"} onClose={onClose} />
-      <div
-        className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
-        onPaste={(e) => {
-          const f = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
-          if (f) upload(f);
-        }}
-      >
-        <label className="block text-xs font-semibold text-stone-500">
-          신상마켓 링크
-          <span className="relative mt-1 block">
-            <Link2 size={14} className="absolute top-2.5 left-3 text-stone-400" />
-            <input value={x.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://sinsangmarket.kr/…" className={FIELD + " pl-8"} />
-          </span>
-          <span className="mt-1 block text-[11px] font-normal text-stone-400">지금은 적어만 둬요. 신상마켓과 이으면 사진·이름·거래처·위치·가격이 여기서 저절로 채워져요.</span>
-        </label>
-        <div className="flex gap-3">
-          <label className="relative block aspect-[3/4] w-28 shrink-0 cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 hover:border-rose-300">
-            {preview || d.urls[x.photo] ? (
-              <img src={preview || d.urls[x.photo]} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <span className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-[11px] text-stone-400">
-                <ImagePlus size={18} /> 사진 고르기 · 붙여넣기(Ctrl+V)
-              </span>
-            )}
-            {busy && (
-              <span className="absolute inset-0 flex items-center justify-center bg-white/60">
-                <Loader2 size={18} className="animate-spin" />
-              </span>
-            )}
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
-          </label>
-          <div className="min-w-0 flex-1 space-y-2">
-            <input value={x.name} onChange={(e) => set({ name: e.target.value })} placeholder="상품명 (거래처 상품명 그대로)" className={FIELD} />
-            <input value={x.vendor} onChange={(e) => set({ vendor: e.target.value })} list="shoot-vendors" placeholder="거래처" className={FIELD} />
-            <datalist id="shoot-vendors">
-              {vendors.map((v) => (
-                <option key={v.id} value={v.name} />
-              ))}
-            </datalist>
-            <input value={x.place} onChange={(e) => set({ place: e.target.value })} placeholder="위치 — 예: 디오트 3층 B25" className={FIELD} />
-            <input value={x.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="도매가" className={FIELD} />
-          </div>
-        </div>
-        <div className="text-xs font-semibold text-stone-500">종류</div>
-        <Chips list={d.tags.clothes} value={x.kind} onChange={(v) => set({ kind: v })} />
-        <div className="text-xs font-semibold text-stone-500">상태</div>
-        <div className="flex flex-wrap gap-1.5">
-          {STATUSES.map(([k, label]) => (
-            <button key={k} type="button" onClick={() => set({ status: k })} className={"rounded-full border px-3 py-1.5 text-xs font-medium " + (x.status === k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 text-stone-600")}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="block text-xs font-semibold text-stone-500">
-          촬영 예정일
-          <input type="date" value={x.shootDate} onChange={(e) => set({ shootDate: e.target.value })} className={FIELD + " mt-1"} />
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          <input value={x.options} onChange={(e) => set({ options: e.target.value })} placeholder="옵션 — 색상 등" className={FIELD} />
-          <input value={x.size} onChange={(e) => set({ size: e.target.value })} placeholder="사이즈" className={FIELD} />
-        </div>
-        <textarea value={x.memo} onChange={(e) => set({ memo: e.target.value })} placeholder="메모 — 소재·핏·샘플 요청 여부 등" className={FIELD + " min-h-[4rem] [field-sizing:content]"} />
-      </div>
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-stone-200 p-3">
-        {item.id ? (
-          <button
-            type="button"
-            onClick={async () => {
-              if (!window.confirm("이 상품을 지울까요?")) return;
-              await d.saveItems(remove(item.id));
-              onClose();
-            }}
-            className="flex items-center gap-1 text-xs text-stone-400 hover:text-rose-600"
-          >
-            <Trash2 size={13} /> 지우기
-          </button>
-        ) : (
-          <span />
-        )}
-        <button
-          type="button"
-          disabled={busy || !(x.name.trim() || x.photo || x.url.trim())}
-          onClick={async () => {
-            await d.saveItems(upsert({ ...x, id: x.id || newId("i"), createdAt: x.createdAt || new Date().toISOString() }));
-            onClose();
-          }}
-          className="rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
-        >
-          저장
-        </button>
-      </footer>
-    </Sheet>
-  );
-}
-
-function ItemCard({ x, url, onOpen, selectable, selected }) {
-  const [, label, tone] = statusOf(x.status);
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={"block w-full overflow-hidden rounded-xl border bg-white text-left " + (selected ? "border-rose-600 ring-2 ring-rose-600" : "border-stone-200 hover:border-stone-300")}
-    >
-      <span className="relative block">
-        <Photo url={url} className="aspect-[3/4] w-full" />
-        <span className={"absolute top-1.5 left-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold " + tone}>{label}</span>
-        {selectable && (
-          <span className={"absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border-2 " + (selected ? "border-rose-700 bg-rose-700 text-white" : "border-white bg-black/20 text-transparent")}>
-            <Check size={14} />
-          </span>
-        )}
-      </span>
-      <span className="block px-2.5 py-2">
-        <span className="block truncate text-sm font-medium text-stone-900">{x.name || "이름 없음"}</span>
-        <span className="block truncate text-[11px] text-stone-500">
-          {[x.vendor, x.place].filter(Boolean).join(" · ") || "거래처 없음"}
-        </span>
-        <span className="mt-0.5 flex items-center justify-between text-[11px] text-stone-400">
-          <span>{won(x.price)}</span>
-          {x.shootDate && <span className="text-amber-700">{md(x.shootDate)} 촬영</span>}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 // ---------------------------------------------------------------- 촬영 목록 — 코디
 
 function CodiEdit({ codi, d, onClose }) {
@@ -664,7 +404,8 @@ function CodiEdit({ codi, d, onClose }) {
   const [folder, setFolder] = useState(null);
   const [cut, setCut] = useState("");
   const toggle = (k, id) => setC((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
-  const items = d.items.filter((x) => x.status !== "back" && (x.status !== "shot" || c.itemIds.includes(x.id)));
+  const today = dayKey();
+  const items = d.items.map(normalize).filter((x) => ["arrived", "pick"].includes(x.stage) || c.itemIds.includes(x.id));
   const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
   const refs = d.refs.map(withFolder).filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && (!cut || (r.cuts || []).includes(cut)));
   return (
@@ -692,11 +433,11 @@ function CodiEdit({ codi, d, onClose }) {
           items.length ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
               {items.map((x) => (
-                <ItemCard key={x.id} x={x} url={d.urls[x.photo]} selectable selected={c.itemIds.includes(x.id)} onOpen={() => toggle("itemIds", x.id)} />
+                <ItemCard key={x.id} x={x} url={d.urls[x.photo] || x.photoUrl} today={today} selectable selected={c.itemIds.includes(x.id)} onOpen={() => toggle("itemIds", x.id)} />
               ))}
             </div>
           ) : (
-            <p className="py-8 text-center text-sm text-stone-400">먼저 '상품' 탭에서 상품을 넣어 주세요.</p>
+            <p className="py-8 text-center text-sm text-stone-400">'입고·픽'이나 '촬영' 단계에 있는 상품이 여기 나와요.</p>
           )
         ) : (
           <div className="space-y-2">
@@ -744,14 +485,14 @@ function CodiEdit({ codi, d, onClose }) {
           onClick={async () => {
             const saved = { ...c, name: c.name.trim() || "이름 없는 코디", id: c.id || newId("c"), createdAt: c.createdAt || new Date().toISOString() };
             await d.saveCodis(upsert(saved));
-            // 코디에 넣은 상품은 '코디 픽', 촬영일이 있으면 '촬영 예정'
+            // 코디에 넣은 상품은 '촬영' 단계로(픽), 촬영일도 같이
             await d.saveItems((v) => ({
               ...v,
-              items: (v.items || []).map((x) =>
-                saved.itemIds.includes(x.id) && !["shot", "back"].includes(x.status)
-                  ? { ...x, status: saved.shootDate ? "planned" : "pick", shootDate: saved.shootDate || x.shootDate }
-                  : x,
-              ),
+              items: (v.items || []).map((raw) => {
+                const x = normalize(raw);
+                if (!saved.itemIds.includes(x.id) || !["request", "arrived", "pick"].includes(x.stage)) return raw;
+                return { ...moveTo(x, "pick", today), shootDate: saved.shootDate || x.shootDate || "" };
+              }),
             }));
             onClose();
           }}
@@ -771,7 +512,7 @@ function CodiCard({ c, d, onEdit, onShow, onDone }) {
     <div className={"overflow-hidden rounded-2xl border bg-white " + (c.done ? "border-stone-200 opacity-60" : "border-stone-200")}>
       <button type="button" onClick={onShow} className="flex w-full gap-1 overflow-x-auto p-2 [scrollbar-width:none]">
         {its.map((x) => (
-          <Photo key={x.id} url={d.urls[x.photo]} className="aspect-[3/4] w-20 shrink-0 rounded-lg" />
+          <Photo key={x.id} url={d.urls[x.photo] || x.photoUrl} className="aspect-[3/4] w-20 shrink-0 rounded-lg" />
         ))}
         {rs.length > 0 && <span className="mx-0.5 w-px shrink-0 self-stretch bg-stone-200" />}
         {rs.map((r) => (
@@ -802,38 +543,33 @@ function CodiCard({ c, d, onEdit, onShow, onDone }) {
 
 function ListView({ d, online, vendors }) {
   const [tab, setTab] = useState("items");
-  const [status, setStatus] = useState("");
-  const [kind, setKind] = useState("");
-  const [edit, setEdit] = useState(null);
   const [codiEdit, setCodiEdit] = useState(null);
   const [show, setShow] = useState(null);
+  const today = dayKey();
 
-  const counts = Object.fromEntries(STATUSES.map(([k]) => [k, d.items.filter((x) => x.status === k).length]));
-  const items = d.items.filter((x) => (!status ? x.status !== "back" : x.status === status) && (!kind || x.kind === kind));
   // 코디 — 촬영 날짜가 가까운 것부터, 끝난 건 아래로
   const codis = [...d.codis].sort((a, b) => Number(!!a.done) - Number(!!b.done) || (a.shootDate || "9").localeCompare(b.shootDate || "9"));
   const days = [...new Set(d.codis.filter((c) => c.shootDate && !c.done).map((c) => c.shootDate))].sort();
+  const src = (x) => d.urls[x.photo] || x.photoUrl;
 
   const showCodi = (c) => {
     const its = c.itemIds.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
     const rs = c.refIds.map((id) => d.refs.find((x) => x.id === id)).filter(Boolean);
-    setShow({ slides: [...its.map((x) => ({ url: d.urls[x.photo] })), ...rs.map((r) => ({ url: d.urls[r.photo] }))], footer: `${c.name} — 상품 ${its.length}장 다음에 참고 사진 ${rs.length}장${c.memo ? ` · ${c.memo}` : ""}` });
+    setShow({ slides: [...its.map((x) => ({ url: src(x) })), ...rs.map((r) => ({ url: d.urls[r.photo] }))], footer: `${c.name} — 상품 ${its.length}장 다음에 참고 사진 ${rs.length}장${c.memo ? ` · ${c.memo}` : ""}` });
   };
 
   return (
     <div>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-xl font-bold text-stone-900">촬영 목록</h2>
-          <p className="mt-0.5 text-sm text-stone-500">샘플 요청부터 촬영 완료까지 상품을 모으고, 상품 + 참고 사진으로 코디를 짜요.</p>
+          <h2 className="text-xl font-bold text-stone-900">신상 관리</h2>
+          <p className="mt-0.5 text-sm text-stone-500">샘플·사입 요청부터 입고, 픽, 촬영, 상품등록, 반납·결제까지 상품 한 장이 단계를 옮겨 다녀요.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => (tab === "items" ? setEdit({}) : setCodiEdit({}))}
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
-        >
-          <Plus size={16} /> {tab === "items" ? "상품 넣기" : "코디 만들기"}
-        </button>
+        {tab === "codis" && (
+          <button type="button" onClick={() => setCodiEdit({})} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
+            <Plus size={16} /> 코디 만들기
+          </button>
+        )}
       </div>
 
       <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
@@ -848,32 +584,7 @@ function ListView({ d, online, vendors }) {
       </div>
 
       {tab === "items" ? (
-        <>
-          <div className="mb-3 space-y-1.5">
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
-              <button type="button" onClick={() => setStatus("")} className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium " + (!status ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}>
-                진행 중 {d.items.filter((x) => x.status !== "back").length}
-              </button>
-              {STATUSES.map(([k, label]) => (
-                <button key={k} type="button" onClick={() => setStatus(status === k ? "" : k)} className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium " + (status === k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}>
-                  {label} <span className={status === k ? "text-rose-200" : "text-stone-400"}>{counts[k]}</span>
-                </button>
-              ))}
-            </div>
-            <Chips list={d.tags.clothes} value={kind} onChange={setKind} all="종류 전체" />
-          </div>
-          {items.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-              {d.items.length ? "이 조건의 상품이 없어요." : "'상품 넣기'로 신상마켓에서 고른 상품을 모아 보세요. 사진은 캡처를 붙여넣어도 돼요."}
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              {items.map((x) => (
-                <ItemCard key={x.id} x={x} url={d.urls[x.photo]} onOpen={() => setEdit(x)} />
-              ))}
-            </div>
-          )}
-        </>
+        <Pipeline d={d} online={online} vendors={vendors} />
       ) : (
         <>
           {days.length > 0 && (
@@ -902,7 +613,15 @@ function ListView({ d, online, vendors }) {
                   onDone={async () => {
                     const done = !c.done;
                     await d.saveCodis(upsert({ ...c, done }));
-                    if (done) await d.saveItems((v) => ({ ...v, items: (v.items || []).map((x) => (c.itemIds.includes(x.id) ? { ...x, status: "shot" } : x)) }));
+                    // 코디 촬영이 끝나면 그 상품들은 '등록' 단계로
+                    if (done)
+                      await d.saveItems((v) => ({
+                        ...v,
+                        items: (v.items || []).map((raw) => {
+                          const x = normalize(raw);
+                          return c.itemIds.includes(x.id) && ["request", "arrived", "pick"].includes(x.stage) ? moveTo(x, "shot", today) : raw;
+                        }),
+                      }));
                   }}
                 />
               ))}
@@ -911,7 +630,6 @@ function ListView({ d, online, vendors }) {
         </>
       )}
 
-      {edit && <ItemEdit item={edit} d={d} online={online} vendors={vendors} onClose={() => setEdit(null)} />}
       {codiEdit && <CodiEdit codi={codiEdit} d={d} onClose={() => setCodiEdit(null)} />}
       {show && <Viewer slides={show.slides} footer={show.footer} onClose={() => setShow(null)} />}
     </div>

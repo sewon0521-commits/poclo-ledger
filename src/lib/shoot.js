@@ -21,15 +21,9 @@ export const DEFAULT_TAGS = {
   places: ["실내", "거리", "카페", "계단·벽"],
 };
 
-export const STATUSES = [
-  ["want", "샘플 요청", "bg-stone-100 text-stone-600"],
-  ["arrived", "입고", "bg-sky-50 text-sky-800"],
-  ["pick", "코디 픽", "bg-violet-50 text-violet-800"],
-  ["planned", "촬영 예정", "bg-amber-50 text-amber-800"],
-  ["shot", "촬영 완료", "bg-emerald-50 text-emerald-800"],
-  ["back", "반납·보류", "bg-stone-100 text-stone-400"],
-];
-export const statusOf = (k) => STATUSES.find(([s]) => s === k) || STATUSES[0];
+export const FIELD = "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-rose-600";
+export const md = (d) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : "");
+export const won = (n) => (Number(n) ? Number(n).toLocaleString("ko-KR") + "원" : "");
 
 const local = (key) => `poclo_${key}`;
 

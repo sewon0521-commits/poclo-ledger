@@ -65,7 +65,7 @@ export const SECTIONS = [
       {
         group: "기본",
         items: [
-          { key: "shoot", label: "촬영 목록", icon: Camera },
+          { key: "shoot", label: "신상 관리", icon: Camera },
           { key: "shootRefs", label: "촬영 레퍼런스", icon: Images },
         ],
       },

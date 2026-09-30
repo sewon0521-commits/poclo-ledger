@@ -35,6 +35,8 @@ import Soon from "./components/Soon";
 import JournalPage from "./components/JournalPage";
 import ShootPage from "./components/ShootPage";
 import PasswordBox from "./components/PasswordBox";
+import ClipPage from "./components/ClipPage";
+import { readClipHash } from "./lib/sinsang";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
 
@@ -57,6 +59,13 @@ export default function App() {
 
   const [page, setPage] = useState("home");
   const [pwOpen, setPwOpen] = useState(false);
+  // 신상마켓 '포클로에 담기' 단추가 연 작은 창 — 주소 뒤 #clip=… (lib/sinsang.js). 같은 창에 다음 상품이 이어서 온다
+  const [clip, setClip] = useState(() => readClipHash(window.location.hash));
+  useEffect(() => {
+    const onHash = () => setClip(readClipHash(window.location.hash));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   // 매출 장부는 기간을 따로 고른다 — 매입 기간과 얽히면 둘 다 헷갈린다
   const [salesPreset, setSalesPreset] = useState("month");
   const [salesCustom, setSalesCustom] = useState(() => rangeOf("month"));
@@ -331,6 +340,7 @@ export default function App() {
   }
 
   if (L.mode === "remote" && !L.session) return <Login />;
+  if (clip) return <ClipPage payload={clip} online={L.mode === "remote" && !!L.session} />;
 
   return (
     <div className="flex min-h-screen bg-stone-50 text-stone-800">
