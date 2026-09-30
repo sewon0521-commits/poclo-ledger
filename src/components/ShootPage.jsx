@@ -4,7 +4,7 @@ import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, 
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
 import Pipeline, { ItemCard } from "./ShootItems";
-import { normalize, moveTo } from "../lib/sinsang";
+import { normalize, moveTo, DEFAULT_MSGS } from "../lib/sinsang";
 import { dayKey } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
@@ -24,6 +24,7 @@ function useData(online) {
   const [codis, setCodis] = useState([]);
   const [refs, setRefs] = useState([]);
   const [tags, setTags] = useState(DEFAULT_TAGS);
+  const [msgs, setMsgs] = useState(DEFAULT_MSGS);
   const [folders, setFolders] = useState([]);
   const [urls, setUrls] = useState({});
   const [msg, setMsg] = useState("");
@@ -31,13 +32,15 @@ function useData(online) {
 
   const load = useCallback(async () => {
     try {
-      const [a, b, c, t, f] = await Promise.all([
+      const [a, b, c, t, f, m] = await Promise.all([
         loadKey("shoot_items", online),
         loadKey("shoot_codis", online),
         loadKey("shoot_refs", online),
         loadKey("shoot_tags", online, DEFAULT_TAGS),
         loadKey("shoot_folders", online),
+        loadKey("shoot_msg", online, DEFAULT_MSGS),
       ]);
+      setMsgs({ ...DEFAULT_MSGS, ...m });
       let fs = f.items || [];
       if (!fs.length) {
         // 처음 — 옷 종류를 상위 목록으로 깔아 둔다(세원이 고치고 지운다)
@@ -109,6 +112,15 @@ function useData(online) {
     saveCodis: save("shoot_codis", setCodis),
     saveRefs: save("shoot_refs", setRefs),
     saveTags,
+    msgs,
+    // 샘플 요청 글 틀 {first, again}
+    saveMsgs: async (next) => {
+      try {
+        setMsgs({ ...DEFAULT_MSGS, ...(await changeKey("shoot_msg", online, () => next, DEFAULT_MSGS)) });
+      } catch (e) {
+        setMsg(e.message || "저장하지 못했어요.");
+      }
+    },
     folders,
     // 카테고리 편집이 op(list) 로 부른다 (릴스와 같은 부품)
     saveFolders: async (op) => {
@@ -541,7 +553,7 @@ function CodiCard({ c, d, onEdit, onShow, onDone }) {
   );
 }
 
-function ListView({ d, online, vendors, onVendor }) {
+function ListView({ d, online, vendors, onVendor, dealt }) {
   const [tab, setTab] = useState("items");
   const [codiEdit, setCodiEdit] = useState(null);
   const [show, setShow] = useState(null);
@@ -584,7 +596,7 @@ function ListView({ d, online, vendors, onVendor }) {
       </div>
 
       {tab === "items" ? (
-        <Pipeline d={d} online={online} vendors={vendors} onVendor={onVendor} />
+        <Pipeline d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
       ) : (
         <>
           {days.length > 0 && (
@@ -636,7 +648,7 @@ function ListView({ d, online, vendors, onVendor }) {
   );
 }
 
-export default function ShootPage({ view, online, vendors = [], onVendor }) {
+export default function ShootPage({ view, online, vendors = [], onVendor, dealt }) {
   const d = useData(online);
   return (
     <div>
@@ -655,7 +667,7 @@ export default function ShootPage({ view, online, vendors = [], onVendor }) {
       ) : view === "refs" ? (
         <RefsView d={d} online={online} />
       ) : (
-        <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} />
+        <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
       )}
     </div>
   );

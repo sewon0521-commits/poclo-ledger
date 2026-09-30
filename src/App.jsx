@@ -112,6 +112,8 @@ export default function App() {
     () => pendingBoard(tx, (id) => vendors.find((v) => v.id === id)?.name || ""),
     [tx, vendors],
   );
+  // 매입 장부에 장끼가 있는 거래처 — 신상 관리가 '거래해 본 곳' 요청 글을 고를 때 본다
+  const dealt = useMemo(() => new Set(tx.map((t) => t.vendorId)), [tx]);
 
   // 새 거래의 기본 날짜 — 보고 있는 기간 안이면 오늘, 아니면 기간 시작일
   const defaultDate = () => {
@@ -582,7 +584,7 @@ export default function App() {
                   onSaveCarousel={S.saveCarousel}
                 />
               ) : page === "shoot" || page === "shootRefs" ? (
-                <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} />
+                <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
               ) : page === "journal" ? (
                 <JournalPage online={L.mode === "remote" && !!L.session} />
               ) : page === "work" || page === "people" || page === "content" ? (

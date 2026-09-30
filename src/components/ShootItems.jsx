@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil } from "lucide-react";
+import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, MSG_SLOT, requestText } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -68,7 +68,9 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
   const go = (stage, extra = {}) => act({ ...moveTo(x, stage, today), ...extra });
   const retryDue = x.stage === "request" && x.retryOn && x.retryOn <= today;
   // 카드 아래 한 줄 — 늘 한 줄을 차지해서 눌러도 카드 높이가 안 바뀐다
-  const line = retryDue
+  const line = x.refused && x.stage === "drop"
+    ? { text: `샘플 안 된대요${x.refusedOn ? ` · ${md(x.refusedOn)}` : ""}`, tone: "text-stone-500" }
+    : retryDue
     ? { text: `재요청 ${md(x.retryOn)} — ${x.memo || "다시 요청할 날이에요"}`, tone: "font-medium text-rose-700" }
     : x.returnedOn
       ? { text: `반납 ${md(x.returnedOn)}${x.paid ? ` · 결제 ${paidLabel(x.paid)}` : ""}`, tone: "text-stone-600" }
@@ -100,6 +102,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
           <span className="absolute bottom-1.5 left-1.5 flex flex-wrap gap-1">
             <DueBadge x={x} today={today} />
             {x.returning && !closed(x) && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납 예정</span>}
+            {x.refused && x.stage === "drop" && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">샘플 안 됨</span>}
             {x.packed && !x.returnedOn && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white">포장 완료</span>}
             {x.paid && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-medium text-white">결제함</span>}
             {x.returnedOn && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납함</span>}
@@ -127,9 +130,19 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
                   픽업 요청
                 </Toggle>
               </div>
-              <button type="button" onClick={go("arrived")} className={MAIN + " w-full"}>
-                입고 완료
-              </button>
+              <div className="flex gap-1">
+                <button type="button" onClick={go("arrived")} className={MAIN}>
+                  입고 완료
+                </button>
+                <button
+                  type="button"
+                  onClick={act({ stage: "drop", refused: true, refusedOn: today })}
+                  title="거래처가 샘플이 안 된다고 했어요 — 보류·드랍으로"
+                  className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-500 hover:bg-stone-50"
+                >
+                  안 됨
+                </button>
+              </div>
             </>
           )}
           {tab === "arrived" && (
@@ -187,8 +200,8 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
             </button>
           )}
           {tab === "drop" && (
-            <button type="button" onClick={go("arrived")} className={SUB + " flex w-full items-center justify-center gap-1"}>
-              <Undo2 size={12} /> 되살리기
+            <button type="button" onClick={x.refused ? act({ stage: "request", refused: false, refusedOn: "" }) : go("arrived")} className={SUB + " flex w-full items-center justify-center gap-1"}>
+              <Undo2 size={12} /> {x.refused ? "요청으로 되돌리기" : "되살리기"}
             </button>
           )}
         </div>
@@ -575,6 +588,155 @@ export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }
   );
 }
 
+// ---------------------------------------------------------------- 거래처에 보낼 샘플 요청 글
+
+const copy = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // 브라우저가 새 방식을 막으면 예전 방식으로 (안 보이는 칸에 넣고 복사)
+    try {
+      const t = document.createElement("textarea");
+      t.value = text;
+      t.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+      document.body.appendChild(t);
+      t.select();
+      const ok = document.execCommand("copy");
+      t.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+};
+
+/**
+ * 거래처 한 곳에 보낼 요청 글 — 단추를 누를 때 이미 복사돼 있고, 여기서는 확인·고치기·다시 복사.
+ * 카톡은 밖에서 대신 보낼 수 없어서(lib/sinsang.js) 여기까지가 자동이다: 글 만들기 → 복사 → 보낸 뒤 '요청함' 한 번에.
+ * m = {vendor, list(그 거래처의 요청 단계 상품), picks(글에 넣을 상품 id), kind, kakao, phone, copied}
+ */
+function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
+  const [kind, setKind] = useState(m.kind);
+  const [picks, setPicks] = useState(m.picks);
+  const [custom, setCustom] = useState(null); // 이번 글만 손으로 고친 것
+  const [tpl, setTpl] = useState(null); // 틀을 고치는 중이면 그 글
+  const [note, setNote] = useState(m.copied ? "글을 복사했어요. 카톡에서 거래처 방을 열고 붙여넣기(Ctrl+V) 하세요." : "복사가 막혔어요. 아래 '글 복사'를 눌러 주세요.");
+  const names = m.list.filter((x) => picks.includes(x.id)).map((x) => x.name || x.fullName).filter(Boolean);
+  const text = custom ?? requestText(msgs[kind], names);
+  const say = async (what, okText) => setNote((await copy(what)) ? okText : "복사하지 못했어요. 글을 끌어서 직접 복사해 주세요.");
+  const TAB = "flex-1 rounded-md py-1.5 font-medium ";
+
+  return (
+    <Sheet onClose={onClose}>
+      <SheetHead title={`${m.vendor} · 샘플 요청 글`} onClose={onClose} />
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-sm">
+          {[
+            ["first", "처음 거래하는 곳"],
+            ["again", "거래해 본 곳"],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => {
+                setKind(k);
+                setCustom(null);
+                setTpl(null);
+              }}
+              className={TAB + (kind === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-xs font-semibold text-stone-500">글에 넣을 상품 {names.length}개</span>
+          <div className="flex flex-wrap gap-1">
+            {m.list.map((x) => {
+              const on = picks.includes(x.id);
+              return (
+                <button
+                  key={x.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => {
+                    setPicks(on ? picks.filter((id) => id !== x.id) : [...picks, x.id]);
+                    setCustom(null);
+                  }}
+                  className={"flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-500")}
+                >
+                  {on && <Check size={11} />} {x.name || "이름 없음"}
+                  {x.asked && <span className={on ? "text-rose-200" : "text-stone-400"}>(요청함)</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {tpl === null ? (
+          <div className="space-y-1">
+            <textarea value={text} onChange={(e) => setCustom(e.target.value)} className={FIELD + " min-h-[13rem] leading-relaxed [field-sizing:content]"} />
+            <button type="button" onClick={() => setTpl(msgs[kind])} className="flex items-center gap-1 text-xs text-stone-500 hover:text-stone-800">
+              <Pencil size={11} /> 이 문구 틀 고치기 (다음에도 이 글로)
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1.5 rounded-xl border border-stone-200 p-3">
+            <p className="text-xs text-stone-500">
+              <b className="text-stone-700">{MSG_SLOT}</b> 자리에 상품 이름이 들어가요. 그 글자는 그대로 두고 나머지를 고치세요.
+            </p>
+            <textarea value={tpl} onChange={(e) => setTpl(e.target.value)} className={FIELD + " min-h-[13rem] leading-relaxed [field-sizing:content]"} />
+            <div className="flex justify-end gap-2 text-sm">
+              <button type="button" onClick={() => setTpl(null)} className="rounded-lg px-3 py-1.5 text-stone-500">
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={!tpl.includes(MSG_SLOT)}
+                onClick={async () => {
+                  await onSaveMsgs({ ...msgs, [kind]: tpl.trim() });
+                  setTpl(null);
+                  setCustom(null);
+                  setNote("문구 틀을 저장했어요. '글 복사'를 다시 눌러 주세요.");
+                }}
+                className="rounded-lg bg-stone-800 px-3 py-1.5 font-medium text-white disabled:bg-stone-300"
+              >
+                틀 저장
+              </button>
+            </div>
+          </div>
+        )}
+        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-900">{note}</p>
+      </div>
+      <footer className="shrink-0 space-y-2 border-t border-stone-200 p-3">
+        <div className="flex gap-2">
+          {m.kakao && (
+            <button type="button" onClick={() => say(m.kakao, `카톡 아이디 ${m.kakao} 를 복사했어요. 카톡 › 친구 추가 › ID 로 찾기에 붙여넣으세요.`)} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-stone-300 bg-white py-2.5 text-sm font-medium text-stone-700">
+              <Copy size={14} /> 카톡 아이디 ({m.kakao})
+            </button>
+          )}
+          <button type="button" disabled={!names.length || tpl !== null} onClick={() => say(text, "글을 복사했어요. 카톡에서 거래처 방을 열고 붙여넣기(Ctrl+V) 하세요.")} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300">
+            <Copy size={14} /> 글 복사
+          </button>
+        </div>
+        <button
+          type="button"
+          disabled={!picks.length}
+          onClick={() => {
+            onAsked(picks);
+            onClose();
+          }}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 py-2.5 text-sm font-medium text-emerald-800 disabled:opacity-50"
+        >
+          <Check size={14} /> 보냈어요 — {picks.length}개 '요청함'으로
+        </button>
+      </footer>
+    </Sheet>
+  );
+}
+
 // ---------------------------------------------------------------- 신상마켓에서 담기 안내
 
 function ClipGuide({ onClose }) {
@@ -633,7 +795,7 @@ function ClipGuide({ onClose }) {
 
 const TABS = [...STAGES.map(([k, label]) => [k, label]), ["drop", "보류·드랍"], ["returns", "반납·결제 예정"], ["returned", "반납 완료"]];
 
-export default function Pipeline({ d, online, vendors, onVendor }) {
+export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const today = dayKey();
   const items = useMemo(() => d.items.map(normalize), [d.items]);
   const [tab, setTab] = useState("request");
@@ -643,6 +805,7 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
   const [weekOnly, setWeekOnly] = useState(false);
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
+  const [msgFor, setMsgFor] = useState(null);
 
   // 담아 둔 상품을 돈 › 거래처와 잇는다 (10/1 세원: "거래처에 어차피 등록해야 하는데 없으면 추가, 있으면 매칭")
   // 신상마켓에서 담은 것(goodsId 있음) 중 아직 안 이어진 것만 — 이름은 한글 먼저로 고치고, 상품명도 다듬는다.
@@ -700,7 +863,10 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
       return by((x) => x.vendor || "거래처 없음", (a, b) => a[0].localeCompare(b[0], "ko")).map(([t, l]) => {
         const c = l.find((x) => contactLines(x.contact).length)?.contact;
         const v = vendors.find((v) => v.id === l[0].vendorId);
-        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l };
+        const vid = l[0].vendorId;
+        // 거래해 본 곳 — 매입 장부에 장끼가 있거나, 샘플이 요청 다음 단계까지 간 적이 있다
+        const known = !!vid && (dealt?.has(vid) || items.some((x) => x.vendorId === vid && x.stage !== "request" && !x.refused));
+        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l, req: { vendor: t, kakao: c?.kakao || "", kind: known ? "again" : "first" } };
       });
     if (tab === "returns")
       return by(dueOf, (a, b) => a[0].localeCompare(b[0])).map(([due, l]) => {
@@ -710,9 +876,19 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
     if (tab === "returned")
       return by((x) => x.returnedOn || x.paid?.on || "", (a, b) => b[0].localeCompare(a[0])).map(([day, l]) => ({ title: day ? `${dayTitle(day)} · ${l.length}개` : `날짜 없음 · ${l.length}개`, list: l }));
     return [{ title: "", list: shown }];
-  }, [shown, tab, today, vendors]);
+  }, [shown, tab, today, vendors, dealt, items]);
 
   const patch = (x) => (p) => d.saveItems(upsert({ id: x.id, ...p }));
+
+  // '카톡 글 복사' — 누르는 그 자리에서 복사하고(브라우저는 누른 순간에만 복사를 허락한다) 확인 창을 연다
+  const openMsg = async (g) => {
+    const fresh = g.list.filter((x) => !x.asked);
+    const picks = (fresh.length ? fresh : g.list).map((x) => x.id);
+    const names = g.list.filter((x) => picks.includes(x.id)).map((x) => x.name || x.fullName).filter(Boolean);
+    const copied = await copy(requestText(d.msgs[g.req.kind], names));
+    setMsgFor({ ...g.req, list: g.list, picks, copied });
+  };
+  const markAsked = (ids) => d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (ids.includes(it.id) ? { ...it, asked: true, askedOn: today } : it)) }));
 
   return (
     <div>
@@ -811,6 +987,11 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
                 <h3 className={"mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1 text-sm font-semibold " + (g.tone || "text-stone-700")}>
                   {g.title}
                   {g.sub && <span className="text-xs font-normal text-stone-500 select-all">{g.sub}</span>}
+                  {g.req && (
+                    <button type="button" onClick={() => openMsg(g)} className="ml-auto flex items-center gap-1 rounded-full border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50">
+                      <MessageCircle size={12} /> 카톡 글 복사
+                    </button>
+                  )}
                 </h3>
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -825,6 +1006,7 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
 
       {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} today={today} onClose={() => setEdit(null)} />}
       {guide && <ClipGuide onClose={() => setGuide(false)} />}
+      {msgFor && <MsgSheet m={msgFor} msgs={d.msgs} onSaveMsgs={d.saveMsgs} onAsked={markAsked} onClose={() => setMsgFor(null)} />}
     </div>
   );
 }

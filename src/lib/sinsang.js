@@ -15,7 +15,8 @@
 //   {id, type:"sample"|"buy", stage, name, fullName, vendor, vendorId, place, kind, price, url, goodsId,
 //    photo(보관 이름)|photoUrl(바깥 주소), colors, sizes, fabric, origin, memo,
 //    contact {mobile, tel, kakao, insta, site}, desc,   // 신상마켓 '제품 설명'에 거래처가 적어 둔 연락처 · 그 글
-//    asked, pickup, retryOn,               // 거래처 샘플 요청 · 샘플 픽업 요청 · 샘플 재요청 날짜
+//    asked, askedOn, pickup, retryOn,      // 거래처 샘플 요청(+날짜) · 샘플 픽업 요청 · 샘플 재요청 날짜
+//    refused, refusedOn,                   // 거래처가 샘플이 안 된다고 함 → 보류·드랍에 '샘플 안 됨'으로
 //    arrivedOn, arrivedOpts,               // 입고일 · 입고된 색상·사이즈
 //    pickedOn, shootDate, shootOpts,       // 촬영 날짜 · 촬영 색상 및 사이즈
 //    shotOn, doneOn, channels:{cafe24},
@@ -25,7 +26,7 @@
 import { dayKey, shiftDay } from "./journal";
 
 export const STAGES = [
-  ["request", "요청", "샘플·사입을 요청한 상품"],
+  ["request", "요청", "요청할 상품을 담아 두고, 거래처 이름 옆 '카톡 글 복사'로 요청하세요. 안 된다는 상품은 '안 됨'."],
   ["arrived", "입고·픽", "들어온 상품 — 입어 보고 픽할지 정해요"],
   ["pick", "촬영", "픽한 상품 — 촬영 대기"],
   ["shot", "등록", "촬영 끝 — 상품등록 대기"],
@@ -79,6 +80,7 @@ export function paidLabel(p) {
 /** 단계를 옮길 때 같이 적는 것 — 날짜는 그때 오늘로 */
 export function moveTo(x, stage, today = dayKey()) {
   const p = { stage };
+  if (stage !== "drop") p.refused = false;
   if (stage === "arrived") Object.assign(p, { arrivedOn: x.arrivedOn || today, returning: false, hold: false });
   if (stage === "pick") Object.assign(p, { pickedOn: x.pickedOn || today, returning: false, hold: false });
   if (stage === "shot") p.shotOn = x.shotOn || today;
@@ -224,6 +226,36 @@ export function vendorFill(v, c) {
   if (phone === (v.phone || "") && !add.length) return null;
   return { phone, memo: [v.memo, ...add].filter(Boolean).join(" / ") };
 }
+
+// ---------------------------------------------------------------- 거래처에 보내는 샘플 요청 글
+//
+// 세원 10/1: "거래처한테 카톡을 보내는 게 좀 힘든데 자동화할 수 있을까?" — 카카오는 개인 카톡을 밖에서 보내는 길을 안 열어 뒀고
+// 매크로는 계정이 제한될 수 있어 안 한다. 대신 **거래처마다 요청 글을 만들어 복사**해 준다(카톡에서 방 열고 붙여넣기만).
+// 글은 두 가지 — 처음 거래하는 곳(소개 + 연락처) / 거래해 본 곳(짧게). [상품명] 자리에 그 거래처에 담아 둔 상품 이름이 들어간다.
+// 실제 문구(세원 이름·연락처가 든 것)는 코드에 두지 않고 settings 'shoot_msg' {first, again} 에 둔다 — 화면에서 고친다.
+
+export const MSG_SLOT = "[상품명]";
+export const DEFAULT_MSGS = {
+  first: `안녕하세요 사장님
+여성의류 쇼핑몰 ‘포클로’입니다 :)
+
+요번에 [상품명] 상품이
+저희 촬영 컨셉과 잘 맞아서 샘플 요청 드리고자 합니다.
+
+촬영 후에는 말씀해주신 기간 내에
+깔끔하게 포장해서 반납드리도록 하겠습니다..!
+
+잘 부탁드립니다 :)`,
+  again: `사장님 안녕하세요!!
+
+[상품명] 상품이
+저희 요번주 촬영 컨셉과 잘 맞아서 샘플 요청 드리고자 합니다.
+예쁘게 촬영 후 깔끔하게 포장해서 올려드리겠습니다!
+감사합니다.`,
+};
+
+/** 틀의 [상품명] 자리에 상품 이름들을 넣는다 */
+export const requestText = (tpl, names) => String(tpl || "").split(MSG_SLOT).join(names.join(", "));
 
 // ---------------------------------------------------------------- 신상마켓에서 담기
 //
