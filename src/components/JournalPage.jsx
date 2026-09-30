@@ -5,8 +5,6 @@ import {
   ChevronRight,
   Search,
   Check,
-  X,
-  Plus,
   Loader2,
   CornerDownRight,
   List,
@@ -387,107 +385,280 @@ function Feed({ data, name, onOpen }) {
 
 // ---------------------------------------------------------------- 할 일
 
-/** 할 일 한 줄 적는 칸 — 엔터로만 넣는다 (9/28 세원: "적다가 다른 화면을 누르면 그냥 들어가 버린다") */
-function TodoInput({ placeholder, onAdd }) {
-  const [draft, setDraft] = useState("");
-  return (
-    <div className="mt-1 flex items-center gap-2.5 px-1">
-      <Plus size={16} className="shrink-0 text-stone-300" />
-      <input
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        // 한글 입력은 엔터 keydown 이 조합 끝내기로 먹힌다 — keyup 에서 넣으면 한 번에 들어간다
-        onKeyUp={(e) => {
-          if (e.key !== "Enter" || !draft.trim()) return;
-          onAdd(draft.trim());
-          setDraft("");
-        }}
-        onKeyDown={(e) => e.key === "Escape" && setDraft("")}
-        placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-stone-300"
-      />
-    </div>
-  );
-}
-
 /** 할 일이 보이기 시작하는 날 — '내일 할 일'로 적은 건 startOn, 아니면 적은 날 */
 const startOf = (t) => t.startOn || t.createdOn;
 
-function TodoRow({ t, date, today, editable, onChange }) {
+// 들여쓰기 단계마다 점 모양 — 노션처럼 ● → ○ → ● → ○
+const MAX_DEPTH_TODO = 3;
+function Dot({ depth, done }) {
+  const hollow = depth % 2 === 1;
   return (
-    <li className="group flex items-start gap-2.5 rounded-lg px-1 py-1 hover:bg-stone-50">
-      <button
-        type="button"
-        disabled={!editable}
-        onClick={() => onChange((list) => list.map((x) => (x.id === t.id ? { ...x, done: !x.done, doneOn: x.done ? null : today } : x)))}
-        aria-label={t.done ? "안 한 걸로" : "했어요"}
-        className={
-          "mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border " +
-          (t.done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 bg-white text-transparent hover:border-stone-400")
-        }
-      >
-        <Check size={12} strokeWidth={3} />
-      </button>
-      <span className={"min-w-0 flex-1 text-sm leading-6 " + (t.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>
-        {t.text}
-        {!t.done && startOf(t) < date && (
-          <span className="ml-1.5 inline-flex items-center gap-0.5 align-[1px] text-[11px] text-amber-700 no-underline">
-            <CornerDownRight size={10} /> {shortDay(startOf(t))}부터
-          </span>
-        )}
-      </span>
-      {editable && (
-        <button
-          type="button"
-          onClick={() => onChange((list) => list.filter((x) => x.id !== t.id))}
-          aria-label="할 일 지우기"
-          className="mt-0.5 p-0.5 text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-600 focus-visible:opacity-100"
-        >
-          <X size={14} />
-        </button>
-      )}
-    </li>
+    <span
+      className={
+        "block h-[7px] w-[7px] rounded-full " +
+        (hollow ? "border-[1.5px] " + (done ? "border-stone-300" : "border-stone-700") : done ? "bg-stone-300" : "bg-stone-800")
+      }
+    />
+  );
+}
+
+/**
+ * 할 일 목록 — 노션처럼 (9/30 세원: "체크박스 말고 - 스페이스 누르면 검정 원, 엔터·탭 누르면 빈 원, 또 탭이면 검정 원").
+ *   엔터: 아래에 새 줄 · 탭: 한 칸 들여쓰기(● → ○) · 시프트+탭: 내어쓰기 · 빈 줄에서 엔터: 내어쓰기(맨 앞이면 끝)
+ *   빈 줄에서 백스페이스: 줄 지우기 · 줄 앞 '- ' 는 저절로 점이 된다 · **점을 누르면 끝냄**(흐리게 + 줄 긋기, 다시 누르면 되살림)
+ * 치는 동안은 화면에만, 멈추면(0.7초) 한 번에 저장. 한글은 엔터가 조합 끝내기로 먹혀서 compositionend 뒤에 처리한다.
+ */
+function TodoOutline({ items, date, today, startOn, editable, placeholder, onCommit }) {
+  const [rows, setRows] = useState(items);
+  const dirty = useRef(false);
+  const timer = useRef(null);
+  const refs = useRef({});
+  const focusTo = useRef(null); // {id, pos}
+  const pendingEnter = useRef(null);
+  const commitRef = useRef(onCommit);
+  const rowsRef = useRef(rows);
+  const box = useRef(null);
+  const [blankId, setBlankId] = useState(() => newId("t"));
+  useEffect(() => {
+    commitRef.current = onCommit;
+    rowsRef.current = rows;
+  });
+
+  // 서버에서 새로 읽은 목록 — 치는 중이 아닐 때만 따라간다
+  const sig = JSON.stringify(items);
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    // 이 목록에서 적는 중이면(커서가 안에 있으면) 건드리지 않는다 — 방금 만든 빈 줄이 사라지지 않게
+    if (!dirty.current && !box.current?.contains(document.activeElement)) setRows(JSON.parse(sig));
+  }, [sig]);
+
+  useLayoutEffect(() => {
+    const f = focusTo.current;
+    if (!f) return;
+    const el = refs.current[f.id];
+    if (el) {
+      el.focus();
+      const p = f.pos === "end" ? el.value.length : f.pos;
+      el.setSelectionRange(p, p);
+    }
+    focusTo.current = null;
+  });
+
+  const flush = useCallback(() => {
+    clearTimeout(timer.current);
+    if (!dirty.current) return;
+    dirty.current = false;
+    commitRef.current(rowsRef.current.filter((r) => r.text.trim() || r.done));
+  }, []);
+  useEffect(() => () => flush(), [flush]);
+
+  const put = (next, focus) => {
+    setRows(next);
+    rowsRef.current = next;
+    dirty.current = true;
+    if (focus) focusTo.current = focus;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 700);
+  };
+  const newRow = (depth) => ({ id: newId("t"), text: "", depth, done: false, doneOn: null, createdOn: today, ...(startOn !== today ? { startOn } : {}) });
+
+  const enter = (i, caret) => {
+    const r = rowsRef.current[i];
+    const list = [...rowsRef.current];
+    if (!r.text.trim()) {
+      // 빈 줄 엔터 — 들여쓴 줄이면 내어쓰기, 맨 앞이면 그냥 둔다
+      if ((r.depth || 0) > 0) {
+        list[i] = { ...r, depth: r.depth - 1 };
+        put(list, { id: r.id, pos: 0 });
+      }
+      return;
+    }
+    const before = r.text.slice(0, caret);
+    const after = r.text.slice(caret);
+    const nr = { ...newRow(r.depth || 0), text: after };
+    list[i] = { ...r, text: before };
+    list.splice(i + 1, 0, nr);
+    put(list, { id: nr.id, pos: 0 });
+  };
+
+  const onKey = (e, i) => {
+    const r = rows[i];
+    const el = e.currentTarget;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.nativeEvent.isComposing || e.keyCode === 229) {
+        pendingEnter.current = r.id; // 조합이 끝나면 처리
+        return;
+      }
+      enter(i, el.selectionStart);
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      const d = r.depth || 0;
+      const prevDepth = i > 0 ? rows[i - 1].depth || 0 : -1;
+      const nd = e.shiftKey ? Math.max(0, d - 1) : Math.min(MAX_DEPTH_TODO, prevDepth + 1, d + 1);
+      if (nd === d) return;
+      const list = [...rows];
+      list[i] = { ...r, depth: nd };
+      put(list, { id: r.id, pos: el.selectionStart });
+    } else if (e.key === "Backspace" && el.selectionStart === 0 && el.selectionEnd === 0) {
+      if ((r.depth || 0) > 0) {
+        e.preventDefault();
+        const list = [...rows];
+        list[i] = { ...r, depth: r.depth - 1 };
+        put(list, { id: r.id, pos: 0 });
+      } else if (!r.text && rows.length > 1) {
+        e.preventDefault();
+        const list = rows.filter((x) => x.id !== r.id);
+        const prev = rows[i - 1] || rows[i + 1];
+        put(list, prev ? { id: prev.id, pos: "end" } : null);
+      } else if (i > 0 && r.text) {
+        // 앞 줄에 이어 붙이기
+        e.preventDefault();
+        const list = [...rows];
+        const prev = list[i - 1];
+        const pos = prev.text.length;
+        list[i - 1] = { ...prev, text: prev.text + r.text };
+        list.splice(i, 1);
+        put(list, { id: prev.id, pos });
+      }
+    } else if (e.key === "ArrowUp" && i > 0) {
+      e.preventDefault();
+      focusTo.current = { id: rows[i - 1].id, pos: "end" };
+      put([...rows]);
+    } else if (e.key === "ArrowDown" && i < rows.length - 1) {
+      e.preventDefault();
+      focusTo.current = { id: rows[i + 1].id, pos: "end" };
+      put([...rows]);
+    }
+  };
+
+  const toggle = (i) => {
+    const list = [...rows];
+    const r = list[i];
+    list[i] = { ...r, done: !r.done, doneOn: r.done ? null : today };
+    put(list);
+    flush();
+  };
+
+  // 비었으면 한 줄 깔아 둔다 (눌러서 바로 적게)
+  const shown = editable && rows.length === 0 ? [{ ...newRow(0), id: blankId, placeholderRow: true }] : rows;
+
+  if (!editable && !rows.length) return <p className="px-1 text-sm text-stone-400">없어요.</p>;
+
+  return (
+    <ul ref={box} className="space-y-0.5">
+      {shown.map((r, i) => (
+        <li key={r.id} className="flex items-start gap-2 py-0.5" style={{ paddingLeft: `${(r.depth || 0) * 22}px` }}>
+          <button
+            type="button"
+            disabled={!editable || r.placeholderRow || !r.text.trim()}
+            onClick={() => toggle(i)}
+            aria-label={r.done ? "안 한 걸로" : "끝냈어요"}
+            title={r.done ? "안 한 걸로" : "눌러서 끝냄"}
+            className="mt-[7px] flex h-3 w-4 shrink-0 items-center justify-center rounded hover:bg-stone-100 disabled:hover:bg-transparent"
+          >
+            <Dot depth={r.depth || 0} done={r.done} />
+          </button>
+          {editable ? (
+            <input
+              ref={(el) => (refs.current[r.id] = el)}
+              value={r.text}
+              placeholder={i === 0 ? placeholder : ""}
+              onChange={(e) => {
+                let v = e.target.value;
+                // 노션 버릇 — 줄 앞 '- ' 는 점으로
+                if (/^[-*•]\s/.test(v)) v = v.replace(/^[-*•]\s+/, "");
+                if (r.placeholderRow) {
+                  const nr = { ...r, text: v };
+                  delete nr.placeholderRow;
+                  setBlankId(newId("t"));
+                  put([nr], { id: nr.id, pos: v.length });
+                  return;
+                }
+                const list = [...rows];
+                list[i] = { ...r, text: v };
+                put(list);
+              }}
+              onKeyDown={(e) => !r.placeholderRow && onKey(e, i)}
+              onCompositionEnd={(e) => {
+                if (pendingEnter.current !== r.id) return;
+                pendingEnter.current = null;
+                const caret = e.currentTarget.selectionStart;
+                setTimeout(() => {
+                  const k = rowsRef.current.findIndex((x) => x.id === r.id);
+                  if (k >= 0) enter(k, caret);
+                }, 0);
+              }}
+              onBlur={flush}
+              className={
+                "min-w-0 flex-1 bg-transparent py-0.5 text-sm leading-6 outline-none placeholder:text-stone-300 " +
+                (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")
+              }
+            />
+          ) : (
+            <span className={"min-w-0 flex-1 py-0.5 text-sm leading-6 " + (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>{r.text}</span>
+          )}
+          {!r.done && r.text && startOf(r) < date && (
+            <span className="mt-1 flex shrink-0 items-center gap-0.5 text-[11px] text-amber-700">
+              <CornerDownRight size={10} /> {shortDay(startOf(r))}부터
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 
 /**
  * 할 일. 날짜에 묶지 않아서 안 끝난 건 끝낼 때까지 오늘 페이지에 계속 보인다('9/22부터').
- * 9/28 '내일 할 일' 칸: startOn = 내일 로 적어 두면 오늘은 아래 칸에만 있고, 내일이 되면 '할 일'로 올라온다.
+ * '내일 할 일' 칸: startOn = 내일 → 오늘은 아래 칸에만, 내일이 되면 '오늘 할 일'로 올라온다.
+ * 순서·들여쓰기(depth)는 목록 순서 그대로 저장한다.
  */
 function Todos({ todos, date, today, editable, onChange }) {
   const tomorrow = shiftDay(today, 1);
-  const shown = useMemo(() => {
-    const list =
+  const shown = useMemo(
+    () =>
       date === today
         ? todos.filter((t) => (!t.done && startOf(t) <= today) || t.doneOn === today)
-        : todos.filter((t) => t.doneOn === date || (startOf(t) === date && !t.done));
-    return [...list].sort((a, b) => Number(a.done) - Number(b.done) || startOf(a).localeCompare(startOf(b)));
-  }, [todos, date, today]);
+        : todos.filter((t) => t.doneOn === date || (startOf(t) === date && !t.done)),
+    [todos, date, today],
+  );
   const later = useMemo(() => todos.filter((t) => !t.done && startOf(t) > today), [todos, today]);
-  const add = (text, startOn) =>
-    onChange((list) => [...list, { id: newId("t"), text, done: false, doneOn: null, createdOn: today, ...(startOn ? { startOn } : {}) }]);
+
+  // 한 칸에서 고친 줄들을 전체 목록에 되넣는다 — 그 칸에 있던 줄은 빼고 새 순서로 붙인다
+  const commit = (before) => (next) =>
+    onChange((list) => {
+      const ids = new Set([...before.map((t) => t.id), ...next.map((t) => t.id)]);
+      return [...list.filter((t) => !ids.has(t.id)), ...next];
+    });
 
   return (
     <div className="border-t border-stone-100 px-5 py-4">
-      <div className="mb-2 text-xs font-semibold text-stone-500">{date === today ? "오늘 할 일" : "이날 할 일"}</div>
-      {shown.length === 0 && !editable && <p className="text-sm text-stone-400">없어요.</p>}
-      <ul className="space-y-0.5">
-        {shown.map((t) => (
-          <TodoRow key={t.id} t={t} date={date} today={today} editable={editable} onChange={onChange} />
-        ))}
-      </ul>
-      {editable && date === today && <TodoInput placeholder="오늘 할 일 추가 (엔터)" onAdd={(t) => add(t)} />}
+      <div className="mb-1.5 text-xs font-semibold text-stone-500">{date === today ? "오늘 할 일" : "이날 할 일"}</div>
+      <TodoOutline
+        key={`d${date}`}
+        items={shown}
+        date={date}
+        today={today}
+        startOn={today}
+        editable={editable && date === today}
+        placeholder="적고 엔터 · 탭으로 들여쓰기 · 점을 누르면 끝냄"
+        onCommit={commit(shown)}
+      />
 
       {date === today && (editable || later.length > 0) && (
         <div className="mt-4 border-t border-dashed border-stone-100 pt-3">
-          <div className="mb-2 text-xs font-semibold text-stone-500">내일 할 일</div>
-          {later.length === 0 && !editable && <p className="text-sm text-stone-400">없어요.</p>}
-          <ul className="space-y-0.5">
-            {later.map((t) => (
-              <TodoRow key={t.id} t={t} date={date} today={today} editable={editable} onChange={onChange} />
-            ))}
-          </ul>
-          {editable && <TodoInput placeholder="내일 할 일 추가 (엔터) — 내일이 되면 '오늘 할 일'로 올라와요" onAdd={(t) => add(t, tomorrow)} />}
+          <div className="mb-1.5 text-xs font-semibold text-stone-500">내일 할 일</div>
+          <TodoOutline
+            key={`t${date}`}
+            items={later}
+            date={date}
+            today={today}
+            startOn={tomorrow}
+            editable={editable}
+            placeholder="내일이 되면 '오늘 할 일'로 올라와요"
+            onCommit={commit(later)}
+          />
         </div>
       )}
 
