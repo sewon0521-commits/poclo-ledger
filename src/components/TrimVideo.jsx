@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Scissors, Loader2, Play, Undo2, Info } from "lucide-react";
+import { Scissors, Loader2, Play, Undo2, Info, Music } from "lucide-react";
+import { extractWav, saveBlob } from "../lib/audio";
 
 /**
  * 영상 + 앞뒤 자르기 (9/23 세원: "영상 녹화를 직접 하다 보면 앞이나 뒤에 쓸데없는 장면이 1~2초 낄 수 있어서 지우고 싶어").
@@ -13,13 +14,25 @@ import { Scissors, Loader2, Play, Undo2, Info } from "lucide-react";
 const fmt = (s) => `${Math.max(0, s).toFixed(1)}초`;
 const MIN_LEN = 0.5;
 
-export default function TrimVideo({ src, trim, hasOrig, step, className, onTrim, onRestore }) {
+export default function TrimVideo({ src, trim, hasOrig, step, className, onTrim, onRestore, name = "포클로" }) {
   const ref = useRef(null);
   const bar = useRef(null);
   const [dur, setDur] = useState(0);
   const [edit, setEdit] = useState(false);
   const [range, setRange] = useState([0, 0]);
   const [busy, setBusy] = useState(false);
+  // 소리만 받기 (9/30 세원: "BGM 만 따로 뽑아서 다운받을 수 있게") — 브라우저가 영상에서 소리를 풀어 WAV 로
+  const [audio, setAudio] = useState(""); // "" | "busy" | 안내 글
+  const getAudio = async () => {
+    setAudio("busy");
+    try {
+      const { blob } = await extractWav(url);
+      saveBlob(blob, `${String(name).replace(/[\\/:*?"<>|]/g, " ").trim().slice(0, 40) || "포클로"}_소리.wav`);
+      setAudio("");
+    } catch (e) {
+      setAudio(e.message || "소리를 뽑지 못했어요.");
+    }
+  };
 
   const pending = trim && (trim.status === "queued" || trim.status === "working");
   // 아직 PC 가 안 잘랐으면 고른 구간만 보여 준다
@@ -185,6 +198,16 @@ export default function TrimVideo({ src, trim, hasOrig, step, className, onTrim,
               >
                 <Scissors size={11} /> 앞뒤 자르기
               </button>
+              <button
+                type="button"
+                disabled={!src || audio === "busy"}
+                onClick={getAudio}
+                title="영상의 소리(BGM)만 WAV 파일로 내려받아요"
+                className="flex items-center gap-1 rounded-md bg-stone-800 px-2 py-1 font-medium text-stone-200 hover:bg-stone-700 disabled:opacity-40"
+              >
+                {audio === "busy" ? <Loader2 size={11} className="animate-spin" /> : <Music size={11} />} 소리만 받기
+              </button>
+              {audio && audio !== "busy" && <span className="text-rose-300">{audio}</span>}
               {trim?.status === "done" && trim.cut && (
                 <span>
                   앞 {fmt(trim.cut.front)} · 뒤 {fmt(trim.cut.back)} 잘랐어요

@@ -547,6 +547,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
           {urls.video ? (
             <TrimVideo
               src={urls.video}
+              name={item.title}
               trim={item.trim}
               hasOrig={item.hasOrig}
               step={queue.find((j) => j.id === item.id && j.target === "trim")?.step}
@@ -966,6 +967,7 @@ function OursTab({ item, queue, ourUrl, onUpload, onRetry, onTrim }) {
       {ourUrl && (
         <TrimVideo
           src={ourUrl}
+          name={`${item.title} 우리영상`}
           trim={ours.trim}
           hasOrig={ours.hasOrig}
           step={queue.find((j) => j.id === item.id && j.target === "trim-ours")?.step}
