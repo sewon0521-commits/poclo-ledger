@@ -988,3 +988,11 @@ Storage 키: `<id>`(영상) · `<id>-thumb.jpg` · `<id>-ours` · `<id>-ours-thu
 - 앱 맨 아래 '비밀번호 바꾸기'(`PasswordBox`, `supabase.auth.updateUser`). 메일의 비밀번호 재설정/매직 링크로 들어오면(`PASSWORD_RECOVERY`) 창이 저절로 뜬다(`useLedger.recovering`).
 - 비밀번호를 모를 때: Supabase → Authentication → Users → 그 줄 ⋯ → Send password recovery(또는 magic link) → 메일 링크로 앱에 들어와 새 비밀번호.
   링크가 앱 주소로 오려면 Authentication → URL Configuration 의 Site URL 이 `https://poclo-ledger.vercel.app` 이어야 한다.
+
+## 41. 장끼 여러 장 한 번에 (2026-09-30)
+
+세원: "폰에서 장끼를 올릴 때 한 번에 많이 올릴 수 있게." (폰에서는 세원 계정으로 쓰기로 함)
+- 장끼 올리기 칸: 고르기 `multiple` · 끌어다 놓기·붙여넣기 여러 장. `onFile(files[])`. 읽는 중에도 더 올릴 수 있다.
+- App `receiptQueue`: 올린 순서대로 줄 → **두 장씩 동시에 읽고**(`readReceipt`, 비용은 장당 그대로), 확인 창은 **한 장씩**(사람 확인 원칙 그대로).
+  창 위 '장끼 2 / 5 · 저장하면 다음 장이 떠요' + '이 장 건너뛰기'. 저장·취소·건너뛰기 모두 그 장을 줄에서 빼고 다음 장을 띄운다. 올리기 칸에 'n장 읽는 중'.
+- 확인(로컬, 읽기 API 는 가짜 응답): 3장 → 1/3 → 건너뛰기 2/3 → 3/3.

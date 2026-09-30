@@ -7,34 +7,32 @@ const isImage = (f) => f && f.type.startsWith("image/");
  * 장끼 올리기 영역.
  * 끌어다 놓아도 되고, 눌러서 골라도 되고, 폰에서는 바로 촬영도 된다.
  */
-export default function ReceiptDrop({ busy, onFile }) {
+export default function ReceiptDrop({ busy, onFile, waiting = 0 }) {
   const [over, setOver] = useState(false);
   const [reject, setReject] = useState("");
   const pickRef = useRef(null);
   const cameraRef = useRef(null);
 
-  const take = (file) => {
-    if (!file) return;
-    if (!isImage(file)) {
-      setReject("사진 파일만 올릴 수 있어요. JPG·PNG로 다시 올려주세요.");
-      return;
-    }
-    setReject("");
-    onFile(file);
+  // 여러 장 한 번에 (9/30) — 사진만 추려서 넘긴다
+  const take = (files) => {
+    const list = [...(files || [])].filter(Boolean);
+    if (!list.length) return;
+    const imgs = list.filter(isImage);
+    setReject(imgs.length < list.length ? "사진이 아닌 파일은 뺐어요. JPG·PNG만 올릴 수 있어요." : "");
+    if (imgs.length) onFile(imgs);
   };
 
   const onDrop = (e) => {
     e.preventDefault();
     setOver(false);
-    if (busy) return;
-    take(e.dataTransfer.files?.[0]);
+    take(e.dataTransfer.files);
   };
 
   const onPaste = (e) => {
-    const file = [...(e.clipboardData?.files || [])][0];
-    if (file) {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) {
       e.preventDefault();
-      take(file);
+      take(files);
     }
   };
 
@@ -44,11 +42,11 @@ export default function ReceiptDrop({ busy, onFile }) {
         role="button"
         tabIndex={0}
         aria-label="장끼 올리기"
-        onClick={() => !busy && pickRef.current?.click()}
+        onClick={() => pickRef.current?.click()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            if (!busy) pickRef.current?.click();
+            pickRef.current?.click();
           }
         }}
         onPaste={onPaste}
@@ -79,7 +77,8 @@ export default function ReceiptDrop({ busy, onFile }) {
             <p className="mt-2.5 font-semibold text-stone-800">
               {over ? "여기에 놓으세요" : "장끼를 끌어다 놓으세요"}
             </p>
-            <p className="mt-0.5 text-xs text-stone-500">눌러서 사진을 고를 수도 있어요</p>
+            <p className="mt-0.5 text-xs text-stone-500">눌러서 사진을 여러 장 한 번에 고를 수 있어요</p>
+            {waiting > 0 && <p className="mt-1.5 text-xs font-medium text-rose-700">장끼 {waiting}장 읽는 중 · 다 읽으면 한 장씩 확인 창이 떠요</p>}
           </>
         )}
       </div>
@@ -99,11 +98,12 @@ export default function ReceiptDrop({ busy, onFile }) {
         ref={pickRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const fs = [...(e.target.files || [])];
           e.target.value = "";
-          take(f);
+          take(fs);
         }}
       />
       <input
@@ -113,9 +113,9 @@ export default function ReceiptDrop({ busy, onFile }) {
         capture="environment"
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const fs = [...(e.target.files || [])];
           e.target.value = "";
-          take(f);
+          take(fs);
         }}
       />
     </div>

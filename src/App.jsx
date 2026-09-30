@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Menu, Loader2, LogOut } from "lucide-react";
 import {
   monthOf,
@@ -68,7 +68,13 @@ export default function App() {
   const [breakdown, setBreakdown] = useState(null);
   const [taxType, setTaxType] = useState(loadTaxType);
   const [form, setForm] = useState(null);
-  const [busy, setBusy] = useState(false);
+  // 장끼 여러 장 한 번에 (9/30 세원: "폰에서 장끼를 한 번에 많이 올릴 수 있게")
+  // 두 장씩 읽어 두고, 확인 창은 한 장씩 차례로 — 저장(또는 건너뛰기)하면 다음 장이 뜬다. 읽기 결과 확인은 그대로 사람이.
+  // [{id, file, status: "wait"|"reading"|"ready", seed}]
+  const [receiptQueue, setReceiptQueue] = useState([]);
+  const [queueCur, setQueueCur] = useState(null);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queueDone, setQueueDone] = useState(0);
 
   const pickTaxType = (t) => {
     setTaxType(t);
@@ -221,28 +227,22 @@ export default function App() {
       setPreset("custom");
       setCustom({ from: monthOf(data.date) + "-01", to: data.date });
     }
+    dropCurrent();
     setForm(null);
   };
 
   // ------------------------------------------------------------ 장끼 읽기
 
-  const onReceipt = async (file) => {
-    setBusy(true);
-    L.setNotice("");
-    const result = await readReceipt(file);
-    setBusy(false);
-
+  /** 읽은 결과 → 확인 창에 넣을 값 */
+  const seedFromResult = (file, result) => {
     if (!result.ok) {
-      L.setNotice(result.message);
-      setForm({ _k: Date.now(), date: defaultDate(), fromReceipt: true, failed: true, photoFile: file });
-      return;
+      return { _k: Date.now(), date: defaultDate(), fromReceipt: true, failed: true, photoFile: file, failMessage: result.message };
     }
-
     const g = result.data;
     // 이름은 사진마다 흔들리지만 전화·계좌는 안 흔들린다. 번호를 먼저 맞춰본다.
     const m = matchVendor({ ...g, account: g.accounts?.[0]?.number }, vendors);
 
-    setForm({
+    return {
       _k: Date.now(),
       date: g.date || defaultDate(),
       vendorId: m.kind === "exact" ? m.vendor.id : "",
@@ -261,8 +261,51 @@ export default function App() {
       vatSeparate: g.vatSeparate,
       fromReceipt: true,
       photoFile: file,
-    });
+    };
   };
+
+  const onReceipt = (files) => {
+    const list = (Array.isArray(files) ? files : [files]).filter(Boolean);
+    if (!list.length) return;
+    L.setNotice("");
+    setReceiptQueue((q) => [...q, ...list.map((file) => ({ id: `${Date.now()}-${Math.random()}`, file, status: "wait" }))]);
+    setQueueTotal((n) => (receiptQueue.length || form ? n : 0) + list.length);
+    if (!receiptQueue.length && !form) setQueueDone(0);
+  };
+
+  // 두 장씩 읽는다
+  useEffect(() => {
+    const reading = receiptQueue.filter((x) => x.status === "reading").length;
+    const next = receiptQueue.filter((x) => x.status === "wait").slice(0, Math.max(0, 2 - reading));
+    if (!next.length) return;
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    setReceiptQueue((q) => q.map((x) => (next.some((n) => n.id === x.id) ? { ...x, status: "reading" } : x)));
+    for (const it of next) {
+      readReceipt(it.file).then((result) =>
+        setReceiptQueue((q) => q.map((x) => (x.id === it.id ? { ...x, status: "ready", seed: seedFromResult(it.file, result) } : x))),
+      );
+    }
+  }, [receiptQueue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 확인 창이 비어 있으면 줄의 맨 앞(읽힌 것)을 띄운다 — 올린 순서대로
+  useEffect(() => {
+    if (form || !receiptQueue.length) return;
+    const head = receiptQueue[0];
+    if (head.status !== "ready") return;
+    if (head.seed.failMessage) L.setNotice(head.seed.failMessage);
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    setQueueCur(head.id);
+    setForm(head.seed);
+  }, [form, receiptQueue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** 지금 보던 장끼를 줄에서 뺀다 (저장했든 건너뛰었든) */
+  const dropCurrent = () => {
+    if (!queueCur) return;
+    setReceiptQueue((q) => q.filter((x) => x.id !== queueCur));
+    setQueueDone((n) => n + 1);
+    setQueueCur(null);
+  };
+  const queueLeft = receiptQueue.length - (queueCur ? 1 : 0);
 
   const openBreakdown = (spec) => setBreakdown({ ...spec, _k: Date.now() });
 
@@ -346,7 +389,34 @@ export default function App() {
             </div>
           ) : (
             <>
-              <Modal open={!!form} onClose={() => setForm(null)} labelledBy="tx-form-title">
+              <Modal
+                open={!!form}
+                onClose={() => {
+                  dropCurrent();
+                  setForm(null);
+                }}
+                labelledBy="tx-form-title"
+              >
+                {form && queueCur && queueTotal > 1 && (
+                  <div className="flex items-center justify-between gap-2 border-b border-rose-100 bg-rose-50 px-4 py-2 text-xs font-medium text-rose-900">
+                    <span>
+                      장끼 {queueDone + 1} / {queueTotal}
+                      {queueLeft > 0 && <span className="font-normal text-rose-700"> · 저장하면 다음 장이 떠요</span>}
+                    </span>
+                    {queueLeft > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          dropCurrent();
+                          setForm(null);
+                        }}
+                        className="rounded-md border border-rose-200 bg-white px-2 py-0.5 text-rose-800"
+                      >
+                        이 장 건너뛰기
+                      </button>
+                    )}
+                  </div>
+                )}
                 {form && (
                   <TxForm
                     key={form._k}
@@ -356,7 +426,10 @@ export default function App() {
                     onSubmit={(payload) =>
                       submitForm({ ...payload, photoFile: payload.photoFile || form.photoFile || null })
                     }
-                    onCancel={() => setForm(null)}
+                    onCancel={() => {
+                      dropCurrent();
+                      setForm(null);
+                    }}
                   />
                 )}
               </Modal>
@@ -517,7 +590,8 @@ export default function App() {
                   }}
                   taxType={taxType}
                   onTaxType={pickTaxType}
-                  busy={busy}
+                  busy={false}
+                  waiting={receiptQueue.filter((x) => x.id !== queueCur).length}
                   onReceipt={onReceipt}
                   onAddBlank={openBlank}
                   vendorName={vendorName}

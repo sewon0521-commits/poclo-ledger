@@ -16,6 +16,7 @@ export default function LedgerPage({
   taxType,
   onTaxType,
   busy,
+  waiting,
   onReceipt,
   onAddBlank,
   vendorName,
@@ -66,7 +67,7 @@ export default function LedgerPage({
         <p className="mt-1.5 text-xs text-stone-400">{rangeLabel(range)}</p>
       </div>
 
-      <ReceiptDrop busy={busy} onFile={onReceipt} />
+      <ReceiptDrop busy={busy} waiting={waiting} onFile={onReceipt} />
 
       <button
         type="button"
