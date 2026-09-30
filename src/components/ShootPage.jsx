@@ -3,6 +3,8 @@ import { Camera, Plus, X, Loader2, ImagePlus, Link2, Trash2, Pencil, Images, Che
 import { DEFAULT_TAGS, STATUSES, statusOf, loadKey, changeKey, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { SlideViewer } from "./ContentBits";
+import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
+import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
 /**
  * 촬영 갈래 (2026-09-30) — lib/shoot.js 머리말 참고.
@@ -22,18 +24,27 @@ function useData(online) {
   const [codis, setCodis] = useState([]);
   const [refs, setRefs] = useState([]);
   const [tags, setTags] = useState(DEFAULT_TAGS);
+  const [folders, setFolders] = useState([]);
   const [urls, setUrls] = useState({});
   const [msg, setMsg] = useState("");
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [a, b, c, t] = await Promise.all([
+      const [a, b, c, t, f] = await Promise.all([
         loadKey("shoot_items", online),
         loadKey("shoot_codis", online),
         loadKey("shoot_refs", online),
         loadKey("shoot_tags", online, DEFAULT_TAGS),
+        loadKey("shoot_folders", online),
       ]);
+      let fs = f.items || [];
+      if (!fs.length) {
+        // 처음 — 옷 종류를 상위 목록으로 깔아 둔다(세원이 고치고 지운다)
+        fs = DEFAULT_TAGS.clothes.map((name) => ({ id: newId("f"), name, parent: null }));
+        await changeKey("shoot_folders", online, (v) => ((v.items || []).length ? v : { items: fs }));
+      }
+      setFolders(fs);
       setItems(a.items || []);
       setCodis(b.items || []);
       setRefs(c.items || []);
@@ -98,6 +109,16 @@ function useData(online) {
     saveCodis: save("shoot_codis", setCodis),
     saveRefs: save("shoot_refs", setRefs),
     saveTags,
+    folders,
+    // 카테고리 편집이 op(list) 로 부른다 (릴스와 같은 부품)
+    saveFolders: async (op) => {
+      try {
+        const next = await changeKey("shoot_folders", online, (v) => ({ ...v, items: op(v.items || []) }));
+        setFolders(next.items || []);
+      } catch (e) {
+        setMsg(e.message || "목록을 저장하지 못했어요.");
+      }
+    },
   };
 }
 
@@ -213,9 +234,26 @@ function Viewer({ slides, start = 0, onClose, footer }) {
 
 // ---------------------------------------------------------------- 촬영 레퍼런스
 
-function RefUpload({ tags, online, onDone, onAddTag, onClose }) {
-  const [files, setFiles] = useState([]);
-  const [clothes, setClothes] = useState([]);
+/** 폴더 고르기 칸 — 상위 › 하위 › 세부를 들여쓰기로 */
+function FolderSelect({ folders, value, onChange }) {
+  return (
+    <select value={value || ""} onChange={(e) => onChange(e.target.value || null)} className={FIELD}>
+      <option value="">미분류</option>
+      {ordered(folders).map((f) => (
+        <option key={f.id} value={f.id}>
+          {f.depth ? `${"　".repeat(f.depth)}└ ${f.name}` : f.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** 예전(9/30 첫 판) 사진은 옷 종류 꼬리표만 있다 — 같은 이름의 상위 폴더로 보이게 */
+const withFolder = (r) => (r.folderId || r.folder ? r : { ...r, folder: (r.clothes || [])[0] || "" });
+
+function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone, onAddTag, onClose }) {
+  const [files, setFiles] = useState(initialFiles || []);
+  const [folderId, setFolderId] = useState(initialFolder || null);
   const [cuts, setCuts] = useState([]);
   const [place, setPlace] = useState("");
   const [memo, setMemo] = useState("");
@@ -228,7 +266,7 @@ function RefUpload({ tags, online, onDone, onAddTag, onClose }) {
     for (const [i, f] of files.entries()) {
       setBusy(`올리는 중 ${i + 1}/${files.length}`);
       const photo = await putPhoto(f, online);
-      made.push({ id: newId("r"), photo, clothes, cuts, place, memo, createdAt: new Date().toISOString() });
+      made.push({ id: newId("r"), photo, folderId, cuts, place, memo, createdAt: new Date().toISOString() });
     }
     await onDone(made);
     setBusy("");
@@ -237,10 +275,17 @@ function RefUpload({ tags, online, onDone, onAddTag, onClose }) {
   return (
     <Sheet onClose={onClose}>
       <SheetHead title="레퍼런스 사진 넣기" onClose={onClose} />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-stone-300 py-6 text-sm text-stone-500 hover:border-rose-300">
+      <div
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          setFiles((p) => [...p, ...[...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"))]);
+        }}
+      >
+        <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-stone-300 py-5 text-sm text-stone-500 hover:border-rose-300">
           <ImagePlus size={22} />
-          {files.length ? `${files.length}장 골랐어요 · 더 고르기` : "사진 고르기 (여러 장, 캡처도 돼요)"}
+          {files.length ? `${files.length}장 · 더 고르거나 끌어다 놓기` : "사진 고르기 · 끌어다 놓기 (여러 장, 캡처도 돼요)"}
           <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => setFiles((p) => [...p, ...Array.from(e.target.files || [])])} />
         </label>
         {previews.length > 0 && (
@@ -255,12 +300,12 @@ function RefUpload({ tags, online, onDone, onAddTag, onClose }) {
             ))}
           </div>
         )}
+        <label className="block space-y-1.5">
+          <span className="text-xs font-semibold text-stone-500">어느 목록에 넣을까요?</span>
+          <FolderSelect folders={folders} value={folderId} onChange={setFolderId} />
+        </label>
         <div className="space-y-1.5">
-          <div className="text-xs font-semibold text-stone-500">옷 종류 (여러 개 가능)</div>
-          <Chips list={tags.clothes} value={clothes} onChange={setClothes} multi onAdd={(t) => onAddTag("clothes", t)} />
-        </div>
-        <div className="space-y-1.5">
-          <div className="text-xs font-semibold text-stone-500">컷 종류 (여러 개 가능)</div>
+          <div className="text-xs font-semibold text-stone-500">컷 종류 (선택 · 여러 개 가능)</div>
           <Chips list={tags.cuts} value={cuts} onChange={setCuts} multi onAdd={(t) => onAddTag("cuts", t)} />
         </div>
         <div className="space-y-1.5">
@@ -268,7 +313,7 @@ function RefUpload({ tags, online, onDone, onAddTag, onClose }) {
           <Chips list={tags.places} value={place} onChange={setPlace} onAdd={(t) => onAddTag("places", t)} />
         </div>
         <input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모 (선택) — 예: 다리 꼬는 포즈, 가방 한쪽 어깨" className={FIELD} />
-        <p className="text-[11px] text-stone-400">고른 꼬리표는 이번에 넣는 사진 전부에 붙어요. 나중에 사진마다 고칠 수 있어요.</p>
+        <p className="text-[11px] text-stone-400">고른 목록·꼬리표는 이번에 넣는 사진 전부에 붙어요. 나중에 사진마다 옮기거나 고칠 수 있어요.</p>
       </div>
       <footer className="shrink-0 border-t border-stone-200 p-3">
         <button type="button" disabled={!files.length || !!busy} onClick={go} className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 font-semibold text-white disabled:bg-stone-300">
@@ -280,15 +325,15 @@ function RefUpload({ tags, online, onDone, onAddTag, onClose }) {
   );
 }
 
-function RefEdit({ refItem, tags, url, onSave, onRemove, onClose, onAddTag }) {
-  const [r, setR] = useState(refItem);
+function RefEdit({ refItem, tags, folders, url, onSave, onRemove, onClose, onAddTag }) {
+  const [r, setR] = useState({ ...refItem, folderId: folderIdOf(refItem, folders) });
   return (
     <Sheet onClose={onClose}>
       <SheetHead title="레퍼런스 고치기" onClose={onClose} />
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         <Photo url={url} className="mx-auto aspect-[3/4] w-40 rounded-xl" />
-        <div className="text-xs font-semibold text-stone-500">옷 종류</div>
-        <Chips list={tags.clothes} value={r.clothes} onChange={(v) => setR({ ...r, clothes: v })} multi onAdd={(t) => onAddTag("clothes", t)} />
+        <div className="text-xs font-semibold text-stone-500">목록</div>
+        <FolderSelect folders={folders} value={r.folderId} onChange={(v) => setR({ ...r, folderId: v, folder: "" })} />
         <div className="text-xs font-semibold text-stone-500">컷 종류</div>
         <Chips list={tags.cuts} value={r.cuts} onChange={(v) => setR({ ...r, cuts: v })} multi onAdd={(t) => onAddTag("cuts", t)} />
         <div className="text-xs font-semibold text-stone-500">장소</div>
@@ -307,40 +352,73 @@ function RefEdit({ refItem, tags, url, onSave, onRemove, onClose, onAddTag }) {
   );
 }
 
+/**
+ * 촬영 레퍼런스 — 목록(폴더)은 릴스 기획처럼 세원이 만든다 (9/30 세원: "콘텐츠처럼 목록을 만들고 편집,
+ * 사진을 묶어서든 개별로든 드래그 앤 드롭으로 넣으면 그때 목록 선택"). 화면 어디에 끌어다 놔도 넣기 창이 열린다.
+ * 컷 종류는 폴더와 따로 칩으로 — '하의 폴더 안에서 앉은 컷만'.
+ */
 function RefsView({ d, online }) {
-  const [clothes, setClothes] = useState("");
+  const [sel, setSel] = useState("all");
   const [cut, setCut] = useState("");
-  const [place, setPlace] = useState("");
-  const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState("");
+  const [adding, setAdding] = useState(null); // {files, folder}
   const [edit, setEdit] = useState(null);
   const [view, setView] = useState(null);
+  const [editCats, setEditCats] = useState(false);
+  const [dropping, setDropping] = useState(false);
 
-  const shown = d.refs.filter(
-    (r) => (!clothes || (r.clothes || []).includes(clothes)) && (!cut || (r.cuts || []).includes(cut)) && (!place || r.place === place),
-  );
+  const folders = d.folders;
+  const refs = useMemo(() => d.refs.map(withFolder), [d.refs]);
+  const shown = useMemo(() => {
+    const ids = sel === "all" || sel === "none" ? null : new Set(withChildren(sel, folders));
+    const n = q.trim().toLowerCase();
+    return refs.filter((r) => {
+      const f = folderIdOf(r, folders);
+      if (sel === "none" && f) return false;
+      if (ids && !ids.has(f)) return false;
+      if (cut && !(r.cuts || []).includes(cut)) return false;
+      return !n || `${r.memo || ""} ${(r.cuts || []).join(" ")} ${r.place || ""}`.toLowerCase().includes(n);
+    });
+  }, [refs, folders, sel, cut, q]);
   const addTag = (group, t) => d.saveTags((v) => ({ ...DEFAULT_TAGS, ...v, [group]: [...new Set([...(v[group] || DEFAULT_TAGS[group]), t])] }));
+  const here = sel !== "all" && sel !== "none" ? sel : null;
 
   return (
-    <div>
+    <div
+      className="relative min-h-[70vh]"
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes("Files")) return;
+        e.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={(e) => e.currentTarget === e.target && setDropping(false)}
+      onDrop={(e) => {
+        const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
+        if (!files.length) return;
+        e.preventDefault();
+        setDropping(false);
+        setAdding({ files, folder: here });
+      }}
+    >
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <h2 className="text-xl font-bold text-stone-900">촬영 레퍼런스</h2>
-          <p className="mt-0.5 text-sm text-stone-500">착용샷 참고 사진을 옷 종류 × 컷 종류로 모아 두고, 촬영 때 골라 봐요.</p>
+          <p className="mt-0.5 text-sm text-stone-500">착용샷 참고 사진을 목록별로 모아요. 사진을 화면에 끌어다 놓으면 바로 넣을 수 있어요.</p>
         </div>
-        <button type="button" onClick={() => setAdding(true)} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
+        <button type="button" onClick={() => setAdding({ files: [], folder: here })} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <ImagePlus size={16} /> 사진 넣기
         </button>
       </div>
 
-      <div className="sticky top-0 z-10 -mx-4 mb-3 space-y-1.5 border-b border-stone-200 bg-stone-50/95 px-4 py-2 backdrop-blur md:-mx-0 md:rounded-xl md:border md:bg-white md:px-3">
-        <Chips list={d.tags.clothes} value={clothes} onChange={setClothes} all="옷 전체" />
-        <Chips list={d.tags.cuts} value={cut} onChange={setCut} all="컷 전체" />
-        {d.refs.some((r) => r.place) && <Chips list={d.tags.places} value={place} onChange={setPlace} all="장소 전체" />}
-      </div>
+      <FolderBar items={refs} folders={folders} sel={sel} onSel={setSel} onEdit={() => setEditCats(true)} q={q} setQ={setQ} searchPlaceholder="메모·컷 검색">
+        <div className="mt-2 border-t border-stone-100 pt-2">
+          <Chips list={d.tags.cuts} value={cut} onChange={setCut} all="컷 전체" />
+        </div>
+      </FolderBar>
 
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-          {d.refs.length ? "이 조합의 사진이 아직 없어요." : "'사진 넣기'로 참고 사진을 모아 보세요. 인스타 캡처도 돼요."}
+          {d.refs.length ? "이 목록에 사진이 아직 없어요." : "사진을 여기로 끌어다 놓거나 '사진 넣기'로 참고 사진을 모아 보세요. 인스타 캡처도 돼요."}
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -348,29 +426,44 @@ function RefsView({ d, online }) {
             <div key={r.id} className="group relative">
               <Photo url={d.urls[r.photo]} onClick={() => setView(i)} className="aspect-[3/4] w-full rounded-xl" />
               <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap gap-1 rounded-b-xl bg-gradient-to-t from-black/60 to-transparent p-1.5 pt-6">
-                {[...(r.clothes || []), ...(r.cuts || [])].slice(0, 3).map((t) => (
-                  <span key={t} className="rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-medium text-stone-700">
+                <span className="rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-stone-800">{pathName(folderIdOf(r, folders), folders).split(" › ").pop()}</span>
+                {(r.cuts || []).slice(0, 2).map((t) => (
+                  <span key={t} className="rounded bg-white/70 px-1.5 py-0.5 text-[10px] text-stone-700">
                     {t}
                   </span>
                 ))}
               </span>
-              <button type="button" onClick={() => setEdit(r)} aria-label="고치기" className="absolute top-1.5 right-1.5 rounded-full bg-white/85 p-1.5 text-stone-600 shadow-sm">
-                <Pencil size={12} />
-              </button>
+              <span className="absolute top-1.5 right-1.5 flex gap-1">
+                <span className="rounded-md bg-white/90 shadow-sm">
+                  <FolderPicker item={r} folders={folders} onMove={(id) => d.saveRefs(upsert({ id: r.id, folderId: id, folder: "" }))} />
+                </span>
+                <button type="button" onClick={() => setEdit(r)} aria-label="고치기" className="flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-stone-600 shadow-sm">
+                  <Pencil size={13} />
+                </button>
+              </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {dropping && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-4 border-dashed border-rose-400 bg-rose-50/80 text-lg font-semibold text-rose-800">
+          여기에 놓으면 넣기 창이 열려요
         </div>
       )}
 
       {adding && (
         <RefUpload
           tags={d.tags}
+          folders={folders}
           online={online}
+          initialFiles={adding.files}
+          initialFolder={adding.folder}
           onAddTag={addTag}
-          onClose={() => setAdding(false)}
+          onClose={() => setAdding(null)}
           onDone={async (made) => {
             await d.saveRefs((v) => ({ ...v, items: [...made, ...(v.items || [])] }));
-            setAdding(false);
+            setAdding(null);
           }}
         />
       )}
@@ -378,6 +471,7 @@ function RefsView({ d, online }) {
         <RefEdit
           refItem={edit}
           tags={d.tags}
+          folders={folders}
           url={d.urls[edit.photo]}
           onAddTag={addTag}
           onClose={() => setEdit(null)}
@@ -391,13 +485,23 @@ function RefsView({ d, online }) {
           }}
         />
       )}
-      {view != null && (
-        <Viewer
-          slides={shown.map((r) => ({ url: d.urls[r.photo] }))}
-          start={view}
-          onClose={() => setView(null)}
-        />
+      {editCats && (
+        <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
+          <button type="button" aria-label="닫기" onClick={() => setEditCats(false)} className="absolute inset-0 cursor-default" />
+          <div className="sheet relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl">
+            <CategoryEditor
+              items={refs}
+              folders={folders}
+              onChange={d.saveFolders}
+              onClose={() => setEditCats(false)}
+              openKey="poclo_shoot_cats_open"
+              noun="사진"
+              topHint="상위 목록 이름 — 예: 하의"
+            />
+          </div>
+        </div>
       )}
+      {view != null && <Viewer slides={shown.map((r) => ({ url: d.urls[r.photo] }))} start={view} onClose={() => setView(null)} />}
     </div>
   );
 }
@@ -557,11 +661,12 @@ function ItemCard({ x, url, onOpen, selectable, selected }) {
 function CodiEdit({ codi, d, onClose }) {
   const [c, setC] = useState({ name: "", itemIds: [], refIds: [], shootDate: "", memo: "", ...codi });
   const [tab, setTab] = useState("items");
-  const [clothes, setClothes] = useState("");
+  const [folder, setFolder] = useState(null);
   const [cut, setCut] = useState("");
   const toggle = (k, id) => setC((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
   const items = d.items.filter((x) => x.status !== "back" && (x.status !== "shot" || c.itemIds.includes(x.id)));
-  const refs = d.refs.filter((r) => (!clothes || (r.clothes || []).includes(clothes)) && (!cut || (r.cuts || []).includes(cut)));
+  const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
+  const refs = d.refs.map(withFolder).filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && (!cut || (r.cuts || []).includes(cut)));
   return (
     <Sheet onClose={onClose} wide>
       <SheetHead title={codi.id ? "코디 고치기" : "코디 만들기"} onClose={onClose} />
@@ -595,7 +700,7 @@ function CodiEdit({ codi, d, onClose }) {
           )
         ) : (
           <div className="space-y-2">
-            <Chips list={d.tags.clothes} value={clothes} onChange={setClothes} all="옷 전체" />
+            <FolderSelect folders={d.folders} value={folder} onChange={setFolder} />
             <Chips list={d.tags.cuts} value={cut} onChange={setCut} all="컷 전체" />
             {refs.length ? (
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
