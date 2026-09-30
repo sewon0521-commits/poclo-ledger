@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, won, loadKey, changeKey, upsert, putPhoto } from "../lib/shoot";
-import { parseClip, normalize, stageName, findVendor, vendorFill, contactLines } from "../lib/sinsang";
+import { DEFAULT_TAGS, FIELD, md, won, loadKey, changeKey, upsert, putPhoto } from "../lib/shoot";
+import { parseClip, normalize, stageName, findVendor, vendorFill, contactLines, refusalsOf, refusalText } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { Chips, Photo } from "./ShootBits";
 
@@ -21,6 +21,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
   const [recent, setRecent] = useState([]);
   const [photo, setPhoto] = useState("");
   const [vendorNote, setVendorNote] = useState("");
+  const [refused, setRefused] = useState([]); // 그 거래처가 예전에 샘플을 거절한 기록
   const last = useRef("");
   const seq = useRef(0);
 
@@ -50,8 +51,11 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           return;
         }
         const same = cur.map(normalize).find((x) => (p.goodsId ? x.goodsId === p.goodsId : p.url && x.url === p.url));
+        const past = ((await loadKey("sample_refusals", online).catch(() => ({}))).items || []);
+        const warn = (vid, name) => alive() && setRefused(refusalsOf(past, vid, name));
         if (same) {
           if (!alive()) return;
+          warn(same.vendorId, same.vendor);
           setItem(same);
           setState("dup");
           return;
@@ -113,6 +117,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
         };
         await changeKey("shoot_items", online, upsert(made));
         if (!alive()) return;
+        warn(made.vendorId, made.vendor);
         setItem(made);
         setState("saved");
         setRecent((r) => [made, ...r].slice(0, 8));
@@ -153,6 +158,17 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           {state === "error" && (msg || "담지 못했어요")}
         </div>
 
+        {item && refused.length > 0 && (
+          <div className="space-y-0.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+            <b className="block">이 거래처는 샘플을 거절한 적이 있어요</b>
+            {refused.map((r) => (
+              <span key={r.id} className="block">
+                {md(r.on)} · {refusalText(r)}
+                {r.item && <span className="text-rose-700/70"> ({r.item})</span>}
+              </span>
+            ))}
+          </div>
+        )}
         {item && (
           <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-3">
             <div className="flex gap-3">

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -62,7 +62,7 @@ function Toggle({ on, onClick, children, wide }) {
 }
 
 /** 상품 카드 — tab 에 따라 다음 단계로 넘기는 단추가 달라진다. onPatch(바뀐 칸) */
-export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, selected }) {
+export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, selectable, selected }) {
   const sample = x.type !== "buy";
   const act = (patch) => (e) => {
     e.stopPropagation();
@@ -72,7 +72,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
   const retryDue = x.stage === "request" && x.retryOn && x.retryOn <= today;
   // 카드 아래 한 줄 — 늘 한 줄을 차지해서 눌러도 카드 높이가 안 바뀐다
   const line = x.refused && x.stage === "drop"
-    ? { text: `샘플 안 된대요${x.refusedOn ? ` · ${md(x.refusedOn)}` : ""}`, tone: "text-stone-500" }
+    ? { text: `샘플 안 됨${x.refusedOn ? ` ${md(x.refusedOn)}` : ""}${x.refusedWhy ? ` · ${x.refusedWhy}` : ""}`, tone: "text-rose-700" }
     : retryDue
     ? { text: `재요청 ${md(x.retryOn)} — ${x.memo || "다시 요청할 날이에요"}`, tone: "font-medium text-rose-700" }
     : x.returnedOn
@@ -139,7 +139,14 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
                 </button>
                 <button
                   type="button"
-                  onClick={act({ stage: "drop", refused: true, refusedOn: today })}
+                  onClick={
+                    onRefuse
+                      ? (e) => {
+                          e.stopPropagation();
+                          onRefuse();
+                        }
+                      : act({ stage: "drop", refused: true, refusedOn: today })
+                  }
                   title="거래처가 샘플이 안 된다고 했어요 — 보류·드랍으로"
                   className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-500 hover:bg-stone-50"
                 >
@@ -203,7 +210,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, selectable, sele
             </button>
           )}
           {tab === "drop" && (
-            <button type="button" onClick={x.refused ? act({ stage: "request", refused: false, refusedOn: "" }) : go("arrived")} className={SUB + " flex w-full items-center justify-center gap-1"}>
+            <button type="button" onClick={x.refused ? act({ stage: "request", refused: false, refusedOn: "", refusedWhy: "" }) : go("arrived")} className={SUB + " flex w-full items-center justify-center gap-1"}>
               <Undo2 size={12} /> {x.refused ? "요청으로 되돌리기" : "되살리기"}
             </button>
           )}
@@ -417,6 +424,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   </button>
                 </div>
               ))}
+            <RefusalNote list={refusalsOf(d.refusals, x.vendorId, x.vendor)} />
             {(contactLines(x.contact).length > 0 || x.desc) && (
               <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
                 <span className="font-semibold text-stone-500">거래처가 제품 설명에 적어 둔 것</span>
@@ -667,7 +675,7 @@ const copy = async (text) => {
  * 카톡은 밖에서 대신 보낼 수 없어서(lib/sinsang.js) 여기까지가 자동이다: 글 만들기 → 복사 → 보낸 뒤 '요청함' 한 번에.
  * m = {vendor, list(그 거래처의 요청 단계 상품), picks(글에 넣을 상품 id), kind, kakao, phone, copied}
  */
-function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
+function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose, refusals = [], onDropRefusal }) {
   // 연락처 — 담을 때 제품 설명에서 읽은 것 먼저, 없으면 돈 › 거래처의 전화·메모
   const memo = contactOf(m.memo);
   const pick = (k) => m.list.map((x) => x.contact?.[k]).find(Boolean) || "";
@@ -705,6 +713,7 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
         }
       />
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        <RefusalNote list={refusals} onDrop={onDropRefusal} />
         <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-sm">
           {[
             ["first", "처음 거래하는 곳"],
@@ -842,6 +851,90 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
           className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 py-2.5 text-sm font-medium text-emerald-800 disabled:opacity-50"
         >
           <Check size={14} /> 보냈어요 — {picks.length}개 '요청함'으로
+        </button>
+      </footer>
+    </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------- 샘플 거절
+
+/** 그 거래처가 샘플을 거절한 기록 — 다음에 담을 때 "아 여기 안 되지" 하고 보게 */
+export function RefusalNote({ list, onDrop }) {
+  if (!list?.length) return null;
+  return (
+    <div className="space-y-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+      <span className="flex items-center gap-1 font-semibold">
+        <AlertTriangle size={12} /> 이 거래처는 샘플을 거절한 적이 있어요
+      </span>
+      {list.map((r) => (
+        <div key={r.id} className="flex items-start justify-between gap-2">
+          <span className="min-w-0">
+            <b>{md(r.on)}</b> {refusalText(r)}
+            {r.item && <span className="text-rose-700/70"> ({r.item})</span>}
+          </span>
+          {onDrop && (
+            <button type="button" onClick={() => window.confirm("이 거절 기록을 지울까요?") && onDrop(r.id)} aria-label="기록 지우기" className="shrink-0 text-rose-400 hover:text-rose-700">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** '안 됨' — 왜 안 된대요? (이유 여러 개 + 한 줄). 이 거래처의 다른 요청 상품도 같이 옮길 수 있다 */
+function RefuseSheet({ x, others, onSave, onClose }) {
+  const [reasons, setReasons] = useState([]);
+  const [note, setNote] = useState("");
+  const [all, setAll] = useState(others.length > 0);
+  const [busy, setBusy] = useState(false);
+  const flip = (t) => setReasons(reasons.includes(t) ? reasons.filter((r) => r !== t) : [...reasons, t]);
+  return (
+    <Sheet onClose={onClose}>
+      <SheetHead title={`샘플 안 됨 · ${x.vendor || "거래처 없음"}`} onClose={onClose} />
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+        <p className="text-stone-600">
+          <b className="text-stone-900">{x.name}</b> — 왜 안 된대요? 다음에 이 거래처 상품을 담거나 요청할 때 보여 드려요.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {REFUSE_REASONS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              aria-pressed={reasons.includes(t)}
+              onClick={() => flip(t)}
+              className={"rounded-full border px-3 py-1.5 text-xs font-medium " + (reasons.includes(t) ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="다른 이유·조건 (예: 월 100만원 이상 거래처만)" className={FIELD} />
+        {others.length > 0 && (
+          <label className="flex items-start gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-700">
+            <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} className="mt-0.5" />
+            <span>
+              이 거래처에 요청한 다른 상품 {others.length}개도 같이 '안 됨'으로 <span className="text-stone-400">({others.map((y) => y.name).join(", ")})</span>
+            </span>
+          </label>
+        )}
+      </div>
+      <footer className="flex shrink-0 justify-end gap-2 border-t border-stone-200 p-3">
+        <button type="button" onClick={onClose} className="rounded-xl px-4 py-2.5 text-sm text-stone-500">
+          취소
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await onSave({ reasons, note: note.trim(), all });
+          }}
+          className="rounded-xl bg-stone-800 px-5 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
+        >
+          안 됨으로 옮기기
         </button>
       </footer>
     </Sheet>
@@ -986,6 +1079,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
+  const [refuseFor, setRefuseFor] = useState(null);
 
   // 담아 둔 상품을 돈 › 거래처와 잇는다 (10/1 세원: "거래처에 어차피 등록해야 하는데 없으면 추가, 있으면 매칭")
   // 신상마켓에서 담은 것(goodsId 있음) 중 아직 안 이어진 것만 — 이름은 한글 먼저로 고치고, 상품명도 다듬는다.
@@ -1047,7 +1141,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         const vid = l[0].vendorId;
         // 거래해 본 곳 — 매입 장부에 장끼가 있거나, 샘플이 요청 다음 단계까지 간 적이 있다
         const known = !!vid && (dealt?.has(vid) || items.some((x) => x.vendorId === vid && x.stage !== "request" && !x.refused));
-        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l, req: { vendor: t, place: l.find((x) => x.place)?.place || v?.address || "", phone: v?.phone || "", memo: v?.memo || "", kind: known ? "again" : "first" } };
+        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l, refusals: refusalsOf(d.refusals, vid, t), req: { vendorId: vid, vendor: t, place: l.find((x) => x.place)?.place || v?.address || "", phone: v?.phone || "", memo: v?.memo || "", kind: known ? "again" : "first" } };
       });
     if (tab === "returns")
       return by(dueOf, (a, b) => a[0].localeCompare(b[0])).map(([due, l]) => {
@@ -1057,9 +1151,28 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
     if (tab === "returned")
       return by((x) => x.returnedOn || x.paid?.on || "", (a, b) => b[0].localeCompare(a[0])).map(([day, l]) => ({ title: day ? `${dayTitle(day)} · ${l.length}개` : `날짜 없음 · ${l.length}개`, list: l }));
     return [{ title: "", list: shown }];
-  }, [shown, tab, today, vendors, dealt, items]);
+  }, [shown, tab, today, vendors, dealt, items, d.refusals]);
 
-  const patch = (x) => (p) => d.saveItems(upsert({ id: x.id, ...p }));
+  const patch = (x) => (p) => {
+    // '요청으로 되돌리기' — 잘못 누른 것이니 그 거절 기록도 지운다
+    if (x.refused && p.refused === false) d.saveRefusals((v) => ({ ...v, items: (v.items || []).filter((r) => !(r.itemIds || []).includes(x.id)) }));
+    return d.saveItems(upsert({ id: x.id, ...p }));
+  };
+
+  // '안 됨' — 상품(과 고르면 같은 거래처의 다른 요청 상품)을 보류·드랍으로, 이유는 거래처 기록으로
+  const refuse = async ({ reasons, note, all }) => {
+    const x = refuseFor;
+    const same = (y) => y.stage === "request" && (x.vendorId ? y.vendorId === x.vendorId : !!x.vendor && y.vendor === x.vendor);
+    const targets = [x, ...(all ? items.filter((y) => y.id !== x.id && same(y)) : [])];
+    const ids = targets.map((t) => t.id);
+    const why = reasons.length || note ? refusalText({ reasons, note }) : "";
+    await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (ids.includes(it.id) ? { ...it, stage: "drop", refused: true, refusedOn: today, refusedWhy: why } : it)) }));
+    await d.saveRefusals((v) => ({
+      ...v,
+      items: [{ id: newId("r"), itemIds: ids, vendorId: x.vendorId || "", vendor: x.vendor || "", reasons, note, on: today, item: targets.map((t) => t.name).join(", ") }, ...(v.items || [])],
+    }));
+    setRefuseFor(null);
+  };
 
   // '카톡 글 복사' — 누르는 그 자리에서 복사를 시작하고(브라우저는 누른 순간에만 복사를 허락한다) 확인 창을 연다
   const openMsg = (g) => {
@@ -1186,6 +1299,12 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
                 <h3 className={"mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1 text-sm font-semibold " + (g.tone || "text-stone-700")}>
                   {g.title}
                   {g.sub && <span className="text-xs font-normal text-stone-500 select-all">{g.sub}</span>}
+                  {g.refusals?.length > 0 && (
+                    <span className="flex items-center gap-1 text-xs font-medium text-rose-700">
+                      <AlertTriangle size={12} /> 샘플 거절 {md(g.refusals[0].on)} · {refusalText(g.refusals[0])}
+                      {g.refusals.length > 1 && ` 외 ${g.refusals.length - 1}번`}
+                    </span>
+                  )}
                   {g.req && (
                     <button type="button" onClick={() => openMsg(g)} className="ml-auto flex items-center gap-1 rounded-full border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50">
                       <MessageCircle size={12} /> 카톡 글 복사
@@ -1195,7 +1314,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} />
+                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} />
                 ))}
               </div>
             </section>
@@ -1205,7 +1324,25 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
 
       {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} onVendor={onVendor} today={today} onClose={() => setEdit(null)} />}
       {guide && <ClipGuide onClose={() => setGuide(false)} />}
-      {msgFor && <MsgSheet m={msgFor} msgs={d.msgs} onSaveMsgs={d.saveMsgs} onAsked={markAsked} onClose={() => setMsgFor(null)} />}
+      {msgFor && (
+        <MsgSheet
+          m={msgFor}
+          msgs={d.msgs}
+          onSaveMsgs={d.saveMsgs}
+          onAsked={markAsked}
+          onClose={() => setMsgFor(null)}
+          refusals={refusalsOf(d.refusals, msgFor.vendorId, msgFor.vendor)}
+          onDropRefusal={(id) => d.saveRefusals((v) => ({ ...v, items: (v.items || []).filter((r) => r.id !== id) }))}
+        />
+      )}
+      {refuseFor && (
+        <RefuseSheet
+          x={refuseFor}
+          others={items.filter((y) => y.id !== refuseFor.id && y.stage === "request" && (refuseFor.vendorId ? y.vendorId === refuseFor.vendorId : !!refuseFor.vendor && y.vendor === refuseFor.vendor))}
+          onClose={() => setRefuseFor(null)}
+          onSave={refuse}
+        />
+      )}
     </div>
   );
 }

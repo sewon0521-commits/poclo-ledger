@@ -16,7 +16,7 @@
 //    photo(보관 이름)|photoUrl(바깥 주소), colors, sizes, fabric, origin, memo,
 //    contact {mobile, tel, kakao, insta, site}, desc,   // 신상마켓 '제품 설명'에 거래처가 적어 둔 연락처 · 그 글
 //    asked, askedOn, pickup, retryOn,      // 거래처 샘플 요청(+날짜) · 샘플 픽업 요청 · 샘플 재요청 날짜
-//    refused, refusedOn,                   // 거래처가 샘플이 안 된다고 함 → 보류·드랍에 '샘플 안 됨'으로
+//    refused, refusedOn, refusedWhy,       // 거래처가 샘플이 안 된다고 함 → 보류·드랍에 '샘플 안 됨'으로 (이유 한 줄)
 //    arrivedOn, arrivedOpts,               // 입고일 · 입고된 색상·사이즈
 //    pickedOn, shootDate, shootOpts,       // 촬영 날짜 · 촬영 색상 및 사이즈
 //    shotOn, doneOn, channels:{cafe24},
@@ -238,6 +238,23 @@ export function vendorFill(v, c) {
     .map(([, line]) => line);
   if (phone === (v.phone || "") && !add.length) return null;
   return { phone, memo: [v.memo, ...add].filter(Boolean).join(" / ") };
+}
+
+// ---------------------------------------------------------------- 샘플 거절 기록
+//
+// 세원 10/1: "샘플 거절을 당한 거래처는 어떤 이유로 거절당했는지 적을 수 있게. 다음번에 예뻐서 샘플 하려고 하는데 안 된다는 걸 볼 수 있게.
+//   이유는 많아 — 첫거래 샘플 불가, 샘플 관리가 안 돼서, 한 달에 100만원 이상 거래하는 업체만, 메인 거래처만, 꾸준히 거래해야 등등."
+// 거절은 거래처의 방침이라 상품이 아니라 **거래처에 붙는다** — settings 'sample_refusals'
+//   {items:[{id, itemIds[], vendorId, vendor, reasons[], note, on, item}]}. 상품을 지워도 기록은 남는다.
+// 보여 주는 곳: 담기 창(담자마자) · 요청 탭 거래처 묶음 · 카톡 글 창 · 상품 창.
+
+export const REFUSE_REASONS = ["첫거래 샘플 불가", "샘플 관리가 안 돼서", "월 거래액 조건", "메인 거래처만", "꾸준히 거래해야"];
+export const refusalText = (r) => [...(r?.reasons || []), r?.note].filter(Boolean).join(" · ") || "이유 안 적음";
+
+/** 그 거래처의 거절 기록 — vendorId 로, 없으면 이름으로. 최근 것 먼저 */
+export function refusalsOf(list, vendorId, vendor) {
+  const nm = squash(vendor);
+  return (list || []).filter((r) => (vendorId && r.vendorId === vendorId) || (nm && squash(r.vendor) === nm)).sort((a, b) => String(b.on || "").localeCompare(String(a.on || "")));
 }
 
 // ---------------------------------------------------------------- 거래처에 보내는 샘플 요청 글

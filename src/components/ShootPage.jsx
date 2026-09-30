@@ -25,6 +25,7 @@ function useData(online) {
   const [refs, setRefs] = useState([]);
   const [tags, setTags] = useState(DEFAULT_TAGS);
   const [msgs, setMsgs] = useState(DEFAULT_MSGS);
+  const [refusals, setRefusals] = useState([]);
   const [folders, setFolders] = useState([]);
   const [urls, setUrls] = useState({});
   const [msg, setMsg] = useState("");
@@ -32,14 +33,16 @@ function useData(online) {
 
   const load = useCallback(async () => {
     try {
-      const [a, b, c, t, f, m] = await Promise.all([
+      const [a, b, c, t, f, m, r] = await Promise.all([
         loadKey("shoot_items", online),
         loadKey("shoot_codis", online),
         loadKey("shoot_refs", online),
         loadKey("shoot_tags", online, DEFAULT_TAGS),
         loadKey("shoot_folders", online),
         loadKey("shoot_msg", online, DEFAULT_MSGS),
+        loadKey("sample_refusals", online),
       ]);
+      setRefusals(r.items || []);
       setMsgs({ ...DEFAULT_MSGS, ...m });
       let fs = f.items || [];
       if (!fs.length) {
@@ -112,6 +115,9 @@ function useData(online) {
     saveCodis: save("shoot_codis", setCodis),
     saveRefs: save("shoot_refs", setRefs),
     saveTags,
+    // 샘플 거절 기록 (lib/sinsang.js)
+    refusals,
+    saveRefusals: save("sample_refusals", setRefusals),
     msgs,
     // 샘플 요청 글 틀 {first, again}
     saveMsgs: async (next) => {
