@@ -33,6 +33,7 @@ import AccountsPage from "./components/AccountsPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import JournalPage from "./components/JournalPage";
+import ShootPage from "./components/ShootPage";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
 
@@ -495,6 +496,8 @@ export default function App() {
                   onSaveReel={S.saveReel}
                   onSaveCarousel={S.saveCarousel}
                 />
+              ) : page === "shoot" || page === "shootRefs" ? (
+                <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} />
               ) : page === "journal" ? (
                 <JournalPage online={L.mode === "remote" && !!L.session} />
               ) : page === "work" || page === "people" || page === "content" ? (

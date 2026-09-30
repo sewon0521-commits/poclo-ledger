@@ -1,5 +1,5 @@
 // 화면 갈래. 왼쪽 좁은 띠에서 큰 갈래를 고르고, 옆 패널에서 화면을 고른다.
-// 큰 갈래는 넷 — 홈 / 일 / 돈 / 콘텐츠. ('사람'은 9/23 세원 요청으로 뺐다 — 쓸 일이 없어서)
+// 큰 갈래는 다섯 — 홈 / 일 / 돈 / 촬영 / 콘텐츠. ('사람'은 9/23 세원 요청으로 뺐다 — 쓸 일이 없어서)
 import {
   Home,
   ListChecks,
@@ -15,6 +15,8 @@ import {
   Clapperboard,
   GalleryHorizontal,
   Radar,
+  Camera,
+  Images,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -52,6 +54,21 @@ export const SECTIONS = [
         ],
       },
       { group: "정산·세무", items: [{ key: "invoice", label: "세금계산서 대조", icon: Scale }] },
+    ],
+  },
+  {
+    // 촬영 (9/30 세원: "왼쪽 띠에 촬영 갈래") — 동대문클릭처럼 상품 블록 → 코디, 그리고 착용샷 참고 사진
+    key: "shoot",
+    label: "촬영",
+    icon: Camera,
+    groups: [
+      {
+        group: "기본",
+        items: [
+          { key: "shoot", label: "촬영 목록", icon: Camera },
+          { key: "shootRefs", label: "촬영 레퍼런스", icon: Images },
+        ],
+      },
     ],
   },
   {
