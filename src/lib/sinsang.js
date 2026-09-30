@@ -267,6 +267,16 @@ export const DEFAULT_MSGS = {
 감사합니다.`,
 };
 
+/**
+ * 카톡 친구 이름 — '건물_상호명' (세원 10/1: "래래 라는 거래처면 디오트_래래 RAERAE")
+ * 건물은 위치의 첫 낱말(디오트 지하1층 F15 → 디오트). 첫 낱말이 층·호수면 건물 없이 상호명만.
+ */
+export function friendName(vendor, place) {
+  const first = String(place || "").trim().split(/\s+/)[0] || "";
+  const building = /\d|층|호$/.test(first) ? "" : first;
+  return [building, String(vendor || "").trim()].filter(Boolean).join("_");
+}
+
 /** 틀의 [상품명] 자리에 상품 이름들을 넣는다 — 세원 10/1: "[345,348] 이런 식으로 [] 괄호" */
 export const requestText = (tpl, names) => String(tpl || "").split(MSG_SLOT).join(`[${names.join(",")}]`);
 

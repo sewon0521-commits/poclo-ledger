@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -50,12 +50,13 @@ function Toggle({ on, onClick, children, wide }) {
       onClick={onClick}
       aria-pressed={!!on}
       className={
-        "flex items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-medium " +
+        "flex min-w-0 items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-[11px] font-medium whitespace-nowrap " +
         (wide ? "w-full " : "flex-1 ") +
         (on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-500")
       }
     >
-      <Check size={11} className={on ? "" : "opacity-0"} /> {children}
+      <Check size={10} className={"shrink-0 " + (on ? "" : "opacity-0")} />
+      {children}
     </button>
   );
 }
@@ -641,7 +642,8 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
 
 const copy = async (text) => {
   try {
-    await navigator.clipboard.writeText(text);
+    // 브라우저가 대답을 안 하고 붙잡고 있는 경우가 있다(폰 등) — 1.5초 넘으면 예전 방식으로
+    await Promise.race([navigator.clipboard.writeText(text), new Promise((_, no) => setTimeout(() => no(new Error("복사 시간 초과")), 1500))]);
     return true;
   } catch {
     // 브라우저가 새 방식을 막으면 예전 방식으로 (안 보이는 칸에 넣고 복사)
@@ -675,15 +677,33 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
   const [picks, setPicks] = useState(m.picks);
   const [custom, setCustom] = useState(null); // 이번 글만 손으로 고친 것
   const [tpl, setTpl] = useState(null); // 틀을 고치는 중이면 그 글
-  const [note, setNote] = useState(m.copied ? "글을 복사했어요. 카톡에서 거래처 방을 열고 붙여넣기(Ctrl+V) 하세요." : "복사가 막혔어요. 아래 '글 복사'를 눌러 주세요.");
+  const [note, setNote] = useState("글을 복사하는 중…");
+  // 단추를 누를 때 시작한 복사(m.copied, Promise)가 끝나면 알려 준다
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve(m.copied).then((ok) => alive && setNote(ok ? "글을 복사했어요. 카톡에서 거래처 방을 열고 붙여넣기(Ctrl+V) 하세요." : "복사가 막혔어요. 아래 '글 복사'를 눌러 주세요."));
+    return () => {
+      alive = false;
+    };
+  }, [m.copied]);
   const names = m.list.filter((x) => picks.includes(x.id)).map((x) => x.name || x.fullName).filter(Boolean);
   const text = custom ?? requestText(msgs[kind], names);
   const say = async (what, okText) => setNote((await copy(what)) ? okText : "복사하지 못했어요. 글을 끌어서 직접 복사해 주세요.");
   const TAB = "flex-1 rounded-md py-1.5 font-medium ";
+  const friend = friendName(m.vendor, m.place);
 
   return (
     <Sheet onClose={onClose}>
-      <SheetHead title={`${m.vendor} · 샘플 요청 글`} onClose={onClose} />
+      {/* 맨 위는 카톡 친구 이름 그대로 — 친구 추가하고 이름 바꿀 때 붙여넣는다 */}
+      <SheetHead
+        title={friend}
+        onClose={onClose}
+        right={
+          <button type="button" onClick={() => say(friend, `'${friend}' 를 복사했어요. 카톡 친구 이름에 붙여넣으세요.`)} className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50">
+            <Copy size={12} /> 이름 복사
+          </button>
+        }
+      />
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-sm">
           {[
@@ -831,28 +851,12 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
 // ---------------------------------------------------------------- 옷 종류 비율
 
 // 세원 10/1: "상의·하의 샘플 요청 비율을 알고 싶어. 상의 70% 하의 30%로 소싱되면 상품이 와도 코디하기 어려워지니까."
-// 촬영 전 상품(요청·입고·촬영 대기, '안 됨'·보류 빼고)을 옷 종류별로 센다. 코디는 상의 한 벌에 하의 한 벌이라 **상의:하의 = 1:1** 을 기준으로,
+// **요청 단계 상품**('안 됨' 빼고 — 지금 소싱에 넣어 둔 것)을 옷 종류별로 센다. 처음엔 촬영 전 전체와 고르게 했는데
+// 세원: "오늘 소싱에 얼만큼의 비율을 넣어놨는지가 관건이라 그냥 요청만 보여주면 될 것 같아." 코디는 상의 한 벌에 하의 한 벌이라 **상의:하의 = 1:1** 을 기준으로,
 // 한쪽이 60%를 넘으면 몇 개 더 요청하면 맞는지 알려 준다. 원피스·세트는 혼자서 한 벌, 아우터·신발·잡화는 걸치는 것이라 기준에서 뺀다.
 const MIX_TONE = { 상의: "bg-rose-600", 하의: "bg-stone-700", "원피스·세트": "bg-rose-300", 아우터: "bg-stone-400", "신발·잡화": "bg-amber-300" };
-const BEFORE = ["request", "arrived", "pick"];
-
 function KindMix({ items, kinds, kind, onKind }) {
-  const [scope, setScope] = useState(() => {
-    try {
-      return localStorage.getItem("poclo_mix_scope") || "before";
-    } catch {
-      return "before";
-    }
-  });
-  const pick = (k) => {
-    setScope(k);
-    try {
-      localStorage.setItem("poclo_mix_scope", k);
-    } catch {
-      /* 무시 */
-    }
-  };
-  const pool = items.filter((x) => (scope === "request" ? x.stage === "request" : BEFORE.includes(x.stage)) && !x.refused);
+  const pool = items.filter((x) => x.stage === "request" && !x.refused);
   const count = (k) => pool.filter((x) => (k ? x.kind === k : !kinds.includes(x.kind))).length;
   const rows = [...kinds.map((k) => ({ k, label: k, n: count(k) })), { k: "", label: "종류 없음", n: count("") }].filter((r) => r.n);
   const pct = (n) => Math.round((n / pool.length) * 100);
@@ -871,24 +875,8 @@ function KindMix({ items, kinds, kind, onKind }) {
     <div className="mb-3 rounded-xl border border-stone-200 bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-semibold text-stone-800">
-          옷 종류 비율 <span className="font-normal text-stone-400">{pool.length}개</span>
+          요청한 옷 종류 비율 <span className="font-normal text-stone-400">{pool.length}개</span>
         </span>
-        <div className="flex gap-1 rounded-lg bg-stone-100 p-0.5 text-xs">
-          {[
-            ["request", "요청만"],
-            ["before", "촬영 전 전체"],
-          ].map(([k, label]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => pick(k)}
-              title={k === "before" ? "요청 · 입고·픽 · 촬영 대기 상품 ('안 됨'·보류는 빼고)" : "요청 단계 상품만"}
-              className={"rounded-md px-2.5 py-1 font-medium " + (scope === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       </div>
       {pool.length ? (
         <>
@@ -914,7 +902,7 @@ function KindMix({ items, kinds, kind, onKind }) {
           {advice && <p className={"mt-2 rounded-lg px-2.5 py-1.5 text-xs " + (lean ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800")}>{advice}</p>}
         </>
       ) : (
-        <p className="mt-2 text-xs text-stone-400">{scope === "request" ? "요청 단계 상품이 없어요." : "촬영 전 상품이 없어요."}</p>
+        <p className="mt-2 text-xs text-stone-400">요청 단계 상품이 없어요.</p>
       )}
     </div>
   );
@@ -994,6 +982,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [kind, setKind] = useState("");
   const [q, setQ] = useState("");
   const [weekOnly, setWeekOnly] = useState(false);
+  const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청)
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
@@ -1039,9 +1028,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!type || (x.type || "sample") === type) &&
         (!kind || x.kind === kind) &&
         (!weekOnly || tab !== "pick" || (x.pickedOn || "") >= weekAgo) &&
+        (!reqOnly || tab !== "request" || !!x[reqOnly]) &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
@@ -1057,7 +1047,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         const vid = l[0].vendorId;
         // 거래해 본 곳 — 매입 장부에 장끼가 있거나, 샘플이 요청 다음 단계까지 간 적이 있다
         const known = !!vid && (dealt?.has(vid) || items.some((x) => x.vendorId === vid && x.stage !== "request" && !x.refused));
-        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l, req: { vendor: t, phone: v?.phone || "", memo: v?.memo || "", kind: known ? "again" : "first" } };
+        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l, req: { vendor: t, place: l.find((x) => x.place)?.place || v?.address || "", phone: v?.phone || "", memo: v?.memo || "", kind: known ? "again" : "first" } };
       });
     if (tab === "returns")
       return by(dueOf, (a, b) => a[0].localeCompare(b[0])).map(([due, l]) => {
@@ -1071,12 +1061,13 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
 
   const patch = (x) => (p) => d.saveItems(upsert({ id: x.id, ...p }));
 
-  // '카톡 글 복사' — 누르는 그 자리에서 복사하고(브라우저는 누른 순간에만 복사를 허락한다) 확인 창을 연다
-  const openMsg = async (g) => {
+  // '카톡 글 복사' — 누르는 그 자리에서 복사를 시작하고(브라우저는 누른 순간에만 복사를 허락한다) 확인 창을 연다
+  const openMsg = (g) => {
     const fresh = g.list.filter((x) => !x.asked);
     const picks = (fresh.length ? fresh : g.list).map((x) => x.id);
     const names = g.list.filter((x) => picks.includes(x.id)).map((x) => x.name || x.fullName).filter(Boolean);
-    const copied = await copy(requestText(d.msgs[g.req.kind], names));
+    // 복사는 누른 이 순간에 시작하고(그래야 허락된다), 창은 기다리지 않고 바로 연다
+    const copied = copy(requestText(d.msgs[g.req.kind], names));
     setMsgFor({ ...g.req, list: g.list, picks, copied });
   };
   const markAsked = (ids) => d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (ids.includes(it.id) ? { ...it, asked: true, askedOn: today } : it)) }));
@@ -1149,6 +1140,21 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
             </button>
           ))}
         </div>
+        {tab === "request" &&
+          [
+            ["asked", "요청함"],
+            ["pickup", "픽업 요청"],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setReqOnly(reqOnly === k ? "" : k)}
+              aria-pressed={reqOnly === k}
+              className={"rounded-full border px-3 py-1 text-xs font-medium " + (reqOnly === k ? "border-emerald-700 bg-emerald-700 text-white" : "border-stone-200 bg-white text-stone-600")}
+            >
+              {label} 모아보기 <span className={reqOnly === k ? "text-emerald-100" : "text-stone-400"}>{items.filter((x) => x.stage === "request" && x[k]).length}</span>
+            </button>
+          ))}
         {tab === "pick" && (
           <button type="button" onClick={() => setWeekOnly(!weekOnly)} className={"rounded-full border px-3 py-1 text-xs font-medium " + (weekOnly ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}>
             이번 주 픽만
