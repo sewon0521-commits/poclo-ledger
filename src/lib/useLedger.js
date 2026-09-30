@@ -28,13 +28,18 @@ export function useLedger() {
 
   // ------------------------------------------------------------ 로그인 상태
 
+  const [recovering, setRecovering] = useState(false);
   useEffect(() => {
     if (!isRemote) return;
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthReady(true);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data: sub } = supabase.auth.onAuthStateChange((e, s) => {
+      setSession(s);
+      // 메일의 '비밀번호 재설정' 링크로 들어왔다 — 새 비밀번호 창을 띄운다 (9/30)
+      if (e === "PASSWORD_RECOVERY") setRecovering(true);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -265,5 +270,7 @@ export function useLedger() {
     uploadLocalCount: localOnly.tx.length,
     uploadLocal,
     signOut: () => supabase?.auth.signOut(),
+    recovering,
+    setRecovering,
   };
 }

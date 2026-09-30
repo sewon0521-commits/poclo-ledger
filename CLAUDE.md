@@ -981,3 +981,10 @@ Storage 키: `<id>`(영상) · `<id>-thumb.jpg` · `<id>-ours` · `<id>-ours-thu
   **화면 어디에 사진을 끌어다 놓아도** 넣기 창 → '어느 목록에 넣을까요?'(지금 보던 목록이 기본) + 컷 종류(선택) + 장소 + 메모. 카드마다 폴더 옮기기·고치기. 컷 칩은 폴더와 따로('하의 안에서 앉은 컷만').
   예전 옷 종류 꼬리표 사진은 같은 이름 상위 목록으로 보인다(`withFolder`). 코디 만들기의 참고 사진도 목록으로 거른다.
   확인(9/30 실제 서버): 하의 목록에서 2장 넣기 → 기본 목록 '하의', 앉은 컷 붙음, 하의 2. 시험 사진은 지움.
+
+## 40. 비밀번호 바꾸기 (2026-09-30)
+
+로그인 계정은 둘: **sewon0521@gmail.com**(세원) · **ppoclo0601@gmail.com**(지원 — 9/30 세원이 알려 줌, 비밀번호는 아무도 모름). 비밀번호는 기록하지 않는다.
+- 앱 맨 아래 '비밀번호 바꾸기'(`PasswordBox`, `supabase.auth.updateUser`). 메일의 비밀번호 재설정/매직 링크로 들어오면(`PASSWORD_RECOVERY`) 창이 저절로 뜬다(`useLedger.recovering`).
+- 비밀번호를 모를 때: Supabase → Authentication → Users → 그 줄 ⋯ → Send password recovery(또는 magic link) → 메일 링크로 앱에 들어와 새 비밀번호.
+  링크가 앱 주소로 오려면 Authentication → URL Configuration 의 Site URL 이 `https://poclo-ledger.vercel.app` 이어야 한다.

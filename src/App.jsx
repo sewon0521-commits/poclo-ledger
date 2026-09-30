@@ -34,6 +34,7 @@ import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import JournalPage from "./components/JournalPage";
 import ShootPage from "./components/ShootPage";
+import PasswordBox from "./components/PasswordBox";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
 
@@ -55,6 +56,7 @@ export default function App() {
   const S = useSales(L.session);
 
   const [page, setPage] = useState("home");
+  const [pwOpen, setPwOpen] = useState(false);
   // 매출 장부는 기간을 따로 고른다 — 매입 기간과 얽히면 둘 다 헷갈린다
   const [salesPreset, setSalesPreset] = useState("month");
   const [salesCustom, setSalesCustom] = useState(() => rangeOf("month"));
@@ -555,13 +557,28 @@ export default function App() {
           <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 pt-4 text-xs text-stone-400">
             <span>기록·집계·확인용 장부예요. 신고 판단은 세무 담당자와 확인하세요.</span>
             {L.session && (
-              <button
-                type="button"
-                onClick={L.signOut}
-                className="flex items-center gap-1 hover:text-stone-600"
-              >
-                <LogOut size={13} /> {L.session.user.email} 로그아웃
-              </button>
+              <span className="flex items-center gap-3">
+                <button type="button" onClick={() => setPwOpen(true)} className="hover:text-stone-600">
+                  비밀번호 바꾸기
+                </button>
+                <button
+                  type="button"
+                  onClick={L.signOut}
+                  className="flex items-center gap-1 hover:text-stone-600"
+                >
+                  <LogOut size={13} /> {L.session.user.email} 로그아웃
+                </button>
+              </span>
+            )}
+            {L.session && (pwOpen || L.recovering) && (
+              <PasswordBox
+                email={L.session.user.email}
+                reason={L.recovering ? "비밀번호 재설정 메일로 들어왔어요. 새 비밀번호를 정해 주세요." : ""}
+                onClose={() => {
+                  setPwOpen(false);
+                  L.setRecovering(false);
+                }}
+              />
             )}
           </footer>
         </main>
