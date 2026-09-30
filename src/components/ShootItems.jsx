@@ -5,6 +5,8 @@ import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, day
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
+import VendorPicker from "./VendorPicker";
+import VendorEditor from "./VendorEditor";
 
 /**
  * 신상 관리 — 상품 한 장이 요청 → 입고·픽 → 촬영 → 등록 → 업데이트 완료로 옮겨 다닌다 (lib/sinsang.js 머리말).
@@ -248,7 +250,7 @@ function OptInput({ value, onChange, options, placeholder }) {
   );
 }
 
-export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }) {
+export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, startPay }) {
   const [x, setX] = useState(() => {
     const base = { ...EMPTY, ...item };
     // 카드에서 '샘플 결제'로 들어왔으면 결제 칸을 열어 둔다
@@ -258,7 +260,19 @@ export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }
   const [preview, setPreview] = useState("");
   const [note, setNote] = useState("");
   const [editNote, setEditNote] = useState(-1);
+  const [vendorEdit, setVendorEdit] = useState(false);
   const set = (patch) => setX((p) => ({ ...p, ...patch }));
+  // 돈 › 거래처의 그 거래처 (vendorId 로 잇는다 — 이름은 바뀔 수 있다)
+  const linked = vendors.find((v) => v.id === x.vendorId) || null;
+  // 거래처 정보를 고치면 돈 › 거래처 기록이 바뀌고, 신상 관리의 같은 거래처 상품도 새 이름·위치로 (세원 10/1)
+  const saveVendor = async (data) => {
+    const old = linked;
+    const rec = onVendor(data);
+    const place = (p) => (!p || p === old.address ? rec.address : p);
+    await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (it.vendorId === rec.id ? { ...it, vendor: rec.name, place: place(it.place) } : it)) }));
+    set({ vendor: rec.name, place: place(x.place) });
+    setVendorEdit(false);
+  };
   const sample = x.type !== "buy";
   const due = dueOf(x);
   const colorList = list(x.colors);
@@ -357,14 +371,28 @@ export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }
               <Label title="상품명 (거래처 상품명)">
                 <input value={x.name} onChange={(e) => set({ name: e.target.value })} placeholder="예: 코듀로이반팬츠" className={FIELD} />
               </Label>
-              <Label title="거래처 (돈 › 거래처와 같은 이름)">
-                <input value={x.vendor} onChange={(e) => set({ vendor: e.target.value, vendorId: vendors.find((v) => v.name === e.target.value)?.id || "" })} list="sinsang-vendors" placeholder="예: 플랫유 flatyou" className={FIELD} />
-                <datalist id="sinsang-vendors">
-                  {vendors.map((v) => (
-                    <option key={v.id} value={v.name} />
-                  ))}
-                </datalist>
-              </Label>
+              {/* label 로 감싸면 제목을 누를 때 목록 단추가 같이 눌린다 — div 로 */}
+              <div className="block space-y-1 text-sm">
+                <span className="text-xs font-semibold text-stone-500">거래처 (돈 › 거래처)</span>
+                <VendorPicker
+                  vendors={vendors}
+                  value={x.vendorId}
+                  name={x.vendor}
+                  hint={!linked && x.vendor ? "돈 › 거래처와 아직 안 이어졌어요. 눌러서 고르거나 새로 등록하세요." : ""}
+                  onPick={(v) => {
+                    set({ vendor: v.name, vendorId: v.id, place: x.place || v.address });
+                    setVendorEdit(false);
+                  }}
+                  onNewName={
+                    onVendor
+                      ? (name) => {
+                          const v = onVendor({ name: vendorName(name), address: x.place || "", memo: "신상 관리에서 등록" });
+                          set({ vendor: v.name, vendorId: v.id });
+                        }
+                      : undefined
+                  }
+                />
+              </div>
               <Label title="위치">
                 <input value={x.place} onChange={(e) => set({ place: e.target.value })} placeholder="예: 디오트 3층 E18" className={FIELD} />
               </Label>
@@ -372,6 +400,22 @@ export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }
                 <input value={x.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="14000" className={FIELD} />
               </Label>
             </div>
+            {linked &&
+              onVendor &&
+              (vendorEdit ? (
+                <VendorEditor seed={linked} onSubmit={saveVendor} onCancel={() => setVendorEdit(false)} submitLabel="거래처 저장 (돈 › 거래처에도)" />
+              ) : (
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                  <span className="min-w-0">
+                    <b className="text-stone-800">{linked.name}</b>
+                    {[linked.address, linked.phone].filter(Boolean).map((t) => ` · ${t}`)}
+                    {linked.memo && <span className="block truncate text-stone-400">{linked.memo}</span>}
+                  </span>
+                  <button type="button" onClick={() => setVendorEdit(true)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 font-medium text-stone-700 hover:bg-stone-50">
+                    <Pencil size={11} /> 거래처 정보 고치기
+                  </button>
+                </div>
+              ))}
             {(contactLines(x.contact).length > 0 || x.desc) && (
               <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
                 <span className="font-semibold text-stone-500">거래처가 제품 설명에 적어 둔 것</span>
@@ -784,6 +828,98 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose }) {
   );
 }
 
+// ---------------------------------------------------------------- 옷 종류 비율
+
+// 세원 10/1: "상의·하의 샘플 요청 비율을 알고 싶어. 상의 70% 하의 30%로 소싱되면 상품이 와도 코디하기 어려워지니까."
+// 촬영 전 상품(요청·입고·촬영 대기, '안 됨'·보류 빼고)을 옷 종류별로 센다. 코디는 상의 한 벌에 하의 한 벌이라 **상의:하의 = 1:1** 을 기준으로,
+// 한쪽이 60%를 넘으면 몇 개 더 요청하면 맞는지 알려 준다. 원피스·세트는 혼자서 한 벌, 아우터·신발·잡화는 걸치는 것이라 기준에서 뺀다.
+const MIX_TONE = { 상의: "bg-rose-600", 하의: "bg-stone-700", "원피스·세트": "bg-rose-300", 아우터: "bg-stone-400", "신발·잡화": "bg-amber-300" };
+const BEFORE = ["request", "arrived", "pick"];
+
+function KindMix({ items, kinds, kind, onKind }) {
+  const [scope, setScope] = useState(() => {
+    try {
+      return localStorage.getItem("poclo_mix_scope") || "before";
+    } catch {
+      return "before";
+    }
+  });
+  const pick = (k) => {
+    setScope(k);
+    try {
+      localStorage.setItem("poclo_mix_scope", k);
+    } catch {
+      /* 무시 */
+    }
+  };
+  const pool = items.filter((x) => (scope === "request" ? x.stage === "request" : BEFORE.includes(x.stage)) && !x.refused);
+  const count = (k) => pool.filter((x) => (k ? x.kind === k : !kinds.includes(x.kind))).length;
+  const rows = [...kinds.map((k) => ({ k, label: k, n: count(k) })), { k: "", label: "종류 없음", n: count("") }].filter((r) => r.n);
+  const pct = (n) => Math.round((n / pool.length) * 100);
+  const top = count("상의");
+  const bottom = count("하의");
+  const pair = top + bottom;
+  const gap = Math.abs(top - bottom);
+  const lean = pair >= 4 && Math.max(top, bottom) / pair > 0.6;
+  const advice = !pair
+    ? ""
+    : lean
+      ? `${top > bottom ? "상의" : "하의"}가 ${gap}개 많아요 — ${top > bottom ? "하의" : "상의"}를 ${gap}개 더 요청하면 1:1이에요.`
+      : `상의 ${top} : 하의 ${bottom} — 코디하기 괜찮은 비율이에요.`;
+
+  return (
+    <div className="mb-3 rounded-xl border border-stone-200 bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-stone-800">
+          옷 종류 비율 <span className="font-normal text-stone-400">{pool.length}개</span>
+        </span>
+        <div className="flex gap-1 rounded-lg bg-stone-100 p-0.5 text-xs">
+          {[
+            ["request", "요청만"],
+            ["before", "촬영 전 전체"],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => pick(k)}
+              title={k === "before" ? "요청 · 입고·픽 · 촬영 대기 상품 ('안 됨'·보류는 빼고)" : "요청 단계 상품만"}
+              className={"rounded-md px-2.5 py-1 font-medium " + (scope === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {pool.length ? (
+        <>
+          <div className="mt-2 flex h-3 overflow-hidden rounded-full bg-stone-100">
+            {rows.map((r) => (
+              <span key={r.label} title={`${r.label} ${r.n}개 · ${pct(r.n)}%`} style={{ width: `${(r.n / pool.length) * 100}%` }} className={(MIX_TONE[r.k] || "bg-stone-200") + " border-r border-white last:border-r-0"} />
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-1 gap-y-1 text-xs">
+            {rows.map((r) => (
+              <button
+                key={r.label}
+                type="button"
+                onClick={() => r.k && onKind(kind === r.k ? "" : r.k)}
+                className={"flex items-center gap-1.5 rounded-full px-2 py-0.5 " + (kind && kind === r.k ? "bg-stone-800 text-white" : "text-stone-700 hover:bg-stone-100")}
+              >
+                <span className={"h-2 w-2 rounded-full " + (MIX_TONE[r.k] || "bg-stone-200")} />
+                {r.label} <b className="tabular-nums">{r.n}</b>
+                <span className={"tabular-nums " + (kind && kind === r.k ? "text-stone-300" : "text-stone-400")}>{pct(r.n)}%</span>
+              </button>
+            ))}
+          </div>
+          {advice && <p className={"mt-2 rounded-lg px-2.5 py-1.5 text-xs " + (lean ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800")}>{advice}</p>}
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-stone-400">{scope === "request" ? "요청 단계 상품이 없어요." : "촬영 전 상품이 없어요."}</p>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- 신상마켓에서 담기 안내
 
 function ClipGuide({ onClose }) {
@@ -844,7 +980,15 @@ const TABS = [...STAGES.map(([k, label]) => [k, label]), ["drop", "보류·드�
 
 export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const today = dayKey();
-  const items = useMemo(() => d.items.map(normalize), [d.items]);
+  const vmap = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors]);
+  const items = useMemo(
+    () =>
+      d.items.map(normalize).map((x) => {
+        const v = x.vendorId && vmap.get(x.vendorId);
+        return v && v.name !== x.vendor ? { ...x, vendor: v.name } : x;
+      }),
+    [d.items, vmap],
+  );
   const [tab, setTab] = useState("request");
   const [type, setType] = useState("");
   const [kind, setKind] = useState("");
@@ -967,6 +1111,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         )}
       </div>
 
+      <KindMix items={items} kinds={d.tags.clothes} kind={kind} onKind={setKind} />
+
       <div className="mb-2 flex gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 text-sm [scrollbar-width:none]">
         {TABS.map(([k, label], i) => (
           <button
@@ -1051,7 +1197,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         </div>
       )}
 
-      {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} today={today} onClose={() => setEdit(null)} />}
+      {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} onVendor={onVendor} today={today} onClose={() => setEdit(null)} />}
       {guide && <ClipGuide onClose={() => setGuide(false)} />}
       {msgFor && <MsgSheet m={msgFor} msgs={d.msgs} onSaveMsgs={d.saveMsgs} onAsked={markAsked} onClose={() => setMsgFor(null)} />}
     </div>

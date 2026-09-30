@@ -6,7 +6,7 @@ const FIELD =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-rose-600";
 
 /** 거래처 직접 등록 / 수정. 계좌는 사업자·일반이 따로 있을 수 있어 행으로 넣는다. */
-export default function VendorEditor({ seed, onSubmit, onCancel }) {
+export default function VendorEditor({ seed, onSubmit, onCancel, submitLabel = "저장" }) {
   const [name, setName] = useState(seed.name || "");
   const [address, setAddress] = useState(seed.address || "");
   const [phone, setPhone] = useState(seed.phone || "");
@@ -134,7 +134,7 @@ export default function VendorEditor({ seed, onSubmit, onCancel }) {
         onClick={submit}
         className="mt-3 w-full rounded-xl bg-rose-700 py-3.5 font-semibold text-white transition hover:bg-rose-800"
       >
-        저장
+        {submitLabel}
       </button>
     </div>
   );
