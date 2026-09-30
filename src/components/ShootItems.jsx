@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -359,6 +359,18 @@ export function ItemSheet({ item, d, online, vendors, today, onClose, startPay }
                 <input value={x.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="14000" className={FIELD} />
               </Label>
             </div>
+            {(contactLines(x.contact).length > 0 || x.desc) && (
+              <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
+                <span className="font-semibold text-stone-500">거래처가 제품 설명에 적어 둔 것</span>
+                {contactLines(x.contact).length > 0 && <p className="mt-0.5 text-stone-800 select-all">{contactLines(x.contact).join(" · ")}</p>}
+                {x.desc && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-stone-500">전체 글 보기</summary>
+                    <p className="mt-1 whitespace-pre-line">{x.desc}</p>
+                  </details>
+                )}
+              </div>
+            )}
             <Label title="신상마켓 링크">
               <span className="relative block">
                 <Link2 size={14} className="absolute top-2.5 left-3 text-stone-400" />
@@ -571,7 +583,8 @@ function ClipGuide({ onClose }) {
   // React 는 javascript: 주소를 막는다 — 그린 뒤에 직접 넣는다. 읽는 코드(clip.js)도 단추 안에 같이 넣어 둔다(불러오기가 막힐 때 쓸 것)
   useEffect(() => {
     let alive = true;
-    fetch("/clip.js")
+    fetch("/clip.js?t=" + Date.now(), { cache: "no-store" })
+      .catch(() => fetch("/clip.js"))
       .then((r) => r.text())
       .then((core) => {
         if (!alive) return;
@@ -604,7 +617,10 @@ function ClipGuide({ onClose }) {
           </li>
           <li className="rounded-xl border border-stone-200 p-3">
             <b className="text-stone-900">② 신상마켓에서 상품을 연 채로 그 즐겨찾기 누르기</b>
-            <p className="mt-1 text-xs text-stone-500">작은 창이 뜨면서 '요청' 단계에 바로 담기고, 거래처도 돈 › 거래처와 이어져요(없으면 새로 등록). 창은 그대로 두고 다음 상품에서 또 누르세요.</p>
+            <p className="mt-1 text-xs text-stone-500">
+              작은 창이 뜨면서 '요청' 단계에 바로 담기고, 거래처도 돈 › 거래처와 이어져요(없으면 새로 등록). 제품 설명에 적힌 전화·카톡·인스타도 같이 넣어요 — 접혀 있으면 단추가 알아서 펼쳐서 읽어요. 창은 그대로 두고 다음 상품에서 또
+              누르세요.
+            </p>
           </li>
         </ol>
         <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">폰에서는 이 단추를 쓸 수 없어요. 폰에서는 '직접 넣기'에 링크를 붙이고 캡처를 넣어 주세요.</p>
@@ -640,9 +656,10 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
       let known = [...vendors];
       const patches = [];
       for (const x of todo) {
-        let v = findVendor(x.vendor, x.place, known);
+        let v = findVendor(x.vendor, x.place, known, x.contact);
         if (!v) {
-          v = onVendor({ name: vendorName(x.vendor), address: x.place || "", memo: "신상 관리에서 등록" });
+          const fill = vendorFill({ phone: "", memo: "" }, x.contact) || { phone: "", memo: "" };
+          v = onVendor({ name: vendorName(x.vendor), address: x.place || "", phone: fill.phone, memo: [fill.memo, "신상 관리에서 등록"].filter(Boolean).join(" / ") });
           known = [...known, v];
         }
         patches.push({ id: x.id, vendor: v.name, vendorId: v.id, name: cleanName(x.fullName || x.name) });
@@ -679,7 +696,12 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
       for (const x of shown) m.set(keyOf(x), [...(m.get(keyOf(x)) || []), x]);
       return [...m.entries()].sort(sort);
     };
-    if (tab === "request") return by((x) => x.vendor || "거래처 없음", (a, b) => a[0].localeCompare(b[0], "ko")).map(([t, l]) => ({ title: `${t} · ${l.length}`, list: l }));
+    if (tab === "request")
+      return by((x) => x.vendor || "거래처 없음", (a, b) => a[0].localeCompare(b[0], "ko")).map(([t, l]) => {
+        const c = l.find((x) => contactLines(x.contact).length)?.contact;
+        const v = vendors.find((v) => v.id === l[0].vendorId);
+        return { title: `${t} · ${l.length}`, sub: [c?.kakao && `카톡 ${c.kakao}`, c?.mobile || v?.phone || c?.tel].filter(Boolean).join(" · "), list: l };
+      });
     if (tab === "returns")
       return by(dueOf, (a, b) => a[0].localeCompare(b[0])).map(([due, l]) => {
         const n = daysLeft(due, today);
@@ -688,7 +710,7 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
     if (tab === "returned")
       return by((x) => x.returnedOn || x.paid?.on || "", (a, b) => b[0].localeCompare(a[0])).map(([day, l]) => ({ title: day ? `${dayTitle(day)} · ${l.length}개` : `날짜 없음 · ${l.length}개`, list: l }));
     return [{ title: "", list: shown }];
-  }, [shown, tab, today]);
+  }, [shown, tab, today, vendors]);
 
   const patch = (x) => (p) => d.saveItems(upsert({ id: x.id, ...p }));
 
@@ -785,7 +807,12 @@ export default function Pipeline({ d, online, vendors, onVendor }) {
         <div className="space-y-4">
           {groups.map((g) => (
             <section key={g.title || "all"}>
-              {g.title && <h3 className={"mb-1.5 px-1 text-sm font-semibold " + (g.tone || "text-stone-700")}>{g.title}</h3>}
+              {g.title && (
+                <h3 className={"mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1 text-sm font-semibold " + (g.tone || "text-stone-700")}>
+                  {g.title}
+                  {g.sub && <span className="text-xs font-normal text-stone-500 select-all">{g.sub}</span>}
+                </h3>
+              )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
                   <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} />

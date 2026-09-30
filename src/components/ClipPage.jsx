@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, won, loadKey, changeKey, upsert, putPhoto } from "../lib/shoot";
-import { parseClip, normalize, stageName, findVendor } from "../lib/sinsang";
+import { parseClip, normalize, stageName, findVendor, vendorFill, contactLines } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { Chips, Photo } from "./ShootBits";
 
@@ -9,7 +9,11 @@ import { Chips, Photo } from "./ShootBits";
  * 신상마켓 '포클로에 담기' 단추가 여는 작은 창 (#clip=…, lib/sinsang.js).
  * 넘어온 글·사진을 읽어 **바로 '요청' 단계에 담는다** — 세원이 한 번에 수십 개를 담으니 확인 단추를 두지 않는다.
  * 샘플/사입 · 종류 · 이름이 다르면 이 창에서 고치면 그 자리에서 저장된다. 같은 상품(상품번호)을 또 누르면 새로 담지 않는다.
+ * 제품 설명에 거래처가 적어 둔 전화·카톡·인스타는 돈 › 거래처에 같이 넣는다(있는 거래처는 빈 칸만 채운다).
  */
+
+// 예전 단추(9/30~10/1 첫 판)는 읽는 코드가 단추 안에 박혀 있어서 고친 게 안 닿는다 — 새 단추는 v 를 같이 보낸다
+const OLD_BUTTON = "예전 '포클로에 담기' 단추예요. 즐겨찾기에서 그 단추를 지우고, 포클로ERP › 촬영 › 신상 관리 › '신상마켓에서 담기'에서 새 단추를 다시 끌어다 놓아 주세요.";
 export default function ClipPage({ payload, online, vendors = [], onVendor, ready = true }) {
   const [item, setItem] = useState(null);
   const [state, setState] = useState("saving"); // saving | saved | dup | error
@@ -37,10 +41,11 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
         const cur = (await loadKey("shoot_items", online)).items || [];
         // 상품 화면을 못 읽었으면 담지 않는다 — 옆 칸(필터)을 상품으로 잘못 담은 적이 있다. 읽은 글은 남겨서 고칠 때 본다
         if (!p.ok) {
-          await changeKey("clip_debug", online, (v) => ({ items: [{ at: new Date().toISOString(), u: payload.u, t: payload.t }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
+          const seenAs = { at: new Date().toISOString(), u: payload.u, v: payload.v || 1, g: payload.g, a: payload.a, hd: payload.hd, ds: payload.ds, t: payload.t };
+          await changeKey("clip_debug", online, (v) => ({ items: [seenAs, ...(v.items || [])].slice(0, 5) })).catch(() => {});
           if (!alive()) return;
           setItem(null);
-          setMsg("상품 화면을 못 읽었어요. 신상마켓에서 상품을 눌러 상세 화면(가격·상세정보)이 보이는 상태에서 다시 눌러 주세요.");
+          setMsg(payload.v ? "상품 화면을 못 읽었어요. 신상마켓에서 상품을 눌러 상세 화면(가격·상세정보)이 보이는 상태에서 다시 눌러 주세요." : OLD_BUTTON);
           setState("error");
           return;
         }
@@ -60,10 +65,28 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
             key = "";
           }
         }
-        // 돈 › 거래처와 잇기 — 같은 곳이 있으면 그 이름으로, 없으면 새로 등록 (한글 이름 먼저)
-        let v = findVendor(p.vendor, p.place, vendors);
-        if (!v && p.vendor && onVendor) v = onVendor({ name: p.vendor, address: p.place || "", memo: "신상 관리에서 등록" });
-        setVendorNote(v ? (findVendor(p.vendor, p.place, vendors) ? `거래처 '${v.name}' 와 이었어요` : `거래처 '${v.name}' 을(를) 새로 등록했어요`) : "");
+        // 돈 › 거래처와 잇기 — 같은 곳이 있으면 그 이름으로, 없으면 새로 등록 (한글 이름 먼저).
+        // 제품 설명의 전화·카톡·인스타도 같이 — 새 거래처는 다 넣고, 있는 거래처는 빈 칸만 채운다
+        const found = findVendor(p.vendor, p.place, vendors, p.contact);
+        const told = contactLines(p.contact);
+        let v = found;
+        let filled = false;
+        if (v && onVendor) {
+          const fill = vendorFill(v, p.contact);
+          if (fill) {
+            v = onVendor({ id: v.id, ...fill });
+            filled = true;
+          }
+        } else if (p.vendor && onVendor) {
+          const fill = vendorFill({ phone: "", memo: "" }, p.contact) || { phone: "", memo: "" };
+          v = onVendor({ name: p.vendor, address: p.place || "", phone: fill.phone, memo: [fill.memo, "신상 관리에서 등록"].filter(Boolean).join(" / ") });
+        }
+        setVendorNote(
+          !v
+            ? ""
+            : (found ? `거래처 '${v.name}' 와 이었어요` : `거래처 '${v.name}' 을(를) 새로 등록했어요`) +
+                (told.length ? (found && !filled ? " (연락처는 이미 있어요)" : ` · 연락처도 넣었어요: ${told.join(", ")}`) : " · 제품 설명에서 연락처는 못 찾았어요"),
+        );
         const made = {
           id: newId("i"),
           type: "sample",
@@ -81,6 +104,8 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           sizes: p.sizes,
           fabric: p.fabric,
           origin: p.origin,
+          contact: p.contact,
+          desc: p.desc,
           photo: key || "",
           photoUrl: key ? "" : p.photoUrl,
           memo: "",
@@ -163,6 +188,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           </div>
         )}
         {msg && state !== "error" && <p className="text-xs text-rose-700">{msg}</p>}
+        {!payload.v && state !== "error" && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">{OLD_BUTTON}</p>}
 
         <p className="px-1 text-xs leading-relaxed text-stone-500">이 창은 그대로 두고, 신상마켓으로 돌아가 다음 상품에서 또 '포클로에 담기'를 누르세요. 여기에 이어서 담겨요.</p>
 
