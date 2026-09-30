@@ -43,7 +43,11 @@ function readMe() {
 // 쓰는 쪽에서는 이 기호를 단추로 넣는다(아래 Editor).
 
 const HEAD = /^\s*(?:■|#{1,3})\s*(.+)$/;
-const BULLET = /^\s*[-•*·]\s+(.*)$/;
+const BULLET = /^( *)[-•◦*·]\s+(.*)$/;
+// 글 칸의 점 목록 (9/30 세원: "작성란도 할 일처럼") — 한 단 = 공백 3칸, 단마다 • ◦ • ◦
+const INDENT = "   ";
+const glyph = (d) => (d % 2 ? "◦" : "•");
+const bulletOf = (d) => INDENT.repeat(d) + glyph(d) + " ";
 const NUMBER = /^\s*(\d+)[.)]\s+(.*)$/;
 const TIME = /^(\d{1,2}:\d{2})\s+(.*)$/;
 
@@ -64,9 +68,10 @@ function Rendered({ text }) {
     let m;
     if ((m = raw.match(HEAD))) blocks.push({ t: "h", text: m[1] });
     else if ((m = raw.match(BULLET))) {
+      const item = { text: m[2], depth: Math.min(3, Math.floor(m[1].length / INDENT.length)) };
       const last = blocks[blocks.length - 1];
-      if (last?.t === "ul") last.items.push(m[1]);
-      else blocks.push({ t: "ul", items: [m[1]] });
+      if (last?.t === "ul") last.items.push(item);
+      else blocks.push({ t: "ul", items: [item] });
     } else if ((m = raw.match(NUMBER))) {
       const last = blocks[blocks.length - 1];
       if (last?.t === "ol") last.items.push([m[1], m[2]]);
@@ -85,11 +90,13 @@ function Rendered({ text }) {
         ) : b.t === "ul" ? (
           <ul key={i} className="space-y-0.5">
             {b.items.map((x, j) =>
-              x.trim() ? (
-                <li key={j} className="flex gap-2.5">
-                  <span className="mt-[11px] h-1.5 w-1.5 shrink-0 rounded-full bg-stone-300" />
+              x.text.trim() ? (
+                <li key={j} className="flex gap-2.5" style={{ paddingLeft: `${x.depth * 22}px` }}>
+                  <span className="mt-[10px] flex shrink-0">
+                    <Dot depth={x.depth} />
+                  </span>
                   <span className="min-w-0">
-                    <Line text={x} />
+                    <Line text={x.text} />
                   </span>
                 </li>
               ) : null,
@@ -118,15 +125,93 @@ function Rendered({ text }) {
   );
 }
 
+// ---------------------------------------------------------------- 점 목록 치기 (글 칸 · 할 일 칸 같이)
+//
+// 노션처럼 (9/30 세원): 줄 앞 '- ' → • , 엔터 = 다음 줄도 점, 탭 = 들여쓰기(• → ◦ → •),
+// 시프트+탭·빈 점 줄 엔터·점 바로 뒤 백스페이스 = 내어쓰기(맨 앞이면 점 없앰),
+// Ctrl(⌘)+엔터 = 그 줄 끝냄 표시(✓) 켜고 끄기.
+// put(next, caret) 은 글을 바꾸고 커서를 옮기는 함수.
+
+/** 커서가 있는 줄 {start, end, line} */
+function lineAt(v, pos) {
+  const start = v.lastIndexOf("\n", pos - 1) + 1;
+  const nl = v.indexOf("\n", pos);
+  const end = nl < 0 ? v.length : nl;
+  return { start, end, line: v.slice(start, end) };
+}
+const depthOf = (spaces) => Math.min(3, Math.floor(spaces.length / INDENT.length));
+const LINE_ANY = /^( *)([-•◦*·✓]) (.*)$/;
+
+function outlineKeys(text, put) {
+  const onChange = (e) => {
+    const v = e.target.value;
+    const pos = e.target.selectionStart;
+    const typed = v.length === text.length + 1 ? v[pos - 1] : "";
+    if (typed === " ") {
+      const { start, line } = lineAt(v, pos);
+      const m = line.slice(0, pos - start).match(/^( *)[-*] $/);
+      if (m) {
+        const pre = bulletOf(depthOf(m[1]));
+        return put(v.slice(0, start) + pre + v.slice(pos), start + pre.length);
+      }
+    }
+    if (typed === "\n") {
+      const lineStart = v.lastIndexOf("\n", pos - 2) + 1;
+      const prev = v.slice(lineStart, pos - 1);
+      const b = prev.match(LINE_ANY);
+      const n = prev.match(/^(\s*)(\d+)([.)])\s+(.*)$/);
+      if (b && !b[3].trim()) {
+        const d = depthOf(b[1]);
+        const repl = d > 0 ? bulletOf(d - 1) : "";
+        return put(v.slice(0, lineStart) + repl + v.slice(pos), lineStart + repl.length);
+      }
+      if (n && !n[4].trim()) return put(v.slice(0, lineStart) + v.slice(pos), lineStart);
+      const add = b ? bulletOf(depthOf(b[1])) : n ? `${n[1]}${Number(n[2]) + 1}${n[3]} ` : "";
+      if (add) return put(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
+    }
+    put(v);
+  };
+
+  const onKeyDown = (e) => {
+    const el = e.currentTarget;
+    const pos = el.selectionStart;
+    const { start, end, line } = lineAt(text, pos);
+    const b = line.match(LINE_ANY);
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (!b) return;
+      const d = depthOf(b[1]);
+      const mark = b[2] === "✓" ? glyph(d) : "✓";
+      put(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), pos);
+    } else if (e.key === "Tab") {
+      e.preventDefault(); // 칸 밖으로 나가지 않게
+      if (!b) return;
+      const d = depthOf(b[1]);
+      const nd = e.shiftKey ? d - 1 : d + 1;
+      if (nd < 0 || nd > 3) return;
+      const oldPre = b[1].length + 2;
+      const mark = b[2] === "✓" ? "✓" : glyph(nd);
+      const pre = INDENT.repeat(nd) + mark + " ";
+      put(text.slice(0, start) + pre + b[3] + text.slice(end), Math.max(start + pre.length, pos + pre.length - oldPre));
+    } else if (e.key === "Backspace" && b && el.selectionEnd === pos && pos === start + b[1].length + 2) {
+      e.preventDefault();
+      const d = depthOf(b[1]);
+      const pre = d > 0 ? bulletOf(d - 1) : "";
+      put(text.slice(0, start) + pre + b[3] + text.slice(end), start + pre.length);
+    }
+  };
+  return { onChange, onKeyDown };
+}
+
 // ---------------------------------------------------------------- 쓰기 (쓰는 대로 저장)
 //
 // 9/24 세원: "아무것도 없이 빈 종이여서 쓸 때 불편" → 칸을 강제하지는 않고(자유 글쓰기는 그대로)
 //   - 빈 날엔 '오늘 틀로 시작' 한 번 누르면 소제목 두 개가 깔린다
 //   - 위 단추로 소제목(오늘 한 일 · 도매·거래처 · 상품·촬영 · 콘텐츠 · CS·배송 · 메모·생각) · 목록 · 지금 시각을 넣는다
-//   - '- ' 로 시작한 줄에서 엔터를 치면 다음 줄도 '- ' (빈 줄에서 한 번 더 엔터면 목록 끝)
+//   - 노션처럼 (9/30): 줄 앞 '- ' → • , 엔터 = 다음 줄도 점, 탭 = 들여쓰기(• → ◦ → •), 시프트+탭·빈 점 줄 엔터·점 바로 뒤 백스페이스 = 내어쓰기(맨 앞이면 점 없앰)
 
 const HEADS = ["오늘 한 일", "도매·거래처", "상품·촬영", "콘텐츠", "CS·배송", "메모·생각"];
-const STARTER = "■ 오늘 한 일\n- \n\n■ 메모·생각\n- ";
+const STARTER = "■ 오늘 한 일\n• \n\n■ 메모·생각\n• ";
 
 function Editor({ initial, onSave }) {
   const [text, setText] = useState(initial);
@@ -193,22 +278,9 @@ function Editor({ initial, onSave }) {
     put(before + ins + text.slice(e), s + ins.length);
   };
 
-  const onChange = (e) => {
-    const v = e.target.value;
-    const pos = e.target.selectionStart;
-    // 목록 줄에서 엔터 → 다음 줄도 목록. 빈 목록 줄에서 엔터 → 목록 끝
-    if (v.length === text.length + 1 && v[pos - 1] === "\n") {
-      const lineStart = v.lastIndexOf("\n", pos - 2) + 1;
-      const prev = v.slice(lineStart, pos - 1);
-      const b = prev.match(/^(\s*)([-•*·])\s+(.*)$/);
-      const n = prev.match(/^(\s*)(\d+)([.)])\s+(.*)$/);
-      if (b && !b[3].trim()) return put(v.slice(0, lineStart) + v.slice(pos), lineStart);
-      if (n && !n[4].trim()) return put(v.slice(0, lineStart) + v.slice(pos), lineStart);
-      const add = b ? `${b[1]}${b[2]} ` : n ? `${n[1]}${Number(n[2]) + 1}${n[3]} ` : "";
-      if (add) return put(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
-    }
-    put(v);
-  };
+  // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
+  // oxlint-disable-next-line react/refs, react-hooks/refs
+  const { onChange, onKeyDown } = outlineKeys(text, put);
 
   const now = () => {
     const d = new Date();
@@ -223,7 +295,7 @@ function Editor({ initial, onSave }) {
             key={h}
             type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => insert(`■ ${h}\n- `, true)}
+            onClick={() => insert(`■ ${h}\n• `, true)}
             className="shrink-0 rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs font-medium text-stone-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800"
           >
             {h}
@@ -233,7 +305,7 @@ function Editor({ initial, onSave }) {
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => insert("- ", true)}
+          onClick={() => insert("• ", true)}
           className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs text-stone-500 hover:bg-stone-100"
         >
           <List size={13} /> 목록
@@ -262,14 +334,15 @@ function Editor({ initial, onSave }) {
           ref={box}
           value={text}
           onChange={onChange}
+          onKeyDown={onKeyDown}
           onBlur={flush}
-          placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. 쓰는 대로 저장돼요."
+          placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. '- ' 로 점 목록, 탭으로 들여쓰기. 쓰는 대로 저장돼요."
           className="block min-h-[22rem] w-full max-w-3xl resize-none bg-transparent px-6 py-5 text-[15px] leading-7 text-stone-800 outline-none [field-sizing:content] placeholder:text-stone-300"
         />
         {!text && (
           <button
             type="button"
-            onClick={() => put(STARTER, STARTER.indexOf("- ") + 2)}
+            onClick={() => put(STARTER, STARTER.indexOf("• ") + 2)}
             className="absolute top-16 left-6 flex items-center gap-1.5 rounded-lg border border-dashed border-rose-300 bg-rose-50/60 px-3 py-2 text-sm font-medium text-rose-800 hover:bg-rose-50"
           >
             <Sparkles size={14} /> 오늘 틀로 시작 — 오늘 한 일 · 메모·생각
@@ -389,7 +462,6 @@ function Feed({ data, name, onOpen }) {
 const startOf = (t) => t.startOn || t.createdOn;
 
 // 들여쓰기 단계마다 점 모양 — 노션처럼 ● → ○ → ● → ○
-const MAX_DEPTH_TODO = 3;
 function Dot({ depth, done }) {
   const hollow = depth % 2 === 1;
   return (
@@ -402,210 +474,129 @@ function Dot({ depth, done }) {
   );
 }
 
+/** 할 일 → 글 (끝낸 줄은 ✓) */
+const todosToText = (items) =>
+  items.map((t) => INDENT.repeat(t.depth || 0) + (t.done ? "✓" : glyph(t.depth || 0)) + " " + t.text).join("\n");
+
 /**
- * 할 일 목록 — 노션처럼 (9/30 세원: "체크박스 말고 - 스페이스 누르면 검정 원, 엔터·탭 누르면 빈 원, 또 탭이면 검정 원").
- *   엔터: 아래에 새 줄 · 탭: 한 칸 들여쓰기(● → ○) · 시프트+탭: 내어쓰기 · 빈 줄에서 엔터: 내어쓰기(맨 앞이면 끝)
- *   빈 줄에서 백스페이스: 줄 지우기 · 줄 앞 '- ' 는 저절로 점이 된다 · **점을 누르면 끝냄**(흐리게 + 줄 긋기, 다시 누르면 되살림)
- * 치는 동안은 화면에만, 멈추면(0.7초) 한 번에 저장. 한글은 엔터가 조합 끝내기로 먹혀서 compositionend 뒤에 처리한다.
+ * 할 일 한 칸 (9/30 세원: "오늘 할 일 한 번에 드래그될 수 있게, 칸으로 나눠 주지 말고. 체크박스 없어졌으니까").
+ * 줄마다 칸이던 걸 글 칸 하나로 — 여러 줄을 끌어서 고르고 지우고 옮길 수 있다. 치는 법은 글 칸과 같다(outlineKeys).
+ * 끝낸 일은 줄 앞이 ✓ (Ctrl+엔터로 켜고 끔). 한 줄 = 할 일 하나. 멈추면 0.7초 뒤 저장할 때 글을 할 일 목록으로 되돌린다 —
+ * 같은 글인 줄은 원래 할 일(적은 날·'…부터')을 이어받는다.
  */
-function TodoOutline({ items, date, today, startOn, editable, placeholder, onCommit }) {
-  const [rows, setRows] = useState(items);
+function TodoText({ items, date, today, startOn, editable, placeholder, onCommit }) {
+  const [text, setText] = useState(() => todosToText(items));
+  const box = useRef(null);
   const dirty = useRef(false);
   const timer = useRef(null);
-  const refs = useRef({});
-  const focusTo = useRef(null); // {id, pos}
-  const pendingEnter = useRef(null);
-  const commitRef = useRef(onCommit);
-  const rowsRef = useRef(rows);
-  const box = useRef(null);
-  const [blankId, setBlankId] = useState(() => newId("t"));
+  const caretTo = useRef(null);
+  const latest = useRef({ text, items, onCommit });
   useEffect(() => {
-    commitRef.current = onCommit;
-    rowsRef.current = rows;
+    latest.current = { text: latest.current.text, items, onCommit };
   });
 
-  // 서버에서 새로 읽은 목록 — 치는 중이 아닐 때만 따라간다
-  const sig = JSON.stringify(items);
+  const sig = todosToText(items);
   useEffect(() => {
+    // 적는 중이 아니면 서버에서 읽은 대로
+    if (dirty.current || document.activeElement === box.current) return;
     // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
-    // 이 목록에서 적는 중이면(커서가 안에 있으면) 건드리지 않는다 — 방금 만든 빈 줄이 사라지지 않게
-    if (!dirty.current && !box.current?.contains(document.activeElement)) setRows(JSON.parse(sig));
+    setText(sig);
+    latest.current.text = sig;
   }, [sig]);
 
   useLayoutEffect(() => {
-    const f = focusTo.current;
-    if (!f) return;
-    const el = refs.current[f.id];
-    if (el) {
-      el.focus();
-      const p = f.pos === "end" ? el.value.length : f.pos;
-      el.setSelectionRange(p, p);
-    }
-    focusTo.current = null;
+    if (caretTo.current == null || !box.current) return;
+    box.current.setSelectionRange(caretTo.current, caretTo.current);
+    caretTo.current = null;
   });
 
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     if (!dirty.current) return;
     dirty.current = false;
-    commitRef.current(rowsRef.current.filter((r) => r.text.trim() || r.done));
-  }, []);
+    const { text: t, items: before, onCommit: commit } = latest.current;
+    const pool = [...before];
+    const next = [];
+    for (const raw of t.split("\n")) {
+      const m = raw.match(LINE_ANY);
+      const body = (m ? m[3] : raw).trim();
+      if (!body) continue;
+      const depth = m ? depthOf(m[1]) : 0;
+      const done = m?.[2] === "✓";
+      const k = pool.findIndex((x) => x.text === body);
+      const old = k >= 0 ? pool.splice(k, 1)[0] : null;
+      next.push({
+        ...(old || { id: newId("t"), createdOn: today, ...(startOn !== today ? { startOn } : {}) }),
+        text: body,
+        depth,
+        done,
+        doneOn: done ? old?.doneOn || today : null,
+      });
+    }
+    commit(next);
+  }, [today, startOn]);
   useEffect(() => () => flush(), [flush]);
 
-  const put = (next, focus) => {
-    setRows(next);
-    rowsRef.current = next;
+  const put = (next, caret) => {
+    setText(next);
+    latest.current.text = next;
     dirty.current = true;
-    if (focus) focusTo.current = focus;
+    if (caret != null) caretTo.current = caret;
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, 700);
   };
-  const newRow = (depth) => ({ id: newId("t"), text: "", depth, done: false, doneOn: null, createdOn: today, ...(startOn !== today ? { startOn } : {}) });
+  // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
+  // oxlint-disable-next-line react/refs, react-hooks/refs
+  const { onChange, onKeyDown } = outlineKeys(text, put);
 
-  const enter = (i, caret) => {
-    const r = rowsRef.current[i];
-    const list = [...rowsRef.current];
-    if (!r.text.trim()) {
-      // 빈 줄 엔터 — 들여쓴 줄이면 내어쓰기, 맨 앞이면 그냥 둔다
-      if ((r.depth || 0) > 0) {
-        list[i] = { ...r, depth: r.depth - 1 };
-        put(list, { id: r.id, pos: 0 });
-      }
-      return;
-    }
-    const before = r.text.slice(0, caret);
-    const after = r.text.slice(caret);
-    const nr = { ...newRow(r.depth || 0), text: after };
-    list[i] = { ...r, text: before };
-    list.splice(i + 1, 0, nr);
-    put(list, { id: nr.id, pos: 0 });
-  };
-
-  const onKey = (e, i) => {
-    const r = rows[i];
-    const el = e.currentTarget;
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (e.nativeEvent.isComposing || e.keyCode === 229) {
-        pendingEnter.current = r.id; // 조합이 끝나면 처리
-        return;
-      }
-      enter(i, el.selectionStart);
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      const d = r.depth || 0;
-      const prevDepth = i > 0 ? rows[i - 1].depth || 0 : -1;
-      const nd = e.shiftKey ? Math.max(0, d - 1) : Math.min(MAX_DEPTH_TODO, prevDepth + 1, d + 1);
-      if (nd === d) return;
-      const list = [...rows];
-      list[i] = { ...r, depth: nd };
-      put(list, { id: r.id, pos: el.selectionStart });
-    } else if (e.key === "Backspace" && el.selectionStart === 0 && el.selectionEnd === 0) {
-      if ((r.depth || 0) > 0) {
-        e.preventDefault();
-        const list = [...rows];
-        list[i] = { ...r, depth: r.depth - 1 };
-        put(list, { id: r.id, pos: 0 });
-      } else if (!r.text && rows.length > 1) {
-        e.preventDefault();
-        const list = rows.filter((x) => x.id !== r.id);
-        const prev = rows[i - 1] || rows[i + 1];
-        put(list, prev ? { id: prev.id, pos: "end" } : null);
-      } else if (i > 0 && r.text) {
-        // 앞 줄에 이어 붙이기
-        e.preventDefault();
-        const list = [...rows];
-        const prev = list[i - 1];
-        const pos = prev.text.length;
-        list[i - 1] = { ...prev, text: prev.text + r.text };
-        list.splice(i, 1);
-        put(list, { id: prev.id, pos });
-      }
-    } else if (e.key === "ArrowUp" && i > 0) {
-      e.preventDefault();
-      focusTo.current = { id: rows[i - 1].id, pos: "end" };
-      put([...rows]);
-    } else if (e.key === "ArrowDown" && i < rows.length - 1) {
-      e.preventDefault();
-      focusTo.current = { id: rows[i + 1].id, pos: "end" };
-      put([...rows]);
-    }
-  };
-
-  const toggle = (i) => {
-    const list = [...rows];
-    const r = list[i];
-    list[i] = { ...r, done: !r.done, doneOn: r.done ? null : today };
-    put(list);
-    flush();
-  };
-
-  // 비었으면 한 줄 깔아 둔다 (눌러서 바로 적게)
-  const shown = editable && rows.length === 0 ? [{ ...newRow(0), id: blankId, placeholderRow: true }] : rows;
-
-  if (!editable && !rows.length) return <p className="px-1 text-sm text-stone-400">없어요.</p>;
-
-  return (
-    <ul ref={box} className="space-y-0.5">
-      {shown.map((r, i) => (
-        <li key={r.id} className="flex items-start gap-2 py-0.5" style={{ paddingLeft: `${(r.depth || 0) * 22}px` }}>
-          <button
-            type="button"
-            disabled={!editable || r.placeholderRow || !r.text.trim()}
-            onClick={() => toggle(i)}
-            aria-label={r.done ? "안 한 걸로" : "끝냈어요"}
-            title={r.done ? "안 한 걸로" : "눌러서 끝냄"}
-            className="mt-[7px] flex h-3 w-4 shrink-0 items-center justify-center rounded hover:bg-stone-100 disabled:hover:bg-transparent"
-          >
-            <Dot depth={r.depth || 0} done={r.done} />
-          </button>
-          {editable ? (
-            <input
-              ref={(el) => (refs.current[r.id] = el)}
-              value={r.text}
-              placeholder={i === 0 ? placeholder : ""}
-              onChange={(e) => {
-                let v = e.target.value;
-                // 노션 버릇 — 줄 앞 '- ' 는 점으로
-                if (/^[-*•]\s/.test(v)) v = v.replace(/^[-*•]\s+/, "");
-                if (r.placeholderRow) {
-                  const nr = { ...r, text: v };
-                  delete nr.placeholderRow;
-                  setBlankId(newId("t"));
-                  put([nr], { id: nr.id, pos: v.length });
-                  return;
-                }
-                const list = [...rows];
-                list[i] = { ...r, text: v };
-                put(list);
-              }}
-              onKeyDown={(e) => !r.placeholderRow && onKey(e, i)}
-              onCompositionEnd={(e) => {
-                if (pendingEnter.current !== r.id) return;
-                pendingEnter.current = null;
-                const caret = e.currentTarget.selectionStart;
-                setTimeout(() => {
-                  const k = rowsRef.current.findIndex((x) => x.id === r.id);
-                  if (k >= 0) enter(k, caret);
-                }, 0);
-              }}
-              onBlur={flush}
-              className={
-                "min-w-0 flex-1 bg-transparent py-0.5 text-sm leading-6 outline-none placeholder:text-stone-300 " +
-                (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")
-              }
-            />
-          ) : (
-            <span className={"min-w-0 flex-1 py-0.5 text-sm leading-6 " + (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>{r.text}</span>
-          )}
-          {!r.done && r.text && startOf(r) < date && (
-            <span className="mt-1 flex shrink-0 items-center gap-0.5 text-[11px] text-amber-700">
-              <CornerDownRight size={10} /> {shortDay(startOf(r))}부터
+  if (!editable) {
+    if (!items.length) return <p className="px-1 text-sm text-stone-400">없어요.</p>;
+    return (
+      <ul className="space-y-0.5">
+        {items.map((r) => (
+          <li key={r.id} className="flex items-start gap-2 py-0.5" style={{ paddingLeft: `${(r.depth || 0) * 22}px` }}>
+            <span className="mt-[9px] flex w-4 shrink-0 justify-center">
+              {r.done ? <Check size={12} className="-mt-0.5 text-stone-400" /> : <Dot depth={r.depth || 0} />}
             </span>
-          )}
-        </li>
-      ))}
-    </ul>
+            <span className={"min-w-0 flex-1 text-sm leading-6 " + (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>{r.text}</span>
+            {!r.done && startOf(r) < date && (
+              <span className="mt-1 flex shrink-0 items-center gap-0.5 text-[11px] text-amber-700">
+                <CornerDownRight size={10} /> {shortDay(startOf(r))}부터
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  const carried = items.filter((r) => !r.done && startOf(r) < date);
+  return (
+    <div>
+      <textarea
+        ref={box}
+        value={text}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onFocus={() => {
+          if (!text) put(bulletOf(0), 2);
+        }}
+        onBlur={() => {
+          if (text.trim() === "•") {
+            setText("");
+            latest.current.text = "";
+          }
+          flush();
+        }}
+        placeholder={placeholder}
+        className="block min-h-[3rem] w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-stone-800 outline-none [field-sizing:content] placeholder:text-stone-300"
+      />
+      {carried.length > 0 && (
+        <p className="mt-1 flex flex-wrap items-center gap-x-2 px-1 text-[11px] text-amber-700">
+          <CornerDownRight size={10} /> 넘어온 일: {carried.map((r) => `${r.text} (${shortDay(startOf(r))}부터)`).join(" · ")}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -635,21 +626,21 @@ function Todos({ todos, date, today, editable, onChange }) {
   return (
     <div className="border-t border-stone-100 px-5 py-4">
       <div className="mb-1.5 text-xs font-semibold text-stone-500">{date === today ? "오늘 할 일" : "이날 할 일"}</div>
-      <TodoOutline
+      <TodoText
         key={`d${date}`}
         items={shown}
         date={date}
         today={today}
         startOn={today}
         editable={editable && date === today}
-        placeholder="적고 엔터 · 탭으로 들여쓰기 · 점을 누르면 끝냄"
+        placeholder="적고 엔터 · 탭으로 들여쓰기 · 끝낸 줄은 Ctrl+엔터(✓)"
         onCommit={commit(shown)}
       />
 
       {date === today && (editable || later.length > 0) && (
         <div className="mt-4 border-t border-dashed border-stone-100 pt-3">
           <div className="mb-1.5 text-xs font-semibold text-stone-500">내일 할 일</div>
-          <TodoOutline
+          <TodoText
             key={`t${date}`}
             items={later}
             date={date}
