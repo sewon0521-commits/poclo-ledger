@@ -91,20 +91,23 @@ export function moveTo(x, stage, today = dayKey()) {
 // ---------------------------------------------------------------- 이름 다듬기
 
 // 옷 '모양' 낱말 — 이 뒤에 또 큰 갈래 낱말이 오면 겹치는 말이라 뗀다
-const SHAPE = /(집업|바람막이|가디건|후드|맨투맨|조끼|베스트|야상|패딩|트렌치|블루종|나시|뷔스티에|원피스|스커트|슬랙스|데님|레깅스)$/;
+const SHAPE = /(집업|바람막이|가디건|맨투맨|조끼|베스트|야상|패딩|트렌치|블루종|나시|뷔스티에|원피스|스커트|슬랙스|데님|레깅스)$/;
 const GENERIC = /^(점퍼|니트|자켓|재킷|티|티셔츠|셔츠|남방|팬츠|바지|코트|아우터|상의|하의|의류)$/;
 
-// 머리말에 쓰는 말 — 이것만으로 된 '…)' 은 이름이 아니라 꾸밈말이다 (가을신상) · 26FW 재진행) · 주문폭주))
-const HYPE = /신상|신규|재진행|재입고|리오더|인기|폭주|주문|베스트|추천|당일|출고|간절기|봄|여름|가을|겨울|s\/?s|f\/?w|new|best|hot|sale|세일|특가|단독|자체제작|국내생산|이번\s*주|금주|\d+\s*(차|월|년)?|[초늦한]/gi;
+// 머리말에 쓰는 말 — 이것만으로 된 '…)' 은 이름이 아니라 꾸밈말이다 (가을신상) · 26FW 재진행) · 주문폭주) · 9컬러))
+// 세원 10/1: "9컬러)찰랑모달긴팔티(26fw가을신상,… 이면 9컬러를 상품명으로 해 두더라. 상품명은 찰랑모달긴팔티야."
+const HYPE = /신상|신규|재진행|재입고|리오더|인기|폭주|주문|베스트|추천|당일|출고|간절기|봄|여름|가을|겨울|s\/?s|f\/?w|new|best|hot|sale|세일|특가|단독|자체제작|국내생산|이번\s*주|금주|컬러|칼라|colou?rs?|색상?|계절|\d+\s*(차|월|년)?|[초늦한]/gi;
+const hypeOnly = (w) => !String(w).replace(HYPE, "").replace(/[^0-9A-Za-z가-힣]/g, "");
+// 이름 앞에 붙여 쓴 시즌 표시 — '26FW이브OPS' → '이브OPS'
+const unSeason = (w) => String(w).replace(/^\d{0,4}\s*(fw|ss|f\/w|s\/s)(?=[가-힣A-Za-z])/i, "") || w;
 
 /** '머리 ) 나머지' 를 가른다 — 머리가 꾸밈말이면 나머지가 이름, 머리가 이름이면 나머지는 설명 */
 function headOrTail(s) {
-  const m = s.match(/^([^()[\]]{1,16}?)\s*\)+\s*(.*)$/);
+  const m = s.match(/^([^()[\]]{1,16}?)\s*[)\]]+\s*(.*)$/);
   if (!m) return s;
-  const head = m[1].trim();
+  const head = unSeason(m[1].trim());
   const tail = m[2].trim();
-  const left = head.replace(HYPE, "").replace(/[^0-9A-Za-z가-힣]/g, "");
-  return left ? head : tail || head;
+  return hypeOnly(head) ? tail || head : head;
 }
 
 /**
@@ -124,14 +127,37 @@ const CODE = /[가-힣][A-Za-z]{1,4}$/;
 const NUMBER = /^(?!(19|20)\d\d$)\d{2,5}$/;
 const NOUN = /(팬츠|바지|슬랙스|청바지|데님|스커트|치마|원피스|니트|티셔츠|티|셔츠|블라우스|자켓|재킷|점퍼|코트|가디건|조끼|베스트|후드|맨투맨|나시|집업|바람막이|패딩|야상|세트)$/;
 
+/**
+ * '앞_뒤' 가르기 (밑줄은 거래처마다 이름과 설명 사이에 쓴다):
+ *   앞이 꾸밈말이면 뒤가 이름 — 'New_로맨틱레이스나시' · 'FW신상_워시드 페오니 티셔츠'
+ *   앞이 이름 꼴(코드·번호·옷 이름으로 끝남)이거나 뒤가 꾸밈말로 시작하면 앞이 이름 — '누크패딩__26fw 신상…' · '모헤어V넥_26fw가을신상…' · '모먼트 코듀로이 자켓_ 코튼…'
+ *   아니면 밑줄만 띄어쓰기로 — '로고없음_후드 퀼팅 숏 패딩'
+ */
+function splitUnderscore(s) {
+  const m = s.match(/^([^_]{1,20}?)\s*_+\s*(.*)$/);
+  if (!m) return s;
+  const head = unSeason(m[1].trim());
+  const tail = m[2].trim();
+  if (!tail || hypeOnly(head)) return tail || head;
+  const first = unSeason(tail.split(/\s+/)[0] || "");
+  if (CODE.test(head) || NUMBER.test(head) || NOUN.test(head) || hypeOnly(first)) return head;
+  return `${head} ${tail}`;
+}
+
 export function cleanName(title) {
   let s = String(title || "").trim();
-  const lead = s.match(/^[[(]\s*([^\])]+?)\s*[\])]/);
-  if (lead && (CODE.test(lead[1]) || NUMBER.test(lead[1]))) return lead[1];
-  s = headOrTail(headOrTail(s));
-  s = s.replace(/\([^)]*\)|\[[^\]]*\]/g, " ").replace(/[★☆♥♡●◆■()[\]]/g, " ");
-  s = s.replace(/\s+/g, " ").trim();
+  // 맨 앞(꾸밈말 뒤) 괄호 안이 이름이면 그것 — '[블룸PT] 부츠컷팬츠…' · '신상( 빅텐셀T )…' · '폭주(프렌치가디건) 붙어있는상품…'
+  const group = s.match(/^([^()[\]]*?)[[(]\s*([^\])]+?)\s*[\])]/);
+  const named = (t) => CODE.test(t) || NUMBER.test(t) || (!/\s/.test(t) && NOUN.test(t) && t.replace(NOUN, "").length >= 2);
+  if (group && hypeOnly(group[1].trim()) && named(group[2].trim())) return group[2].trim();
+  s = splitUnderscore(headOrTail(headOrTail(s)));
+  // 괄호·대괄호 안, 그리고 끝까지 닫히지 않은 괄호('…긴팔티(26fw가을신상,후들티,…' — 신마가 잘라 보여 준 것)
+  s = s.replace(/\([^)]*\)|\[[^\]]*\]|[([][^)\]]*$/g, " ").replace(/[★☆♥♡●◆■()[\]]/g, " ");
+  s = s.replace(/_/g, " ").replace(/\s+/g, " ").trim(); // 'FW신상_워시드 페오니 티셔츠' — 밑줄도 낱말 사이
   const w = s.split(" ");
+  w[0] = unSeason(w[0]);
+  // 맨 앞의 꾸밈말 낱말(5컬러 · 가을신상 · NEW)은 뗀다 — 번호(345)는 이름이니 남긴다
+  while (w.length > 1 && !NUMBER.test(w[0]) && hypeOnly(w[0])) w.shift();
   if (w.length > 1 && (NUMBER.test(w[0]) || CODE.test(w[0]) || (NOUN.test(w[0]) && w[0].replace(NOUN, "").length >= 2))) return w[0];
   if (w.length >= 3 && GENERIC.test(w[w.length - 1]) && SHAPE.test(w[w.length - 2])) w.pop();
   return w.join(" ") || String(title || "").trim();
