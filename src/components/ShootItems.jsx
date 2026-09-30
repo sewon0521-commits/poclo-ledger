@@ -1075,7 +1075,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [kind, setKind] = useState("");
   const [q, setQ] = useState("");
   const [weekOnly, setWeekOnly] = useState(false);
-  const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청)
+  const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
@@ -1207,7 +1207,13 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               </button>
             )}
             {retry > 0 && (
-              <button type="button" onClick={() => setTab("request")} className="rounded-full bg-stone-800 px-2.5 py-1.5 font-semibold text-white">
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("request");
+                  setReqOnly("retryOn");
+                }}
+                className="rounded-full bg-stone-800 px-2.5 py-1.5 font-semibold text-white">
                 재요청할 것 {retry}
               </button>
             )}
@@ -1257,6 +1263,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           [
             ["asked", "요청함"],
             ["pickup", "픽업 요청"],
+            ["retryOn", "재요청"], // 세원 10/1: "재요청 따로 모아볼 수 있는 칸" — 재요청 날짜를 적은 상품
           ].map(([k, label]) => (
             <button
               key={k}
