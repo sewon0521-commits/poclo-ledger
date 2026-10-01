@@ -11,6 +11,11 @@ import {
   Clock,
   Sparkles,
   Pencil,
+  Bold,
+  Underline,
+  Highlighter,
+  Strikethrough,
+  Italic,
 } from "lucide-react";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
 import { newId } from "../lib/id";
@@ -51,13 +56,143 @@ const bulletOf = (d) => INDENT.repeat(d) + glyph(d) + " ";
 const NUMBER = /^\s*(\d+)[.)]\s+(.*)$/;
 const TIME = /^(\d{1,2}:\d{2})\s+(.*)$/;
 
+// ---------------------------------------------------------------- 글자 꾸미기 (10/2)
+//
+// 세원: "업무일지에 Ctrl+B 누르면 진하게, Ctrl+U 누르면 밑줄 같이 노션에서 쓸 수 있는 걸. 오늘 할 일에 중요한 게 강조가 안 돼."
+// 글은 지금처럼 글자로 저장한다(할 일 줄·점 목록 규칙을 안 깨려고) — 표시만 꾸민다:
+//   **굵게**  __밑줄__  *기울임*  ~~취소선~~  ==형광펜==  `코드`
+// 쓰는 칸은 글자 칸(textarea) 아래에 같은 글을 꾸며서 깔고(Mirror), 위 글자는 투명하게 — 치는 동안에도 꾸민 모양이 보인다.
+// 그래서 쓰는 칸의 꾸밈은 **글자 폭을 안 바꾸는 것만** 쓴다(굵게 = 외곽선, 형광펜·코드 = 여백 없는 배경). 기호는 흐리게 보인다.
+const MARKS = [
+  ["**", "font-bold text-stone-900", "text-stone-900 [-webkit-text-stroke:0.55px_currentColor]"],
+  ["__", "underline decoration-rose-500 decoration-2 underline-offset-[3px]", "underline decoration-rose-500 decoration-2 underline-offset-[3px]"],
+  ["~~", "text-stone-400 line-through decoration-stone-400", "text-stone-400 line-through decoration-stone-400"],
+  ["==", "rounded-sm bg-yellow-200 px-0.5 text-stone-900", "bg-yellow-200 text-stone-900"],
+  ["`", "rounded bg-stone-100 px-1 text-[0.92em] text-rose-700", "bg-stone-100 text-rose-700"],
+  ["*", "italic", "italic"],
+];
+const MARK_SRC = String.raw`\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|==(.+?)==|` + "`([^`]+?)`" + String.raw`|\*([^*\s](?:[^*]*?[^*\s])?)\*`;
+
+/** 꾸민 글 — keep 이면 기호도 흐리게 남긴다(쓰는 칸 아래 깔 때 글자 자리가 똑같아야 해서) */
+function marks(text, keep = false, key = "m") {
+  const s = String(text || "");
+  const re = new RegExp(MARK_SRC, "g");
+  const out = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m.index > last) out.push(s.slice(last, m.index));
+    const i = [1, 2, 3, 4, 5, 6].find((k) => m[k] != null);
+    const [mk, read, edit] = MARKS[i - 1];
+    const inner = i === 5 ? m[i] : marks(m[i], keep, `${key}-${out.length}`);
+    const faint = keep ? <span className="text-stone-300 [-webkit-text-stroke:0]">{mk}</span> : null;
+    out.push(
+      <span key={`${key}-${out.length}`}>
+        {faint}
+        <span className={keep ? edit : read}>{inner}</span>
+        {faint}
+      </span>,
+    );
+    last = re.lastIndex;
+  }
+  if (last < s.length) out.push(s.slice(last));
+  return out;
+}
+
+/** 쓰는 칸 아래에 까는 꾸민 글 — 위 textarea 와 글자 자리가 똑같아야 한다(같은 여백·글꼴·줄 높이·줄바꿈) */
+function Mirror({ text, className }) {
+  const lines = String(text || "").split("\n");
+  return (
+    <div aria-hidden className={"pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap [overflow-wrap:break-word] " + className}>
+      {lines.map((ln, i) => (
+        <span key={i}>
+          {i > 0 && "\n"}
+          {HEAD.test(ln) ? <span className="text-rose-800 [-webkit-text-stroke:0.5px_currentColor]">{marks(ln, true, `h${i}`)}</span> : /^ *[✓☑] /.test(ln) ? <span className="text-stone-400 line-through decoration-stone-300">{marks(ln, true, `d${i}`)}</span> : marks(ln, true, `l${i}`)}
+        </span>
+      ))}
+      {"\u200b"}
+    </div>
+  );
+}
+
+/** 고른 글을 기호로 감싸기(이미 감싸여 있으면 풀기). 되돌리기(Ctrl+Z)가 되게 브라우저의 글 넣기를 쓴다 */
+function wrapMark(el, text, put, mark) {
+  if (!el) return;
+  const s = el.selectionStart;
+  const e = el.selectionEnd;
+  const n = mark.length;
+  const sel = text.slice(s, e);
+  let a = s;
+  let b = e;
+  let str;
+  let selA;
+  let selB;
+  if (text.slice(s - n, s) === mark && text.slice(e, e + n) === mark) {
+    a = s - n;
+    b = e + n;
+    str = sel;
+    selA = s - n;
+    selB = e - n;
+  } else if (sel.length >= 2 * n && sel.startsWith(mark) && sel.endsWith(mark)) {
+    str = sel.slice(n, sel.length - n);
+    selA = s;
+    selB = e - 2 * n;
+  } else {
+    str = mark + sel + mark;
+    selA = s + n;
+    selB = e + n;
+  }
+  el.focus();
+  el.setSelectionRange(a, b);
+  let ok = false;
+  try {
+    ok = document.execCommand("insertText", false, str);
+  } catch {
+    ok = false;
+  }
+  if (!ok) return put(text.slice(0, a) + str + text.slice(b), selB);
+  el.setSelectionRange(selA, selB);
+}
+
+// 단축키 — 노션과 같게. e.code 로 본다(한글 자판이어도 같은 키)
+const MARK_KEYS = { KeyB: "**", KeyU: "__", KeyI: "*", KeyE: "`" };
+const MARK_SHIFT_KEYS = { KeyS: "~~", KeyH: "==", KeyX: "~~" };
+
+/** 폰처럼 단축키가 없을 때 누르는 꾸미기 단추 (누르는 동안 글 칸 포커스를 안 뺏는다) */
+function MarkBar({ target, text, put, small }) {
+  const items = [
+    [Bold, "**", "굵게 (Ctrl+B)"],
+    [Underline, "__", "밑줄 (Ctrl+U)"],
+    [Highlighter, "==", "형광펜 (Ctrl+Shift+H)"],
+    [Strikethrough, "~~", "취소선 (Ctrl+Shift+S)"],
+    [Italic, "*", "기울임 (Ctrl+I)"],
+  ];
+  return (
+    <span className="flex shrink-0 items-center gap-0.5">
+      {items.map(([Icon, mk, title]) => (
+        <button
+          key={mk}
+          type="button"
+          title={title}
+          aria-label={title}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => wrapMark(target.current, text, put, mk)}
+          className={"flex items-center justify-center rounded-md text-stone-500 hover:bg-stone-100 hover:text-stone-900 " + (small ? "h-6 w-6" : "h-7 w-7")}
+        >
+          <Icon size={small ? 13 : 14} className={mk === "==" ? "text-amber-600" : ""} />
+        </button>
+      ))}
+    </span>
+  );
+}
+
 function Line({ text }) {
   const m = text.match(TIME);
-  if (!m) return text;
+  if (!m) return marks(text);
   return (
     <>
       <span className="mr-1.5 text-[13px] text-stone-400 tabular-nums">{m[1]}</span>
-      {m[2]}
+      {marks(m[2])}
     </>
   );
 }
@@ -67,7 +202,14 @@ function Rendered({ text }) {
   for (const raw of String(text || "").split("\n")) {
     let m;
     if ((m = raw.match(HEAD))) blocks.push({ t: "h", text: m[1] });
-    else if ((m = raw.match(BULLET))) {
+    else if (/^\s*(-{3,}|—{2,})\s*$/.test(raw)) blocks.push({ t: "hr" });
+    else if ((m = raw.match(/^\s*>\s?(.*)$/))) blocks.push({ t: "q", text: m[1] });
+    else if ((m = raw.match(/^( *)([☐☑✓]) (.*)$/))) {
+      const item = { text: m[3], depth: Math.min(3, Math.floor(m[1].length / INDENT.length)), box: m[2] };
+      const last = blocks[blocks.length - 1];
+      if (last?.t === "ul") last.items.push(item);
+      else blocks.push({ t: "ul", items: [item] });
+    } else if ((m = raw.match(BULLET))) {
       const item = { text: m[2], depth: Math.min(3, Math.floor(m[1].length / INDENT.length)) };
       const last = blocks[blocks.length - 1];
       if (last?.t === "ul") last.items.push(item);
@@ -85,17 +227,23 @@ function Rendered({ text }) {
         b.t === "h" ? (
           <h4 key={i} className="mt-5 mb-1 flex items-center gap-2 text-sm font-semibold text-rose-800 first:mt-0">
             <span className="h-3.5 w-1 rounded-full bg-rose-300" />
-            {b.text}
+            {marks(b.text)}
           </h4>
+        ) : b.t === "hr" ? (
+          <hr key={i} className="my-3 border-stone-200" />
+        ) : b.t === "q" ? (
+          <blockquote key={i} className="my-1 border-l-[3px] border-stone-300 pl-3 text-stone-600">
+            <Line text={b.text} />
+          </blockquote>
         ) : b.t === "ul" ? (
           <ul key={i} className="space-y-0.5">
             {b.items.map((x, j) =>
               x.text.trim() ? (
                 <li key={j} className="flex gap-2.5" style={{ paddingLeft: `${x.depth * 22}px` }}>
-                  <span className="mt-[10px] flex shrink-0">
-                    <Dot depth={x.depth} />
+                  <span className={"flex shrink-0 " + (x.box ? "mt-[6px]" : "mt-[10px]")}>
+                    {x.box === "✓" ? <Check size={13} className="-mt-0.5 text-stone-400" /> : x.box ? <BoxMark done={x.box === "☑"} /> : <Dot depth={x.depth} />}
                   </span>
-                  <span className="min-w-0">
+                  <span className={"min-w-0 " + (x.box === "☑" || x.box === "✓" ? "text-stone-400 line-through decoration-stone-300" : "")}>
                     <Line text={x.text} />
                   </span>
                 </li>
@@ -140,7 +288,18 @@ function lineAt(v, pos) {
   return { start, end, line: v.slice(start, end) };
 }
 const depthOf = (spaces) => Math.min(3, Math.floor(spaces.length / INDENT.length));
-const LINE_ANY = /^( *)([-•◦*·✓]) (.*)$/;
+const LINE_ANY = /^( *)([-•◦*·✓☐☑]) (.*)$/;
+const BOX = ["☐", "☑"]; // 체크박스 줄 (10/2 세원: "[] 스페이스바도 체크표시") — Ctrl+엔터·☐ 누르기로 켜고 끔
+// 노션처럼 치는 대로 바꾸기 (10/2 세원: "-> 이것도 화살표로")
+const AUTO = [
+  ["->", "→"],
+  ["<-", "←"],
+  ["=>", "⇒"],
+  [">=", "≥"],
+  ["<=", "≤"],
+  ["!=", "≠"],
+  ["--", "—"],
+];
 
 function outlineKeys(text, put) {
   const onChange = (e) => {
@@ -154,6 +313,18 @@ function outlineKeys(text, put) {
         const pre = bulletOf(depthOf(m[1]));
         return put(v.slice(0, start) + pre + v.slice(pos), start + pre.length);
       }
+      const box = line.slice(0, pos - start).match(/^( *)(?:[-•◦*·☐☑] )?\[ ?\] $/);
+      if (box) {
+        const pre = INDENT.repeat(depthOf(box[1])) + "☐ ";
+        return put(v.slice(0, start) + pre + v.slice(pos), start + pre.length);
+      }
+    }
+    // -> → 처럼 두 글자 기호를 한 글자로 ('--' 는 줄 맨 앞이면 그대로 — '---' 가로줄을 쓸 수 있게)
+    if (typed && pos >= 2) {
+      const two = v.slice(pos - 2, pos);
+      const hit = AUTO.find(([k]) => k === two);
+      const lineHead = v.slice(v.lastIndexOf("\n", pos - 1) + 1, pos);
+      if (hit && !(two === "--" && /^\s*--$/.test(lineHead))) return put(v.slice(0, pos - 2) + hit[1] + v.slice(pos), pos - 1);
     }
     if (typed === "\n") {
       const lineStart = v.lastIndexOf("\n", pos - 2) + 1;
@@ -162,11 +333,11 @@ function outlineKeys(text, put) {
       const n = prev.match(/^(\s*)(\d+)([.)])\s+(.*)$/);
       if (b && !b[3].trim()) {
         const d = depthOf(b[1]);
-        const repl = d > 0 ? bulletOf(d - 1) : "";
+        const repl = d > 0 ? (BOX.includes(b[2]) ? INDENT.repeat(d - 1) + "☐ " : bulletOf(d - 1)) : "";
         return put(v.slice(0, lineStart) + repl + v.slice(pos), lineStart + repl.length);
       }
       if (n && !n[4].trim()) return put(v.slice(0, lineStart) + v.slice(pos), lineStart);
-      const add = b ? bulletOf(depthOf(b[1])) : n ? `${n[1]}${Number(n[2]) + 1}${n[3]} ` : "";
+      const add = b ? (BOX.includes(b[2]) ? INDENT.repeat(depthOf(b[1])) + "☐ " : bulletOf(depthOf(b[1]))) : n ? `${n[1]}${Number(n[2]) + 1}${n[3]} ` : "";
       if (add) return put(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
     }
     put(v);
@@ -174,6 +345,14 @@ function outlineKeys(text, put) {
 
   const onKeyDown = (e) => {
     const el = e.currentTarget;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const mk = e.shiftKey ? MARK_SHIFT_KEYS[e.code] : MARK_KEYS[e.code];
+      if (mk) {
+        e.preventDefault();
+        wrapMark(el, text, put, mk);
+        return;
+      }
+    }
     const pos = el.selectionStart;
     const { start, end, line } = lineAt(text, pos);
     const b = line.match(LINE_ANY);
@@ -181,7 +360,7 @@ function outlineKeys(text, put) {
       e.preventDefault();
       if (!b) return;
       const d = depthOf(b[1]);
-      const mark = b[2] === "✓" ? glyph(d) : "✓";
+      const mark = b[2] === "☐" ? "☑" : b[2] === "☑" ? "☐" : b[2] === "✓" ? glyph(d) : "✓";
       put(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), pos);
     } else if (e.key === "Tab") {
       e.preventDefault(); // 칸 밖으로 나가지 않게
@@ -190,7 +369,7 @@ function outlineKeys(text, put) {
       const nd = e.shiftKey ? d - 1 : d + 1;
       if (nd < 0 || nd > 3) return;
       const oldPre = b[1].length + 2;
-      const mark = b[2] === "✓" ? "✓" : glyph(nd);
+      const mark = b[2] === "✓" || BOX.includes(b[2]) ? b[2] : glyph(nd);
       const pre = INDENT.repeat(nd) + mark + " ";
       put(text.slice(0, start) + pre + b[3] + text.slice(end), Math.max(start + pre.length, pos + pre.length - oldPre));
     } else if (e.key === "Backspace" && b && el.selectionEnd === pos && pos === start + b[1].length + 2) {
@@ -200,7 +379,20 @@ function outlineKeys(text, put) {
       put(text.slice(0, start) + pre + b[3] + text.slice(end), start + pre.length);
     }
   };
-  return { onChange, onKeyDown };
+  // 노션처럼 체크박스(☐)를 누르면 켜고 끈다 — 누른 자리가 바로 ☐ 앞이나 뒤일 때만(글을 고치려고 누른 건 안 건드림)
+  const onMouseUp = (e) => {
+    const el = e.currentTarget;
+    if (el.selectionStart !== el.selectionEnd) return;
+    const pos = el.selectionStart;
+    const { start, end, line } = lineAt(text, pos);
+    const b = line.match(LINE_ANY);
+    if (!b || !BOX.includes(b[2])) return;
+    const at = start + b[1].length;
+    if (pos !== at && pos !== at + 1) return;
+    const mark = b[2] === "☐" ? "☑" : "☐";
+    put(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), end);
+  };
+  return { onChange, onKeyDown, onMouseUp };
 }
 
 // ---------------------------------------------------------------- 쓰기 (쓰는 대로 저장)
@@ -280,7 +472,7 @@ function Editor({ initial, onSave }) {
 
   // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
   // oxlint-disable-next-line react/refs, react-hooks/refs
-  const { onChange, onKeyDown } = outlineKeys(text, put);
+  const { onChange, onKeyDown, onMouseUp } = outlineKeys(text, put);
 
   const now = () => {
     const d = new Date();
@@ -290,6 +482,10 @@ function Editor({ initial, onSave }) {
   return (
     <div>
       <div className="flex items-center gap-1.5 overflow-x-auto border-b border-stone-100 px-4 py-2 [scrollbar-width:none]">
+        {/* 꾸미기 단추를 맨 앞에 — 줄이 넘치면 뒤쪽이 가려져서 (단축키: Ctrl+B · U · I · Shift+H · Shift+S) */}
+        {/* oxlint-disable-next-line react/refs, react-hooks/refs */}
+        <MarkBar target={box} text={text} put={put} />
+        <span className="mx-1 h-4 w-px shrink-0 bg-stone-200" />
         {HEADS.map((h) => (
           <button
             key={h}
@@ -318,6 +514,7 @@ function Editor({ initial, onSave }) {
         >
           <Clock size={13} /> 지금 시각
         </button>
+
         <span className="ml-auto shrink-0 pl-2 text-[11px] text-stone-400">
           {state === "saving" ? (
             <Loader2 size={12} className="inline animate-spin" />
@@ -329,15 +526,18 @@ function Editor({ initial, onSave }) {
         </span>
       </div>
 
-      <div className="relative">
+      <div className="relative max-w-3xl">
+        <Mirror text={text} className="px-6 py-5 text-[15px] leading-7 text-stone-800" />
         <textarea
           ref={box}
           value={text}
           onChange={onChange}
           onKeyDown={onKeyDown}
+          onMouseUp={onMouseUp}
           onBlur={flush}
-          placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. '- ' 로 점 목록, 탭으로 들여쓰기. 쓰는 대로 저장돼요."
-          className="block min-h-[22rem] w-full max-w-3xl resize-none bg-transparent px-6 py-5 text-[15px] leading-7 text-stone-800 outline-none [field-sizing:content] placeholder:text-stone-300"
+          spellCheck={false}
+          placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. '- ' 로 점 목록, 탭으로 들여쓰기. 글을 고르고 Ctrl+B 굵게 · Ctrl+U 밑줄 · Ctrl+Shift+H 형광펜. 쓰는 대로 저장돼요."
+          className="relative block min-h-[22rem] w-full resize-none bg-transparent px-6 py-5 text-[15px] leading-7 whitespace-pre-wrap text-transparent caret-stone-800 outline-none [field-sizing:content] [overflow-wrap:break-word] placeholder:text-stone-300 selection:bg-sky-200/60"
         />
         {!text && (
           <button
@@ -438,7 +638,7 @@ function Feed({ data, name, onOpen }) {
                 <ul className="mt-3 flex flex-wrap gap-1.5 border-t border-dashed border-stone-100 pt-3">
                   {done.map((t) => (
                     <li key={t.id} className="flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-600">
-                      <Check size={11} className="text-rose-700" /> {t.text}
+                      <Check size={11} className="text-rose-700" /> {marks(t.text)}
                     </li>
                   ))}
                 </ul>
@@ -476,7 +676,16 @@ function Dot({ depth, done }) {
 
 /** 할 일 → 글 (끝낸 줄은 ✓) */
 const todosToText = (items) =>
-  items.map((t) => INDENT.repeat(t.depth || 0) + (t.done ? "✓" : glyph(t.depth || 0)) + " " + t.text).join("\n");
+  items.map((t) => INDENT.repeat(t.depth || 0) + (t.box ? (t.done ? "☑" : "☐") : t.done ? "✓" : glyph(t.depth || 0)) + " " + t.text).join("\n");
+
+/** 읽기 모양의 체크박스 */
+function BoxMark({ done }) {
+  return (
+    <span className={"flex h-[15px] w-[15px] items-center justify-center rounded-[4px] border " + (done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-400 bg-white")}>
+      {done && <Check size={11} strokeWidth={3} />}
+    </span>
+  );
+}
 
 /**
  * 할 일 한 칸 (9/30 세원: "오늘 할 일 한 번에 드래그될 수 있게, 칸으로 나눠 주지 말고. 체크박스 없어졌으니까").
@@ -486,6 +695,7 @@ const todosToText = (items) =>
  */
 function TodoText({ items, date, today, startOn, editable, placeholder, onCommit }) {
   const [text, setText] = useState(() => todosToText(items));
+  const [focused, setFocused] = useState(false);
   const box = useRef(null);
   const dirty = useRef(false);
   const timer = useRef(null);
@@ -522,7 +732,8 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
       const body = (m ? m[3] : raw).trim();
       if (!body) continue;
       const depth = m ? depthOf(m[1]) : 0;
-      const done = m?.[2] === "✓";
+      const done = m?.[2] === "✓" || m?.[2] === "☑";
+      const box = BOX.includes(m?.[2]);
       const k = pool.findIndex((x) => x.text === body);
       const old = k >= 0 ? pool.splice(k, 1)[0] : null;
       next.push({
@@ -530,6 +741,7 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
         text: body,
         depth,
         done,
+        box,
         doneOn: done ? old?.doneOn || today : null,
       });
     }
@@ -547,7 +759,7 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
   };
   // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
   // oxlint-disable-next-line react/refs, react-hooks/refs
-  const { onChange, onKeyDown } = outlineKeys(text, put);
+  const { onChange, onKeyDown, onMouseUp } = outlineKeys(text, put);
 
   if (!editable) {
     if (!items.length) return <p className="px-1 text-sm text-stone-400">없어요.</p>;
@@ -555,10 +767,10 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
       <ul className="space-y-0.5">
         {items.map((r) => (
           <li key={r.id} className="flex items-start gap-2 py-0.5" style={{ paddingLeft: `${(r.depth || 0) * 22}px` }}>
-            <span className="mt-[9px] flex w-4 shrink-0 justify-center">
-              {r.done ? <Check size={12} className="-mt-0.5 text-stone-400" /> : <Dot depth={r.depth || 0} />}
+            <span className={"flex w-4 shrink-0 justify-center " + (r.box ? "mt-[5px]" : "mt-[9px]")}>
+              {r.box ? <BoxMark done={r.done} /> : r.done ? <Check size={12} className="-mt-0.5 text-stone-400" /> : <Dot depth={r.depth || 0} />}
             </span>
-            <span className={"min-w-0 flex-1 text-sm leading-6 " + (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>{r.text}</span>
+            <span className={"min-w-0 flex-1 text-sm leading-6 " + (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>{marks(r.text)}</span>
             {!r.done && startOf(r) < date && (
               <span className="mt-1 flex shrink-0 items-center gap-0.5 text-[11px] text-amber-700">
                 <CornerDownRight size={10} /> {shortDay(startOf(r))}부터
@@ -572,28 +784,46 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
 
   const carried = items.filter((r) => !r.done && startOf(r) < date);
   return (
-    <div>
-      <textarea
-        ref={box}
-        value={text}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-        onFocus={() => {
-          if (!text) put(bulletOf(0), 2);
-        }}
-        onBlur={() => {
-          if (text.trim() === "•") {
-            setText("");
-            latest.current.text = "";
-          }
-          flush();
-        }}
-        placeholder={placeholder}
-        className="block min-h-[3rem] w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 text-stone-800 outline-none [field-sizing:content] placeholder:text-stone-300"
-      />
+    <div className="group/todo relative">
+      {/* 꾸미기 단추 — 글 칸을 쓰는 동안만(폰에서 Ctrl 이 없으니) */}
+      <span className={"absolute -top-7 right-0 z-10 rounded-lg border border-stone-200 bg-white px-0.5 shadow-sm " + (focused ? "" : "hidden")}>
+        {/* oxlint-disable-next-line react/refs, react-hooks/refs */}
+        <MarkBar target={box} text={text} put={put} small />
+      </span>
+      <div className="relative">
+        <Mirror text={text} className="px-1 py-0.5 text-sm leading-7 text-stone-800" />
+        <textarea
+          ref={box}
+          value={text}
+          onChange={onChange}
+          onKeyDown={onKeyDown}
+          onMouseUp={onMouseUp}
+          spellCheck={false}
+          onFocus={() => {
+            setFocused(true);
+            if (!text) put(bulletOf(0), 2);
+          }}
+          onBlur={() => {
+            setFocused(false);
+            if (text.trim() === "•") {
+              setText("");
+              latest.current.text = "";
+            }
+            flush();
+          }}
+          placeholder={placeholder}
+          className="relative block min-h-[3rem] w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 whitespace-pre-wrap text-transparent caret-stone-800 outline-none [field-sizing:content] [overflow-wrap:break-word] placeholder:text-stone-300 selection:bg-sky-200/60"
+        />
+      </div>
       {carried.length > 0 && (
         <p className="mt-1 flex flex-wrap items-center gap-x-2 px-1 text-[11px] text-amber-700">
-          <CornerDownRight size={10} /> 넘어온 일: {carried.map((r) => `${r.text} (${shortDay(startOf(r))}부터)`).join(" · ")}
+          <CornerDownRight size={10} /> 넘어온 일:{" "}
+          {carried.map((r, i) => (
+            <span key={r.id}>
+              {i > 0 && " · "}
+              {marks(r.text)} ({shortDay(startOf(r))}부터)
+            </span>
+          ))}
         </p>
       )}
     </div>
