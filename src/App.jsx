@@ -34,6 +34,7 @@ import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import JournalPage from "./components/JournalPage";
 import SubsPage from "./components/SubsPage";
+import InvoiceRequestPage from "./components/InvoiceRequestPage";
 import ShootPage from "./components/ShootPage";
 import PasswordBox from "./components/PasswordBox";
 import ClipPage from "./components/ClipPage";
@@ -589,6 +590,8 @@ export default function App() {
                 />
               ) : page === "shoot" || page === "shootRefs" ? (
                 <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
+              ) : page === "invoiceReq" ? (
+                <InvoiceRequestPage tx={tx} vendors={vendors} online={L.mode === "remote" && !!L.session} onPatchTxs={L.patchTxs} onBreakdown={openBreakdown} />
               ) : page === "subs" ? (
                 <SubsPage online={L.mode === "remote" && !!L.session} />
               ) : page === "journal" ? (

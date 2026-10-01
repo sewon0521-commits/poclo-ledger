@@ -18,6 +18,7 @@ import {
   Camera,
   Images,
   Repeat,
+  FileCheck,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -54,7 +55,14 @@ export const SECTIONS = [
           { key: "vendors", label: "거래처", icon: Store },
         ],
       },
-      { group: "정산·세무", items: [{ key: "invoice", label: "세금계산서 대조", icon: Scale }] },
+      {
+        group: "정산·세무",
+        items: [
+          // 10/2 세원: "오토장끼 참고해서 계산서 발행 요청, 확인 란" — 달마다 계산서 요청·부가세 후입금 송금
+          { key: "invoiceReq", label: "계산서 발행 요청·확인", icon: FileCheck },
+          { key: "invoice", label: "세금계산서 대조", icon: Scale },
+        ],
+      },
       // 10/1 세원: "어떤 사이트를 구독하고 있고 어디서 금액이 나가는지 한 번에"
       { group: "지출", items: [{ key: "subs", label: "구독 · 고정 지출", icon: Repeat }] },
     ],
