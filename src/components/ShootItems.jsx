@@ -1032,6 +1032,34 @@ function KindMix({ items, kinds, kind, onKind }) {
   );
 }
 
+// ---------------------------------------------------------------- 삼촌에게 보낼 픽업 목록
+
+// 세원 10/1: "픽업 요청 모아보기 누르면 오늘 받을 상품들이 나오잖아? 삼촌한테 '그랑블루/디오트 1층 J24' 이렇게 보내거든. 쫙 정리한 내용이 딱 나왔으면."
+// 거래처마다 한 줄(같은 거래처 상품이 여럿이어도 한 번), 건물·층 순서로. 위치는 상품에 적힌 것, 없으면 돈 › 거래처 주소.
+function PickupList({ items, vendors }) {
+  const [note, setNote] = useState("");
+  const seen = new Map();
+  for (const x of items) {
+    const v = vendors.find((y) => y.id === x.vendorId);
+    const name = v?.name || x.vendor || "거래처 없음";
+    if (!seen.has(name)) seen.set(name, (x.place || v?.address || "").trim());
+  }
+  const lines = [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1], "ko", { numeric: true })).map(([n, pl]) => (pl ? `${n}/${pl}` : n));
+  const text = lines.join("\n");
+  return (
+    <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-emerald-900">삼촌에게 보낼 픽업 목록 · 거래처 {lines.length}곳</span>
+        <button type="button" onClick={async () => setNote((await copy(text)) ? "복사했어요" : "복사가 막혔어요 — 글을 끌어서 복사해 주세요")} className="flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white">
+          <Copy size={12} /> 복사
+        </button>
+      </div>
+      <pre className="font-sans text-sm leading-relaxed whitespace-pre-wrap text-stone-800 select-all">{text}</pre>
+      {note && <p className="mt-1 text-xs text-emerald-800">{note}</p>}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- 신상마켓에서 담기 안내
 
 function ClipGuide({ onClose }) {
@@ -1324,6 +1352,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           )}
         </span>
       </div>
+
+      {tab === "request" && reqOnly === "pickup" && shown.length > 0 && <PickupList items={shown} vendors={vendors} />}
 
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
