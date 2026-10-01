@@ -17,6 +17,7 @@ import {
   Radar,
   Camera,
   Images,
+  Repeat,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -54,6 +55,8 @@ export const SECTIONS = [
         ],
       },
       { group: "정산·세무", items: [{ key: "invoice", label: "세금계산서 대조", icon: Scale }] },
+      // 10/1 세원: "어떤 사이트를 구독하고 있고 어디서 금액이 나가는지 한 번에"
+      { group: "지출", items: [{ key: "subs", label: "구독 · 고정 지출", icon: Repeat }] },
     ],
   },
   {

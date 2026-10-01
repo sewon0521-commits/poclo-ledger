@@ -106,5 +106,13 @@ export function priceResult(supply, price, rates, settings) {
   };
 }
 
+/**
+ * 1+1 한 세트(2장) 손익 — 세원 10/1: "1+1 제품들을 한 번 더 적는데 같이 적을 수 있게".
+ * 공급가·부자재는 2장, 배송비 수입·택배비는 한 번(한 주문), 수수료·광고비·부가세는 세트 판매가에 대고.
+ */
+export function pairResult(supply, price, rates, settings) {
+  return priceResult(supply * 2, price, { ...rates, material: rates.material * 2 }, settings);
+}
+
 /** 이름에서 검색용 열쇠 — 띄어쓰기·대소문자 무시 */
 export const searchKey = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();

@@ -11,6 +11,7 @@ import {
   candidates,
   basePrice,
   priceResult,
+  pairResult,
   searchKey,
 } from "../lib/pricing";
 import EditNum from "./EditNum";
@@ -23,7 +24,7 @@ import EditNum from "./EditNum";
 //  4. 숫자 형식기는 하나를 돌려 쓴다(sales.won) — toLocaleString("ko-KR")은 부를 때마다 새로 만든다.
 
 const ALL = { from: "", to: "" };
-const EMPTY = { id: "", name: "", vendor: "", vendorId: "", supply: "", price: "", productNo: null };
+const EMPTY = { id: "", name: "", vendor: "", vendorId: "", supply: "", price: "", productNo: null, pair: false, price1p1: "" };
 const PAGE = 60;
 
 const digits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
@@ -347,6 +348,9 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, products, onSave 
   const r = supply && price ? priceResult(supply, price, rates, settings) : null;
 
   const canSave = draft.name.trim() && supply > 0 && price > 0;
+  // 1+1 — 켜면 세트 판매가 칸이 열린다. 비우면 공급가 2장 기준 기본 판매가
+  const pairPrice = draft.pair ? toNum(draft.price1p1) || (supply ? basePrice(supply * 2) : 0) : 0;
+  const pr = draft.pair && supply && pairPrice ? pairResult(supply, pairPrice, rates, settings) : null;
 
   return (
     <section className="mb-6 rounded-2xl border border-stone-200 bg-white p-4 sm:p-5">
@@ -401,6 +405,36 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, products, onSave 
             className={FIELD + " text-right text-lg font-semibold tabular-nums"}
           />
         </label>
+        <div className="flex flex-wrap items-end gap-3 text-sm sm:col-span-4">
+          <button
+            type="button"
+            aria-pressed={!!draft.pair}
+            onClick={() => setDraft({ ...draft, pair: !draft.pair })}
+            className={
+              "flex h-[42px] items-center gap-1.5 rounded-lg border px-3 font-medium " +
+              (draft.pair ? "border-rose-700 bg-rose-50 text-rose-800" : "border-stone-300 bg-white text-stone-600 hover:bg-stone-50")
+            }
+          >
+            <span className={"flex h-4 w-4 items-center justify-center rounded border " + (draft.pair ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300")}>
+              {draft.pair && <Check size={11} />}
+            </span>
+            1+1 로도 팔아요
+          </button>
+          {draft.pair && (
+            <label className="min-w-[12rem] flex-1 sm:max-w-[calc(50%-0.375rem)] sm:ml-auto">
+              <span className="mb-1 block text-stone-500">
+                1+1 판매가 (2장) <span className="text-stone-400">· 비우면 공급가×4 끝자리 800</span>
+              </span>
+              <input
+                value={draft.price1p1 ? won(toNum(draft.price1p1)) : ""}
+                onChange={(e) => setDraft({ ...draft, price1p1: digits(e.target.value) })}
+                inputMode="numeric"
+                placeholder={supply ? won(basePrice(supply * 2)) : "0"}
+                className={FIELD + " text-right text-lg font-semibold tabular-nums"}
+              />
+            </label>
+          )}
+        </div>
       </div>
 
       {supply > 0 && (
@@ -481,6 +515,20 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, products, onSave 
               <div className={"text-right text-xs font-medium " + marginTone(r.margin, settings.targetMargin)}>
                 이익률 {pct(r.margin)}% · 원가율 {pct(r.costRate, 0)}%
               </div>
+              {pr && (
+                <div className="mt-2.5 rounded-lg border border-rose-200 bg-white px-2.5 py-2">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs font-semibold text-rose-800">1+1 (2장)</span>
+                    <span className="font-bold tabular-nums text-stone-900">{won(pr.price)}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between text-xs">
+                    <span className="text-stone-400">한 장에 {won(pr.price / 2)}</span>
+                    <span className={"font-semibold tabular-nums " + marginTone(pr.margin, settings.targetMargin)}>
+                      남는 돈 {won(pr.profit)} · {pct(pr.margin)}%
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <button
                 type="button"
@@ -493,6 +541,7 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, products, onSave 
                     vendorId: draft.vendorId || "",
                     supply,
                     price,
+                    price1p1: pairPrice || 0,
                     ...(draft.productNo ? { productNo: draft.productNo } : {}),
                   })
                 }
@@ -526,7 +575,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, images, onEd
     const needle = searchKey(q);
     const out = items
       .filter((i) => !needle || searchKey(i.name + i.vendor + (i.memoName || "")).includes(needle))
-      .map((i) => ({ ...i, r: priceResult(i.supply, i.price, rates, settings) }));
+      .map((i) => ({ ...i, r: priceResult(i.supply, i.price, rates, settings), p: i.price1p1 ? pairResult(i.supply, i.price1p1, rates, settings) : null }));
     if (sort === "low") out.sort((a, b) => a.r.margin - b.r.margin);
     if (sort === "high") out.sort((a, b) => b.r.margin - a.r.margin);
     return out;
@@ -658,6 +707,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, images, onEd
                       tone="font-medium text-stone-900"
                       onSave={(v) => onPatch(x, { price: v })}
                     />
+                    {x.p && <span className="block pr-2 text-right text-[11px] text-rose-700">1+1 {won(x.p.price)}</span>}
                   </td>
                   <td className="px-2 py-1.5 text-right text-stone-500">{pct(x.r.costRate, 0)}%</td>
                   <td className="px-2 py-1.5 text-right text-stone-700">{won(x.r.profit)}</td>
@@ -667,6 +717,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, images, onEd
                     }
                   >
                     {pct(x.r.margin)}%
+                    {x.p && <span className={"block text-[11px] font-medium " + marginTone(x.p.margin, settings.targetMargin)}>{pct(x.p.margin)}%</span>}
                   </td>
                   <td className="px-1 py-1.5 text-right">
                     <button
@@ -738,6 +789,8 @@ export default function PricingPage({ rows, conf, onConf, items, vendors, produc
       supply: String(x.supply),
       price: String(x.price),
       productNo: x.productNo || null,
+      pair: !!x.price1p1,
+      price1p1: x.price1p1 ? String(x.price1p1) : "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
@@ -750,6 +803,7 @@ export default function PricingPage({ rows, conf, onConf, items, vendors, produc
         vendorId: x.vendorId || "",
         supply: x.supply,
         price: x.price,
+        price1p1: x.price1p1 || 0,
         ...patch,
       }),
     [],

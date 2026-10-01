@@ -33,6 +33,7 @@ import AccountsPage from "./components/AccountsPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import JournalPage from "./components/JournalPage";
+import SubsPage from "./components/SubsPage";
 import ShootPage from "./components/ShootPage";
 import PasswordBox from "./components/PasswordBox";
 import ClipPage from "./components/ClipPage";
@@ -585,6 +586,8 @@ export default function App() {
                 />
               ) : page === "shoot" || page === "shootRefs" ? (
                 <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
+              ) : page === "subs" ? (
+                <SubsPage online={L.mode === "remote" && !!L.session} />
               ) : page === "journal" ? (
                 <JournalPage online={L.mode === "remote" && !!L.session} />
               ) : page === "work" || page === "people" || page === "content" ? (
