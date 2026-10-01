@@ -271,16 +271,18 @@ export function vendorFill(v, c) {
 // 세원 10/1: "샘플 거절을 당한 거래처는 어떤 이유로 거절당했는지 적을 수 있게. 다음번에 예뻐서 샘플 하려고 하는데 안 된다는 걸 볼 수 있게.
 //   이유는 많아 — 첫거래 샘플 불가, 샘플 관리가 안 돼서, 한 달에 100만원 이상 거래하는 업체만, 메인 거래처만, 꾸준히 거래해야 등등."
 // 거절은 거래처의 방침이라 상품이 아니라 **거래처에 붙는다** — settings 'sample_refusals'
-//   {items:[{id, itemIds[], vendorId, vendor, reasons[], note, on, item}]}. 상품을 지워도 기록은 남는다.
+//   {items:[{id, itemIds[], vendorId, vendor, scope, reasons[], note, on, item}]}. 상품을 지워도 기록은 남는다.
+// scope: "vendor"(거래처가 샘플 자체를 안 해 줌) | "item"(그 상품만 — 벨로아만 안 된대요, 품절). 세원 10/1: "10개 요청해도 한 개만 안 된다고 하면
+//   계속 뜰 것 같다, 한 개만 선택 같은 게 필요" → **거래처 경고에는 "vendor" 만** 띄운다. scope 없는 예전 기록은 거래처 전체로 본다.
 // 보여 주는 곳: 담기 창(담자마자) · 요청 탭 거래처 묶음 · 카톡 글 창 · 상품 창.
 
 export const REFUSE_REASONS = ["첫거래 샘플 불가", "샘플 관리가 안 돼서", "월 거래액 조건", "메인 거래처만", "꾸준히 거래해야"];
 export const refusalText = (r) => [...(r?.reasons || []), r?.note].filter(Boolean).join(" · ") || "이유 안 적음";
 
-/** 그 거래처의 거절 기록 — vendorId 로, 없으면 이름으로. 최근 것 먼저 */
+/** 그 거래처가 샘플 자체를 거절한 기록 — vendorId 로, 없으면 이름으로. 최근 것 먼저 ('이 상품만' 은 빼고) */
 export function refusalsOf(list, vendorId, vendor) {
   const nm = squash(vendor);
-  return (list || []).filter((r) => (vendorId && r.vendorId === vendorId) || (nm && squash(r.vendor) === nm)).sort((a, b) => String(b.on || "").localeCompare(String(a.on || "")));
+  return (list || []).filter((r) => r.scope !== "item" && ((vendorId && r.vendorId === vendorId) || (nm && squash(r.vendor) === nm))).sort((a, b) => String(b.on || "").localeCompare(String(a.on || "")));
 }
 
 // ---------------------------------------------------------------- 거래처에 보내는 샘플 요청 글

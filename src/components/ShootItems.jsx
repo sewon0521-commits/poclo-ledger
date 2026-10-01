@@ -892,16 +892,43 @@ export function RefusalNote({ list, onDrop }) {
 function RefuseSheet({ x, others, onSave, onClose }) {
   const [reasons, setReasons] = useState([]);
   const [note, setNote] = useState("");
+  const [scope, setScope] = useState("item"); // item: 이 상품만 · vendor: 거래처가 샘플 자체를 안 해 줌
+  const [picked, setPicked] = useState(false); // 사람이 직접 고르면 이유 칩이 바꾸지 않는다
   const [all, setAll] = useState(others.length > 0);
   const [busy, setBusy] = useState(false);
-  const flip = (t) => setReasons(reasons.includes(t) ? reasons.filter((r) => r !== t) : [...reasons, t]);
+  const flip = (t) => {
+    setReasons(reasons.includes(t) ? reasons.filter((r) => r !== t) : [...reasons, t]);
+    // 이유 칩은 다 거래처 방침이라 — 고르면 '거래처 전체'로 (직접 고른 적이 없을 때만)
+    if (!picked && !reasons.includes(t)) setScope("vendor");
+  };
+  const SCOPE = "flex-1 rounded-md px-2 py-2 text-left text-xs leading-snug ";
   return (
     <Sheet onClose={onClose}>
       <SheetHead title={`샘플 안 됨 · ${x.vendor || "거래처 없음"}`} onClose={onClose} />
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
         <p className="text-stone-600">
-          <b className="text-stone-900">{x.name}</b> — 왜 안 된대요? 다음에 이 거래처 상품을 담거나 요청할 때 보여 드려요.
+          <b className="text-stone-900">{x.name}</b> — 왜 안 된대요?
         </p>
+        <div className="flex gap-1 rounded-lg bg-stone-100 p-1">
+          {[
+            ["item", "이 상품만 안 됨", "품절·이 상품만 샘플 불가 — 거래처 경고는 안 띄워요"],
+            ["vendor", "거래처가 샘플 자체를 안 해 줌", "다음에 이 거래처 상품을 담거나 요청할 때 경고해요"],
+          ].map(([k, label, hint]) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={scope === k}
+              onClick={() => {
+                setScope(k);
+                setPicked(true);
+              }}
+              className={SCOPE + (scope === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+            >
+              <b className="block text-[13px]">{label}</b>
+              <span className="text-[11px] text-stone-400">{hint}</span>
+            </button>
+          ))}
+        </div>
         <div className="flex flex-wrap gap-1.5">
           {REFUSE_REASONS.map((t) => (
             <button
@@ -916,7 +943,7 @@ function RefuseSheet({ x, others, onSave, onClose }) {
           ))}
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="다른 이유·조건 (예: 월 100만원 이상 거래처만)" className={FIELD} />
-        {others.length > 0 && (
+        {scope === "vendor" && others.length > 0 && (
           <label className="flex items-start gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-700">
             <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} className="mt-0.5" />
             <span>
@@ -934,7 +961,7 @@ function RefuseSheet({ x, others, onSave, onClose }) {
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            await onSave({ reasons, note: note.trim(), all });
+            await onSave({ reasons, note: note.trim(), all: scope === "vendor" && all, scope });
           }}
           className="rounded-xl bg-stone-800 px-5 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
         >
@@ -1164,7 +1191,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   };
 
   // '안 됨' — 상품(과 고르면 같은 거래처의 다른 요청 상품)을 보류·드랍으로, 이유는 거래처 기록으로
-  const refuse = async ({ reasons, note, all }) => {
+  const refuse = async ({ reasons, note, all, scope }) => {
     const x = refuseFor;
     const same = (y) => y.stage === "request" && (x.vendorId ? y.vendorId === x.vendorId : !!x.vendor && y.vendor === x.vendor);
     const targets = [x, ...(all ? items.filter((y) => y.id !== x.id && same(y)) : [])];
@@ -1173,7 +1200,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
     await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (ids.includes(it.id) ? { ...it, stage: "drop", refused: true, refusedOn: today, refusedWhy: why } : it)) }));
     await d.saveRefusals((v) => ({
       ...v,
-      items: [{ id: newId("r"), itemIds: ids, vendorId: x.vendorId || "", vendor: x.vendor || "", reasons, note, on: today, item: targets.map((t) => t.name).join(", ") }, ...(v.items || [])],
+      items: [{ id: newId("r"), itemIds: ids, vendorId: x.vendorId || "", vendor: x.vendor || "", scope, reasons, note, on: today, item: targets.map((t) => t.name).join(", ") }, ...(v.items || [])],
     }));
     setRefuseFor(null);
   };
