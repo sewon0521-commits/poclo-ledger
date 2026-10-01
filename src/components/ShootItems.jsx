@@ -102,13 +102,17 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, select
           ) : (
             tab !== x.stage && <span className="absolute top-1.5 right-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-stone-600">{stageName(x.stage)}</span>
           )}
-          <span className="absolute bottom-1.5 left-1.5 flex flex-wrap gap-1">
+          {/* 메모는 사진 아래쪽에 어둡게 깔아서 (세원 10/1: "썸네일 밑에 살짝 검정 음영 주고 메모 내용") — 배지는 그 위 */}
+          <span className={"absolute inset-x-0 bottom-0 flex flex-col gap-1 px-1.5 pb-1.5 " + (x.memo ? "bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-10" : "")}>
+          <span className="flex flex-wrap gap-1">
             <DueBadge x={x} today={today} />
             {x.returning && !closed(x) && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납 예정</span>}
             {x.refused && x.stage === "drop" && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">샘플 안 됨</span>}
             {x.packed && !x.returnedOn && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white">포장 완료</span>}
             {x.paid && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-medium text-white">결제함</span>}
             {x.returnedOn && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납함</span>}
+          </span>
+          {x.memo && <span className="line-clamp-3 text-[11px] leading-snug font-medium whitespace-pre-line text-white [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">{x.memo}</span>}
           </span>
         </span>
         <span className="block px-2.5 pt-2 pb-1.5">
