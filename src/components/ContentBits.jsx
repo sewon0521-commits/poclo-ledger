@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { Copy, Check, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Copy, Check, Pencil, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { loadKey, changeKey, md } from "../lib/shoot";
 import { workerAlive } from "../lib/reels";
 
 // 콘텐츠 화면(릴스 기획 · 캐러셀 기획)이 같이 쓰는 조각.
@@ -213,5 +214,84 @@ export function SlideViewer({ urls, className = "", fit = "contain" }) {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * 요즘 트렌드 메모 (세원 10/2: "요즘 트렌드 반영을 시켜야 할 것 같은데" — 포클로 방향성·쇼만마 단톡에서 나온 얘기를 모아 둔다).
+ * settings 'reel_trends' {text, at}. 릴스·캐러셀 기획을 만들 때마다 AI 에게 같이 간다(lib/reels.js · carousel.js 의 withTrends —
+ * 이 칸이 읽어 둔 이 기기 사본 poclo_reel_trends 를 붙인다). 분석·보관에는 안 붙인다(돈).
+ * Claude 창에서도 단톡·위키 내용이 바뀌면 이 키를 고쳐 둔다.
+ */
+export function TrendBox({ online }) {
+  const [v, setV] = useState(null);
+  const [edit, setEdit] = useState(null); // 고치는 중이면 글
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    let alive = true;
+    loadKey("reel_trends", online, { text: "" })
+      .then((x) => alive && setV(x))
+      .catch(() => alive && setV({ text: "" }));
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  if (!v) return null;
+  const lines = String(v.text || "").split("\n").filter((l) => l.trim());
+  const save = async () => {
+    try {
+      setV(await changeKey("reel_trends", online, () => ({ text: edit.trim(), at: new Date().toISOString() }), { text: "" }));
+      setEdit(null);
+      setMsg("");
+    } catch (e) {
+      setMsg(e.message || "저장하지 못했어요.");
+    }
+  };
+  return (
+    <section className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/50 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
+          <Sparkles size={15} className="text-amber-600" /> 요즘 트렌드 메모
+          <span className="text-xs font-normal text-stone-500">· 기획을 만들 때마다 AI 에게 같이 줘요{v.at ? ` · ${md(v.at.slice(0, 10))} 고침` : ""}</span>
+        </span>
+        {edit === null && (
+          <span className="flex items-center gap-2 text-xs">
+            {lines.length > 3 && (
+              <button type="button" onClick={() => setOpen(!open)} className="text-stone-500 hover:text-stone-800">
+                {open ? "접기" : `펼치기 (${lines.length}줄)`}
+              </button>
+            )}
+            <button type="button" onClick={() => setEdit(v.text || "")} className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 font-medium text-stone-700">
+              <Pencil size={11} /> 고치기
+            </button>
+          </span>
+        )}
+      </div>
+      {edit === null ? (
+        lines.length ? (
+          <div className="mt-1.5 space-y-0.5 text-[13px] leading-relaxed text-stone-700">
+            {(open ? lines : lines.slice(0, 3)).map((l, i) => (
+              <p key={i}>{l}</p>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-xs text-stone-500">요즘 잘 되는 훅·컬러·무드·피할 것을 적어 두면 대본에 반영해요. Claude 에게 말해도 여기에 넣어 둬요.</p>
+        )
+      ) : (
+        <div className="mt-2 space-y-2">
+          <textarea value={edit} onChange={(e) => setEdit(e.target.value)} placeholder="- 무드: 어른 여자 / 캐주얼 Y2K&#10;- 훅 예시: …" className="min-h-[12rem] w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm leading-relaxed outline-none [field-sizing:content] focus:border-rose-600" />
+          <div className="flex items-center justify-end gap-2 text-sm">
+            {msg && <span className="mr-auto text-xs text-rose-700">{msg}</span>}
+            <button type="button" onClick={() => setEdit(null)} className="rounded-lg px-3 py-1.5 text-stone-500">
+              취소
+            </button>
+            <button type="button" onClick={save} className="rounded-lg bg-rose-700 px-4 py-1.5 font-semibold text-white">
+              저장
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

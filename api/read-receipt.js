@@ -158,7 +158,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await client.messages.parse({
-      model: "claude-opus-5",
+      model: "claude-opus-5-5", // 10/2 Opus 5.5 (더 싸다)
       max_tokens: 4000,
       thinking: { type: "adaptive" },
       output_config: { effort: "high", format: zodOutputFormat(ReceiptSchema) },

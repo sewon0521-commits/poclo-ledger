@@ -537,6 +537,8 @@ export default function App() {
               ) : page === "reels" ? (
                 <ReelsPage
                   items={S.reels}
+                  fileUrls={S.reelFileUrls}
+                  online={L.mode === "remote" && !!L.session}
                   onSave={S.saveReel}
                   onRemove={S.removeReel}
                   putFile={S.putReelFile}
@@ -555,6 +557,7 @@ export default function App() {
               ) : page === "carousel" ? (
                 <CarouselPage
                   stats={S.productStats}
+                  online={L.mode === "remote" && !!L.session}
                   carousels={S.carousels}
                   plans={S.carouselPlans}
                   reels={S.reels}

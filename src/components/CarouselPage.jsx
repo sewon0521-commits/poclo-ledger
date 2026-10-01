@@ -19,7 +19,7 @@ import {
 import { newId } from "../lib/id";
 import { analyzeCarousel, planCarousel, shrinkImage, refSummary } from "../lib/carousel";
 import { workerAlive } from "../lib/reels";
-import { CopyButton, WorkerStatus, EditableTitle, SlideViewer } from "./ContentBits";
+import { CopyButton, WorkerStatus, EditableTitle, SlideViewer, TrendBox } from "./ContentBits";
 import { Empty } from "./ui";
 
 /**
@@ -798,6 +798,7 @@ export default function CarouselPage({
   queue,
   onQueue,
   onPoll,
+  online,
 }) {
   const [tab, setTab] = useState("products");
   const [planning, setPlanning] = useState(null); // 고른 상품들 (1개면 단독, 여러 개면 묶음)
@@ -891,6 +892,8 @@ export default function CarouselPage({
           잘 팔리는·뜰 것 같은 상품을 골라, 모아 둔 캐러셀·릴스 레퍼런스에서 배운 틀로 장별 캐러셀을 기획해요.
         </p>
       </div>
+
+      <TrendBox online={online} />
 
       <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
         {[

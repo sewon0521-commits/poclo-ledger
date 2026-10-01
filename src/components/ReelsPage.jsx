@@ -35,7 +35,7 @@ import { Empty } from "./ui";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ProductReelTab from "./ProductReel";
 import TrimVideo from "./TrimVideo";
-import { CopyButton, WorkerStatus, EditableTitle } from "./ContentBits";
+import { CopyButton, WorkerStatus, EditableTitle, TrendBox } from "./ContentBits";
 import { workerAlive } from "../lib/reels";
 
 /**
@@ -291,7 +291,7 @@ function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove, onB
       <button type="button" onClick={() => onOpen(item)} className="block w-full overflow-hidden rounded-t-xl text-left">
       <span className="relative block aspect-[3/4] bg-stone-100">
         {thumbUrl ? (
-          <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
+          <img src={thumbUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
         ) : (
           <span className="flex h-full w-full items-center justify-center text-stone-300">
             {pending && status.kind !== "error" ? <Loader2 size={24} className="animate-spin" /> : <Clapperboard size={28} />}
@@ -1095,12 +1095,35 @@ function SlotChip({ slot, value, onChange }) {
 
 // ------------------------------------------------------------------- 화면
 
+// 썸네일 서명 주소를 이 기기에 잠깐 남겨 둔다 (서명 4시간 → 3시간만 쓴다)
+const THUMB_CACHE = "poclo_reel_thumbs";
+function readThumbCache() {
+  try {
+    return JSON.parse(localStorage.getItem(THUMB_CACHE) || "{}");
+  } catch {
+    return {};
+  }
+}
+function writeThumbCache(got) {
+  try {
+    const now = Date.now();
+    const old = readThumbCache();
+    const next = Object.fromEntries(Object.entries(old).filter(([, c]) => c.exp > now));
+    for (const [k, url] of Object.entries(got)) if (url) next[k] = { url, exp: now + 3 * 3600 * 1000 };
+    localStorage.setItem(THUMB_CACHE, JSON.stringify(next));
+  } catch {
+    /* 가득 차면 그냥 다음에 다시 받는다 */
+  }
+}
+
 export default function ReelsPage({
   items,
   onSave,
   onRemove,
   putFile,
   fileUrl,
+  fileUrls,
+  online,
   folders: savedFolders,
   onFolders,
   queue,
@@ -1178,21 +1201,34 @@ export default function ReelsPage({
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
   const thumbKey = (it) => `${it.id}:${it.thumbAt || ""}:${it.job?.status || ""}`;
+  // 10/2 세원: "레퍼런스를 많이 모았는지 썸네일이 잘 안 떠" — 예전엔 한 장씩 차례로·처음 40개만 받았다.
+  // 이제 보이는 카드 전부를 100장씩 한 번에 서명하고, 받은 주소는 이 기기에 3시간 남겨 다시 열 때 바로 뜨게(서명은 4시간).
   useEffect(() => {
+    const want = shown.filter((it) => thumbs[thumbKey(it)] === undefined);
+    if (!want.length) return;
     let alive = true;
     (async () => {
-      for (const it of shown.slice(0, 40)) {
-        const k = thumbKey(it);
-        if (thumbs[k] !== undefined) continue;
-        const u = await fileUrl(`${it.id}-thumb.jpg`);
-        if (!alive) return;
-        setThumbs((p) => ({ ...p, [k]: u }));
+      const got = {};
+      const cache = readThumbCache();
+      const need = [];
+      for (const it of want) {
+        const c = cache[thumbKey(it)];
+        if (c && c.exp > Date.now()) got[thumbKey(it)] = c.url;
+        else need.push(it);
       }
+      for (let i = 0; i < need.length; i += 100) {
+        const part = need.slice(i, i + 100);
+        const map = fileUrls ? await fileUrls(part.map((it) => `${it.id}-thumb.jpg`)) : {};
+        for (const it of part) got[thumbKey(it)] = map[`${it.id}-thumb.jpg`] || null;
+      }
+      if (!alive) return;
+      writeThumbCache(got);
+      setThumbs((p) => ({ ...p, ...got }));
     })();
     return () => {
       alive = false;
     };
-  }, [shown, fileUrl, thumbs]);
+  }, [shown, fileUrls, thumbs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openItem = async (item) => {
     setOpen(item);
@@ -1376,6 +1412,8 @@ export default function ReelsPage({
           잘 된 릴스를 모아 두고, 그 구조 그대로 우리 상품 대본을 만들고, 찍은 영상을 점검해요.
         </p>
       </div>
+
+      <TrendBox online={online} />
 
       <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
         {[

@@ -34,7 +34,12 @@ import { costOf } from "./_cost.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "12mb" } }, maxDuration: 300 };
 
-const MODEL = "claude-opus-5";
+// 10/2 Opus 5 → 5.5 (세원 요청): 입력 $4 · 출력 $20 / 100만 토큰 — 5보다 20% 싸다. effort 는 늘 직접 넣는다(5.5 기본값이 medium 이라).
+const MODEL = "claude-opus-5-5";
+/** 요즘 트렌드 메모 (세원 10/2) — 앱의 '요즘 트렌드' 칸에 적은 것. 기획할 때마다 같이 준다 */
+const trendText = (body) =>
+  body.trends ? `\n--- 요즘 트렌드·우리 방향 (세원·쇼만마 단톡에서 모은 메모 — 이 상품·구조에 맞는 것만 살리고, 억지로 다 넣지 말 것. 메모(세원 지시)와 부딪히면 메모가 먼저) ---\n${String(body.trends).slice(0, 2500)}` : "";
+
 
 // ------------------------------------------------------------------ 1) 대본 뽑기
 
@@ -575,6 +580,7 @@ export default async function handler(req, res) {
         `촬영 순서:\n${(plan.scenes || []).map((x) => `- [${x.at}] (룩 ${x.look || 0}) ${x.shot} / 자막: ${x.text || ""}`).join("\n")}`,
         `본문:\n${plan.caption || ""}`,
         `해시태그: ${(plan.hashtags || []).join(" ")}`,
+        trendText(body),
         history.length ? `\n--- 앞서 나눈 대화 ---\n${history.map((h) => `${h.role === "me" ? "세원" : "AI"}: ${h.text}`).join("\n")}` : "",
         `\n--- 이번 요청 ---\n${ask1}`,
       ].join("\n");
@@ -620,6 +626,7 @@ export default async function handler(req, res) {
         looksText(products, count),
         st.reason ? `판매 숫자: ${st.reason}` : "",
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
+        trendText(body),
         redoText(body),
       ].join("\n");
       const imgs = photos.urls;
@@ -669,6 +676,7 @@ export default async function handler(req, res) {
         count > 1 ? `\n--- 우리 상품 판매페이지 (룩 ${count}개) ---` : "\n--- 우리 상품 판매페이지 ---",
         looksText(products, count),
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
+        trendText(body),
         redoText(body),
       ].join("\n");
 

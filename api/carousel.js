@@ -17,7 +17,12 @@ import { readProduct } from "./_product.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "12mb" } }, maxDuration: 300 };
 
-const MODEL = "claude-opus-5";
+// 10/2 Opus 5 → 5.5 (세원 요청): 입력 $4 · 출력 $20 / 100만 토큰 — 5보다 20% 싸다. effort 는 늘 직접 넣는다(5.5 기본값이 medium 이라).
+const MODEL = "claude-opus-5-5";
+/** 요즘 트렌드 메모 (세원 10/2) — 앱의 '요즘 트렌드' 칸에 적은 것. 기획할 때마다 같이 준다 */
+const trendText = (body) =>
+  body.trends ? `\n--- 요즘 트렌드·우리 방향 (세원·쇼만마 단톡에서 모은 메모 — 이 상품·구조에 맞는 것만 살리고, 억지로 다 넣지 말 것. 메모(세원 지시)와 부딪히면 메모가 먼저) ---\n${String(body.trends).slice(0, 2500)}` : "";
+
 import { costOf } from "./_cost.js";
 
 // ------------------------------------------------------------------ 1) 레퍼런스 분석
@@ -270,6 +275,7 @@ export default async function handler(req, res) {
         "\n--- 레퍼런스 (우리가 모아 둔 것) ---",
         refs.length ? refs.map(refLine).join("\n\n") : "(아직 없음 — 일반적인 좋은 캐러셀 패턴으로)",
         body.memo ? `\n--- 메모 ---\n${String(body.memo).slice(0, 1500)}` : "",
+        trendText(body),
         "\n상품 사진은 아래에 '상품 K · 사진 N' 으로 붙어 있다.",
       ].join("\n");
 

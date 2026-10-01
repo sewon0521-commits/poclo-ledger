@@ -1,12 +1,24 @@
 // 캐러셀 기획 서버 함수(/api/carousel) 부르기 + 올린 사진 줄이기.
 
+// 요즘 트렌드 메모 — 트렌드 칸(TrendBox)이 서버에서 읽어 이 기기에 둔 것을 기획 요청에 붙인다 (분석·보관에는 안 붙임 — 돈 아끼기)
+const PLAN_MODES = ["product", "adapt", "revise", "plan"];
+function withTrends(body) {
+  if (!PLAN_MODES.includes(body?.mode)) return body;
+  try {
+    const t = JSON.parse(localStorage.getItem("poclo_reel_trends") || "null")?.text;
+    return t ? { ...body, trends: t } : body;
+  } catch {
+    return body;
+  }
+}
+
 async function call(body) {
   let res;
   try {
     res = await fetch("/api/carousel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(withTrends(body)),
     });
   } catch {
     return { ok: false, message: "인터넷이 끊겼어요. 연결되면 다시 해주세요." };
