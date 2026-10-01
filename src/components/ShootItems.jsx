@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -71,8 +71,11 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, select
   const go = (stage, extra = {}) => act({ ...moveTo(x, stage, today), ...extra });
   const retryDue = x.stage === "request" && x.retryOn && x.retryOn <= today;
   // 카드 아래 한 줄 — 늘 한 줄을 차지해서 눌러도 카드 높이가 안 바뀐다
-  const line = x.refused && x.stage === "drop"
+  const gone = x.stage === "drop" || x.stage === "trash";
+  const line = x.refused && gone
     ? { text: `샘플 안 됨${x.refusedOn ? ` ${md(x.refusedOn)}` : ""}${x.refusedWhy ? ` · ${x.refusedWhy}` : ""}`, tone: "text-rose-700" }
+    : x.stage === "trash"
+    ? { text: `휴지통 ${md(x.trashedOn) || ""} — 다시 담으면 막아요`, tone: "text-stone-500" }
     : retryDue
     ? { text: `재요청 ${md(x.retryOn)} — ${x.memo || "다시 요청할 날이에요"}`, tone: "font-medium text-rose-700" }
     : x.returnedOn
@@ -107,7 +110,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, select
           <span className="flex flex-wrap gap-1">
             <DueBadge x={x} today={today} />
             {x.returning && !closed(x) && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납 예정</span>}
-            {x.refused && x.stage === "drop" && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">샘플 안 됨</span>}
+            {x.refused && gone && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">샘플 안 됨</span>}
             {x.packed && !x.returnedOn && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white">포장 완료</span>}
             {x.paid && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-medium text-white">결제함</span>}
             {x.returnedOn && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납함</span>}
@@ -214,8 +217,19 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, select
             </button>
           )}
           {tab === "drop" && (
-            <button type="button" onClick={x.refused ? act({ stage: "request", refused: false, refusedOn: "", refusedWhy: "" }) : go("arrived")} className={SUB + " flex w-full items-center justify-center gap-1"}>
-              <Undo2 size={12} /> {x.refused ? "요청으로 되돌리기" : "되살리기"}
+            <div className="flex gap-1">
+              <button type="button" onClick={x.refused ? act({ stage: "request", refused: false, refusedOn: "", refusedWhy: "" }) : go("arrived")} className={SUB + " flex items-center justify-center gap-1"}>
+                <Undo2 size={12} /> {x.refused ? "요청으로" : "되살리기"}
+              </button>
+              {/* 세원 10/1: "보류 드랍에서도 휴지통으로 가게. 나중에 까먹고 소싱할 때 막힐 수 있게. 안 되는 상품이면" */}
+              <button type="button" onClick={act({ stage: "trash", trashedOn: today })} title="안 되는 상품 — 휴지통에 두면 다음에 신마에서 다시 담을 때 막아요" className="flex shrink-0 items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-500 hover:bg-stone-50">
+                <Trash2 size={12} /> 휴지통
+              </button>
+            </div>
+          )}
+          {tab === "trash" && (
+            <button type="button" onClick={act({ stage: "drop", trashedOn: "" })} className={SUB + " flex w-full items-center justify-center gap-1"}>
+              <Undo2 size={12} /> 보류·드랍으로 되돌리기
             </button>
           )}
         </div>
@@ -411,6 +425,11 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               <Label title="도매가">
                 <input value={x.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="14000" className={FIELD} />
               </Label>
+              {!sample && (
+                <Label title={`사입 수량 (대납금 ${(buyAmount(x) || 0).toLocaleString("ko-KR")}원)`}>
+                  <input value={x.buyQty || ""} onChange={(e) => set({ buyQty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="1" className={FIELD} />
+                </Label>
+              )}
             </div>
             {linked &&
               onVendor &&
@@ -428,6 +447,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   </button>
                 </div>
               ))}
+            {x.refused && <ItemRefusal x={x} rec={(d.refusals || []).find((r) => (r.itemIds || []).includes(x.id))} />}
             <RefusalNote list={refusalsOf(d.refusals, x.vendorId, x.vendor)} />
             {(contactLines(x.contact).length > 0 || x.desc) && (
               <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
@@ -480,6 +500,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                     </option>
                   ))}
                   <option value="drop">보류·드랍</option>
+                  <option value="trash">휴지통</option>
                 </select>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -863,6 +884,26 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose, refusals = [], onDrop
 
 // ---------------------------------------------------------------- 샘플 거절
 
+/**
+ * 이 상품이 '안 됨'인 이유 — 상품 창 맨 위에.
+ * 세원 10/1: "워시드 페오니 티셔츠 / 논제 같은 경우 상품 하나만 안 되는 거잖아? 근데 상품 눌렀을 때 내용이 안 떠"
+ * ('이 상품만' 거절은 거래처 경고(RefusalNote)에 안 나오므로 상품 기록을 따로 보여 준다)
+ */
+function ItemRefusal({ x, rec }) {
+  const only = rec ? rec.scope === "item" : false;
+  const why = rec ? refusalText(rec) : x.refusedWhy || "이유 안 적음";
+  return (
+    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+      <span className="flex items-center gap-1 font-semibold">
+        <AlertTriangle size={12} /> {only ? "이 상품만 샘플이 안 돼요" : "샘플이 안 된다고 했어요"}
+        {x.refusedOn && <span className="font-normal text-rose-700/80">· {md(x.refusedOn)}</span>}
+      </span>
+      <p className="mt-0.5">{why}</p>
+      {x.stage === "trash" && <p className="mt-0.5 text-rose-700/80">휴지통에 버린 상품이에요 {x.trashedOn ? `(${md(x.trashedOn)})` : ""}</p>}
+    </div>
+  );
+}
+
 /** 그 거래처가 샘플을 거절한 기록 — 다음에 담을 때 "아 여기 안 되지" 하고 보게 */
 export function RefusalNote({ list, onDrop }) {
   if (!list?.length) return null;
@@ -1112,16 +1153,23 @@ function RetryCalendar({ items, today, day, onDay }) {
 
 // 세원 10/1: "픽업 요청 모아보기 누르면 오늘 받을 상품들이 나오잖아? 삼촌한테 '그랑블루/디오트 1층 J24' 이렇게 보내거든. 쫙 정리한 내용이 딱 나왔으면."
 // 거래처마다 한 줄(같은 거래처 상품이 여럿이어도 한 번), 건물·층 순서로. 위치는 상품에 적힌 것, 없으면 돈 › 거래처 주소.
+// 세원 10/1: 사입은 위치 옆에 대납금 — "플레이 PLAY / NPH(남평화) 3층 60 - 18000원 이런 식으로" (그 거래처 사입 상품의 도매가 × 수량 합)
 function PickupList({ items, vendors }) {
   const [note, setNote] = useState("");
   const seen = new Map();
   for (const x of items) {
     const v = vendors.find((y) => y.id === x.vendorId);
     const name = v?.name || x.vendor || "거래처 없음";
-    if (!seen.has(name)) seen.set(name, (x.place || v?.address || "").trim());
+    const cur = seen.get(name) || { place: (x.place || v?.address || "").trim(), pay: 0, noPrice: false };
+    cur.pay += buyAmount(x);
+    if (x.type === "buy" && !Number(x.price)) cur.noPrice = true;
+    seen.set(name, cur);
   }
-  const lines = [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1], "ko", { numeric: true })).map(([n, pl]) => (pl ? `${n}/${pl}` : n));
+  const rows = [...seen.entries()].sort((a, b) => a[1].place.localeCompare(b[1].place, "ko", { numeric: true }));
+  const lines = rows.map(([n, r]) => (r.place ? `${n} / ${r.place}` : n) + (r.pay ? ` - ${r.pay}원` : ""));
   const text = lines.join("\n");
+  const total = rows.reduce((t, [, r]) => t + r.pay, 0);
+  const missing = rows.filter(([, r]) => r.noPrice).map(([n]) => n);
   return (
     <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
       <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -1131,6 +1179,8 @@ function PickupList({ items, vendors }) {
         </button>
       </div>
       <pre className="font-sans text-sm leading-relaxed whitespace-pre-wrap text-stone-800 select-all">{text}</pre>
+      {total > 0 && <p className="mt-1.5 border-t border-emerald-200 pt-1.5 text-xs font-semibold text-emerald-900">사입 대납 합계 {total.toLocaleString("ko-KR")}원</p>}
+      {missing.length > 0 && <p className="mt-1 text-xs text-amber-800">도매가가 비어 대납금에서 빠진 사입: {missing.join(", ")} — 상품을 눌러 도매가를 적어 주세요.</p>}
       {note && <p className="mt-1 text-xs text-emerald-800">{note}</p>}
     </div>
   );
@@ -1192,7 +1242,7 @@ function ClipGuide({ onClose }) {
 
 // ---------------------------------------------------------------- 한 화면 흐름
 
-const TABS = [...STAGES.map(([k, label]) => [k, label]), ["drop", "보류·드랍"], ["returns", "반납·결제 예정"], ["returned", "반납 완료"]];
+const TABS = [...STAGES.map(([k, label]) => [k, label]), ["drop", "보류·드랍"], ["returns", "반납·결제 예정"], ["returned", "반납 완료"], ["trash", "휴지통"]];
 
 export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const today = dayKey();
@@ -1387,7 +1437,9 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           : tab === "returned"
             ? "거래처에 반납했거나 받은 걸 전부 결제한 샘플이에요. 반납한 날짜별로 모았어요."
             : tab === "drop"
-              ? "반납 등록했거나 보류한 상품이에요."
+              ? "반납 등록했거나 보류한 상품이에요. 안 되는 상품은 '휴지통'으로 — 다음에 신마에서 같은 상품을 담으면 막아 줘요."
+              : tab === "trash"
+              ? "버린 상품이에요. 신마에서 같은 상품을 다시 담으려고 하면 '휴지통에 버린 상품'이라고 막아요."
               : STAGES.find(([k]) => k === tab)?.[2]}
       </p>
 

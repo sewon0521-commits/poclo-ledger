@@ -140,13 +140,15 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
     }
   };
 
+  const trashed = state === "dup" && item?.stage === "trash";
+
   return (
     <div className="min-h-screen bg-stone-50 p-3 text-stone-800">
       <div className="mx-auto max-w-md space-y-3">
         <div
           className={
             "flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold " +
-            (state === "saved" ? "bg-emerald-50 text-emerald-900" : state === "dup" ? "bg-amber-50 text-amber-900" : state === "error" ? "bg-rose-50 text-rose-800" : "bg-white text-stone-600")
+            (state === "saved" ? "bg-emerald-50 text-emerald-900" : state === "dup" ? (trashed ? "bg-rose-600 text-white" : "bg-amber-50 text-amber-900") : state === "error" ? "bg-rose-50 text-rose-800" : "bg-white text-stone-600")
           }
         >
           {state === "saving" && <Loader2 size={16} className="animate-spin" />}
@@ -154,9 +156,19 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           {(state === "dup" || state === "error") && <AlertTriangle size={16} />}
           {state === "saving" && "담는 중…"}
           {state === "saved" && "'요청'에 담았어요"}
-          {state === "dup" && `이미 담긴 상품이에요 (${stageName(item?.stage)} 단계)`}
+          {state === "dup" && (trashed ? "휴지통에 버린 상품이에요 — 안 되는 상품이라 담지 않았어요" : `이미 담긴 상품이에요 (${stageName(item?.stage)} 단계)`)}
           {state === "error" && (msg || "담지 못했어요")}
         </div>
+
+        {/* 세원 10/1: "보류 드랍에서 휴지통으로. 나중에 까먹고 소싱할 때 막힐 수 있게" — 왜 버렸는지 같이 */}
+        {trashed && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+            {item.refused ? `샘플 안 됨${item.refusedOn ? ` ${md(item.refusedOn)}` : ""} · ${item.refusedWhy || "이유 안 적음"}` : "보류·드랍에서 버린 상품"}
+            {item.trashedOn && <span className="text-rose-700/80"> · 휴지통 {md(item.trashedOn)}</span>}
+            {item.memo && <span className="mt-0.5 block text-rose-700/80">메모: {item.memo}</span>}
+            <span className="mt-0.5 block text-rose-700/80">다시 하려면 신상 관리 › 휴지통에서 되돌리세요.</span>
+          </div>
+        )}
 
         {item && refused.length > 0 && (
           <div className="space-y-0.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
@@ -169,7 +181,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
             ))}
           </div>
         )}
-        {item && (
+        {item && !trashed && (
           <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-3">
             <div className="flex gap-3">
               <Photo url={photo} className="aspect-[3/4] w-28 shrink-0 rounded-xl" />

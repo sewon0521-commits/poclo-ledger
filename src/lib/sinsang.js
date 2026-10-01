@@ -21,6 +21,8 @@
 //    pickedOn, shootDate, shootOpts,       // 촬영 날짜 · 촬영 색상 및 사이즈
 //    shotOn, doneOn, channels:{cafe24},
 //    returning, hold, packed, packedOn, paid, returnedOn, returnDays,
+//    buyQty,                               // 사입 수량 (대납금 = 도매가 × 수량)
+//    trashedOn,                            // 휴지통에 버린 날 (stage "trash") — 다시 담으면 막는다
 //    notes:[{by, text, at}], createdAt}
 
 import { dayKey, shiftDay } from "./journal";
@@ -32,7 +34,13 @@ export const STAGES = [
   ["shot", "등록", "촬영 끝 — 상품등록 대기"],
   ["done", "업데이트 완료", "등록까지 끝난 상품"],
 ];
-export const stageName = (k) => (k === "drop" ? "보류·드랍" : STAGES.find(([s]) => s === k)?.[1] || "요청");
+export const stageName = (k) => (k === "drop" ? "보류·드랍" : k === "trash" ? "휴지통" : STAGES.find(([s]) => s === k)?.[1] || "요청");
+
+/**
+ * 사입 대납금 — 사입 상품의 도매가 × 수량(안 적으면 1장). 샘플은 0.
+ * 세원 10/1: "픽업 요청 모아보기에서 거래처 건물 옆에 - 대납금 적어줄 수 있나? '플레이 PLAY / NPH(남평화) 3층 60 - 18000원' 이런 식으로"
+ */
+export const buyAmount = (x) => (x.type === "buy" ? (Number(x.price) || 0) * (Number(x.buyQty) || 1) : 0);
 
 // 10/1 세원: "지금은 카페24 업로드 빼고 에이블리·지그재그·스마트스토어 다 없애줘"
 export const CHANNELS = [["cafe24", "카페24"]];
@@ -80,7 +88,8 @@ export function paidLabel(p) {
 /** 단계를 옮길 때 같이 적는 것 — 날짜는 그때 오늘로 */
 export function moveTo(x, stage, today = dayKey()) {
   const p = { stage };
-  if (stage !== "drop") p.refused = false;
+  if (stage !== "drop" && stage !== "trash") p.refused = false;
+  if (stage !== "trash") p.trashedOn = "";
   if (stage === "arrived") Object.assign(p, { arrivedOn: x.arrivedOn || today, returning: false, hold: false });
   if (stage === "pick") Object.assign(p, { pickedOn: x.pickedOn || today, returning: false, hold: false });
   if (stage === "shot") p.shotOn = x.shotOn || today;
