@@ -1032,6 +1032,82 @@ function KindMix({ items, kinds, kind, onKind }) {
   );
 }
 
+// ---------------------------------------------------------------- 재요청 달력
+
+// 세원 10/1: "재요청 모아보기 누르면 위에 캘린더 뜨고 언제 어딜 요청해야 되는지 — 살짝 날짜별로."
+// 한 달 달력에 재요청 날짜마다 거래처 이름(두 곳까지 + 외 N). 날짜를 누르면 그날 것만, 다시 누르면 전부. 아래 목록은 날짜별 묶음.
+const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+function RetryCalendar({ items, today, day, onDay }) {
+  const [ym, setYm] = useState(() => today.slice(0, 7)); // 늘 이번 달부터 — 지난 달에 밀린 건 아래 줄로 알려 준다
+  const behind = items.filter((x) => x.retryOn < `${ym}-01`).length;
+  const [y, m] = ym.split("-").map(Number);
+  const start = new Date(y, m - 1, 1).getDay();
+  const days = new Date(y, m, 0).getDate();
+  const byDay = new Map();
+  for (const x of items) byDay.set(x.retryOn, [...(byDay.get(x.retryOn) || []), x]);
+  const move = (d) => {
+    const t = new Date(y, m - 1 + d, 1);
+    setYm(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const cells = [...Array(start).fill(null), ...Array.from({ length: days }, (_, i) => `${ym}-${String(i + 1).padStart(2, "0")}`)];
+  return (
+    <div className="mb-3 rounded-xl border border-stone-200 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <button type="button" onClick={() => move(-1)} className="rounded-md px-2 py-1 text-stone-500 hover:bg-stone-100" aria-label="이전 달">
+          ‹
+        </button>
+        <span className="text-sm font-semibold text-stone-800">
+          {y}년 {m}월 재요청 <span className="font-normal text-stone-400">· 날짜를 누르면 그날 것만</span>
+        </span>
+        <button type="button" onClick={() => move(1)} className="rounded-md px-2 py-1 text-stone-500 hover:bg-stone-100" aria-label="다음 달">
+          ›
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-stone-400">
+        {WEEK.map((w) => (
+          <span key={w}>{w}</span>
+        ))}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-1">
+        {cells.map((k, i) => {
+          if (!k) return <span key={"e" + i} />;
+          const list = byDay.get(k) || [];
+          const names = [...new Set(list.map((x) => x.vendor || x.name))];
+          const past = k < today;
+          const tone = !list.length ? "" : past ? "border-rose-300 bg-rose-50" : k === today ? "border-amber-300 bg-amber-50" : "border-stone-300 bg-stone-50";
+          return (
+            <button
+              key={k}
+              type="button"
+              disabled={!list.length}
+              onClick={() => onDay(day === k ? "" : k)}
+              className={
+                "flex min-h-[3.1rem] flex-col items-start rounded-lg border p-1 text-left " +
+                (list.length ? tone + " hover:border-stone-500" : "border-transparent") +
+                (day === k ? " ring-2 ring-rose-600" : "")
+              }
+            >
+              <span className={"text-[11px] tabular-nums " + (k === today ? "rounded-full bg-stone-800 px-1.5 font-semibold text-white" : "text-stone-500")}>{Number(k.slice(8))}</span>
+              {names.slice(0, 2).map((n) => (
+                <span key={n} className={"w-full truncate text-[10px] leading-tight font-medium " + (past ? "text-rose-800" : "text-stone-700")}>
+                  {n}
+                </span>
+              ))}
+              {names.length > 2 && <span className="text-[10px] text-stone-400">외 {names.length - 2}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {behind > 0 && <p className="mt-2 text-xs font-medium text-rose-700">이전 달에 재요청 날짜가 지난 것 {behind}개 — 아래 목록 맨 위에 있어요.</p>}
+      {day && (
+        <button type="button" onClick={() => onDay("")} className="mt-2 text-xs text-stone-500 underline">
+          {dayTitle(day)}만 보는 중 — 전부 보기
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- 삼촌에게 보낼 픽업 목록
 
 // 세원 10/1: "픽업 요청 모아보기 누르면 오늘 받을 상품들이 나오잖아? 삼촌한테 '그랑블루/디오트 1층 J24' 이렇게 보내거든. 쫙 정리한 내용이 딱 나왔으면."
@@ -1135,6 +1211,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [q, setQ] = useState("");
   const [weekOnly, setWeekOnly] = useState(false);
   const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
+  const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
@@ -1182,9 +1259,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!kind || x.kind === kind) &&
         (!weekOnly || tab !== "pick" || (x.pickedOn || "") >= weekAgo) &&
         (!reqOnly || tab !== "request" || !!x[reqOnly]) &&
+        (!retryDay || reqOnly !== "retryOn" || x.retryOn === retryDay) &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
@@ -1193,6 +1271,13 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       for (const x of shown) m.set(keyOf(x), [...(m.get(keyOf(x)) || []), x]);
       return [...m.entries()].sort(sort);
     };
+    // 재요청 모아보기 — 재요청할 날짜별로 (지난 날짜는 빨갛게)
+    if (tab === "request" && reqOnly === "retryOn")
+      return by((x) => x.retryOn, (a, b) => a[0].localeCompare(b[0])).map(([day, l]) => {
+        const n = daysLeft(day, today);
+        const when = n < 0 ? `${-n}일 지남` : n === 0 ? "오늘" : n === 1 ? "내일" : `${n}일 뒤`;
+        return { title: `${dayTitle(day)} · ${when} · ${l.length}개`, sub: [...new Set(l.map((x) => x.vendor).filter(Boolean))].join(", "), tone: n < 0 ? "text-rose-700" : n === 0 ? "text-amber-700" : "text-stone-700", list: l };
+      });
     if (tab === "request")
       return by((x) => x.vendor || "거래처 없음", (a, b) => a[0].localeCompare(b[0], "ko")).map(([t, l]) => {
         const c = l.find((x) => contactLines(x.contact).length)?.contact;
@@ -1210,7 +1295,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
     if (tab === "returned")
       return by((x) => x.returnedOn || x.paid?.on || "", (a, b) => b[0].localeCompare(a[0])).map(([day, l]) => ({ title: day ? `${dayTitle(day)} · ${l.length}개` : `날짜 없음 · ${l.length}개`, list: l }));
     return [{ title: "", list: shown }];
-  }, [shown, tab, today, vendors, dealt, items, d.refusals]);
+  }, [shown, tab, today, vendors, dealt, items, d.refusals, reqOnly]);
 
   const patch = (x) => (p) => {
     // '요청으로 되돌리기' — 잘못 누른 것이니 그 거절 기록도 지운다
@@ -1327,7 +1412,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
             <button
               key={k}
               type="button"
-              onClick={() => setReqOnly(reqOnly === k ? "" : k)}
+              onClick={() => {
+                setReqOnly(reqOnly === k ? "" : k);
+                setRetryDay("");
+              }}
               aria-pressed={reqOnly === k}
               className={"rounded-full border px-3 py-1 text-xs font-medium " + (reqOnly === k ? "border-emerald-700 bg-emerald-700 text-white" : "border-stone-200 bg-white text-stone-600")}
             >
@@ -1354,6 +1442,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       </div>
 
       {tab === "request" && reqOnly === "pickup" && shown.length > 0 && <PickupList items={shown} vendors={vendors} />}
+      {tab === "request" && reqOnly === "retryOn" && <RetryCalendar items={items.filter((x) => x.stage === "request" && x.retryOn)} today={today} day={retryDay} onDay={setRetryDay} />}
 
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">

@@ -62,6 +62,84 @@ function Row({ s, today, onOpen }) {
   );
 }
 
+// ---------------------------------------------------------------- 어디에 얼마 쓰나 (세원 10/1: "그래프로 얼마를 어디서 쓰는지 가독성 좋고 예쁘게")
+//
+// 한 달 기준(연간은 12로 나눔). ① 분류별 한 줄 막대(부분 → 전체) + 아래 표처럼 읽히는 범례(색 · 분류 · 금액 · %)
+// ② 구독별 막대 — 가장 많이 나가는 것부터, 한 색(크기만 보는 것이라). 색은 분류 고정 순서(KINDS) — 금액 순위가 바뀌어도 색은 안 바뀐다.
+// 범주 색 6개는 dataviz 검사기 통과(색약 구분 OK). 노랑·초록·분홍이 바탕과 대비가 낮아 숫자는 늘 글자로 옆에 둔다.
+const KIND_COLOR = { "쇼핑몰·운영": "#2a78d6", "디자인·영상": "#eb6834", "AI·업무툴": "#1baf7a", "광고·마케팅": "#eda100", 고정비: "#e87ba4", 기타: "#008300" };
+const kindOf = (s) => (KIND_COLOR[s.kind] ? s.kind : "기타");
+
+function SpendChart({ list }) {
+  const [hover, setHover] = useState("");
+  const live = list.filter((s) => s.status !== "ended" && monthly(s) > 0);
+  const total = live.reduce((a, s) => a + monthly(s), 0);
+  if (!total) return null;
+  const kinds = KINDS.map((k) => ({ k, v: live.filter((s) => kindOf(s) === k).reduce((a, s) => a + monthly(s), 0) })).filter((x) => x.v > 0);
+  const rows = [...live].sort((a, b) => monthly(b) - monthly(a));
+  const top = rows.slice(0, 8);
+  const rest = rows.slice(8);
+  const max = monthly(rows[0]);
+  const pct = (v) => Math.round((v / total) * 100);
+
+  return (
+    <section className="mb-4 rounded-2xl border border-stone-200 bg-white p-4 sm:p-5">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h3 className="text-sm font-semibold text-stone-800">어디에 얼마 쓰나</h3>
+        <span className="text-xs text-stone-400">한 달 기준 · 연간은 12로 나눠서</span>
+      </div>
+
+      {/* 분류별 — 한 줄로 나눈 막대 */}
+      <div className="flex h-4 w-full gap-[2px] overflow-hidden rounded-md" role="img" aria-label={kinds.map((x) => `${x.k} ${won(x.v)}원`).join(", ")}>
+        {kinds.map((x) => (
+          <span
+            key={x.k}
+            title={`${x.k} · 월 ${won(x.v)}원 · ${pct(x.v)}%`}
+            onMouseEnter={() => setHover(x.k)}
+            onMouseLeave={() => setHover("")}
+            style={{ width: `${(x.v / total) * 100}%`, background: KIND_COLOR[x.k], opacity: hover && hover !== x.k ? 0.35 : 1 }}
+            className="h-full transition-opacity first:rounded-l-md last:rounded-r-md"
+          />
+        ))}
+      </div>
+      <ul className="mt-2.5 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+        {kinds.map((x) => (
+          <li key={x.k} onMouseEnter={() => setHover(x.k)} onMouseLeave={() => setHover("")} className={"flex items-center gap-2 rounded-md px-1 " + (hover === x.k ? "bg-stone-50" : "")}>
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: KIND_COLOR[x.k] }} />
+            <span className="flex-1 text-stone-700">{x.k}</span>
+            <span className="font-semibold text-stone-900 tabular-nums">{won(x.v)}원</span>
+            <span className="w-9 text-right text-xs text-stone-400 tabular-nums">{pct(x.v)}%</span>
+          </li>
+        ))}
+      </ul>
+
+      {/* 구독별 — 많이 나가는 것부터 */}
+      <div className="mt-4 space-y-1.5 border-t border-stone-100 pt-4">
+        {top.map((s) => {
+          const v = monthly(s);
+          return (
+            <div key={s.id} className="grid grid-cols-[6.5rem_1fr_auto] items-center gap-2.5 text-sm" title={`${s.name} · 월 ${won(v)}원 · 전체의 ${pct(v)}%`}>
+              <span className="truncate text-stone-700">{s.name}</span>
+              <span className="h-2.5 rounded-r bg-stone-100">
+                <span className="block h-full rounded-r" style={{ width: `${Math.max(2, (v / max) * 100)}%`, background: KIND_COLOR[kindOf(s)] }} />
+              </span>
+              <span className="w-24 text-right tabular-nums">
+                <b className="font-semibold text-stone-900">{won(v)}</b>
+                <span className="ml-1 text-xs text-stone-400">{pct(v)}%</span>
+              </span>
+            </div>
+          );
+        })}
+        {rest.length > 0 && (
+          <p className="pt-1 text-xs text-stone-400">
+            그 외 {rest.length}개 · 월 {won(rest.reduce((a, s) => a + monthly(s), 0))}원
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Editor({ seed, onSave, onRemove, onClose }) {
   const [x, setX] = useState({ ...EMPTY, ...seed });
   const set = (p) => setX((v) => ({ ...v, ...p }));
@@ -243,6 +321,8 @@ export default function SubsPage({ online }) {
           </div>
         </div>
       </section>
+
+      <SpendChart list={list} />
 
       {trialSoon.length > 0 && (
         <p className="mb-3 flex items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
