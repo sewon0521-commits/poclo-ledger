@@ -121,6 +121,8 @@ export default function InvoicePage({ vendors, rows, onRequestMessage, onBreakdo
         </p>
       </div>
 
+      {/* 10/2 세원: "계산서 받을 곳 위에 있는 전부를 고정 — 하나씩 체크하면서 위 숫자를 보는데 스크롤해서 체크하고 올라가서 보는 게 불편" */}
+      <div className="sticky top-0 z-20 -mx-4 border-b border-stone-200 bg-stone-50 px-4 pt-2 pb-2 sm:-mx-6 sm:px-6">
       <DateRange
         preset={preset}
         custom={custom}
@@ -130,9 +132,10 @@ export default function InvoicePage({ vendors, rows, onRequestMessage, onBreakdo
           setPicked(new Set());
         }}
       />
-      <p className="mt-1.5 text-xs text-stone-400">{rangeLabel(range)}</p>
+      <p className="mt-1.5 hidden text-xs text-stone-400 sm:block">{rangeLabel(range)}</p>
 
-      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+      {/* 폰에서는 고정 칸이 화면 절반을 먹지 않게 — 세 칸씩 작게 */}
+      <div className="mt-2 grid grid-cols-3 gap-1.5 sm:mt-3 sm:gap-2.5 lg:grid-cols-5">
         {[
           ["총매입 (공급가)", won(t.supply), "text-stone-900", undefined],
           // 부가세까지 보낸 이체는 실제로 나간 돈(공급가 + 부가세)으로 본다
@@ -147,23 +150,40 @@ export default function InvoicePage({ vendors, rows, onRequestMessage, onBreakdo
             key={label}
             type="button"
             onClick={() => openKpi(label, modes)}
-            className="rounded-xl border border-stone-200 bg-white p-3 text-left transition hover:border-stone-400 hover:bg-stone-50"
+            className="rounded-xl border border-stone-200 bg-white p-2 text-left transition hover:border-stone-400 hover:bg-stone-50 sm:p-3"
           >
-            <div className="flex items-center justify-between gap-1 text-xs text-stone-500">
+            <div className="flex items-center justify-between gap-1 text-[11px] leading-tight text-stone-500 sm:text-xs">
               {label}
-              <span className="text-[10px] text-stone-300">내역 ›</span>
+              <span className="hidden text-[10px] text-stone-300 sm:inline">내역 ›</span>
             </div>
-            <div className={"mt-0.5 font-semibold tabular-nums " + tone}>{value}</div>
+            <div className={"mt-0.5 text-sm font-semibold tabular-nums sm:text-base " + tone}>{value}</div>
           </button>
         ))}
       </div>
 
-      <p className="mt-2 text-xs text-stone-400">
+      <p className="mt-2 hidden text-xs text-stone-400 sm:block">
         {chosen.length > 0
           ? `아래에서 고른 ${chosen.length}곳만 합산했어요.`
           : "아래에서 거래처를 체크하면 위 칸에 합산돼요."}{" "}
         금액 칸을 누르면 그 금액이 나온 장끼가 떠요.
       </p>
+
+      {pending.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-stone-900">
+            계산서 받을 곳 <span className="text-stone-400">{pending.length}곳</span>
+            {chosen.length > 0 && <span className="ml-2 text-sm font-medium text-rose-700">고른 {chosen.length}곳 · 더 낼 부가세 {won(chosenVat)}</span>}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setPicked(allPicked ? new Set() : new Set(pending.map((v) => v.id)))}
+            className="text-sm font-medium text-rose-700"
+          >
+            {allPicked ? "선택 해제" : "전부 고르기"}
+          </button>
+        </div>
+      )}
+      </div>
 
       {pending.length === 0 ? (
         <div className="mt-4">
@@ -174,20 +194,7 @@ export default function InvoicePage({ vendors, rows, onRequestMessage, onBreakdo
         </div>
       ) : (
         <>
-          <div className="mt-5 mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-semibold text-stone-900">
-              계산서 받을 곳 <span className="text-stone-400">{pending.length}곳</span>
-            </h3>
-            <button
-              type="button"
-              onClick={() => setPicked(allPicked ? new Set() : new Set(pending.map((v) => v.id)))}
-              className="text-sm font-medium text-rose-700"
-            >
-              {allPicked ? "선택 해제" : "전부 고르기"}
-            </button>
-          </div>
-
-          <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 bg-white">
+          <ul className="mt-3 divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 bg-white">
             {pending.map((v) => (
               <VendorRow
                 key={v.id}

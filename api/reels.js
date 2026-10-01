@@ -36,6 +36,18 @@ export const config = { api: { bodyParser: { sizeLimit: "12mb" } }, maxDuration:
 
 // 10/2 Opus 5 → 5.5 (세원 요청): 입력 $4 · 출력 $20 / 100만 토큰 — 5보다 20% 싸다. effort 는 늘 직접 넣는다(5.5 기본값이 medium 이라).
 const MODEL = "claude-opus-5-5";
+/**
+ * 우리 촬영 환경 (세원 10/2: "특별한 말을 하지 않는 이상 기획 릴스나 룩북 릴스를 찍는 곳은 사무실 스튜디오야. 바닥은 밝은 우드톤
+ * 우드 장판, 벽은 흰색 벽. 보통 영상은 전부 셀카로 찍고 있어. 근데 내가 찍어주는 영상들도 있어서 크게 제약은 안 되겠다.")
+ * 기획(product·adapt·revise)마다 같이 준다. 메모에 다른 장소·방식이 있으면 메모가 먼저.
+ */
+const STUDIO_TEXT = `
+--- 우리 촬영 환경 (세원이 따로 말하지 않으면 늘 이 조건) ---
+- 장소: 사무실 스튜디오. 바닥은 밝은 우드톤 장판, 벽은 흰 벽. 소품이 적고 깔끔하다.
+- 촬영: 대부분 셀카로 찍는다(폰을 손에 들거나 세워 두고 모델이 혼자). 세원이 찍어 줄 때도 있어 다른 사람이 찍는 컷도 되지만, 셀카로 되는 컷을 먼저 짜라.
+- 그래서 장면(shot)은 이 스튜디오에서 바로 찍을 수 있게 — 흰 벽 앞 전신·상반신, 우드 바닥이 보이게 걸어오는 컷, 폰 거치 셀카, 손에 든 셀카 등. 옷 색이 흰 벽·밝은 우드와 붙어 보이면 각도·거리로 대비를 살리라고 한 줄.
+- 야외·카페 등 다른 장소가 꼭 필요한 기획이면 그렇게 적고 왜 필요한지 한 줄. 메모(세원 지시)에 장소·촬영 방식이 있으면 메모를 따른다.`;
+
 /** 요즘 트렌드 메모 (세원 10/2) — 앱의 '요즘 트렌드' 칸에 적은 것. 기획할 때마다 같이 준다 */
 const trendText = (body) =>
   body.trends ? `\n--- 요즘 트렌드·우리 방향 (세원·쇼만마 단톡에서 모은 메모 — 이 상품·구조에 맞는 것만 살리고, 억지로 다 넣지 말 것. 메모(세원 지시)와 부딪히면 메모가 먼저) ---\n${String(body.trends).slice(0, 2500)}` : "";
@@ -581,6 +593,7 @@ export default async function handler(req, res) {
         `본문:\n${plan.caption || ""}`,
         `해시태그: ${(plan.hashtags || []).join(" ")}`,
         trendText(body),
+        STUDIO_TEXT,
         history.length ? `\n--- 앞서 나눈 대화 ---\n${history.map((h) => `${h.role === "me" ? "세원" : "AI"}: ${h.text}`).join("\n")}` : "",
         `\n--- 이번 요청 ---\n${ask1}`,
       ].join("\n");
@@ -627,6 +640,7 @@ export default async function handler(req, res) {
         st.reason ? `판매 숫자: ${st.reason}` : "",
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
         trendText(body),
+        STUDIO_TEXT,
         redoText(body),
       ].join("\n");
       const imgs = photos.urls;
@@ -677,6 +691,7 @@ export default async function handler(req, res) {
         looksText(products, count),
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
         trendText(body),
+        STUDIO_TEXT,
         redoText(body),
       ].join("\n");
 
