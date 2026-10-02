@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Pencil, Send, Undo2, MessageSquare } from "lucide-react";
+import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Pencil, Send, Undo2, MessageSquare, Play, ChevronDown, ExternalLink } from "lucide-react";
 import { productReel, reviseReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS } from "../lib/reels";
 import { extractFrames } from "../lib/video";
 import { newId } from "../lib/id";
@@ -353,6 +353,194 @@ function PlanChat({ item, onSave }) {
   );
 }
 
+/**
+ * 기획안 안에서 레퍼런스 영상 보기 (10/2 세원: "대본 볼 때 나가서 레퍼런스를 보고 다시 들어와서 대본 보고… 너무 귀찮고 일이 분산돼.
+ * 그냥 대본 보면서 레퍼 볼 수 있게") — 넓은 화면은 대본 왼쪽에 세로 영상, 좁은 화면은 대본 위에 작은 영상(접기 가능).
+ * 섞어 만들기면 부분(훅·흐름·구도·말투)과 우리 영상 소스마다 골라 본다. 같은 영상을 여러 부분에 썼으면 한 칸으로 묶는다.
+ */
+function refClips(item, library) {
+  const find = (id) => (id ? library.find((i) => i.id === id) : null);
+  const out = [];
+  const add = (it, label, own) => {
+    const have = out.find((c) => c.id === it.id);
+    if (have) have.label += ` · ${label}`;
+    else out.push({ id: it.id, label, item: it, own });
+  };
+  if (!item.mix) {
+    const ref = find(item.refId);
+    if (ref) add(ref, "레퍼런스");
+    return out;
+  }
+  for (const [k, label] of MIX_PARTS) {
+    const it = find(item.mix[k]);
+    if (it) add(it, label);
+  }
+  (item.own || []).forEach((o, i) => {
+    const it = o.kind === "lib" && find(o.id);
+    if (it) add(it, `소스 ${i + 1}`, true);
+  });
+  return out;
+}
+
+const WIDE = "(min-width: 1024px)";
+function useWide() {
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(WIDE).matches);
+  useEffect(() => {
+    const m = window.matchMedia?.(WIDE);
+    if (!m) return;
+    const on = () => setWide(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
+// '[0:03]' 처럼 줄 앞에 붙은 레퍼런스 시각 → 초
+const STAMP = /^\s*\[(\d{1,2}):(\d{2})(?:\.\d+)?(?:\s*[-~–]\s*[\d:.]+)?\]\s*/;
+
+function RefPlayer({ clips, cur, onPick, fileUrl, seek, wide, fold, onFold, onOpenRef }) {
+  const clip = clips[cur] || clips[0];
+  const it = clip.item;
+  const [src, setSrc] = useState({}); // 영상 id → {video, thumb}
+  const [script, setScript] = useState(false);
+  const got = src[it.id];
+  const video = useRef(null);
+  useEffect(() => {
+    if (got || !fileUrl) return;
+    let alive = true;
+    Promise.all([it.hasVideo ? fileUrl(it.id) : null, fileUrl(`${it.id}-thumb.jpg`)]).then(([v, t]) => {
+      if (!alive) return;
+      // 앞뒤를 자른 영상은 같은 이름으로 덮였으니 예전 것이 안 나오게
+      const at = it.trim?.status === "done" && it.trim.at;
+      setSrc((p) => ({ ...p, [it.id]: { video: v && at ? `${v}${v.includes("?") ? "&" : "?"}v=${encodeURIComponent(at)}` : v, thumb: t } }));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [it, got, fileUrl]);
+  // 대본의 시각을 누르면 그 장면부터
+  useEffect(() => {
+    const v = video.current;
+    if (!seek || !v) return;
+    v.currentTime = seek.t;
+    v.play().catch(() => {});
+  }, [seek]);
+  // 접으면 멈춘다
+  useEffect(() => {
+    if (fold && !wide) video.current?.pause();
+  }, [fold, wide]);
+
+  const r = it.reference || {};
+  const kind = hookKind(r.structure?.hookType).name;
+  const media = got?.video ? (
+    // eslint-disable-next-line jsx-a11y/media-has-caption
+    <video
+      ref={video}
+      key={got.video}
+      src={got.video}
+      poster={got.thumb || undefined}
+      controls
+      playsInline
+      muted
+      loop
+      autoPlay
+      onLoadedData={(e) => e.currentTarget.play().catch(() => {})}
+      className="h-full w-full bg-black object-contain"
+    />
+  ) : got?.thumb ? (
+    <img src={got.thumb} alt="" className="h-full w-full object-contain" />
+  ) : (
+    <span className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-[11px] text-stone-500">
+      {got ? (
+        <>
+          <Clapperboard size={18} /> 영상이 보관되지 않았어요
+        </>
+      ) : (
+        <Loader2 size={16} className="animate-spin" />
+      )}
+    </span>
+  );
+  const tabs =
+    clips.length > 1 ? (
+      <div className="flex flex-wrap gap-1">
+        {clips.map((c, i) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => onPick(i)}
+            className={
+              "rounded-full px-2.5 py-1 text-[11px] font-medium " +
+              (c.id === clip.id ? "bg-white text-stone-900" : c.own ? "bg-sky-900/60 text-sky-100 hover:bg-sky-900" : "bg-stone-700 text-stone-200 hover:bg-stone-600")
+            }
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+    ) : null;
+  const info = (
+    <div className="min-w-0 space-y-0.5">
+      <div className="truncate text-xs font-semibold text-white">{it.title || r.title || "레퍼런스"}</div>
+      {kind && <div className="truncate text-[11px] text-stone-400">{kind}</div>}
+    </div>
+  );
+  const links = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+      {r.script && (
+        <button type="button" onClick={() => setScript(!script)} className="flex items-center gap-0.5 font-medium text-stone-300 hover:text-white">
+          레퍼 대본 <ChevronDown size={12} className={script ? "rotate-180" : ""} />
+        </button>
+      )}
+      {onOpenRef && (
+        <button type="button" onClick={() => onOpenRef(it)} className="flex items-center gap-0.5 text-stone-400 hover:text-white">
+          자세히 <ExternalLink size={11} />
+        </button>
+      )}
+    </div>
+  );
+  const refScript = script && r.script && (
+    <p className={"overflow-y-auto rounded-lg bg-stone-800 px-2.5 py-2 text-[11px] leading-relaxed whitespace-pre-wrap text-stone-200 " + (wide ? "" : "max-h-28")}>{r.script}</p>
+  );
+
+  if (wide)
+    return (
+      <aside className="flex w-[300px] shrink-0 flex-col gap-2.5 overflow-y-auto bg-stone-900 p-3">
+        {tabs}
+        <div className="aspect-[9/16] max-h-[60vh] w-full overflow-hidden rounded-lg bg-stone-950">{media}</div>
+        {info}
+        {links}
+        {refScript}
+      </aside>
+    );
+  return (
+    <div className="shrink-0 bg-stone-900 px-3 py-2">
+      {fold && (
+        <button type="button" onClick={() => onFold(false)} className="flex w-full items-center gap-2 py-0.5 text-left text-xs font-medium text-stone-200">
+          <Play size={13} className="fill-current" />
+          <span className="min-w-0 flex-1 truncate">
+            레퍼런스 영상 보기 <span className="text-stone-400">· {clip.label}</span>
+          </span>
+          <ChevronDown size={14} />
+        </button>
+      )}
+      <div className={fold ? "hidden" : "flex gap-3"}>
+        <div className="h-[200px] w-[113px] shrink-0 overflow-hidden rounded-lg bg-stone-950 sm:h-[260px] sm:w-[146px]">{media}</div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {tabs}
+          {info}
+          {links}
+          {refScript}
+          <button type="button" onClick={() => onFold(true)} className="mt-auto flex items-center gap-0.5 self-start text-[11px] text-stone-400 hover:text-white">
+            접기 <ChevronDown size={12} className="rotate-180" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const FOLD_KEY = "poclo_refplayer_fold";
+
 function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain, onClose }) {
   const p = item.plan || {};
   const ref = library.find((i) => i.id === item.refId);
@@ -366,6 +554,35 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
   }, [ref, fileUrl]);
   const tpl = ref?.reference?.template;
   const filledScript = tpl ? fillTemplate(tpl, item.filled) : "";
+  const clips = refClips(item, library);
+  const wide = useWide();
+  const [cur, setCur] = useState(0);
+  const [seek, setSeek] = useState(null);
+  const [fold, setFoldState] = useState(() => {
+    try {
+      return localStorage.getItem(FOLD_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setFold = (f) => {
+    setFoldState(f);
+    try {
+      localStorage.setItem(FOLD_KEY, f ? "1" : "0");
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
+  const show = (id) => {
+    const i = clips.findIndex((c) => c.id === id);
+    if (i >= 0) setCur(i);
+    setFold(false);
+  };
+  const seekTo = (t) => {
+    show(ref?.id);
+    setSeek((x) => ({ t, n: (x?.n || 0) + 1 }));
+  };
+  const canSeek = !item.mix && clips.length > 0 && clips[0].item.hasVideo;
   return (
     <div className="flex max-h-[92vh] flex-col">
       <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
@@ -382,6 +599,11 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
           <X size={20} />
         </button>
       </header>
+      {clips.length > 0 && !wide && (
+        <RefPlayer key={item.id} clips={clips} cur={cur} onPick={setCur} fileUrl={fileUrl} seek={seek} wide={false} fold={fold} onFold={setFold} onOpenRef={onOpenRef} />
+      )}
+      <div className="flex min-h-0 flex-1">
+      {clips.length > 0 && wide && <RefPlayer key={item.id} clips={clips} cur={cur} onPick={setCur} fileUrl={fileUrl} seek={seek} wide fold={false} onFold={setFold} onOpenRef={onOpenRef} />}
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
         {p.looks?.filter((l) => l.n > 0).length > 1 && (
           <div className="rounded-xl border border-stone-200 px-3 py-2">
@@ -405,7 +627,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
                   <li key={k} className="flex items-baseline gap-2">
                     <span className="w-20 shrink-0 font-semibold text-stone-700">{label}</span>
                     {it ? (
-                      <button type="button" onClick={() => onOpenRef(it)} className="min-w-0 truncate text-left text-rose-700 hover:underline">
+                      <button type="button" onClick={() => show(it.id)} title="이 영상을 위(옆) 화면에서 보기" className="min-w-0 truncate text-left text-rose-700 hover:underline">
                         {hookKind(it.reference?.structure?.hookType).name || it.title} · {it.title}
                       </button>
                     ) : (
@@ -417,7 +639,13 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
               {(item.own || []).map((o, i) => (
                 <li key={o.key} className="flex items-baseline gap-2">
                   <span className="w-20 shrink-0 font-semibold text-sky-800">소스 {i + 1}</span>
-                  <span className="min-w-0 truncate text-stone-600">우리 영상 · {o.title}</span>
+                  {o.kind === "lib" && clips.some((c) => c.id === o.id) ? (
+                    <button type="button" onClick={() => show(o.id)} className="min-w-0 truncate text-left text-sky-800 hover:underline">
+                      우리 영상 · {o.title}
+                    </button>
+                  ) : (
+                    <span className="min-w-0 truncate text-stone-600">우리 영상 · {o.title}</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -426,7 +654,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
         {ref && !item.mix && (
           <div className="rounded-xl border border-stone-200 px-3 py-2.5">
             <div className="mb-2 text-xs font-semibold text-stone-500">이 틀로 찍어요{item.auto ? " · 알아서 고름" : ""}</div>
-            <RefSummary item={ref} thumb={refThumb} onOpen={onOpenRef} />
+            <RefSummary item={ref} thumb={refThumb} />
           </div>
         )}
         {p.chosenWhy && (
@@ -439,10 +667,29 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
         {filledScript && (
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs font-semibold text-stone-500">레퍼런스 틀에 채운 대본</span>
+              <span className="text-xs font-semibold text-stone-500">
+                레퍼런스 틀에 채운 대본{canSeek && <span className="ml-1.5 font-normal text-stone-400">시각을 누르면 레퍼런스가 그 장면부터 나와요</span>}
+              </span>
               <CopyButton text={filledScript} />
             </div>
-            <p className="rounded-xl border border-stone-200 px-3 py-2.5 leading-relaxed whitespace-pre-wrap text-stone-800">{filledScript}</p>
+            <div className="rounded-xl border border-stone-200 px-3 py-2.5 leading-relaxed whitespace-pre-wrap text-stone-800">
+              {filledScript.split("\n").map((ln, i) => {
+                const m = canSeek && ln.match(STAMP);
+                if (!m) return <div key={i}>{ln || "\u00a0"}</div>;
+                return (
+                  <div key={i}>
+                    <button
+                      type="button"
+                      onClick={() => seekTo(Number(m[1]) * 60 + Number(m[2]))}
+                      className="mr-1 rounded bg-rose-50 px-1 text-xs font-medium text-rose-700 tabular-nums hover:bg-rose-100"
+                    >
+                      ▶ {m[0].trim()}
+                    </button>
+                    {ln.slice(m[0].length)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
         <EditableText key={`s${p.script}`} label="AI가 새로 쓴 대본" value={p.script} copy onSave={(v) => onSave({ ...item, plan: { ...p, script: v } })} />
@@ -489,6 +736,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
         <EditableText key={`c${p.caption}`} label="인스타 본문" value={p.caption} tone="soft" copy onSave={(v) => onSave({ ...item, plan: { ...p, caption: v } })} />
         <p className="-mt-1.5 px-1 text-xs text-stone-500">{(p.hashtags || []).join(" ")}</p>
         <PlanChat item={item} onSave={onSave} />
+      </div>
       </div>
       <footer className="flex shrink-0 items-center justify-between border-t border-stone-200 px-4 py-2.5">
         <button
@@ -590,8 +838,14 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
       {view && (
         <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
           <button type="button" aria-label="닫기" onClick={() => setView(null)} className="absolute inset-0 cursor-default" />
-          <div className="sheet relative z-10 w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
+          <div
+            className={
+              "sheet relative z-10 w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl " +
+              (refClips(plans.find((x) => x.id === view.id) || view, library).length ? "lg:max-w-5xl" : "")
+            }
+          >
             <PlanView
+              key={view.id}
               item={plans.find((x) => x.id === view.id) || view}
               library={library}
               fileUrl={fileUrl}
