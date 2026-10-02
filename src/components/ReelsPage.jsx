@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Clapperboard,
   Upload,
@@ -278,7 +278,7 @@ function statusOf(item, queue, target = "ref") {
   return { kind: "done" };
 }
 
-function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove, onBest }) {
+function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest }) {
   const r = item.reference || {};
   const pending = status.kind !== "done";
   return (
@@ -291,7 +291,7 @@ function Card({ item, thumbUrl, folderName, status, onOpen, folders, onMove, onB
       <button type="button" onClick={() => onOpen(item)} className="block w-full overflow-hidden rounded-t-xl text-left">
       <span className="relative block aspect-[3/4] bg-stone-100">
         {thumbUrl ? (
-          <img src={thumbUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+          <img src={thumbUrl} alt="" loading="lazy" decoding="async" onError={onThumbError} className="h-full w-full object-cover" />
         ) : (
           <span className="flex h-full w-full items-center justify-center text-stone-300">
             {pending && status.kind !== "error" ? <Loader2 size={24} className="animate-spin" /> : <Clapperboard size={28} />}
@@ -1096,7 +1096,14 @@ function SlotChip({ slot, value, onChange }) {
 // ------------------------------------------------------------------- 화면
 
 // 썸네일 서명 주소를 이 기기에 잠깐 남겨 둔다 (서명 4시간 → 3시간만 쓴다)
-const THUMB_CACHE = "poclo_reel_thumbs";
+// 10/2 밤 세원: "릴스 기획 썸네일 다 터졌다" — 예전 캐시(poclo_reel_thumbs)는 꺼내 쓴 주소의 기한도 매번 3시간씩 늘려서
+// 서명(4시간)이 끝난 주소를 계속 썼다. 이름을 바꿔 예전 것은 버리고, 기한은 처음 서명한 때부터만 센다.
+const THUMB_CACHE = "poclo_reel_thumbs2";
+try {
+  localStorage.removeItem("poclo_reel_thumbs");
+} catch {
+  /* 없어도 된다 */
+}
 function readThumbCache() {
   try {
     return JSON.parse(localStorage.getItem(THUMB_CACHE) || "{}");
@@ -1104,12 +1111,13 @@ function readThumbCache() {
     return {};
   }
 }
-function writeThumbCache(got) {
+/** 새로 서명한 주소만 넣는다 (fresh). drop = 안 열려서 버릴 열쇠 */
+function writeThumbCache(fresh, drop = []) {
   try {
     const now = Date.now();
     const old = readThumbCache();
-    const next = Object.fromEntries(Object.entries(old).filter(([, c]) => c.exp > now));
-    for (const [k, url] of Object.entries(got)) if (url) next[k] = { url, exp: now + 3 * 3600 * 1000 };
+    const next = Object.fromEntries(Object.entries(old).filter(([k, c]) => c.exp > now && !drop.includes(k)));
+    for (const [k, url] of Object.entries(fresh)) if (url) next[k] = { url, exp: now + 3 * 3600 * 1000 };
     localStorage.setItem(THUMB_CACHE, JSON.stringify(next));
   } catch {
     /* 가득 차면 그냥 다음에 다시 받는다 */
@@ -1159,6 +1167,7 @@ export default function ReelsPage({
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
   const [thumbs, setThumbs] = useState({});
+  const retried = useRef(new Set());
   const [urls, setUrls] = useState({});
 
   // 폴더를 한 번도 저장한 적 없으면 기본 갈래 + 예전 항목의 폴더 이름으로 보여준다.
@@ -1209,6 +1218,7 @@ export default function ReelsPage({
     let alive = true;
     (async () => {
       const got = {};
+      const fresh = {};
       const cache = readThumbCache();
       const need = [];
       for (const it of want) {
@@ -1219,10 +1229,10 @@ export default function ReelsPage({
       for (let i = 0; i < need.length; i += 100) {
         const part = need.slice(i, i + 100);
         const map = fileUrls ? await fileUrls(part.map((it) => `${it.id}-thumb.jpg`)) : {};
-        for (const it of part) got[thumbKey(it)] = map[`${it.id}-thumb.jpg`] || null;
+        for (const it of part) got[thumbKey(it)] = fresh[thumbKey(it)] = map[`${it.id}-thumb.jpg`] || null;
       }
       if (!alive) return;
-      writeThumbCache(got);
+      writeThumbCache(fresh);
       setThumbs((p) => ({ ...p, ...got }));
     })();
     return () => {
@@ -1471,6 +1481,17 @@ export default function ReelsPage({
               key={it.id}
               item={it}
               thumbUrl={thumbs[thumbKey(it)]}
+              onThumbError={() => {
+                const k = thumbKey(it);
+                if (retried.current.has(k)) return setThumbs((p) => ({ ...p, [k]: null }));
+                retried.current.add(k);
+                writeThumbCache({}, [k]);
+                setThumbs((p) => {
+                  const n = { ...p };
+                  delete n[k];
+                  return n;
+                });
+              }}
               folderName={pathName(folderIdOf(it, folders), folders)}
               status={statusOf(it, queue)}
               onOpen={openItem}
