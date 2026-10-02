@@ -16,6 +16,8 @@ import {
   Highlighter,
   Strikethrough,
   Italic,
+  Undo2,
+  ChevronDown,
 } from "lucide-react";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
 import { newId } from "../lib/id";
@@ -115,11 +117,35 @@ function Mirror({ text, className }) {
   );
 }
 
-/** 고른 글을 기호로 감싸기(이미 감싸여 있으면 풀기). 되돌리기(Ctrl+Z)가 되게 브라우저의 글 넣기를 쓴다 */
+/**
+ * 고른 글이 없을 때 꾸밀 자리 (10/3 세원: "형광펜 쓰면 ==== 나와" — 빈 자리에 기호만 들어갔다)
+ * 커서가 이미 꾸민 조각 안이면 그 조각(→ 풀기), 아니면 그 줄의 글 전체(줄 앞 점·체크·소제목·번호·시각은 빼고). 빈 줄이면 null.
+ */
+function markRange(text, pos, mark) {
+  const { start, line } = lineAt(text, pos);
+  const rel = pos - start;
+  const esc = mark.replace(/[*=~_`]/g, "\\$&");
+  const re = new RegExp(`${esc}(.+?)${esc}`, "g");
+  let m;
+  while ((m = re.exec(line))) {
+    if (rel >= m.index && rel <= m.index + m[0].length) return [start + m.index + mark.length, start + m.index + m[0].length - mark.length];
+  }
+  const head = line.match(/^(\s*(?:[-•◦*·✓☐☑■]\s+|#{1,3}\s+|\d+[.)]\s+)?(?:\d{1,2}:\d{2}\s+)?)/)[0].length;
+  const body = line.slice(head).replace(/\s+$/, "");
+  return body ? [start + head, start + head + body.length] : null;
+}
+
+/** 고른 글을 기호로 감싸기(이미 감싸여 있으면 풀기). 고른 글이 없으면 커서가 있는 줄(markRange) */
 function wrapMark(el, text, put, mark) {
   if (!el) return;
-  const s = el.selectionStart;
-  const e = el.selectionEnd;
+  let s = el.selectionStart;
+  let e = el.selectionEnd;
+  const caret = s === e ? s : null;
+  if (caret != null) {
+    const r = markRange(text, caret, mark);
+    if (!r) return;
+    [s, e] = r;
+  }
   const n = mark.length;
   const sel = text.slice(s, e);
   let a = s;
@@ -142,6 +168,9 @@ function wrapMark(el, text, put, mark) {
     selA = s + n;
     selB = e + n;
   }
+  // 커서만 있었으면 커서는 제자리(글자가 밀린 만큼만)
+  const grow = str.length - (b - a);
+  const c = caret == null ? null : Math.max(a, Math.min(a + str.length, caret + (caret >= s ? grow / 2 : 0)));
   el.focus();
   el.setSelectionRange(a, b);
   let ok = false;
@@ -150,8 +179,65 @@ function wrapMark(el, text, put, mark) {
   } catch {
     ok = false;
   }
-  if (!ok) return put(text.slice(0, a) + str + text.slice(b), selB);
-  el.setSelectionRange(selA, selB);
+  if (!ok) return put(text.slice(0, a) + str + text.slice(b), c ?? selB);
+  if (c != null) el.setSelectionRange(c, c);
+  else el.setSelectionRange(selA, selB);
+}
+
+/**
+ * 되돌리기 (10/3 세원: "모르고 지울 수도 있으니 Ctrl+Z 로 되살리는 건?")
+ * 점 목록·자동 바꾸기처럼 코드로 글을 바꾸면 브라우저의 Ctrl+Z 가 끊겨서 직접 쌓는다.
+ * 이어 친 글자·이어 지운 글자는 한 번에, 줄 나누기·들여쓰기·끝냄·여러 글자 지우기는 한 번씩.
+ */
+function useUndo() {
+  const h = useRef({ past: [], future: [], at: 0, kind: "" });
+  return useMemo(
+    () => ({
+      record(prev, caret, next, big) {
+        const st = h.current;
+        if (prev === next) return;
+        const now = Date.now();
+        const d = next.length - prev.length;
+        let kind = "big";
+        if (!big) {
+          if (d === 1) kind = "type";
+          else if (d === -1) kind = "erase";
+          else if (d === 0) {
+            // 한글 조합처럼 한 글자만 바뀐 것
+            let i = 0;
+            while (i < prev.length && prev[i] === next[i]) i++;
+            if (prev.slice(i + 1) === next.slice(i + 1)) kind = "type";
+          }
+        }
+        if (kind === "big" || kind !== st.kind || now - st.at > 800 || !st.past.length) {
+          st.past.push({ text: prev, caret });
+          if (st.past.length > 200) st.past.shift();
+        }
+        st.kind = kind;
+        st.at = now;
+        st.future = [];
+      },
+      step(dir, cur, caret) {
+        const st = h.current;
+        const from = dir < 0 ? st.past : st.future;
+        if (!from.length) return null;
+        const snap = from.pop();
+        (dir < 0 ? st.future : st.past).push({ text: cur, caret });
+        st.kind = "";
+        st.at = 0;
+        return snap;
+      },
+    }),
+    [],
+  );
+}
+
+/** Ctrl+Z 되돌리기 · Ctrl+Shift+Z / Ctrl+Y 다시 — 눌렸으면 true */
+function undoKeys(e, back) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || (e.code !== "KeyZ" && e.code !== "KeyY")) return false;
+  e.preventDefault();
+  back(e.code === "KeyZ" && !e.shiftKey ? -1 : 1);
+  return true;
 }
 
 // 단축키 — 노션과 같게. e.code 로 본다(한글 자판이어도 같은 키)
@@ -301,7 +387,9 @@ const AUTO = [
   ["--", "—"],
 ];
 
-function outlineKeys(text, put) {
+function outlineKeys(text, put, opts = {}) {
+  // 줄 나누기·들여쓰기·끝냄처럼 구조를 바꾸는 건 되돌리기 한 번씩
+  const step = (t, c) => put(t, c, { step: true });
   const onChange = (e) => {
     const v = e.target.value;
     const pos = e.target.selectionStart;
@@ -311,12 +399,12 @@ function outlineKeys(text, put) {
       const m = line.slice(0, pos - start).match(/^( *)[-*] $/);
       if (m) {
         const pre = bulletOf(depthOf(m[1]));
-        return put(v.slice(0, start) + pre + v.slice(pos), start + pre.length);
+        return step(v.slice(0, start) + pre + v.slice(pos), start + pre.length);
       }
       const box = line.slice(0, pos - start).match(/^( *)(?:[-•◦*·☐☑] )?\[ ?\] $/);
       if (box) {
         const pre = INDENT.repeat(depthOf(box[1])) + "☐ ";
-        return put(v.slice(0, start) + pre + v.slice(pos), start + pre.length);
+        return step(v.slice(0, start) + pre + v.slice(pos), start + pre.length);
       }
     }
     // -> → 처럼 두 글자 기호를 한 글자로 ('--' 는 줄 맨 앞이면 그대로 — '---' 가로줄을 쓸 수 있게)
@@ -324,7 +412,7 @@ function outlineKeys(text, put) {
       const two = v.slice(pos - 2, pos);
       const hit = AUTO.find(([k]) => k === two);
       const lineHead = v.slice(v.lastIndexOf("\n", pos - 1) + 1, pos);
-      if (hit && !(two === "--" && /^\s*--$/.test(lineHead))) return put(v.slice(0, pos - 2) + hit[1] + v.slice(pos), pos - 1);
+      if (hit && !(two === "--" && /^\s*--$/.test(lineHead))) return step(v.slice(0, pos - 2) + hit[1] + v.slice(pos), pos - 1);
     }
     if (typed === "\n") {
       const lineStart = v.lastIndexOf("\n", pos - 2) + 1;
@@ -334,11 +422,11 @@ function outlineKeys(text, put) {
       if (b && !b[3].trim()) {
         const d = depthOf(b[1]);
         const repl = d > 0 ? (BOX.includes(b[2]) ? INDENT.repeat(d - 1) + "☐ " : bulletOf(d - 1)) : "";
-        return put(v.slice(0, lineStart) + repl + v.slice(pos), lineStart + repl.length);
+        return step(v.slice(0, lineStart) + repl + v.slice(pos), lineStart + repl.length);
       }
-      if (n && !n[4].trim()) return put(v.slice(0, lineStart) + v.slice(pos), lineStart);
+      if (n && !n[4].trim()) return step(v.slice(0, lineStart) + v.slice(pos), lineStart);
       const add = b ? (BOX.includes(b[2]) ? INDENT.repeat(depthOf(b[1])) + "☐ " : bulletOf(depthOf(b[1]))) : n ? `${n[1]}${Number(n[2]) + 1}${n[3]} ` : "";
-      if (add) return put(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
+      if (add) return step(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
     }
     put(v);
   };
@@ -361,7 +449,7 @@ function outlineKeys(text, put) {
       if (!b) return;
       const d = depthOf(b[1]);
       const mark = b[2] === "☐" ? "☑" : b[2] === "☑" ? "☐" : b[2] === "✓" ? glyph(d) : "✓";
-      put(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), pos);
+      step(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), pos);
     } else if (e.key === "Tab") {
       e.preventDefault(); // 칸 밖으로 나가지 않게
       if (!b) return;
@@ -371,26 +459,27 @@ function outlineKeys(text, put) {
       const oldPre = b[1].length + 2;
       const mark = b[2] === "✓" || BOX.includes(b[2]) ? b[2] : glyph(nd);
       const pre = INDENT.repeat(nd) + mark + " ";
-      put(text.slice(0, start) + pre + b[3] + text.slice(end), Math.max(start + pre.length, pos + pre.length - oldPre));
+      step(text.slice(0, start) + pre + b[3] + text.slice(end), Math.max(start + pre.length, pos + pre.length - oldPre));
     } else if (e.key === "Backspace" && b && el.selectionEnd === pos && pos === start + b[1].length + 2) {
       e.preventDefault();
       const d = depthOf(b[1]);
       const pre = d > 0 ? bulletOf(d - 1) : "";
-      put(text.slice(0, start) + pre + b[3] + text.slice(end), start + pre.length);
+      step(text.slice(0, start) + pre + b[3] + text.slice(end), start + pre.length);
     }
   };
   // 노션처럼 체크박스(☐)를 누르면 켜고 끈다 — 누른 자리가 바로 ☐ 앞이나 뒤일 때만(글을 고치려고 누른 건 안 건드림)
+  // 할 일 칸(opts.tapDone)은 점(• ◦)을 눌러도 끝냄(✓) — 폰엔 Ctrl+엔터가 없어서 (10/3)
   const onMouseUp = (e) => {
     const el = e.currentTarget;
     if (el.selectionStart !== el.selectionEnd) return;
     const pos = el.selectionStart;
     const { start, end, line } = lineAt(text, pos);
     const b = line.match(LINE_ANY);
-    if (!b || !BOX.includes(b[2])) return;
+    if (!b || !(BOX.includes(b[2]) || (opts.tapDone && ["•", "◦", "✓"].includes(b[2])))) return;
     const at = start + b[1].length;
     if (pos !== at && pos !== at + 1) return;
-    const mark = b[2] === "☐" ? "☑" : "☐";
-    put(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), end);
+    const mark = b[2] === "☐" ? "☑" : b[2] === "☑" ? "☐" : b[2] === "✓" ? glyph(depthOf(b[1])) : "✓";
+    step(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), end);
   };
   return { onChange, onKeyDown, onMouseUp };
 }
@@ -449,7 +538,9 @@ function Editor({ initial, onSave }) {
     };
   }, [flush]);
 
-  const put = (next, caret) => {
+  const undo = useUndo();
+  const put = (next, caret, opts = {}) => {
+    if (opts.history !== false) undo.record(latest.current, box.current?.selectionStart ?? null, next, opts.step);
     setText(next);
     latest.current = next;
     setState("idle");
@@ -472,7 +563,15 @@ function Editor({ initial, onSave }) {
 
   // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
   // oxlint-disable-next-line react/refs, react-hooks/refs
-  const { onChange, onKeyDown, onMouseUp } = outlineKeys(text, put);
+  const keys = outlineKeys(text, put);
+  const { onChange, onMouseUp } = keys;
+  const back = (dir) => {
+    const snap = undo.step(dir, latest.current, box.current?.selectionStart ?? 0);
+    if (snap) put(snap.text, snap.caret ?? snap.text.length, { history: false });
+  };
+  const onKeyDown = (e) => {
+    if (!undoKeys(e, back)) keys.onKeyDown(e);
+  };
 
   const now = () => {
     const d = new Date();
@@ -674,6 +773,45 @@ function Dot({ depth, done }) {
   );
 }
 
+/** 글을 고친 줄인지 — 앞뒤로 이어 쓴 것이거나 글자가 절반 넘게 같으면 같은 할 일(적은 날 이어받기) */
+function similar(a, b) {
+  const x = String(a).replace(/\s/g, "");
+  const y = String(b).replace(/\s/g, "");
+  if (!x || !y) return false;
+  if (x.startsWith(y) || y.startsWith(x)) return true;
+  const m = new Map();
+  for (const c of x) m.set(c, (m.get(c) || 0) + 1);
+  let same = 0;
+  for (const c of y) {
+    if (m.get(c)) {
+      same++;
+      m.set(c, m.get(c) - 1);
+    }
+  }
+  return same / Math.max(x.length, y.length) >= 0.5;
+}
+
+/** 끝낸 줄(✓ ☑)을 글에서 뺀다 → [글, 커서] (커서가 뺀 줄에 있었으면 다음 줄 앞으로) */
+function dropDone(t, caret) {
+  const out = [];
+  let pos = 0;
+  let len = -1; // out 을 \n 으로 이은 길이
+  let c = null;
+  for (const ln of t.split("\n")) {
+    const end = pos + ln.length;
+    const m = ln.match(LINE_ANY);
+    const done = m && (m[2] === "✓" || m[2] === "☑") && m[3].trim();
+    if (!done) {
+      if (caret != null && c == null && caret <= end) c = len + 1 + Math.max(0, caret - pos);
+      out.push(ln);
+      len += ln.length + 1;
+    } else if (caret != null && c == null && caret <= end) c = len + 1;
+    pos = end + 1;
+  }
+  const text = out.join("\n");
+  return [text, c == null ? text.length : Math.min(Math.max(0, c), text.length)];
+}
+
 /** 할 일 → 글 (끝낸 줄은 ✓) */
 const todosToText = (items) =>
   items.map((t) => INDENT.repeat(t.depth || 0) + (t.box ? (t.done ? "☑" : "☐") : t.done ? "✓" : glyph(t.depth || 0)) + " " + t.text).join("\n");
@@ -693,13 +831,19 @@ function BoxMark({ done }) {
  * 끝낸 일은 줄 앞이 ✓ (Ctrl+엔터로 켜고 끔). 한 줄 = 할 일 하나. 멈추면 0.7초 뒤 저장할 때 글을 할 일 목록으로 되돌린다 —
  * 같은 글인 줄은 원래 할 일(적은 날·'…부터')을 이어받는다.
  */
-function TodoText({ items, date, today, startOn, editable, placeholder, onCommit }) {
+function TodoText({ items, date, today, startOn, editable, placeholder, onCommit, hideDone }) {
   const [text, setText] = useState(() => todosToText(items));
   const [focused, setFocused] = useState(false);
+  const [note, setNote] = useState(""); // '끝낸 일로 옮겼어요' 같은 잠깐 안내
   const box = useRef(null);
   const dirty = useRef(false);
   const timer = useRef(null);
+  const noteTimer = useRef(null);
   const caretTo = useRef(null);
+  // 끝내서 칸에서 뺀 할 일 · 지운 할 일 (id → 할 일) — Ctrl+Z 로 되살리면 같은 할 일(적은 날·'…부터' 그대로)로 돌아오게
+  const hidden = useRef(new Map());
+  const gone = useRef(new Map());
+  const undo = useUndo();
   const latest = useRef({ text, items, onCommit });
   useEffect(() => {
     latest.current = { text: latest.current.text, items, onCommit };
@@ -707,6 +851,11 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
 
   const sig = todosToText(items);
   useEffect(() => {
+    // 서버에 안 끝난 할 일로 있으면(다른 데서 되돌림) 더는 '뺀 것'이 아니다
+    for (const x of latest.current.items) {
+      hidden.current.delete(x.id);
+      gone.current.delete(x.id);
+    }
     // 적는 중이 아니면 서버에서 읽은 대로
     if (dirty.current || document.activeElement === box.current) return;
     // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
@@ -720,36 +869,84 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
     caretTo.current = null;
   });
 
+  const say = (msg) => {
+    setNote(msg);
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setNote(""), 7000);
+  };
+
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     if (!dirty.current) return;
     dirty.current = false;
     const { text: t, items: before, onCommit: commit } = latest.current;
-    const pool = [...before];
-    const next = [];
+    // 이 칸에 있던 할 일 (방금 끝내서 뺀 건 빼고 — 서버 답이 오기 전 예전 목록일 수 있어서)
+    const live = before.filter((x) => !hidden.current.has(x.id));
+    const pool = [...new Map([...live, ...hidden.current.values(), ...gone.current.values()].map((x) => [x.id, x])).values()];
+    const lines = [];
     for (const raw of t.split("\n")) {
       const m = raw.match(LINE_ANY);
       const body = (m ? m[3] : raw).trim();
       if (!body) continue;
-      const depth = m ? depthOf(m[1]) : 0;
-      const done = m?.[2] === "✓" || m?.[2] === "☑";
-      const box = BOX.includes(m?.[2]);
-      const k = pool.findIndex((x) => x.text === body);
-      const old = k >= 0 ? pool.splice(k, 1)[0] : null;
-      next.push({
-        ...(old || { id: newId("t"), createdOn: today, ...(startOn !== today ? { startOn } : {}) }),
-        text: body,
-        depth,
-        done,
-        box,
-        doneOn: done ? old?.doneOn || today : null,
-      });
+      lines.push({ body, depth: m ? depthOf(m[1]) : 0, done: m?.[2] === "✓" || m?.[2] === "☑", box: BOX.includes(m?.[2]) });
     }
-    commit(next);
-  }, [today, startOn]);
+    // 1) 같은 글 2) 글을 고친 줄 — 남은 할 일 중 비슷한 것
+    const used = new Set();
+    const match = lines.map((ln) => {
+      const k = pool.find((x) => !used.has(x.id) && x.text === ln.body);
+      if (k) used.add(k.id);
+      return k || null;
+    });
+    lines.forEach((ln, i) => {
+      if (match[i]) return;
+      const k = pool.find((x) => !used.has(x.id) && similar(x.text, ln.body));
+      if (k) {
+        match[i] = k;
+        used.add(k.id);
+      }
+    });
+    const next = lines.map((ln, i) => {
+      const old = match[i];
+      if (old) {
+        hidden.current.delete(old.id);
+        gone.current.delete(old.id);
+      }
+      return {
+        ...(old || { id: newId("t"), createdOn: today, ...(startOn !== today ? { startOn } : {}) }),
+        text: ln.body,
+        depth: ln.depth,
+        done: ln.done,
+        box: ln.box,
+        doneOn: ln.done ? old?.doneOn || today : null,
+      };
+    });
+    const removed = live.filter((x) => !used.has(x.id));
+    for (const x of removed) gone.current.set(x.id, x);
+    commit(next, removed.map((x) => x.id));
+
+    // 끝낸 줄은 칸에서 빼서 '끝낸 일'로 (10/3 세원: "다 한 일은 체크하면 사라지고 어디 따로 모아지게")
+    const doneNow = hideDone ? next.filter((x) => x.done) : [];
+    if (doneNow.length) {
+      for (const x of doneNow) hidden.current.set(x.id, x);
+      const el = box.current;
+      const here = !!el && document.activeElement === el;
+      let [nt, caret] = dropDone(t, here ? el.selectionStart : null);
+      if (!nt.trim() && here) {
+        nt = bulletOf(0);
+        caret = nt.length;
+      }
+      setText(nt);
+      latest.current.text = nt;
+      if (here) caretTo.current = caret;
+      say(`끝낸 일로 옮겼어요${doneNow.length > 1 ? ` (${doneNow.length}개)` : ""}`);
+    } else if (removed.length) {
+      say(`할 일 ${removed.length}개를 지웠어요`);
+    }
+  }, [today, startOn, hideDone]);
   useEffect(() => () => flush(), [flush]);
 
-  const put = (next, caret) => {
+  const put = (next, caret, opts = {}) => {
+    if (opts.history !== false) undo.record(latest.current.text, box.current?.selectionStart ?? null, next, opts.step);
     setText(next);
     latest.current.text = next;
     dirty.current = true;
@@ -759,7 +956,18 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
   };
   // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
   // oxlint-disable-next-line react/refs, react-hooks/refs
-  const { onChange, onKeyDown, onMouseUp } = outlineKeys(text, put);
+  const keys = outlineKeys(text, put, { tapDone: true });
+  const { onChange, onMouseUp } = keys;
+  // 되돌리기 — 끝내서 뺀 줄·지운 줄이 돌아오면 저장할 때 원래 할 일로 다시 이어진다
+  const back = (dir) => {
+    const snap = undo.step(dir, latest.current.text, box.current?.selectionStart ?? 0);
+    if (!snap) return;
+    put(snap.text, snap.caret ?? snap.text.length, { history: false });
+    setNote("");
+  };
+  const onKeyDown = (e) => {
+    if (!undoKeys(e, back)) keys.onKeyDown(e);
+  };
 
   if (!editable) {
     if (!items.length) return <p className="px-1 text-sm text-stone-400">없어요.</p>;
@@ -815,6 +1023,19 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
           className="relative block min-h-[3rem] w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 whitespace-pre-wrap text-transparent caret-stone-800 outline-none [field-sizing:content] [overflow-wrap:break-word] placeholder:text-stone-300 selection:bg-sky-200/60"
         />
       </div>
+      {note && (
+        <p className="mt-1 flex items-center gap-2 px-1 text-[11px] text-stone-500">
+          {note}
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => back(-1)}
+            className="flex items-center gap-0.5 rounded px-1 py-0.5 font-medium text-rose-700 hover:bg-rose-50"
+          >
+            <Undo2 size={11} /> 되돌리기 <span className="font-normal text-stone-400">Ctrl+Z</span>
+          </button>
+        </p>
+      )}
       {carried.length > 0 && (
         <p className="mt-1 flex flex-wrap items-center gap-x-2 px-1 text-[11px] text-amber-700">
           <CornerDownRight size={10} /> 넘어온 일:{" "}
@@ -835,23 +1056,26 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
  * '내일 할 일' 칸: startOn = 내일 → 오늘은 아래 칸에만, 내일이 되면 '오늘 할 일'로 올라온다.
  * 순서·들여쓰기(depth)는 목록 순서 그대로 저장한다.
  */
-function Todos({ todos, date, today, editable, onChange }) {
+function Todos({ todos, date, today, editable, onChange, onShowDone }) {
   const tomorrow = shiftDay(today, 1);
+  // 오늘 칸엔 안 끝낸 것만 — 끝내면 빠져서 '오늘 끝낸 일'로 (10/3). 지난 날은 그날 끝낸 것도 같이 보여 준다
   const shown = useMemo(
     () =>
       date === today
-        ? todos.filter((t) => (!t.done && startOf(t) <= today) || t.doneOn === today)
+        ? todos.filter((t) => !t.done && startOf(t) <= today)
         : todos.filter((t) => t.doneOn === date || (startOf(t) === date && !t.done)),
     [todos, date, today],
   );
   const later = useMemo(() => todos.filter((t) => !t.done && startOf(t) > today), [todos, today]);
+  const doneToday = useMemo(() => todos.filter((t) => t.done && t.doneOn === today), [todos, today]);
 
-  // 한 칸에서 고친 줄들을 전체 목록에 되넣는다 — 그 칸에 있던 줄은 빼고 새 순서로 붙인다
-  const commit = (before) => (next) =>
+  // 한 칸에서 고친 줄들을 전체 목록에 되넣는다 — 지운 줄은 빼고, 칸의 줄은 새 순서로 뒤에 붙인다
+  const commit = (next, removed = []) =>
     onChange((list) => {
-      const ids = new Set([...before.map((t) => t.id), ...next.map((t) => t.id)]);
+      const ids = new Set([...removed, ...next.map((t) => t.id)]);
       return [...list.filter((t) => !ids.has(t.id)), ...next];
     });
+  const undone = (id) => onChange((list) => list.map((t) => (t.id === id ? { ...t, done: false, doneOn: null } : t)));
 
   return (
     <div className="border-t border-stone-100 px-5 py-4">
@@ -863,9 +1087,11 @@ function Todos({ todos, date, today, editable, onChange }) {
         today={today}
         startOn={today}
         editable={editable && date === today}
-        placeholder="적고 엔터 · 탭으로 들여쓰기 · 끝낸 줄은 Ctrl+엔터(✓)"
-        onCommit={commit(shown)}
+        hideDone={date === today}
+        placeholder="적고 엔터 · 탭으로 들여쓰기 · 다 한 일은 점(•)을 누르거나 Ctrl+엔터 → '끝낸 일'로"
+        onCommit={commit}
       />
+      {date === today && <DoneToday items={doneToday} editable={editable} onUndo={undone} onAll={onShowDone} />}
 
       {date === today && (editable || later.length > 0) && (
         <div className="mt-4 border-t border-dashed border-stone-100 pt-3">
@@ -877,14 +1103,116 @@ function Todos({ todos, date, today, editable, onChange }) {
             today={today}
             startOn={tomorrow}
             editable={editable}
+            hideDone
             placeholder="내일이 되면 '오늘 할 일'로 올라와요"
-            onCommit={commit(later)}
+            onCommit={commit}
           />
         </div>
       )}
 
       {editable && date !== today && (
         <p className="mt-1 px-1 text-[11px] text-stone-400">새 할 일은 오늘 페이지에서 적어요. 못 한 건 끝낼 때까지 오늘로 넘어와요.</p>
+      )}
+    </div>
+  );
+}
+
+/** 끝낸 할 일 한 줄 — 되돌리면 다시 할 일로 */
+function DoneRow({ t, editable, onUndo, plain }) {
+  const wrote = startOf(t);
+  return (
+    <li className="flex items-start gap-2 rounded-md px-1 py-0.5 hover:bg-stone-50">
+      <Check size={13} className="mt-[5px] shrink-0 text-rose-700" />
+      <span className={"min-w-0 flex-1 text-sm leading-6 " + (plain ? "text-stone-800" : "text-stone-500 line-through decoration-stone-300")}>{marks(t.text)}</span>
+      {wrote && wrote !== t.doneOn && <span className="mt-1 shrink-0 text-[11px] text-stone-400">{shortDay(wrote)}부터</span>}
+      {editable && (
+        <button
+          type="button"
+          onClick={() => onUndo(t.id)}
+          title="안 끝낸 걸로 — 할 일로 돌아가요"
+          className="mt-0.5 flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+        >
+          <Undo2 size={11} /> 되돌리기
+        </button>
+      )}
+    </li>
+  );
+}
+
+/** 오늘 할 일 아래 — 오늘 끝낸 일 (펼쳐 보기) + 끝낸 일 전부 보기 */
+function DoneToday({ items, editable, onUndo, onAll }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 border-t border-dashed border-stone-100 pt-2">
+      <div className="flex items-center justify-between gap-2 px-1">
+        {items.length > 0 ? (
+          <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-1 text-xs font-medium text-stone-500 hover:text-stone-800">
+            <Check size={12} className="text-rose-700" /> 오늘 끝낸 일 {items.length}개
+            <ChevronDown size={12} className={open ? "rotate-180" : ""} />
+          </button>
+        ) : (
+          <span className="text-xs text-stone-300">오늘 끝낸 일 없음</span>
+        )}
+        {onAll && (
+          <button type="button" onClick={onAll} className="text-[11px] text-stone-400 hover:text-stone-700 hover:underline">
+            끝낸 일 전부 보기
+          </button>
+        )}
+      </div>
+      {open && items.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {items.map((t) => (
+            <DoneRow key={t.id} t={t} editable={editable} onUndo={onUndo} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** 끝낸 일 모아 보기 — 끝낸 날마다 (10/3 세원: "어디 따로 모아진 다음 나중에 볼 수 있게") */
+function DoneList({ data, name, editable, onUndo, onOpen }) {
+  const [limit, setLimit] = useState(14);
+  const groups = useMemo(() => {
+    const m = new Map();
+    for (const t of data.todos) {
+      if (!t.done || !t.doneOn) continue;
+      if (!m.has(t.doneOn)) m.set(t.doneOn, []);
+      m.get(t.doneOn).push(t);
+    }
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [data.todos]);
+  const total = groups.reduce((n, [, xs]) => n + xs.length, 0);
+  if (!total)
+    return (
+      <p className="rounded-2xl border border-stone-200 bg-white px-6 py-12 text-center text-sm text-stone-400">
+        {name}님이 끝낸 할 일이 아직 없어요. 할 일 줄의 점(•)을 누르거나 Ctrl+엔터를 누르면 여기로 모여요.
+      </p>
+    );
+  return (
+    <div className="space-y-3">
+      <p className="px-1 text-sm text-stone-500">
+        {name}님이 끝낸 일 <b className="font-semibold text-stone-800">{total}개</b> · {groups.length}일
+      </p>
+      {groups.slice(0, limit).map(([d, xs]) => (
+        <article key={d} className="rounded-2xl border border-stone-200 bg-white">
+          <header className="flex items-center justify-between border-b border-stone-100 px-5 py-2.5">
+            <button type="button" onClick={() => onOpen(d)} className="font-semibold text-stone-900 hover:text-rose-700">
+              {dayTitle(d)}
+            </button>
+            <span className="text-xs text-stone-400">{xs.length}개</span>
+          </header>
+          <ul className="space-y-0.5 px-4 py-3">
+            {xs.map((t) => (
+              <DoneRow key={t.id} t={t} editable={editable} onUndo={onUndo} plain />
+            ))}
+          </ul>
+        </article>
+      ))}
+      {groups.length > limit && (
+        <button type="button" onClick={() => setLimit((n) => n + 14)} className="w-full rounded-xl border border-stone-200 bg-white py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50">
+          더 보기 · {groups.length - limit}일 남음
+        </button>
       )}
     </div>
   );
@@ -1034,7 +1362,7 @@ export default function JournalPage({ online }) {
   const [today, setToday] = useState(dayKey);
   const [date, setDate] = useState(dayKey);
   const [q, setQ] = useState("");
-  const [view, setView] = useState("day"); // day 하루씩 | feed 모아 보기
+  const [view, setView] = useState("day"); // day 하루씩 | feed 모아 보기 | done 끝낸 일
 
   const load = useCallback(async () => {
     try {
@@ -1087,6 +1415,8 @@ export default function JournalPage({ online }) {
       }),
     [change, date],
   );
+
+  const setTodos = useCallback((fn) => change((v) => ({ ...v, todos: fn(v.todos) })).catch(() => {}), [change]);
 
   const pickMe = (k) => {
     try {
@@ -1157,6 +1487,7 @@ export default function JournalPage({ online }) {
           {[
             ["day", "하루씩"],
             ["feed", "모아 보기"],
+            ["done", "끝낸 일"],
           ].map(([k, label]) => (
             <button
               key={k}
@@ -1193,6 +1524,18 @@ export default function JournalPage({ online }) {
             setWho(k);
             setDate(d);
             setQ("");
+            setView("day");
+          }}
+        />
+      ) : view === "done" ? (
+        <DoneList
+          key={who}
+          data={data}
+          name={nameOf(who)}
+          editable={editable}
+          onUndo={(id) => setTodos((list) => list.map((t) => (t.id === id ? { ...t, done: false, doneOn: null } : t)))}
+          onOpen={(d) => {
+            setDate(d);
             setView("day");
           }}
         />
@@ -1243,7 +1586,7 @@ export default function JournalPage({ online }) {
                   isToday={date === today}
                   onSave={savePage}
                 />
-                <Todos todos={data.todos} date={date} today={today} editable={editable} onChange={(fn) => change((v) => ({ ...v, todos: fn(v.todos) })).catch(() => {})} />
+                <Todos todos={data.todos} date={date} today={today} editable={editable} onChange={setTodos} onShowDone={() => setView("done")} />
               </>
             ) : (
               <div className="flex h-60 items-center justify-center text-stone-300">
