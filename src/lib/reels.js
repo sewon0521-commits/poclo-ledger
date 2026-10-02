@@ -108,6 +108,23 @@ export function mixPayload(library, mix) {
 /** 채팅으로 고치기 (9/29) — 지금 기획 + 대화 + 요청 → 고친 기획 + reply */
 export const reviseReel = ({ plan, history, message }) => call({ mode: "revise", plan, history, message });
 
+/** 사람이 고친 대본으로 구조·문장별 분석·빈칸 틀 다시 짜기 (10/2) — 글만 보내서 싸다 */
+export const restructureReel = ({ reference, script, meta }) =>
+  call({
+    mode: "restructure",
+    effort: "low",
+    script,
+    reference: { scenes: reference?.scenes || [], kind: reference?.kind || "", seconds: reference?.seconds || 0, captionStyle: reference?.captionStyle || "" },
+    meta,
+  });
+
+/** 대본 줄 앞 시각 '[0:03.5]' → {t: 초, label, rest} */
+export const STAMP = /^\s*\[(\d{1,2}):(\d{2}(?:\.\d+)?)\]\s*/;
+export function stampOf(line) {
+  const m = String(line || "").match(STAMP);
+  return m ? { t: Number(m[1]) * 60 + Number(m[2]), label: `${m[1]}:${m[2]}`, rest: line.slice(m[0].length) } : null;
+}
+
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
 export const adaptScript = ({ reference, looks, memo, avoid, direction }) =>
   call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction });

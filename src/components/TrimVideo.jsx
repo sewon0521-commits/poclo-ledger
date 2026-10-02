@@ -14,8 +14,16 @@ import { extractWav, saveBlob } from "../lib/audio";
 const fmt = (s) => `${Math.max(0, s).toFixed(1)}초`;
 const MIN_LEN = 0.5;
 
-export default function TrimVideo({ src, trim, hasOrig, step, className, onTrim, onRestore, name = "포클로" }) {
+export default function TrimVideo({ src, trim, hasOrig, step, className, onTrim, onRestore, name = "포클로", seekTo }) {
   const ref = useRef(null);
+  // 대본의 시각을 누르면 그 장면부터 (10/2) — seekTo = {t, n}
+  useEffect(() => {
+    const v = ref.current;
+    if (!seekTo || !v) return;
+    v.currentTime = seekTo.t;
+    v.play().catch(() => {});
+    v.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [seekTo]);
   const bar = useRef(null);
   const [dur, setDur] = useState(0);
   const [edit, setEdit] = useState(false);

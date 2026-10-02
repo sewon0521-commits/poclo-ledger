@@ -18,9 +18,13 @@ import {
   TrendingUp,
   Mic,
   Star,
+  Pencil,
+  Timer,
+  Type,
+  Eye,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
-import { readScript, adaptScript, fillTemplate, splitTemplate } from "../lib/reels";
+import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf } from "../lib/reels";
 import LookPicker from "./LookPicker";
 import { emptyLook } from "../lib/looks";
 import { newId } from "../lib/id";
@@ -428,9 +432,150 @@ function Meta({ meta }) {
   );
 }
 
-function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze }) {
+/**
+ * 뽑은 대본 (10/2 세원: "분석할 때 틀린 대본들이 있어서 내가 편집할 수 있게")
+ * 줄 앞 시각을 누르면 왼쪽 영상이 그 장면부터. '고치기'로 바로잡으면 구조·빈칸 틀은 예전 대본 기준이라
+ * '고친 대본으로 다시 짜기'(글만 보내 싸다)를 띄운다. 예전 방식(장면 10~18장)으로 뽑은 건 '대본 다시 뽑기'.
+ */
+function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
+  const r = item.reference || {};
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const save = async () => {
+    const script = v.replace(/\s+$/, "");
+    setEdit(false);
+    if (script === (r.script || "")) return;
+    await onSave({ ...item, reference: { ...r, script, scriptEditedAt: new Date().toISOString(), stale: true } });
+  };
+  const rebuild = async () => {
+    setBusy(true);
+    setMsg("");
+    const res = await restructureReel({ reference: r, script: r.script, meta: item.meta });
+    setBusy(false);
+    if (!res.ok) return setMsg(res.message);
+    const { _cost, ...data } = res.data;
+    await onSave({
+      ...item,
+      title: item.title,
+      reference: { ...r, ...data, script: r.script, scriptEditedAt: r.scriptEditedAt, stale: false, dense: r.dense, seconds: r.seconds || data.seconds },
+      rebuildCost: _cost || null,
+    });
+    setMsg(`고친 대본으로 다시 짰어요${_cost?.won ? ` · 약 ${_cost.won}원` : ""}`);
+  };
+  const lines = String(r.script || "").split("\n");
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-stone-500">
+          뽑은 대본
+          {r.dense && <span className="ml-1.5 font-normal text-stone-400">자막 1초에 {r.dense.fps}번 확인</span>}
+          {r.scriptEditedAt && <span className="ml-1.5 rounded bg-amber-100 px-1 font-medium text-amber-800">직접 고침</span>}
+        </span>
+        {!edit && (
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setV(r.script || "");
+                setEdit(true);
+              }}
+              className="flex items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
+            >
+              <Pencil size={12} /> 고치기
+            </button>
+            <CopyButton text={r.script || ""} />
+          </span>
+        )}
+      </div>
+      {edit ? (
+        <div className="space-y-1.5">
+          <textarea
+            value={v}
+            autoFocus
+            onChange={(e) => setV(e.target.value)}
+            className="block min-h-[12rem] w-full rounded-xl border border-rose-400 px-3 py-2.5 text-sm leading-relaxed text-stone-800 outline-none [field-sizing:content]"
+          />
+          <p className="text-[11px] text-stone-400">줄 앞 [0:03.5] 은 시각이에요. 그대로 두고 글자만 고치면 돼요. 목소리로만 한 말은 시각 뒤에 ‘말:’.</p>
+          <span className="flex justify-end gap-1.5">
+            <button type="button" onClick={() => setEdit(false)} className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600">
+              그만두기
+            </button>
+            <button type="button" onClick={save} className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white">
+              저장
+            </button>
+          </span>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-stone-200 px-3 py-2 text-sm leading-relaxed">
+          {lines.map((ln, i) => {
+            if (!ln.trim()) return <div key={i} className="h-2" />;
+            const st = stampOf(ln);
+            const body = st ? st.rest : ln;
+            const said = /^말\s*[:：]/.test(body);
+            return (
+              <div key={i} className="flex items-start gap-2 py-0.5">
+                {st &&
+                  (canSeek ? (
+                    <button
+                      type="button"
+                      onClick={() => onSeek(st.t)}
+                      title="이 장면부터 영상 보기"
+                      className="mt-0.5 shrink-0 rounded bg-rose-50 px-1 text-[11px] font-medium text-rose-700 tabular-nums hover:bg-rose-100"
+                    >
+                      ▶ {st.label}
+                    </button>
+                  ) : (
+                    <span className="mt-0.5 shrink-0 text-[11px] text-stone-400 tabular-nums">{st.label}</span>
+                  ))}
+                <span className={said ? "text-stone-500" : "text-stone-900"}>
+                  {said && <span className="mr-1 rounded bg-stone-100 px-1 text-[10px] text-stone-500">말</span>}
+                  {said ? body.replace(/^말\s*[:：]\s*/, "") : body}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {r.stale && !edit && (
+        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+          대본을 고쳤어요. 구조·문장별 분석·빈칸 틀은 아직 예전 대본 기준이에요.
+          <button
+            type="button"
+            disabled={busy}
+            onClick={rebuild}
+            className="mt-2 flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+          >
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />}
+            {busy ? "다시 짜는 중… (30초쯤)" : "고친 대본으로 다시 짜기 · 약 100~150원"}
+          </button>
+        </div>
+      )}
+      {msg && <p className="mt-1.5 text-xs text-stone-500">{msg}</p>}
+      {!r.dense && item.hasVideo && onReExtract && !edit && (
+        <div className="mt-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-xs text-stone-600">
+          예전 방식으로 뽑은 대본이에요(장면 사진 10~18장만 봄). 빨리 지나가는 자막을 놓쳤을 수 있어요.
+          <button
+            type="button"
+            onClick={() => {
+              if (r.scriptEditedAt && !window.confirm("직접 고친 대본도 새로 뽑은 대본으로 바뀌어요. 다시 뽑을까요?")) return;
+              onReExtract(item);
+            }}
+            className="mt-2 flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-rose-300"
+          >
+            <Wand2 size={13} /> 대본 다시 뽑기 — 자막 0.33초마다 확인 · 약 150~300원
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract }) {
   const r = item.reference || {};
   const status = statusOf(item, queue);
+  const [seek, setSeek] = useState(null);
   const [tab, setTab] = useState(item.plan ? "write" : "script");
   // 룩 단위로 상품을 담는다 (9/23). 예전에 주소 하나로 만든 기획은 그 주소를 룩 1 로 옮긴다.
   const [looks, setLooks] = useState(() =>
@@ -550,6 +695,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               name={item.title}
               trim={item.trim}
               hasOrig={item.hasOrig}
+              seekTo={seek}
               step={queue.find((j) => j.id === item.id && j.target === "trim")?.step}
               className="w-full rounded-lg"
               onTrim={(s, e) => onTrim(item, "trim", s, e)}
@@ -629,13 +775,13 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
 
               {tab === "script" && (
                 <>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-stone-500">자동으로 뽑은 대본</span>
-                    <CopyButton text={r.script || ""} />
-                  </div>
-                  <p className="rounded-xl border border-stone-200 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">
-                    {r.script}
-                  </p>
+                  <ScriptBox
+                    item={item}
+                    canSeek={!!urls.video}
+                    onSeek={(t) => setSeek((x) => ({ t, n: (x?.n || 0) + 1 }))}
+                    onSave={onSave}
+                    onReExtract={onReExtract}
+                  />
                   {item.transcript && (
                     <details className="mt-2 rounded-xl border border-stone-200 px-3 py-2 text-sm">
                       <summary className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-stone-500">
@@ -710,6 +856,38 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                         <br />
                         {r.hookFormula.why}
                       </p>
+                    </div>
+                  )}
+                  {(r.rhythm || r.captionStyle || r.retention?.length > 0) && (
+                    <div className="mb-3 space-y-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
+                      {r.rhythm && (
+                        <div>
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+                            <Timer size={13} /> 자막·컷 리듬
+                          </div>
+                          <p className="mt-0.5 text-sm leading-relaxed text-stone-800">{r.rhythm}</p>
+                        </div>
+                      )}
+                      {r.captionStyle && (
+                        <div>
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+                            <Type size={13} /> 자막 모양
+                          </div>
+                          <p className="mt-0.5 text-sm leading-relaxed text-stone-800">{r.captionStyle}</p>
+                        </div>
+                      )}
+                      {r.retention?.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-700">
+                            <Eye size={13} /> 끝까지 보게 만드는 장치
+                          </div>
+                          <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-sm leading-relaxed text-stone-800">
+                            {r.retention.map((x, i) => (
+                              <li key={i}>{x}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                   {r.lines?.length > 0 && (
@@ -1273,6 +1451,12 @@ export default function ReelsPage({
     await onQueue(id, "ref", analyze ? {} : { analyze: false });
   };
 
+  /** 대본 다시 뽑기 (10/2) — 예전 방식으로 뽑은 레퍼런스를 자막 띠로 다시. 분석기는 보관된 영상을 쓴다 */
+  const reExtract = async (item) => {
+    await onSave({ ...item, job: { status: "queued", at: new Date().toISOString() } });
+    await onQueue(item.id, "ref");
+  };
+
   /** 보관만 한 영상을 나중에 분석 (9/23 세원: "나중에 분석이 필요하면 영상 눌러서 따로 분석하기") */
   const analyzeLater = async (item) => {
     await onSave({ ...item, job: { status: "queued", at: new Date().toISOString() } });
@@ -1526,6 +1710,7 @@ export default function ReelsPage({
               onTrim={trimVideo}
               stats={stats}
               onAnalyze={analyzeLater}
+              onReExtract={reExtract}
             />
           </div>
         </div>

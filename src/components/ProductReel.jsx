@@ -396,7 +396,7 @@ function useWide() {
 }
 
 // '[0:03]' 처럼 줄 앞에 붙은 레퍼런스 시각 → 초
-const STAMP = /^\s*\[(\d{1,2}):(\d{2})(?:\.\d+)?(?:\s*[-~–]\s*[\d:.]+)?\]\s*/;
+const STAMP = /^\s*\[(\d{1,2}):(\d{2}(?:\.\d+)?)(?:\s*[-~–]\s*[\d:.]+)?\]\s*/;
 
 function RefPlayer({ clips, cur, onPick, fileUrl, seek, wide, fold, onFold, onOpenRef }) {
   const clip = clips[cur] || clips[0];

@@ -60,11 +60,17 @@ const ScriptSchema = z.object({
   kind: z.string().describe("영상 형태. '자막형' / '목소리형' / '자막+목소리' / '브이로그형' 중 하나"),
   seconds: z.number().describe("대략 몇 초짜리로 보이는지. 모르면 0"),
   hook: z.string().describe("첫 1~3초에 쓰인 훅. 화면에 뜬 글자가 있으면 그대로"),
-  script: z.string().describe("전체 대본을 한글로. 자막이면 자막 그대로, 말이면 말한 대로. 줄바꿈으로 나눈다"),
+  script: z
+    .string()
+    .describe(
+      "전체 대본. **한 줄에 자막(또는 말) 하나**, 줄 앞에 그 자막이 처음 뜬 시각을 [0:03.5] 처럼 붙인다(초는 소수 한 자리). " +
+      "자막은 글자 그대로. 화면 자막이 아니라 목소리로만 한 말은 시각 뒤에 '말:' 을 붙여 구분한다(예: '[0:04.0] 말: 제일 만만한 건…'). " +
+      "줄은 **시각 순서대로**(자막과 말이 섞여도). 시각을 모르면 줄 앞에 아무것도 붙이지 않는다",
+    ),
   scenes: z
     .array(
       z.object({
-        at: z.string().describe("대략 시점. 예: '0~2초'"),
+        at: z.string().describe("시점. 예: '0:00~0:02.5'"),
         visual: z.string().describe("화면에 무엇이 보이는지 (구도·동작·장소)"),
         text: z.string().describe("그 장면의 자막/말. 없으면 빈 문자열"),
       }),
@@ -76,6 +82,18 @@ const ScriptSchema = z.object({
     cta: z.string().describe("마지막에 시키는 행동. 없으면 '없음'"),
     whyItWorks: z.string().describe("이 릴스가 먹히는 이유 2~3줄"),
   }),
+  rhythm: z
+    .string()
+    .describe(
+      "자막·컷 리듬 2~3줄. 자막이 몇 개이고 평균 몇 초에 하나씩 바뀌는지(대본 줄 수·시각으로 센다), 컷 전환 수, " +
+      "그 속도가 보는 사람에게 무엇을 하게 만드는지. 예: '자막 34개가 평균 0.6초마다 바뀌어 읽느라 끝까지 보게 된다'",
+    ),
+  captionStyle: z
+    .string()
+    .describe("자막 모양 1~2줄 — 화면 위치·글자 크기·색·테두리·강조 방식·한 번에 몇 글자. 우리가 따라 만들 때 쓰게. 자막이 없으면 빈 문자열"),
+  retention: z
+    .array(z.string())
+    .describe("끝까지 보게 만드는 장치 2~4개. 예: '1. 2. 번호로 몇 개 남았는지 궁금하게', '최고의 포인트는…으로 끊고 다음 컷에서 공개'"),
   empathy: z.string().describe("공감 포인트 — 보는 사람이 왜 손가락을 멈추는지 2~3줄"),
   hookFormula: z.object({
     line: z.string().describe("훅 문장 그대로"),
@@ -123,11 +141,24 @@ const ScriptSchema = z.object({
   note: z.string().describe("소리를 못 들어서 놓쳤을 수 있는 부분 등 솔직한 한계. 없으면 빈 문자열"),
 });
 
+// 고친 대본으로 다시 짤 때 새로 쓰는 칸만 (장면·성과·자막 모양은 그대로 — 10/2 전부 다시 쓰니 209원이라 줄임)
+const RestructureSchema = ScriptSchema.pick({
+  hook: true,
+  structure: true,
+  rhythm: true,
+  retention: true,
+  empathy: true,
+  hookFormula: true,
+  lines: true,
+  template: true,
+  slots: true,
+});
+
 const SCRIPT_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. 아래 사진들은 **레퍼런스 릴스 영상에서
 시간 순서대로 떠낸 장면들**이다. 사진 앞에 붙은 시간(초)을 보고 흐름을 읽어라.
 
 **할 일**
-1. 화면에 박힌 자막을 **글자 그대로** 읽어라. 자막이 릴스 대본이다. 맞춤법을 고치지 마라.
+1. 화면에 박힌 자막을 **글자 그대로** 읽어라. 자막이 릴스 대본이다. 맞춤법을 고치지 마라(영상에 쓰인 그대로).
 2. 자막이 없으면 화면(옷·동작·장소·표정)만 보고 어떤 영상인지 읽어라.
 3. 아래에 '받아쓴 말'이 주어졌다면 그것이 실제 음성이다. 자막과 합쳐 하나의 대본으로 정리해라.
 4. 대본을 뽑은 뒤 **구조를 분석**해라 — 공감 포인트, 훅 공식(A/B), 문장별 역할, 전개, CTA.
@@ -145,7 +176,57 @@ const SCRIPT_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. �
 - '자동 받아쓰기'는 기계가 들은 것이라 틀릴 수 있다. 배경음악 가사가 섞였을 수 있으니
   **말인지 노래 가사인지 가려서**, 가사는 대본에 넣지 말고 note 에 "배경음악: …"으로 적어라.
 - 성과 숫자(좋아요·댓글 등)가 주어지면 performance 에 해석을 적어라. 조회수가 없으면 없다고 두고
-  숫자를 추정해 만들지 마라. 캡션의 CTA(댓글 유도·저장 유도 등)도 성과 요인으로 본다.`;
+  숫자를 추정해 만들지 마라. 캡션의 CTA(댓글 유도·저장 유도 등)도 성과 요인으로 본다.
+`;
+
+/**
+ * 자막 띠 (10/2 세원: "거의 0.5초 단위로 대본이 지나가는 릴스들도 있어서… 조금 더 깊게 대본 분석")
+ * 사무실 PC 가 0.33초마다 떠서 자막 줄만 잘라 쌓은 사진 — poclo-cafe24/captions.py
+ */
+function denseText(body) {
+  const strips = Array.isArray(body.captionStrips) ? body.captionStrips : [];
+  const r = body.rhythm || {};
+  const nums = [r.seconds ? `영상 ${Math.round(r.seconds * 10) / 10}초` : "", r.cuts != null ? `장면 전환(컷) ${r.cuts}번` : ""].filter(Boolean).join(" · ");
+  const out = [];
+  if (strips.length)
+    out.push(`**자막 띠 사진**이 함께 왔다 — 사무실 PC 가 영상을 ${r.fps ? `1초에 ${r.fps}번` : "촘촘히"} 떠서, 자막이 뜨는 줄만 잘라 시간 순으로 쌓은 것이다.
+칸마다 왼쪽 위 검은 상자의 숫자가 그 칸의 시각(초)이다.
+- 자막은 **띠 사진에서 읽어라.** 장면 사진은 1~3초에 한 장이라 빠른 자막을 놓친다.
+- 0.3~0.5초만 떴다 사라지는 자막도 **하나도 빠뜨리지 마라.** 띠 사진에 보이는 자막은 전부 script 에 들어가야 한다.
+- 같은 자막이 여러 칸에 이어지면 한 줄로. 글자가 한 자씩 늘어나며 완성되는 효과(타자 효과)는 **완성된 문장 하나로**, 시각은 처음 나타난 칸.
+- 띠 칸에 자막 없이 사람·옷만 보이면 그 순간은 자막이 없는 것이다.
+- 띠 칸은 자막 줄만 잘라 붙인 것이라 화면 구도는 장면 사진으로 본다.`);
+  if (body.ocr)
+    out.push(`기계 글자 읽기(OCR, 참고용 — 틀린 글자·빠진 자막이 많다. 시각·순서만 참고하고 글자는 사진을 믿어라):\n${String(body.ocr).slice(0, 5000)}`);
+  if (nums) out.push(`리듬 숫자: ${nums} — rhythm 은 이 숫자와 대본 줄 수·시각으로 써라.`);
+  return out.join("\n\n");
+}
+
+/** 띠 사진 → Claude 에 넘길 모양 */
+function stripContent(body) {
+  const strips = Array.isArray(body.captionStrips) ? body.captionStrips.slice(0, 20) : [];
+  const out = [];
+  for (const st of strips) {
+    if (!st?.data) continue;
+    out.push({ type: "text", text: `자막 띠 · ${st.from}~${st.to}초` });
+    out.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: st.data } });
+  }
+  return out;
+}
+
+/**
+ * 고친 대본으로 다시 짜기 (10/2 세원: "대본을 내가 편집할 수 있게… 분석할 때 틀린 대본들이 있어서")
+ * 사람이 바로잡은 대본이 정답. 글만 보내서 싸다(사진 없음).
+ */
+const RESTRUCTURE_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. 레퍼런스 릴스를 기계가 분석했는데 대본(자막)이 틀린 곳이 있어서
+**사람이 영상을 보며 대본을 바로잡았다. 아래 '바로잡은 대본'이 정답이다.**
+
+**할 일** — 이 대본을 기준으로 분석을 다시 써라.
+- 대본은 다시 쓰지 않는다(앱이 그대로 가지고 있다). hook 은 대본의 첫 1~3초 자막(또는 말) 그대로.
+- 구조(훅 유형·전개·CTA·먹히는 이유)·공감 포인트·훅 공식·문장별 분석·리듬·끝까지 보게 만드는 장치를 이 대본으로 다시.
+- 빈칸 틀(template + slots)을 이 대본으로 다시 판다. 말투·리듬·구조는 그대로, 상품이 바뀌면 달라지는 자리만 {{핵심소재}} 처럼.
+  빈칸 3~7개. **조사는 빈칸 안에** — 빈칸을 뺀 글자만 이어 읽어도 어색하지 않게. 줄 앞 시각은 대본의 시각을 쓴다.
+- 결과는 전부 한국어. 없는 말을 지어내지 마라.`;
 
 // ------------------------------------------------------------- 2) 우리 상품으로 바꾸기
 
@@ -539,8 +620,9 @@ export default async function handler(req, res) {
       const frames = Array.isArray(body.frames) ? body.frames.slice(0, 32) : [];
       if (!frames.length) return fail(res, 400, "bad_request", "영상에서 장면을 못 떴어요.");
 
-      const content = frameContent(frames);
+      const content = [...frameContent(frames), ...stripContent(body)];
       const extra = [
+        denseText(body),
         body.kind ? `영상 형태: ${body.kind}` : "",
         transcriptText(body),
         metaText(body.meta),
@@ -552,6 +634,25 @@ export default async function handler(req, res) {
 
       const r = await ask(client, content, ScriptSchema, effort);
       return res.status(200).json(parsedOf(r, "대본 뽑기"));
+    }
+
+    if (body.mode === "restructure") {
+      const script = String(body.script || "").slice(0, 8000);
+      if (!script.trim()) return fail(res, 400, "bad_request", "대본이 비어 있어요.");
+      const ref = body.reference || {};
+      const extra = [
+        `바로잡은 대본(정답):\n${script}`,
+        `예전 분석의 장면 흐름(시점·화면 설명은 맞다):\n${(ref.scenes || []).slice(0, 40).map((x) => `- ${x.at}: ${x.visual}`).join("\n")}`,
+        ref.kind ? `영상 형태: ${ref.kind}` : "",
+        ref.seconds ? `길이: ${ref.seconds}초` : "",
+        ref.captionStyle ? `예전 분석의 자막 모양: ${ref.captionStyle}` : "",
+        metaText(body.meta),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const r = await ask(client, [{ type: "text", text: RESTRUCTURE_PROMPT + "\n\n---\n" + extra }], RestructureSchema, effort);
+      // 대본·장면·성과·자막 모양은 앱이 가진 그대로 두고 이것만 바꾼다
+      return res.status(200).json(parsedOf(r, "구조 다시 짜기"));
     }
 
     if (body.mode === "review") {
