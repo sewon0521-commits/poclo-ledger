@@ -15,6 +15,7 @@ import {
   Camera,
   ExternalLink,
   Check,
+  Archive,
 } from "lucide-react";
 import { newId } from "../lib/id";
 import { analyzeCarousel, planCarousel, shrinkImage, refSummary } from "../lib/carousel";
@@ -563,17 +564,34 @@ function AddRef({ worker, onLink, onImages }) {
       {tab === "link" ? (
         <div className="flex flex-wrap gap-2">
           <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.instagram.com/p/…" className={FIELD + " min-w-0 flex-1 text-sm"} />
+          {/* 10/3 세원: "캐러셀 기획도 분석하면 돈 드나? 보관만 만들어 줘야 할 것 같아" — 릴스처럼 보관만(무료) / 분석하기 */}
           <button
             type="button"
             disabled={!!step || !isInsta(url)}
             onClick={() => {
               setStep("맡기는 중…");
-              go(() => onLink(url.trim(), memo));
+              go(() => onLink(url.trim(), memo, false));
+            }}
+            title="장 사진만 모아 둬요. Claude 를 안 불러서 돈이 안 들어요. 나중에 열어서 분석할 수 있어요."
+            className="flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-stone-700 hover:border-stone-400 disabled:opacity-50"
+          >
+            <Archive size={15} /> 보관만 <span className="font-normal text-stone-400">무료</span>
+          </button>
+          <button
+            type="button"
+            disabled={!!step || !isInsta(url)}
+            onClick={() => {
+              setStep("맡기는 중…");
+              go(() => onLink(url.trim(), memo, true));
             }}
             className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
           >
             {step ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-            {step || "분석 맡기기"}
+            {step || (
+              <>
+                분석하기 <span className="font-normal text-rose-200">약 100~200원</span>
+              </>
+            )}
           </button>
         </div>
       ) : (
@@ -596,15 +614,29 @@ function AddRef({ worker, onLink, onImages }) {
             />
           </label>
           {files.length > 0 && (
-            <button
-              type="button"
-              disabled={!!step}
-              onClick={() => go(() => onImages(files, memo, setStep))}
-              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 font-semibold text-white disabled:bg-stone-300"
-            >
-              {step ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-              {step || `${files.length}장 분석하기 (바로, 30초~1분)`}
-            </button>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                disabled={!!step}
+                onClick={() => go(() => onImages(files, memo, setStep, false))}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-stone-300 bg-white py-2.5 font-semibold text-stone-700 disabled:opacity-50"
+              >
+                <Archive size={15} /> 보관만 <span className="text-sm font-normal text-stone-400">무료</span>
+              </button>
+              <button
+                type="button"
+                disabled={!!step}
+                onClick={() => go(() => onImages(files, memo, setStep, true))}
+                className="flex flex-[1.4] items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2.5 font-semibold text-white disabled:bg-stone-300"
+              >
+                {step ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                {step || (
+                  <>
+                    {files.length}장 분석하기 <span className="text-sm font-normal text-rose-200">약 100~200원</span>
+                  </>
+                )}
+              </button>
+            </div>
           )}
         </>
       )}
@@ -829,20 +861,20 @@ export default function CarouselPage({
     };
   }, [tab, carousels, fileUrl, thumbs]);
 
-  const addLink = async (url, memo) => {
+  const addLink = async (url, memo, analyze = true) => {
     const id = newId("c");
     await onSaveRef({
       id,
-      title: "분석 대기 — " + url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40),
+      title: (analyze ? "분석 대기 — " : "보관 대기 — ") + url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40),
       source: { type: "link", url },
       meta: { url },
       memo,
       job: { status: "queued", at: new Date().toISOString() },
     });
-    await onQueue(id, "carousel");
+    await onQueue(id, "carousel", analyze ? {} : { analyze: false });
   };
 
-  const addImages = async (files, memo, setStep) => {
+  const addImages = async (files, memo, setStep, analyze = true) => {
     const id = newId("c");
     const slides = [];
     for (let i = 0; i < files.length; i++) {
@@ -850,6 +882,21 @@ export default function CarouselPage({
       const { data, blob } = await shrinkImage(files[i]);
       slides.push({ data });
       await putFile(`c-${id}-${i + 1}.jpg`, blob, "image/jpeg");
+    }
+    if (!analyze) {
+      // 보관만 — Claude 를 안 부른다. 나중에 열어서 '분석하기'
+      const item = {
+        id,
+        title: memo.trim().slice(0, 40) || `캐러셀 ${files.length}장`,
+        source: { type: "images" },
+        memo,
+        slides: files.length,
+        keepOnly: true,
+        thumbAt: new Date().toISOString(),
+        job: { status: "done", at: new Date().toISOString() },
+      };
+      await onSaveRef(item);
+      return;
     }
     setStep("분석 중… (30초~1분)");
     const r = await analyzeCarousel({ slides, meta: null, memo });
@@ -869,6 +916,26 @@ export default function CarouselPage({
   };
 
   const retry = async (item) => {
+    if (item.source?.type === "images") {
+      // 사진으로 넣은 캐러셀은 분석기(인스타)로 못 받는다 — 보관된 장 사진을 이 화면에서 줄여 바로 분석
+      await onSaveRef({ ...item, job: { status: "working", step: "분석 중… (30초~1분)", at: new Date().toISOString() } });
+      try {
+        const slides = [];
+        for (let i = 1; i <= (item.slides || 0); i++) {
+          const u = await fileUrl(`c-${item.id}-${i}.jpg`);
+          if (!u) continue;
+          const blob = await (await fetch(u)).blob();
+          slides.push({ data: (await shrinkImage(blob)).data });
+        }
+        if (!slides.length) throw new Error("보관된 장 사진을 못 찾았어요.");
+        const r = await analyzeCarousel({ slides, meta: item.meta || null, memo: item.memo || "" });
+        if (!r.ok) throw new Error(r.message);
+        await onSaveRef({ ...item, title: r.data.title || item.title, analysis: r.data, keepOnly: false, job: { status: "done", at: new Date().toISOString() } });
+      } catch (e) {
+        await onSaveRef({ ...item, job: { status: "error", message: e?.message || "분석하지 못했어요.", at: new Date().toISOString() } });
+      }
+      return;
+    }
     await onSaveRef({ ...item, job: { status: "queued", at: new Date().toISOString() } });
     await onQueue(item.id, "carousel");
   };
