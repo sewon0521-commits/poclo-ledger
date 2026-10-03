@@ -53,7 +53,7 @@ export const planCarousel = ({ products, refs, memo }) =>
   call({ mode: "plan", products, refs, memo });
 
 /**
- * 사진 파일을 줄인다. 분석용(긴 변 900, base64)과 보관용(긴 변 1080, Blob) 둘을 만든다.
+ * 사진 파일을 줄인다. 분석용(긴 변 900, base64)과 보관용(긴 변 1600, Blob) 둘을 만든다.
  * @returns {Promise<{data: string, blob: Blob}>}
  */
 export async function shrinkImage(file) {
@@ -74,7 +74,8 @@ export async function shrinkImage(file) {
       return c;
     };
     const data = draw(900).toDataURL("image/jpeg", 0.7).split(",")[1];
-    const blob = await new Promise((r) => draw(1080).toBlob(r, "image/jpeg", 0.85));
+    // 보관용은 긴 변 1600 (10/3 — 크게·확대해 볼 때 글씨가 깨지지 않게. 예전엔 1080)
+    const blob = await new Promise((r) => draw(1600).toBlob(r, "image/jpeg", 0.85));
     return { data, blob };
   } finally {
     URL.revokeObjectURL(url);

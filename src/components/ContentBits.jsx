@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { Copy, Check, Pencil, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Copy, Check, Pencil, ChevronLeft, ChevronRight, Sparkles, Maximize2, X, ZoomIn, ZoomOut } from "lucide-react";
 import { loadKey, changeKey, md } from "../lib/shoot";
 import { workerAlive } from "../lib/reels";
 
@@ -105,11 +106,144 @@ export function EditableTitle({ value, onChange, className = "" }) {
  * 손가락으로 밀거나(가로 스크롤 스냅) 양옆 화살표·키보드 ←/→ 로 한 장씩. 아래 점과 'n / N'.
  * urls 에 아직 안 받은 장(null)이 있으면 회색 칸.
  */
-export function SlideViewer({ urls, className = "", fit = "contain" }) {
+/**
+ * 넘겨 보기. start = 처음 보일 장, jump = {i} 가 바뀌면 그 장으로, onAt = 지금 장이 바뀔 때,
+ * expandable = 사진을 누르면 전체 화면(BigSlides) — 10/3 세원: "캐러셀 사진 좀 더 크게. 너무 작아서 글씨가 안 보여"
+ * onTap = 누르면(끌지 않고) 부를 것
+ */
+/**
+ * 전체 화면 넘겨 보기 — 사진을 누르면 그 자리를 확대(2.5배), 한 번 더 누르면 원래대로. 확대한 채로 끌어서(손가락은 밀어서) 옮겨 본다.
+ * 상세 창 안(움직이는 창 안에선 fixed 가 갇힌다)이 아니라 body 에 띄운다.
+ */
+export function BigSlides({ urls, start = 0, onClose }) {
+  const [at, setAt] = useState(start);
+  const [zoom, setZoom] = useState(null); // {i, fx, fy} 누른 자리(0~1)
+  const pane = useRef(null);
+  const pan = useRef(null);
+  useEffect(() => {
+    const k = (e) => {
+      if (e.key !== "Escape") return;
+      if (zoom) setZoom(null);
+      else onClose();
+    };
+    document.addEventListener("keydown", k);
+    const keep = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", k);
+      document.body.style.overflow = keep;
+    };
+  }, [zoom, onClose]);
+  // 확대하면 누른 자리가 화면 가운데 오게
+  useLayoutEffect(() => {
+    const el = pane.current;
+    if (!zoom || !el) return;
+    el.scrollLeft = zoom.fx * el.scrollWidth - el.clientWidth / 2;
+    el.scrollTop = zoom.fy * el.scrollHeight - el.clientHeight / 2;
+  }, [zoom]);
+  const z = 2.5;
+  return createPortal(
+    <div className="backdrop-in fixed inset-0 z-[70] flex flex-col bg-black">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-white">
+        <span className="text-sm text-white/70 tabular-nums">
+          {at + 1} / {urls.length}
+          <span className="ml-2 hidden text-white/50 sm:inline">{zoom ? "끌어서 옮겨 보기 · 누르면 원래대로" : "사진을 누르면 확대 · ← → 넘기기 · Esc 닫기"}</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setZoom(zoom ? null : { i: at, fx: 0.5, fy: 0.35 })}
+            className="flex items-center gap-1 rounded-full px-3 py-1.5 text-sm hover:bg-white/10"
+          >
+            {zoom ? <ZoomOut size={17} /> : <ZoomIn size={17} />} {zoom ? "원래대로" : "확대"}
+          </button>
+          <button type="button" onClick={onClose} aria-label="닫기" className="rounded-full p-2 hover:bg-white/10">
+            <X size={22} />
+          </button>
+        </span>
+      </div>
+      {zoom ? (
+        <div
+          ref={pane}
+          className="min-h-0 w-full flex-1 cursor-grab overflow-auto overscroll-contain active:cursor-grabbing [scrollbar-width:thin]"
+          onPointerDown={(e) => {
+            if (e.pointerType !== "mouse") return;
+            pan.current = { x: e.clientX, y: e.clientY, l: e.currentTarget.scrollLeft, t: e.currentTarget.scrollTop, moved: false };
+          }}
+          onPointerMove={(e) => {
+            const p = pan.current;
+            if (!p) return;
+            const dx = e.clientX - p.x;
+            const dy = e.clientY - p.y;
+            if (Math.abs(dx) + Math.abs(dy) > 4) p.moved = true;
+            e.currentTarget.scrollLeft = p.l - dx;
+            e.currentTarget.scrollTop = p.t - dy;
+          }}
+          onPointerUp={() => {
+            const p = pan.current;
+            pan.current = null;
+            if (p && !p.moved) setZoom(null);
+          }}
+          onClick={(e) => e.pointerType !== "mouse" && e.nativeEvent.pointerType !== "mouse" && setZoom(null)}
+        >
+          <img
+            src={urls[zoom.i]}
+            alt=""
+            draggable={false}
+            className="block max-w-none select-none"
+            style={{ height: `${z * 100}%`, width: "auto", margin: "0 auto" }}
+          />
+        </div>
+      ) : (
+        <SlideViewer
+          urls={urls}
+          start={at}
+          onAt={setAt}
+          className="min-h-0 w-full flex-1"
+          onTap={(e, i, img) => {
+            const r = img.getBoundingClientRect();
+            // 사진이 칸 안에 맞춰 그려진 실제 자리 (object-contain)
+            const k = Math.min(r.width / (img.naturalWidth || 1), r.height / (img.naturalHeight || 1));
+            const w = (img.naturalWidth || 1) * k;
+            const h = (img.naturalHeight || 1) * k;
+            const fx = Math.min(1, Math.max(0, (e.clientX - (r.left + (r.width - w) / 2)) / w));
+            const fy = Math.min(1, Math.max(0, (e.clientY - (r.top + (r.height - h) / 2)) / h));
+            setZoom({ i, fx, fy });
+          }}
+        />
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+export function SlideViewer({ urls, className = "", fit = "contain", start = 0, jump, onAt, expandable, onTap }) {
   const box = useRef(null);
   const drag = useRef(null); // 마우스로 끌기 {x, left, moved}
-  const [at, setAt] = useState(0);
+  const dragged = useRef(false);
+  const [at, setAtState] = useState(start);
+  const [big, setBig] = useState(false);
   const n = urls.length;
+  const setAt = (k) => {
+    setAtState(k);
+    onAt?.(k);
+  };
+  // 처음 보일 장
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el && start > 0) el.scrollLeft = start * el.clientWidth;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // 누르기 — 마우스로 끌 때 포인터를 잡아서(setPointerCapture) click 이 사진이 아니라 넘김 칸으로 온다. 그래서 칸에서 받는다
+  const tap = (e) => {
+    if (dragged.current) {
+      dragged.current = false;
+      return;
+    }
+    const img = box.current?.children[at]?.querySelector("img");
+    if (!img) return;
+    if (onTap) onTap(e, at, img);
+    else if (expandable) setBig(true);
+  };
 
   // 9/24 세원: "드래그하면 옆으로 가게" — 손가락은 원래 밀리고, 마우스도 끌어서 넘긴다.
   // 끄는 동안은 스냅을 끄고 손을 떼면 1/6 넘게 끌었으면 옆 장으로.
@@ -124,6 +258,7 @@ export function SlideViewer({ urls, className = "", fit = "contain" }) {
     const d = drag.current;
     if (!d) return;
     d.moved = e.clientX - d.x;
+    if (Math.abs(d.moved) > 4) dragged.current = true;
     box.current.scrollLeft = d.left - d.moved;
   };
   const onUp = () => {
@@ -144,6 +279,9 @@ export function SlideViewer({ urls, className = "", fit = "contain" }) {
     const k = Math.max(0, Math.min(n - 1, i));
     el.scrollTo({ left: k * el.clientWidth, behavior: "smooth" });
   };
+  useEffect(() => {
+    if (jump) go(jump.i);
+  }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div
       className={"group relative " + className}
@@ -159,6 +297,7 @@ export function SlideViewer({ urls, className = "", fit = "contain" }) {
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
+        onClick={tap}
         onScroll={(e) => {
           const el = e.currentTarget;
           setAt(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
@@ -168,7 +307,12 @@ export function SlideViewer({ urls, className = "", fit = "contain" }) {
         {urls.map((u, i) => (
           <div key={i} className="flex h-full w-full shrink-0 snap-center items-center justify-center">
             {u ? (
-              <img src={u} alt={`${i + 1}번째 장`} className={"h-full w-full " + (fit === "cover" ? "object-cover" : "object-contain")} draggable={false} />
+              <img
+                src={u}
+                alt={`${i + 1}번째 장`}
+                className={"h-full w-full " + (fit === "cover" ? "object-cover" : "object-contain") + (expandable || onTap ? " cursor-zoom-in" : "")}
+                draggable={false}
+              />
             ) : (
               <div className="h-full w-full bg-stone-200" />
             )}
@@ -213,6 +357,16 @@ export function SlideViewer({ urls, className = "", fit = "contain" }) {
           </span>
         </>
       )}
+      {expandable && urls.some(Boolean) && (
+        <button
+          type="button"
+          onClick={() => setBig(true)}
+          className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-black/75"
+        >
+          <Maximize2 size={12} /> 크게 보기
+        </button>
+      )}
+      {big && <BigSlides urls={urls} start={at} onClose={() => setBig(false)} />}
     </div>
   );
 }

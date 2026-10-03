@@ -197,7 +197,7 @@ function PostSheet({ acc, p, url, fileUrls, onClose, onImport, onHide }) {
     <Sheet onClose={onClose}>
       <div className="relative flex min-h-[40vh] items-center justify-center bg-stone-100 sm:w-[46%]">
         {slides ? (
-          <SlideViewer urls={slides} className="h-[60vh] w-full sm:h-[80vh]" />
+          <SlideViewer urls={slides} expandable className="h-[60vh] w-full sm:h-[80vh]" />
         ) : url ? (
           <img src={url} alt="" className="h-full max-h-[92vh] w-full object-cover" />
         ) : null}

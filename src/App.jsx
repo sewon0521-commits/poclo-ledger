@@ -568,6 +568,7 @@ export default function App() {
                   onRemovePlan={S.removeCarouselPlan}
                   putFile={S.putReelFile}
                   fileUrl={S.reelFileUrl}
+                  fileUrls={S.reelFileUrls}
                   worker={S.reelWorker}
                   queue={S.reelQueue}
                   onQueue={S.queueReel}

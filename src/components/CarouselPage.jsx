@@ -22,6 +22,13 @@ import { analyzeCarousel, planCarousel, shrinkImage, refSummary } from "../lib/c
 import { workerAlive } from "../lib/reels";
 import { CopyButton, WorkerStatus, EditableTitle, SlideViewer, TrendBox } from "./ContentBits";
 import { Empty } from "./ui";
+import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
+import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
+import { loadKey, changeKey } from "../lib/shoot";
+
+// 캐러셀 폴더 (10/3 세원: "캐러셀도 릴스처럼 카테고리 나눌 수 있게") — settings 'carousel_folders' {items:[{id,name,parent}]}
+// 처음엔 흔한 갈래 셋을 깔아 둔다(카테고리 편집에서 고치고 지운다)
+const CAROUSEL_FOLDERS = ["코디 모음", "상품 소개", "정보·꿀팁"];
 
 /**
  * 캐러셀 기획 (2026-09-22 세원):
@@ -44,7 +51,7 @@ function Overlay({ children, onClose, wide }) {
   return (
     <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className={"sheet relative z-10 w-full overflow-hidden rounded-2xl bg-white shadow-xl " + (wide ? "max-w-4xl" : "max-w-2xl")}>
+      <div className={"sheet relative z-10 w-full overflow-hidden rounded-2xl bg-white shadow-xl " + (wide === "x" ? "max-w-6xl" : wide ? "max-w-4xl" : "max-w-2xl")}>
         {children}
       </div>
     </div>
@@ -647,12 +654,13 @@ function AddRef({ worker, onLink, onImages }) {
   );
 }
 
-function RefCard({ item, thumb, status, onOpen }) {
+function RefCard({ item, thumb, status, onOpen, folders, folderName, onMove }) {
   const a = item.analysis || {};
   const pending = status.kind !== "done";
   return (
-    <button type="button" onClick={() => onOpen(item)} className="overflow-hidden rounded-xl border border-stone-200 bg-white text-left transition hover:border-stone-300 hover:shadow-sm">
-      <span className="relative block aspect-[4/5] bg-stone-100">
+    <div className="relative rounded-xl border border-stone-200 bg-white transition hover:border-stone-300 hover:shadow-sm">
+    <button type="button" onClick={() => onOpen(item)} className="block w-full text-left">
+      <span className="relative block aspect-[4/5] overflow-hidden rounded-t-xl bg-stone-100">
         {thumb ? (
           <img src={thumb} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -669,21 +677,30 @@ function RefCard({ item, thumb, status, onOpen }) {
           {pending ? status.text : item.keepOnly ? `${item.slides || "?"}장 · 보관만` : `${item.slides || "?"}장 · ${a.format || "분석 완료"}`}
         </span>
       </span>
-      <span className="block px-3 py-2">
+      <span className="block py-2 pr-9 pl-3">
         <span className="block truncate text-sm font-medium text-stone-900">{item.title || a.title}</span>
         <span className="mt-0.5 block truncate text-[11px] text-stone-400">
+          {folderName ? <span className="text-stone-500">{folderName} · </span> : null}
           {item.meta?.uploader ? `@${item.meta.uploader}` : "직접 올림"}
           {item.meta?.likes != null && ` · 좋아요 ${item.meta.likes}`}
           {item.meta?.comments != null && ` · 댓글 ${item.meta.comments}`}
         </span>
       </span>
     </button>
+      {onMove && (
+        <span className="absolute right-1.5 bottom-2">
+          <FolderPicker item={item} folders={folders} onMove={onMove} />
+        </span>
+      )}
+    </div>
   );
 }
 
-function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClose }) {
+function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClose, folders = [] }) {
   const a = item.analysis || {};
   const [urls, setUrls] = useState([]);
+  const [jump, setJump] = useState(null); // 'N장' 줄을 누르면 그 장으로
+  const [at, setAt] = useState(0);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -704,10 +721,35 @@ function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClos
         sub={[a.format, item.meta?.uploader && `@${item.meta.uploader}`, item.meta?.postedAt].filter(Boolean).join(" · ")}
         onClose={onClose}
       />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-6">
         {urls.length > 0 && (
-          <SlideViewer urls={urls} className="mx-auto aspect-[4/5] w-full max-w-sm overflow-hidden rounded-xl bg-stone-100" />
+          <div className="mb-4 lg:sticky lg:top-0 lg:mb-0 lg:self-start">
+            <SlideViewer
+              urls={urls}
+              jump={jump}
+              onAt={setAt}
+              expandable
+              className="mx-auto aspect-[4/5] w-full max-w-lg overflow-hidden rounded-xl bg-stone-100 lg:max-h-[calc(92vh-9rem)] lg:max-w-none"
+            />
+            <p className="mt-1.5 text-center text-[11px] text-stone-400">사진을 누르면 전체 화면 · 전체 화면에서 한 번 더 누르면 확대</p>
+          </div>
         )}
+        <div className="space-y-4">
+        <label className="flex items-center gap-2 text-xs text-stone-500">
+          폴더
+          <select
+            value={folderIdOf(item, folders) || ""}
+            onChange={(e) => onSaveRef({ ...item, folderId: e.target.value || null, folder: "" })}
+            className="rounded-md border border-stone-300 bg-white px-1.5 py-1 text-xs text-stone-700"
+          >
+            <option value="">미분류</option>
+            {ordered(folders).map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.depth ? `${"　".repeat(f.depth)}└ ${f.name}` : f.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {status.kind === "done" && item.keepOnly ? (
           <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-4 text-sm">
@@ -757,8 +799,13 @@ function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClos
             {a.slides?.length > 0 && (
               <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 text-sm">
                 {a.slides.map((s) => (
-                  <li key={s.n} className="flex gap-3 px-3 py-2">
-                    <span className="w-10 shrink-0 text-xs text-stone-400">{s.n}장</span>
+                  <li
+                    key={s.n}
+                    onClick={() => s.n <= urls.length && setJump({ i: s.n - 1, k: Date.now() })}
+                    title={s.n <= urls.length ? "이 장 보기" : undefined}
+                    className={"flex gap-3 px-3 py-2 " + (s.n <= urls.length ? "cursor-pointer hover:bg-stone-50 " : "") + (at === s.n - 1 ? "bg-rose-50/60" : "")}
+                  >
+                    <span className={"w-10 shrink-0 text-xs " + (at === s.n - 1 ? "font-semibold text-rose-700" : "text-stone-400")}>{s.n}장</span>
                     <span className="min-w-0 flex-1">
                       <span className="mr-1.5 rounded bg-stone-100 px-1.5 py-0.5 text-[11px] text-stone-600">{s.role}</span>
                       {s.text && <span className="font-medium whitespace-pre-line text-stone-900">{s.text}</span>}
@@ -789,6 +836,7 @@ function RefDetail({ item, status, fileUrl, onRetry, onRemove, onSaveRef, onClos
             {a.note && <p className="text-xs text-amber-800">{a.note}</p>}
           </>
         )}
+        </div>
       </div>
       <footer className="flex shrink-0 items-center justify-between border-t border-stone-200 px-4 py-2.5">
         <button
@@ -826,6 +874,7 @@ export default function CarouselPage({
   onRemovePlan,
   putFile,
   fileUrl,
+  fileUrls,
   worker,
   queue,
   onQueue,
@@ -833,6 +882,48 @@ export default function CarouselPage({
   online,
 }) {
   const [tab, setTab] = useState("products");
+  const [folders, setFolders] = useState([]);
+  const [sel, setSel] = useState("all");
+  const [q, setQ] = useState("");
+  const [editCats, setEditCats] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const f = await loadKey("carousel_folders", online);
+      let fs = f.items || [];
+      if (!fs.length) {
+        fs = CAROUSEL_FOLDERS.map((name) => ({ id: newId("f"), name, parent: null }));
+        fs = (await changeKey("carousel_folders", online, (v) => ((v.items || []).length ? v : { items: fs }))).items || fs;
+      }
+      if (alive) setFolders(fs);
+    })().catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  const saveFolders = async (op) => {
+    const next = await changeKey("carousel_folders", online, (v) => ({ ...v, items: op(v.items || []) }));
+    setFolders(next.items || []);
+  };
+  const shownRefs = useMemo(() => {
+    const ids = sel === "all" || sel === "none" ? null : new Set(withChildren(sel, folders));
+    const n = q.trim().toLowerCase();
+    return carousels.filter((c) => {
+      const f = folderIdOf(c, folders);
+      if (sel === "none" && f) return false;
+      if (ids && !ids.has(f)) return false;
+      return (
+        !n ||
+        JSON.stringify([c.title, c.memo, c.meta?.uploader, c.analysis?.title, c.analysis?.format, c.analysis?.cover?.text]).toLowerCase().includes(n)
+      );
+    });
+  }, [carousels, folders, sel, q]);
+  const nameOfFolder = (c) => {
+    const id = folderIdOf(c, folders);
+    return id ? folders.find((f) => f.id === id)?.name || "" : "";
+  };
+  // 새로 넣을 때 지금 보고 있는 폴더로
+  const here = () => (sel !== "all" && sel !== "none" ? { folderId: sel } : {});
   const [planning, setPlanning] = useState(null); // 고른 상품들 (1개면 단독, 여러 개면 묶음)
   const [viewPlan, setViewPlan] = useState(null);
   const [openRef, setOpenRef] = useState(null);
@@ -848,18 +939,22 @@ export default function CarouselPage({
   useEffect(() => {
     if (tab !== "refs") return;
     let alive = true;
+    // 10/3: 예전엔 앞 40개만 한 장씩 받았다 → 폴더를 바꾸면 안 뜨는 카드가 있었다. 보이는 카드 전부를 100장씩 한 번에
     (async () => {
-      for (const c of carousels.slice(0, 40)) {
-        if (thumbs[key(c)] !== undefined || !c.slides) continue;
-        const u = await fileUrl(`c-${c.id}-1.jpg`);
+      const need = shownRefs.filter((c) => thumbs[key(c)] === undefined && c.slides);
+      for (let i = 0; i < need.length; i += 100) {
+        const part = need.slice(i, i + 100);
+        let map = {};
+        if (fileUrls) map = await fileUrls(part.map((c) => `c-${c.id}-1.jpg`));
+        else for (const c of part) map[`c-${c.id}-1.jpg`] = await fileUrl(`c-${c.id}-1.jpg`);
         if (!alive) return;
-        setThumbs((p) => ({ ...p, [key(c)]: u }));
+        setThumbs((p) => ({ ...p, ...Object.fromEntries(part.map((c) => [key(c), map[`c-${c.id}-1.jpg`] || null])) }));
       }
     })();
     return () => {
       alive = false;
     };
-  }, [tab, carousels, fileUrl, thumbs]);
+  }, [tab, shownRefs, fileUrl, fileUrls, thumbs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addLink = async (url, memo, analyze = true) => {
     const id = newId("c");
@@ -869,6 +964,7 @@ export default function CarouselPage({
       source: { type: "link", url },
       meta: { url },
       memo,
+      ...here(),
       job: { status: "queued", at: new Date().toISOString() },
     });
     await onQueue(id, "carousel", analyze ? {} : { analyze: false });
@@ -890,6 +986,7 @@ export default function CarouselPage({
         title: memo.trim().slice(0, 40) || `캐러셀 ${files.length}장`,
         source: { type: "images" },
         memo,
+        ...here(),
         slides: files.length,
         keepOnly: true,
         thumbAt: new Date().toISOString(),
@@ -906,6 +1003,7 @@ export default function CarouselPage({
       title: r.data.title,
       source: { type: "images" },
       memo,
+      ...here(),
       slides: files.length,
       analysis: r.data,
       thumbAt: new Date().toISOString(),
@@ -984,13 +1082,41 @@ export default function CarouselPage({
       {tab === "refs" && (
         <>
           <AddRef worker={worker} onLink={addLink} onImages={addImages} />
+          <FolderBar items={carousels} folders={folders} sel={sel} onSel={setSel} onEdit={() => setEditCats(true)} q={q} setQ={setQ} searchPlaceholder="제목·표지·계정 검색" />
           {carousels.length === 0 ? (
             <Empty title="아직 모아 둔 캐러셀이 없어요." hint="잘 된 캐러셀 게시물 링크를 넣거나 장 사진을 올리세요. 기획할 때 여기서 배워요." />
+          ) : shownRefs.length === 0 ? (
+            <Empty title="이 폴더엔 아직 캐러셀이 없어요." hint="카드 오른쪽 아래 폴더 단추로 옮기거나, 이 폴더를 보면서 새로 넣으면 여기로 들어와요." />
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {carousels.map((c) => (
-                <RefCard key={c.id} item={c} thumb={thumbs[key(c)]} status={statusOf(c, queue)} onOpen={setOpenRef} />
+              {shownRefs.map((c) => (
+                <RefCard
+                  key={c.id}
+                  item={c}
+                  thumb={thumbs[key(c)]}
+                  status={statusOf(c, queue)}
+                  onOpen={setOpenRef}
+                  folders={folders}
+                  folderName={sel === "all" ? nameOfFolder(c) : ""}
+                  onMove={(id) => onSaveRef({ ...c, folderId: id, folder: "" })}
+                />
               ))}
+            </div>
+          )}
+          {editCats && (
+            <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
+              <button type="button" aria-label="닫기" onClick={() => setEditCats(false)} className="absolute inset-0 cursor-default" />
+              <div className="sheet relative z-10 w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl">
+                <CategoryEditor
+                  items={carousels}
+                  folders={folders}
+                  onChange={saveFolders}
+                  onClose={() => setEditCats(false)}
+                  openKey="poclo_carousel_cats_open"
+                  noun="캐러셀"
+                  topHint="상위 폴더 이름 — 예: 코디 모음"
+                />
+              </div>
             </div>
           )}
           {!workerAlive(worker) && carousels.some((c) => statusOf(c, queue).kind === "queued") && (
@@ -1030,10 +1156,10 @@ export default function CarouselPage({
         </Overlay>
       )}
       {openRef && (
-        <Overlay onClose={() => setOpenRef(null)}>
+        <Overlay wide="x" onClose={() => setOpenRef(null)}>
           {(() => {
             const it = carousels.find((c) => c.id === openRef.id) || openRef;
-            return <RefDetail item={it} status={statusOf(it, queue)} fileUrl={fileUrl} onRetry={retry} onRemove={onRemoveRef} onSaveRef={onSaveRef} onClose={() => setOpenRef(null)} />;
+            return <RefDetail item={it} status={statusOf(it, queue)} fileUrl={fileUrl} onRetry={retry} onRemove={onRemoveRef} onSaveRef={onSaveRef} folders={folders} onClose={() => setOpenRef(null)} />;
           })()}
         </Overlay>
       )}
