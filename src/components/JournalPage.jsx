@@ -143,10 +143,15 @@ const HR = /^\s*(-{3,}|—{2,})\s*$/;
 /** 토글 ind 안에 드는 줄인가 — 빈 줄이거나 더 들여 쓴 줄 */
 const inside = (line, ind) => !line.trim() || line.length - line.trimStart().length > ind;
 
-/** 줄 앞 기호 자리에 그리는 모양 — 글자(투명)는 그대로 두고 그 위에 겹쳐서 폭이 안 바뀌게 */
-function Glyph({ ch }) {
-  const inner =
-    ch === "☐" ? (
+/**
+ * 줄 앞 기호 자리에 그리는 모양 — 글자(투명)는 그대로 두고 그 위에 겹쳐서 폭이 안 바뀌게.
+ * data-g/data-ch 로 자리를 재서 그 위에 진짜 단추를 올린다(SpotLayer). bare = 단추가 그리니 비워 둠, dot = 할 일 칸(체크는 왼쪽 칸에)
+ */
+function Glyph({ ch, i, bare, dot }) {
+  const done = ch === "✓" || ch === "☑";
+  const inner = bare ? null : dot ? (
+    <span className={"h-[5px] w-[5px] rounded-full " + (done ? "bg-stone-300" : "bg-stone-800")} />
+  ) : ch === "☐" ? (
       <span className="h-[14px] w-[14px] rounded-[4px] border-[1.5px] border-stone-400 bg-white" />
     ) : ch === "☑" ? (
       <span className="flex h-[14px] w-[14px] items-center justify-center rounded-[4px] bg-rose-700 text-white">
@@ -160,15 +165,15 @@ function Glyph({ ch }) {
       <ChevronRight size={15} strokeWidth={2.5} className="text-stone-600" />
     );
   return (
-    <span className="relative">
+    <span className="relative" data-g={i} data-ch={ch}>
       <span className="text-transparent">{ch}</span>
       <span className="absolute inset-y-0 -left-0.5 -right-0.5 flex items-center justify-center">{inner}</span>
     </span>
   );
 }
 
-/** 쓰는 칸 아래 한 줄 */
-function mirrorLine(ln, i, hidden) {
+/** 쓰는 칸 아래 한 줄 (opt: {live, todo}) */
+function mirrorLine(ln, i, hidden, opt = {}) {
   if (HEAD.test(ln)) return <span className="text-rose-800 [-webkit-text-stroke:0.5px_currentColor]">{marks(ln, true, `h${i}`)}</span>;
   if (HR.test(ln))
     return (
@@ -192,7 +197,8 @@ function mirrorLine(ln, i, hidden) {
   return (
     <>
       {m[1]}
-      <Glyph ch={m[2]} /> <span className={done ? "text-stone-400 line-through decoration-stone-300" : ""}>{marks(m[3], true, `l${i}`)}</span>
+      <Glyph ch={m[2]} i={i} bare={opt.live && m[2] !== "✓"} dot={opt.todo} />{" "}
+      <span className={done ? "text-stone-400 line-through decoration-stone-300" : ""}>{marks(m[3], true, `l${i}`)}</span>
       {m[2] === "▸" && hidden > 0 && (
         <span className="inline-block w-0 overflow-visible whitespace-nowrap">
           <span className="ml-2 rounded bg-stone-100 px-1.5 text-[11px] text-stone-500">{hidden}줄 접힘</span>
@@ -202,19 +208,70 @@ function mirrorLine(ln, i, hidden) {
   );
 }
 
-/** 쓰는 칸 아래에 까는 꾸민 글 — 위 textarea 와 글자 자리가 똑같아야 한다(같은 여백·글꼴·줄 높이·줄바꿈) */
-function Mirror({ text, className, hidden }) {
+/**
+ * 쓰는 칸 아래에 까는 꾸민 글 — 위 textarea 와 글자 자리가 똑같아야 한다(같은 여백·글꼴·줄 높이·줄바꿈).
+ * live = 토글·체크박스는 위에 올린 단추가 그린다 / todo = 할 일 칸(줄마다 시작 자리 표시 → 왼쪽 체크박스)
+ */
+function Mirror({ text, className, hidden, boxRef, live, todo }) {
   const lines = String(text || "").split("\n");
   return (
-    <div aria-hidden className={"pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap [overflow-wrap:break-word] " + className}>
+    <div ref={boxRef} aria-hidden className={"pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap [overflow-wrap:break-word] " + className}>
       {lines.map((ln, i) => (
         <span key={i}>
           {i > 0 && "\n"}
-          {mirrorLine(ln, i, hidden?.[i]?.length || 0)}
+          {todo && <span data-l={i}>{"\u200b"}</span>}
+          {mirrorLine(ln, i, hidden?.[i]?.length || 0, { live, todo })}
         </span>
       ))}
       {"\u200b"}
     </div>
+  );
+}
+
+/**
+ * 기호 자리 재기 (10/3 세원: "토글·오늘 할 일 체크 누르는 곳이 너무 허술해. 노션처럼 올려 두면 음영 지게, 클릭하기 편하게")
+ * 예전엔 글 칸에서 커서가 기호 바로 앞·뒤에 떨어졌는지로 판단해서 정확히 눌러야 했고, 줄 맨 앞을 누르면 잘못 켜지기도 했다.
+ * 이제 아래 깐 글(Mirror)에서 기호·줄 시작 자리를 재서 그 위에 진짜 단추를 올린다.
+ */
+function useSpots(root, dep) {
+  const [spots, setSpots] = useState([]);
+  // 글이 바뀔 때마다 그리기 직전에 (깜빡임 없이)
+  useLayoutEffect(() => {
+    measureSpots(root.current, setSpots);
+  }, [root, dep]);
+  // 칸 폭이 바뀌거나 글꼴이 늦게 들어오면 다시
+  useEffect(() => {
+    const el = root.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measureSpots(el, setSpots));
+    ro.observe(el);
+    document.fonts?.ready?.then(() => measureSpots(el, setSpots));
+    return () => ro.disconnect();
+  }, [root]);
+  return spots;
+}
+function measureSpots(el, set) {
+  if (!el) return;
+  const out = [];
+  for (const n of el.querySelectorAll("[data-g],[data-l]")) {
+    const line = n.dataset.l != null;
+    out.push({ i: Number(line ? n.dataset.l : n.dataset.g), ch: n.dataset.ch || "", line, x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight });
+  }
+  set((prev) => (JSON.stringify(prev) === JSON.stringify(out) ? prev : out));
+}
+
+/** 체크박스 모양 (단추 안) */
+function CheckBox({ done, size = 16 }) {
+  return (
+    <span
+      style={{ width: size, height: size }}
+      className={
+        "flex shrink-0 items-center justify-center rounded-[4px] border-[1.5px] transition-colors " +
+        (done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-400 bg-white group-hover/cb:border-stone-600")
+      }
+    >
+      {done && <Check size={size - 5} strokeWidth={3.5} />}
+    </span>
   );
 }
 
@@ -382,8 +439,10 @@ function ToggleBlock({ b }) {
   const [open, setOpen] = useState(b.open);
   return (
     <div>
-      <button type="button" onClick={() => setOpen(!open)} className="-ml-1 flex items-start gap-1 rounded px-1 text-left hover:bg-stone-50">
-        <ChevronRight size={16} className={"mt-[6px] shrink-0 text-stone-500 transition-transform " + (open ? "rotate-90" : "")} />
+      <button type="button" onClick={() => setOpen(!open)} className="group/tg -ml-1.5 flex items-start gap-1 text-left">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-stone-500 transition-colors group-hover/tg:bg-stone-200/80 group-hover/tg:text-stone-900">
+          <ChevronRight size={17} strokeWidth={2.5} className={"transition-transform duration-150 " + (open ? "rotate-90" : "")} />
+        </span>
         <span className="font-medium">
           <Line text={b.text} />
         </span>
@@ -843,19 +902,15 @@ function outlineKeys(text, put, opts = {}) {
       step(text.slice(0, start) + pre + b[3] + text.slice(end), start + pre.length);
     }
   };
-  // 노션처럼 체크박스(☐)를 누르면 켜고 끈다 — 누른 자리가 바로 ☐ 앞이나 뒤일 때만(글을 고치려고 누른 건 안 건드림)
-  // 할 일 칸(opts.tapDone)은 점(• ◦)을 눌러도 끝냄(✓) — 폰엔 Ctrl+엔터가 없어서 (10/3)
-  const onMouseUp = (e) => {
-    const el = e.currentTarget;
-    if (el.selectionStart !== el.selectionEnd) return;
-    const pos = el.selectionStart;
-    const { start, end, line } = lineAt(text, pos);
-    const b = line.match(LINE_ANY);
-    if (!b || !(BOX.includes(b[2]) || (opts.tapDone && ["•", "◦", "✓"].includes(b[2])))) return;
-    const at = start + b[1].length;
-    if (pos !== at && pos !== at + 1) return;
+  // 체크박스·토글 켜고 끄기는 글 위에 올린 단추가 한다(useSpots) — 커서 자리로 판단하면 줄 맨 앞을 눌러도 켜져서 뺐다 (10/3)
+  /** 줄 i 의 끝냄 표시 켜고 끄기 (☐↔☑, 점↔✓) */
+  const toggleDone = (i, caret) => {
+    const L = text.split("\n");
+    const b = L[i]?.match(LINE_ANY);
+    if (!b) return;
     const mark = b[2] === "☐" ? "☑" : b[2] === "☑" ? "☐" : b[2] === "✓" ? glyph(depthOf(b[1])) : "✓";
-    step(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), end);
+    L[i] = b[1] + mark + " " + b[3];
+    step(L.join("\n"), caret);
   };
   // 한글 보강 (10/3 세원: "- 스페이스로 나온 점에서 엔터 치면 점 살려서 밑으로") — 한글을 조합하던 중에 엔터를 치면
   // 브라우저가 조합 끝내기와 줄 나누기를 따로 보내서 위 onChange 가 엔터를 못 알아챌 때가 있다. 손을 뗄 때 한 번 더 본다:
@@ -886,7 +941,7 @@ function outlineKeys(text, put, opts = {}) {
     e.clipboardData.setData("text/plain", text.slice(a, z).replace(MK_ALL, ""));
     if (cut) step(text.slice(0, a) + text.slice(z), a);
   };
-  return { onChange, onKeyDown, onMouseUp, onKeyUp, onCopy: clip(false), onCut: clip(true) };
+  return { onChange, onKeyDown, onKeyUp, toggleDone, onCopy: clip(false), onCut: clip(true) };
 }
 
 // '/' 명령 (10/3 세원: "/토글 누르면 가능하게") — 줄 맨 앞에 / 를 치면 메뉴. 이름 + 스페이스로도 바로 된다
@@ -1129,20 +1184,11 @@ function Editor({ initial: raw, onSave }) {
     }
     keys.onKeyDown(e);
   };
-  // ▾▸ 를 누르면 접고 펴기 (누른 자리가 바로 그 앞·뒤일 때만)
-  const onMouseUp = (e) => {
-    const el = e.currentTarget;
-    const pos = el.selectionStart;
-    if (pos === el.selectionEnd) {
-      const { start, line } = lineAt(text, pos);
-      const m = line.match(TOGGLE);
-      const at = start + (m ? m[1].length : 0);
-      if (m && (pos === at || pos === at + 1) && flip(lineNo(pos))) return;
-    }
-    keys.onMouseUp(e);
-    watch(el);
-  };
+  const onMouseUp = (e) => watch(e.currentTarget);
   const photos = photoKeys(full);
+  // 토글 화살표·체크박스 자리 → 그 위에 단추
+  const mirror = useRef(null);
+  const spots = useSpots(mirror, `${text}|${view.hidden.map((h) => h?.length || 0).join(",")}`);
 
   return (
     <div>
@@ -1219,7 +1265,7 @@ function Editor({ initial: raw, onSave }) {
           attach(e.dataTransfer.files);
         }}
       >
-        <Mirror text={text} hidden={view.hidden} className="px-6 py-5 text-[15px] leading-7 text-stone-800" />
+        <Mirror text={text} hidden={view.hidden} boxRef={mirror} live className="px-6 py-5 text-[15px] leading-7 text-stone-800" />
         <textarea
           ref={box}
           value={text}
@@ -1243,6 +1289,36 @@ function Editor({ initial: raw, onSave }) {
           placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. '/' 를 치면 토글·체크박스·구분선·사진 메뉴, '- ' 점 목록, '---' 가로줄. 글을 고르고 Ctrl+B 굵게 · Ctrl+U 밑줄 · Ctrl+Shift+H 형광펜. 사진은 붙여넣기·끌어다 놓기도 돼요."
           className="relative block min-h-[22rem] w-full resize-none bg-transparent px-6 py-5 text-[15px] leading-7 whitespace-pre-wrap text-transparent caret-stone-800 outline-none [field-sizing:content] [overflow-wrap:break-word] placeholder:text-stone-300 selection:bg-sky-200/60"
         />
+        {/* 토글 화살표·체크박스 단추 — 노션처럼 마우스를 올리면 회색 칸, 넓게 눌린다 */}
+        <div className="pointer-events-none absolute inset-0 z-10">
+          {spots
+            .filter((p) => !p.line && p.ch !== "✓")
+            .map((p) => {
+              const tg = p.ch === "▾" || p.ch === "▸";
+              const size = 24;
+              // 화살표가 좁아도 단추가 뒤 글자를 덮지 않게 — 오른쪽 끝을 기호 바로 뒤에 맞춘다
+              const left = Math.min(p.x + p.w / 2 - size / 2, p.x + p.w + 3 - size);
+              return (
+                <button
+                  key={`${p.i}-${p.ch}`}
+                  type="button"
+                  tabIndex={-1}
+                  title={tg ? (p.ch === "▾" ? "접기 (Ctrl+엔터)" : "펴기 (Ctrl+엔터)") : p.ch === "☐" ? "끝냄 (Ctrl+엔터)" : "안 끝냄"}
+                  aria-label={tg ? (p.ch === "▾" ? "접기" : "펴기") : "체크"}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => (tg ? flip(p.i) : keys.toggleDone(p.i, box.current?.selectionStart ?? null))}
+                  className="group/cb pointer-events-auto absolute flex items-center justify-center rounded-[6px] text-stone-500 transition-colors hover:bg-stone-200/80 hover:text-stone-900 active:bg-stone-300/70"
+                  style={{ left, top: p.y + p.h / 2 - size / 2, width: size, height: size }}
+                >
+                  {tg ? (
+                    <ChevronRight size={17} strokeWidth={2.5} className={"transition-transform duration-150 " + (p.ch === "▾" ? "rotate-90" : "")} />
+                  ) : (
+                    <CheckBox done={p.ch === "☑"} size={15} />
+                  )}
+                </button>
+              );
+            })}
+        </div>
         {menu && (
           // 커서 자리 재기 — 글 칸과 똑같이 깔고, '/' 줄 시작 자리에 메뉴를 붙인다
           <div aria-hidden className="pointer-events-none invisible absolute inset-0 z-20 px-6 py-5 text-[15px] leading-7 whitespace-pre-wrap [overflow-wrap:break-word]">
@@ -1592,8 +1668,12 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
   };
   // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
   // oxlint-disable-next-line react/refs, react-hooks/refs
-  const keys = outlineKeys(text, put, { tapDone: true });
-  const { onChange, onMouseUp } = keys;
+  const keys = outlineKeys(text, put);
+  const { onChange } = keys;
+  // 줄마다 왼쪽 체크박스 (10/3 세원: "오늘 할 일 왼쪽 옆에 체크박스")
+  const mirror = useRef(null);
+  const spots = useSpots(mirror, text);
+  const rows = text.split("\n");
   // 되돌리기 — 끝내서 뺀 줄·지운 줄이 돌아오면 저장할 때 원래 할 일로 다시 이어진다
   const back = (dir) => {
     const snap = undo.step(dir, latest.current.text, box.current?.selectionStart ?? 0);
@@ -1611,8 +1691,8 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
       <ul className="space-y-0.5">
         {items.map((r) => (
           <li key={r.id} className="flex items-start gap-2 py-0.5" style={{ paddingLeft: `${(r.depth || 0) * 22}px` }}>
-            <span className={"flex w-4 shrink-0 justify-center " + (r.box ? "mt-[5px]" : "mt-[9px]")}>
-              {r.box ? <BoxMark done={r.done} /> : r.done ? <Check size={12} className="-mt-0.5 text-stone-400" /> : <Dot depth={r.depth || 0} />}
+            <span className="mt-[4px] flex w-4 shrink-0 justify-center">
+              <CheckBox done={r.done} size={15} />
             </span>
             <span className={"min-w-0 flex-1 text-sm leading-6 " + (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>{marks(r.text)}</span>
             {!r.done && startOf(r) < date && (
@@ -1635,7 +1715,7 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
         <MarkBar target={box} text={text} put={put} small />
       </span>
       <div className="relative">
-        <Mirror text={text} className="px-1 py-0.5 text-sm leading-7 text-stone-800" />
+        <Mirror text={text} boxRef={mirror} todo className="py-0.5 pr-1 pl-8 text-sm leading-7 text-stone-800" />
         <textarea
           ref={box}
           value={text}
@@ -1644,7 +1724,6 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
           onKeyUp={keys.onKeyUp}
           onCopy={keys.onCopy}
           onCut={keys.onCut}
-          onMouseUp={onMouseUp}
           spellCheck={false}
           onFocus={() => {
             setFocused(true);
@@ -1659,8 +1738,33 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
             flush();
           }}
           placeholder={placeholder}
-          className="relative block min-h-[3rem] w-full resize-none bg-transparent px-1 py-0.5 text-sm leading-7 whitespace-pre-wrap text-transparent caret-stone-800 outline-none [field-sizing:content] [overflow-wrap:break-word] placeholder:text-stone-300 selection:bg-sky-200/60"
+          className="relative block min-h-[3rem] w-full resize-none bg-transparent py-0.5 pr-1 pl-8 text-sm leading-7 whitespace-pre-wrap text-transparent caret-stone-800 outline-none [field-sizing:content] [overflow-wrap:break-word] placeholder:text-stone-300 selection:bg-sky-200/60"
         />
+        {/* 줄마다 왼쪽 체크박스 — 누르면 끝냄(✓) → 잠깐 뒤 '끝낸 일'로 */}
+        <div className="pointer-events-none absolute inset-0 z-10">
+          {spots
+            .filter((p) => p.line)
+            .map((p) => {
+              const b = rows[p.i]?.match(LINE_ANY);
+              if (!b || !b[3].trim()) return null;
+              const done = b[2] === "✓" || b[2] === "☑";
+              return (
+                <button
+                  key={p.i}
+                  type="button"
+                  tabIndex={-1}
+                  title={done ? "안 끝냄" : "끝냄 — 잠깐 뒤 '끝낸 일'로 (Ctrl+엔터)"}
+                  aria-label={done ? "안 끝냄" : "끝냄"}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => keys.toggleDone(p.i, box.current?.selectionStart ?? null)}
+                  className="group/cb pointer-events-auto absolute left-0.5 flex h-6 w-6 items-center justify-center rounded-[6px] transition-colors hover:bg-stone-200/80 active:bg-stone-300/70"
+                  style={{ top: p.y + p.h / 2 - 12 }}
+                >
+                  <CheckBox done={done} size={16} />
+                </button>
+              );
+            })}
+        </div>
       </div>
       {note && (
         <p className="mt-1 flex items-center gap-2 px-1 text-[11px] text-stone-500">
@@ -1727,7 +1831,7 @@ function Todos({ todos, date, today, editable, onChange, onShowDone }) {
         startOn={today}
         editable={editable && date === today}
         hideDone={date === today}
-        placeholder="적고 엔터 · 탭으로 들여쓰기 · 다 한 일은 점(•)을 누르거나 Ctrl+엔터 → '끝낸 일'로"
+        placeholder="적고 엔터 · 탭으로 들여쓰기 · 다 한 일은 왼쪽 네모를 누르거나 Ctrl+엔터 → '끝낸 일'로"
         onCommit={commit}
       />
       {date === today && <DoneToday items={doneToday} editable={editable} onUndo={undone} onAll={onShowDone} />}
@@ -1825,7 +1929,7 @@ function DoneList({ data, name, editable, onUndo, onOpen }) {
   if (!total)
     return (
       <p className="rounded-2xl border border-stone-200 bg-white px-6 py-12 text-center text-sm text-stone-400">
-        {name}님이 끝낸 할 일이 아직 없어요. 할 일 줄의 점(•)을 누르거나 Ctrl+엔터를 누르면 여기로 모여요.
+        {name}님이 끝낸 할 일이 아직 없어요. 할 일 왼쪽 네모를 누르거나 Ctrl+엔터를 누르면 여기로 모여요.
       </p>
     );
   return (
