@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
@@ -265,6 +265,60 @@ function RefEdit({ refItem, tags, folders, url, onSave, onRemove, onClose, onAdd
  * 사진을 묶어서든 개별로든 드래그 앤 드롭으로 넣으면 그때 목록 선택"). 화면 어디에 끌어다 놔도 넣기 창이 열린다.
  * 컷 종류는 폴더와 따로 칩으로 — '하의 폴더 안에서 앉은 컷만'.
  */
+/**
+ * 여러 장 고르기 (10/3 세원: "체크박스 만들어서 한 번에 옮길 수 있게. 마우스 꾹 누르고 드래그, 쉬프트 누르고 한 번에, 컨트롤 누르고 각각")
+ * 윈도우 탐색기처럼 — 빈 곳·사진 위 어디서든 눌러 끌면 네모 안 사진이 잡힌다(Ctrl 누른 채면 더하기).
+ * 클릭: Ctrl = 하나씩 넣고 빼기 · Shift = 마지막에 누른 것부터 여기까지 · 고른 게 있으면 그냥 눌러도 넣고 빼기(없으면 크게 보기).
+ * 폰: 사진을 꾹 누르면 고르기 시작. Esc = 해제, Ctrl+A = 보이는 것 전부.
+ */
+function useMarquee(gridRef, ids, picked, setPicked) {
+  const [box, setBox] = useState(null); // {x, y, w, h} 화면 기준
+  const drag = useRef(null);
+  const moved = useRef(false);
+
+  const onPointerDown = (e) => {
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    if (e.target.closest("button, a, input, select, label")) return;
+    moved.current = false;
+    drag.current = { x: e.clientX, y: e.clientY + window.scrollY, add: e.ctrlKey || e.metaKey, base: new Set(picked) };
+    const move = (ev) => {
+      const g = drag.current;
+      if (!g) return;
+      const y = ev.clientY + window.scrollY;
+      if (!moved.current && Math.hypot(ev.clientX - g.x, y - g.y) < 6) return;
+      moved.current = true;
+      ev.preventDefault();
+      // 화면 끝에 닿으면 저절로 내려간다
+      if (ev.clientY > window.innerHeight - 40) window.scrollBy(0, 18);
+      else if (ev.clientY < 40) window.scrollBy(0, -18);
+      const r = { x: Math.min(g.x, ev.clientX), y: Math.min(g.y, y), w: Math.abs(ev.clientX - g.x), h: Math.abs(y - g.y) };
+      setBox({ ...r, y: r.y - window.scrollY });
+      const hit = new Set(g.add ? g.base : []);
+      for (const el of gridRef.current?.querySelectorAll("[data-ref]") || []) {
+        const c = el.getBoundingClientRect();
+        const top = c.top + window.scrollY;
+        if (c.left < r.x + r.w && c.right > r.x && top < r.y + r.h && top + c.height > r.y) hit.add(el.dataset.ref);
+      }
+      setPicked(hit);
+    };
+    const up = () => {
+      drag.current = null;
+      setBox(null);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  // 끌고 난 뒤 손을 떼면 click 이 한 번 더 온다 — 그건 무시
+  const wasDrag = () => {
+    const m = moved.current;
+    moved.current = false;
+    return m;
+  };
+  return { box, onPointerDown, wasDrag, ids };
+}
+
 function RefsView({ d, online }) {
   const [sel, setSel] = useState("all");
   const [cut, setCut] = useState("");
@@ -274,6 +328,11 @@ function RefsView({ d, online }) {
   const [view, setView] = useState(null);
   const [editCats, setEditCats] = useState(false);
   const [dropping, setDropping] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const [busy, setBusy] = useState("");
+  const anchor = useRef(null);
+  const grid = useRef(null);
+  const press = useRef(null);
 
   const folders = d.folders;
   const refs = useMemo(() => d.refs.map(withFolder), [d.refs]);
@@ -288,6 +347,87 @@ function RefsView({ d, online }) {
       return !n || `${r.memo || ""} ${(r.cuts || []).join(" ")} ${r.place || ""}`.toLowerCase().includes(n);
     });
   }, [refs, folders, sel, cut, q]);
+  const ids = useMemo(() => shown.map((r) => r.id), [shown]);
+  const mq = useMarquee(grid, ids, picked, setPicked);
+  // 목록을 바꾸면 안 보이게 된 것은 고른 데서 뺀다
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    setPicked((p) => (p.size ? new Set([...p].filter((id) => ids.includes(id))) : p));
+  }, [ids]);
+  useEffect(() => {
+    const key = (e) => {
+      if (e.target.closest?.("input, textarea, select")) return;
+      if (e.key === "Escape" && picked.size) setPicked(new Set());
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyA" && ids.length) {
+        e.preventDefault();
+        setPicked(new Set(ids));
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [picked, ids]);
+
+  const toggle = (id) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const pickRange = (to, add) => {
+    const a = ids.indexOf(anchor.current ?? to);
+    const b = ids.indexOf(to);
+    const [lo, hi] = a < 0 ? [b, b] : [Math.min(a, b), Math.max(a, b)];
+    setPicked((p) => new Set([...(add ? p : []), ...ids.slice(lo, hi + 1)]));
+  };
+  const clickCard = (e, r, i) => {
+    if (mq.wasDrag()) return;
+    if (e.shiftKey) pickRange(r.id, e.ctrlKey || e.metaKey);
+    else if (e.ctrlKey || e.metaKey || picked.size) {
+      toggle(r.id);
+      anchor.current = r.id;
+    } else setView(i);
+    if (!e.shiftKey) anchor.current = r.id;
+  };
+  // 폰 — 꾹 누르면 고르기 시작
+  const touchStart = (e, r) => {
+    if (e.pointerType === "mouse") return;
+    clearTimeout(press.current?.t);
+    press.current = {
+      x: e.clientX,
+      y: e.clientY,
+      t: setTimeout(() => {
+        press.current = { done: true };
+        toggle(r.id);
+        anchor.current = r.id;
+        navigator.vibrate?.(15);
+      }, 450),
+    };
+  };
+  const touchMove = (e) => {
+    const p = press.current;
+    if (p?.t && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) clearTimeout(p.t);
+  };
+  const touchEnd = () => clearTimeout(press.current?.t);
+
+  const moveAll = async (folderId) => {
+    const n = picked.size;
+    setBusy("옮기는 중…");
+    try {
+      await d.saveRefs((v) => ({ ...v, items: (v.items || []).map((x) => (picked.has(x.id) ? { ...x, folderId, folder: "" } : x)) }));
+      setPicked(new Set());
+      setBusy(`${n}장을 '${folderId ? pathName(folderId, folders) : "미분류"}'(으)로 옮겼어요`);
+      setTimeout(() => setBusy(""), 3000);
+    } catch {
+      setBusy("");
+    }
+  };
+  const removeAll = async () => {
+    if (!window.confirm(`고른 사진 ${picked.size}장을 지울까요?`)) return;
+    await d.saveRefs((v) => ({ ...v, items: (v.items || []).filter((x) => !picked.has(x.id)) }));
+    setPicked(new Set());
+  };
+
   const addTag = (group, t) => d.saveTags((v) => ({ ...DEFAULT_TAGS, ...v, [group]: [...new Set([...(v[group] || DEFAULT_TAGS[group]), t])] }));
   const here = sel !== "all" && sel !== "none" ? sel : null;
 
@@ -312,6 +452,7 @@ function RefsView({ d, online }) {
         <div>
           <h2 className="text-xl font-bold text-stone-900">촬영 레퍼런스</h2>
           <p className="mt-0.5 text-sm text-stone-500">착용샷 참고 사진을 목록별로 모아요. 사진을 화면에 끌어다 놓으면 바로 넣을 수 있어요.</p>
+          <p className="mt-0.5 hidden text-xs text-stone-400 sm:block">여러 장 옮기기: 왼쪽 위 네모를 누르거나, 눌러 끌어서 네모로 잡거나, Ctrl(하나씩)·Shift(한 번에)를 누른 채 클릭</p>
         </div>
         <button type="button" onClick={() => setAdding({ files: [], folder: here })} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <ImagePlus size={16} /> 사진 넣기
@@ -329,10 +470,48 @@ function RefsView({ d, online }) {
           {d.refs.length ? "이 목록에 사진이 아직 없어요." : "사진을 여기로 끌어다 놓거나 '사진 넣기'로 참고 사진을 모아 보세요. 인스타 캡처도 돼요."}
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <div ref={grid} onPointerDown={mq.onPointerDown} className="grid select-none grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {shown.map((r, i) => (
-            <div key={r.id} className="group relative">
-              <Photo url={d.urls[r.photo]} onClick={() => setView(i)} className="aspect-[3/4] w-full rounded-xl" />
+            <div
+              key={r.id}
+              data-ref={r.id}
+              onPointerDown={(e) => touchStart(e, r)}
+              onPointerMove={touchMove}
+              onPointerUp={touchEnd}
+              onPointerCancel={touchEnd}
+              onContextMenu={(e) => picked.size && e.preventDefault()}
+              onClickCapture={(e) => {
+                // 고르는 중이거나 Ctrl·Shift 를 누르면 사진을 크게 보지 않고 고르기
+                if (e.target.closest("button, a")) return;
+                if (press.current?.done) {
+                  press.current = null;
+                  e.stopPropagation();
+                  return;
+                }
+                e.stopPropagation();
+                clickCard(e, r, i);
+              }}
+              className={"group relative rounded-xl transition-shadow " + (picked.has(r.id) ? "ring-[3px] ring-rose-600 ring-offset-1" : "")}
+            >
+              <Photo url={d.urls[r.photo]} className={"aspect-[3/4] w-full rounded-xl [&_img]:pointer-events-none " + (picked.has(r.id) ? "opacity-85" : "")} />
+              <button
+                type="button"
+                aria-label={picked.has(r.id) ? "고른 것에서 빼기" : "고르기"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (e.shiftKey) pickRange(r.id, true);
+                  else toggle(r.id);
+                  anchor.current = r.id;
+                }}
+                className={
+                  "absolute top-1.5 left-1.5 flex h-6 w-6 items-center justify-center rounded-md border-2 shadow-sm transition-opacity " +
+                  (picked.has(r.id)
+                    ? "border-rose-600 bg-rose-600 text-white opacity-100"
+                    : "border-white bg-black/20 text-transparent " + (picked.size ? "opacity-100" : "opacity-70 sm:opacity-0 sm:group-hover:opacity-100"))
+                }
+              >
+                <Check size={14} strokeWidth={3} />
+              </button>
               <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap gap-1 rounded-b-xl bg-gradient-to-t from-black/60 to-transparent p-1.5 pt-6">
                 <span className="rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-stone-800">{pathName(folderIdOf(r, folders), folders).split(" › ").pop()}</span>
                 {(r.cuts || []).slice(0, 2).map((t) => (
@@ -351,6 +530,53 @@ function RefsView({ d, online }) {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {mq.box && (
+        <div
+          className="pointer-events-none fixed z-30 rounded-sm border border-rose-500 bg-rose-500/10"
+          style={{ left: mq.box.x, top: mq.box.y, width: mq.box.w, height: mq.box.h }}
+        />
+      )}
+
+      {(picked.size > 0 || busy) && (
+        <div className="fixed inset-x-0 bottom-3 z-30 flex justify-center px-3">
+          <div className="sheet flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-stone-200 bg-white px-3 py-2.5 text-sm shadow-xl">
+            {busy && !picked.size ? (
+              <span className="px-1 text-stone-700">{busy}</span>
+            ) : (
+              <>
+                <span className="px-1 font-semibold text-stone-900">{picked.size}장 고름</span>
+                <label className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-2.5 py-1.5 font-semibold text-white">
+                  <FolderInput size={15} />
+                  <select
+                    value=""
+                    disabled={!!busy}
+                    onChange={(e) => e.target.value && moveAll(e.target.value === "__none" ? null : e.target.value)}
+                    className="max-w-[11rem] cursor-pointer bg-transparent font-semibold text-white outline-none [&>option]:text-stone-800"
+                  >
+                    <option value="">목록으로 옮기기</option>
+                    {ordered(folders).map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.depth ? `${"　".repeat(f.depth)}└ ${f.name}` : f.name}
+                      </option>
+                    ))}
+                    <option value="__none">미분류</option>
+                  </select>
+                </label>
+                <button type="button" onClick={() => setPicked(new Set(ids))} className="rounded-lg px-2 py-1.5 text-stone-600 hover:bg-stone-100">
+                  전부 고르기
+                </button>
+                <button type="button" onClick={removeAll} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-stone-600 hover:bg-rose-50 hover:text-rose-700">
+                  <Trash2 size={14} /> 지우기
+                </button>
+                <button type="button" onClick={() => setPicked(new Set())} aria-label="고르기 끝" className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+                  <X size={16} />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 

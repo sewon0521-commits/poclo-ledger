@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   NotebookPen,
   ChevronLeft,
@@ -18,7 +18,11 @@ import {
   Italic,
   Undo2,
   ChevronDown,
+  ImagePlus,
+  X,
 } from "lucide-react";
+import { putPhoto, photoUrls } from "../lib/shoot";
+import { Viewer } from "./ShootBits";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
 import { newId } from "../lib/id";
 
@@ -64,18 +68,47 @@ const TIME = /^(\d{1,2}:\d{2})\s+(.*)$/;
 // 글은 지금처럼 글자로 저장한다(할 일 줄·점 목록 규칙을 안 깨려고) — 표시만 꾸민다:
 //   **굵게**  __밑줄__  *기울임*  ~~취소선~~  ==형광펜==  `코드`
 // 쓰는 칸은 글자 칸(textarea) 아래에 같은 글을 꾸며서 깔고(Mirror), 위 글자는 투명하게 — 치는 동안에도 꾸민 모양이 보인다.
-// 그래서 쓰는 칸의 꾸밈은 **글자 폭을 안 바꾸는 것만** 쓴다(굵게 = 외곽선, 형광펜·코드 = 여백 없는 배경). 기호는 흐리게 보인다.
-const MARKS = [
-  ["**", "font-bold text-stone-900", "text-stone-900 [-webkit-text-stroke:0.55px_currentColor]"],
-  ["__", "underline decoration-rose-500 decoration-2 underline-offset-[3px]", "underline decoration-rose-500 decoration-2 underline-offset-[3px]"],
-  ["~~", "text-stone-400 line-through decoration-stone-400", "text-stone-400 line-through decoration-stone-400"],
-  ["==", "rounded-sm bg-yellow-200 px-0.5 text-stone-900", "bg-yellow-200 text-stone-900"],
-  ["`", "rounded bg-stone-100 px-1 text-[0.92em] text-rose-700", "bg-stone-100 text-rose-700"],
-  ["*", "italic", "italic"],
+// 그래서 쓰는 칸의 꾸밈은 **글자 폭을 안 바꾸는 것만** 쓴다(굵게 = 외곽선, 형광펜·코드 = 여백 없는 배경).
+// 10/3 세원: "볼드·형광펜·밑줄·취소선 전부 오류" — 쓰는 동안 ** == __ ~~ 기호가 흐리게 남고 칠한 자리가 어긋나 보였다.
+// → 표시를 **폭이 0인 보이지 않는 글자**(U+2060~2064)로 바꿨다. 칸에서도 화면에서도 기호가 안 보이고 꾸민 모양만 남는다.
+// 예전에 ** == __ ~~ 로 적은 글도 그대로 읽고, 쓰는 칸에 열면 새 표시로 바꾼다(toInvisible).
+const MK = { b: "\u2061", u: "\u2062", h: "\u2063", s: "\u2064", i: "\u2060" };
+const MK_ALL = /[\u2060-\u2064]/g;
+const isMk = (c) => c >= "\u2060" && c <= "\u2064";
+const STYLE = {
+  b: ["font-bold text-stone-900", "text-stone-900 [-webkit-text-stroke:0.6px_currentColor]"],
+  u: ["underline decoration-rose-500 decoration-2 underline-offset-[3px]", "underline decoration-rose-500 decoration-2 underline-offset-[3px]"],
+  s: ["text-stone-400 line-through decoration-stone-500", "text-stone-400 line-through decoration-stone-500"],
+  h: ["rounded-sm bg-yellow-200 px-0.5 text-stone-900", "bg-yellow-200 text-stone-900 [box-decoration-break:clone]"],
+  c: ["rounded bg-stone-100 px-1 text-[0.92em] text-rose-700", "bg-stone-100 text-rose-700"],
+  i: ["italic", "italic"],
+};
+// [여는·닫는 표시, 꾸밈, 안쪽 글 정규식]
+const PATTERNS = [
+  [MK.b, "b"],
+  [MK.u, "u"],
+  [MK.s, "s"],
+  [MK.h, "h"],
+  [MK.i, "i"],
+  ["**", "b"],
+  ["__", "u"],
+  ["~~", "s"],
+  ["==", "h"],
+  ["`", "c", "[^`]+?"],
+  ["*", "i", String.raw`[^*\s](?:[^*]*?[^*\s])?`],
 ];
-const MARK_SRC = String.raw`\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|==(.+?)==|` + "`([^`]+?)`" + String.raw`|\*([^*\s](?:[^*]*?[^*\s])?)\*`;
+const escRe = (t) => t.replace(/[*=~_`]/g, "\\$&");
+const MARK_SRC = PATTERNS.map(([mk, , inner]) => `${escRe(mk)}(${inner || ".+?"})${escRe(mk)}`).join("|");
+const LEGACY = [
+  [/\*\*(.+?)\*\*/g, MK.b],
+  [/__(.+?)__/g, MK.u],
+  [/~~(.+?)~~/g, MK.s],
+  [/==(.+?)==/g, MK.h],
+];
+/** 예전 기호(** __ ~~ ==) → 보이지 않는 표시 */
+const toInvisible = (t) => LEGACY.reduce((acc, [re, mk]) => acc.replace(re, `${mk}$1${mk}`), String(t || ""));
 
-/** 꾸민 글 — keep 이면 기호도 흐리게 남긴다(쓰는 칸 아래 깔 때 글자 자리가 똑같아야 해서) */
+/** 꾸민 글 — keep 이면 쓰는 칸 아래에 까는 모양(글자 폭을 안 바꾸는 꾸밈 · 예전 기호는 흐리게) */
 function marks(text, keep = false, key = "m") {
   const s = String(text || "");
   const re = new RegExp(MARK_SRC, "g");
@@ -84,10 +117,11 @@ function marks(text, keep = false, key = "m") {
   let m;
   while ((m = re.exec(s))) {
     if (m.index > last) out.push(s.slice(last, m.index));
-    const i = [1, 2, 3, 4, 5, 6].find((k) => m[k] != null);
-    const [mk, read, edit] = MARKS[i - 1];
-    const inner = i === 5 ? m[i] : marks(m[i], keep, `${key}-${out.length}`);
-    const faint = keep ? <span className="text-stone-300 [-webkit-text-stroke:0]">{mk}</span> : null;
+    const i = PATTERNS.findIndex((_, k) => m[k + 1] != null);
+    const [mk, kind] = PATTERNS[i];
+    const [read, edit] = STYLE[kind];
+    const inner = kind === "c" ? m[i + 1] : marks(m[i + 1], keep, `${key}-${out.length}`);
+    const faint = keep && !isMk(mk) ? <span className="text-stone-300 [-webkit-text-stroke:0]">{mk}</span> : null;
     out.push(
       <span key={`${key}-${out.length}`}>
         {faint}
@@ -101,18 +135,264 @@ function marks(text, keep = false, key = "m") {
   return out;
 }
 
+// 토글 줄 (10/3 세원: "업무일지 토글 만들기 · /토글") — ▾ 열림 / ▸ 닫힘. 아래로 더 들여 쓴 줄이 그 안에 든다
+const TOGGLE = /^( *)([▸▾]) (.*)$/;
+// 사진 (10/3) — 한 줄에 [사진:보관 키]
+const PHOTO = /^ *\[사진:([^\]\s]+)\]\s*$/;
+const HR = /^\s*(-{3,}|—{2,})\s*$/;
+/** 토글 ind 안에 드는 줄인가 — 빈 줄이거나 더 들여 쓴 줄 */
+const inside = (line, ind) => !line.trim() || line.length - line.trimStart().length > ind;
+
+/** 줄 앞 기호 자리에 그리는 모양 — 글자(투명)는 그대로 두고 그 위에 겹쳐서 폭이 안 바뀌게 */
+function Glyph({ ch }) {
+  const inner =
+    ch === "☐" ? (
+      <span className="h-[14px] w-[14px] rounded-[4px] border-[1.5px] border-stone-400 bg-white" />
+    ) : ch === "☑" ? (
+      <span className="flex h-[14px] w-[14px] items-center justify-center rounded-[4px] bg-rose-700 text-white">
+        <Check size={11} strokeWidth={3.5} />
+      </span>
+    ) : ch === "✓" ? (
+      <Check size={14} strokeWidth={3} className="text-rose-600" />
+    ) : ch === "▾" ? (
+      <ChevronDown size={15} strokeWidth={2.5} className="text-stone-600" />
+    ) : (
+      <ChevronRight size={15} strokeWidth={2.5} className="text-stone-600" />
+    );
+  return (
+    <span className="relative">
+      <span className="text-transparent">{ch}</span>
+      <span className="absolute inset-y-0 -left-0.5 -right-0.5 flex items-center justify-center">{inner}</span>
+    </span>
+  );
+}
+
+/** 쓰는 칸 아래 한 줄 */
+function mirrorLine(ln, i, hidden) {
+  if (HEAD.test(ln)) return <span className="text-rose-800 [-webkit-text-stroke:0.5px_currentColor]">{marks(ln, true, `h${i}`)}</span>;
+  if (HR.test(ln))
+    return (
+      <span className="relative inline-block w-full">
+        <span className="text-transparent">{ln}</span>
+        <span className="absolute inset-x-0 top-1/2 border-t border-stone-300" />
+      </span>
+    );
+  if (PHOTO.test(ln))
+    return (
+      <span className="relative">
+        <span className="text-transparent">{ln}</span>
+        <span className="absolute inset-y-[3px] left-0 flex items-center gap-1 rounded-md bg-sky-50 px-1.5 text-[12px] whitespace-nowrap text-sky-800">
+          <ImagePlus size={12} /> 사진 · 아래에 보여요
+        </span>
+      </span>
+    );
+  const m = ln.match(/^( *)([☐☑✓▸▾]) (.*)$/);
+  if (!m) return marks(ln, true, `l${i}`);
+  const done = m[2] === "✓" || m[2] === "☑";
+  return (
+    <>
+      {m[1]}
+      <Glyph ch={m[2]} /> <span className={done ? "text-stone-400 line-through decoration-stone-300" : ""}>{marks(m[3], true, `l${i}`)}</span>
+      {m[2] === "▸" && hidden > 0 && (
+        <span className="inline-block w-0 overflow-visible whitespace-nowrap">
+          <span className="ml-2 rounded bg-stone-100 px-1.5 text-[11px] text-stone-500">{hidden}줄 접힘</span>
+        </span>
+      )}
+    </>
+  );
+}
+
 /** 쓰는 칸 아래에 까는 꾸민 글 — 위 textarea 와 글자 자리가 똑같아야 한다(같은 여백·글꼴·줄 높이·줄바꿈) */
-function Mirror({ text, className }) {
+function Mirror({ text, className, hidden }) {
   const lines = String(text || "").split("\n");
   return (
     <div aria-hidden className={"pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap [overflow-wrap:break-word] " + className}>
       {lines.map((ln, i) => (
         <span key={i}>
           {i > 0 && "\n"}
-          {HEAD.test(ln) ? <span className="text-rose-800 [-webkit-text-stroke:0.5px_currentColor]">{marks(ln, true, `h${i}`)}</span> : /^ *[✓☑] /.test(ln) ? <span className="text-stone-400 line-through decoration-stone-300">{marks(ln, true, `d${i}`)}</span> : marks(ln, true, `l${i}`)}
+          {mirrorLine(ln, i, hidden?.[i]?.length || 0)}
         </span>
       ))}
       {"\u200b"}
+    </div>
+  );
+}
+
+/** 접힌 토글(▸)의 안쪽 줄을 숨긴 글 — {text, hidden[i]: 숨긴 줄들, map[i]: 원래 줄 번호} */
+function foldView(full) {
+  const L = String(full || "").split("\n");
+  const vis = [];
+  const hidden = [];
+  const map = [];
+  for (let i = 0; i < L.length; i++) {
+    vis.push(L[i]);
+    map.push(i);
+    const m = L[i].match(TOGGLE);
+    if (m && m[2] === "▸") {
+      const kids = [];
+      let j = i + 1;
+      while (j < L.length && inside(L[j], m[1].length)) kids.push(L[j++]);
+      while (kids.length && !kids[kids.length - 1].trim()) {
+        kids.pop();
+        j--;
+      }
+      hidden.push(kids);
+      i = j - 1;
+    } else hidden.push(null);
+  }
+  return { text: vis.join("\n"), lines: vis, hidden, map };
+}
+
+/** 보이는 글을 고친 뒤 → 숨겨 둔 줄을 같은 토글 아래로 되넣은 전체 글. 같은 제목 먼저, 나머지는 순서대로 */
+function unfold(next, view) {
+  const blocks = [];
+  view.lines.forEach((ln, i) => view.hidden[i]?.length && blocks.push({ head: ln, kids: view.hidden[i], used: false }));
+  if (!blocks.length) return next;
+  const L = next.split("\n");
+  const got = new Array(L.length).fill(null);
+  L.forEach((ln, i) => {
+    if (!/^ *▸ /.test(ln)) return;
+    const b = blocks.find((x) => !x.used && x.head === ln);
+    if (b) {
+      b.used = true;
+      got[i] = b.kids;
+    }
+  });
+  L.forEach((ln, i) => {
+    if (!/^ *▸ /.test(ln) || got[i]) return;
+    const b = blocks.find((x) => !x.used);
+    if (b) {
+      b.used = true;
+      got[i] = b.kids;
+    }
+  });
+  return L.flatMap((ln, i) => (got[i] ? [ln, ...got[i]] : [ln])).join("\n");
+}
+
+// ---------------------------------------------------------------- 사진 (10/3 세원: "업무일지 사진 첨부 가능하게")
+const JournalOnline = createContext(false);
+const LOCAL_PHOTOS = "poclo_journal_photos";
+const PHOTO_URLS = new Map(); // 보관 키 → {url, exp} (서명은 4시간)
+function localPhoto(k) {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_PHOTOS) || "{}")[k] || null;
+  } catch {
+    return null;
+  }
+}
+function shrink(file, edge) {
+  return new Promise((resolve, reject) => {
+    const u = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, edge / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * k);
+      c.height = Math.round(img.naturalHeight * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u);
+      resolve(c.toDataURL("image/jpeg", 0.8));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(u);
+      reject(new Error("사진을 열지 못했어요."));
+    };
+    img.src = u;
+  });
+}
+/** 사진 한 장 보관 → 키. 공유 장부면 Storage(reels/shoot/…), 이 기기 저장이면 이 기기에 */
+async function addPhoto(file, online) {
+  const key = await putPhoto(file, online);
+  if (key) return key;
+  const data = await shrink(file, 900);
+  const k = `local/${newId("p")}`;
+  const m = JSON.parse(localStorage.getItem(LOCAL_PHOTOS) || "{}");
+  m[k] = data;
+  localStorage.setItem(LOCAL_PHOTOS, JSON.stringify(m));
+  return k;
+}
+function usePhotoUrls(keys) {
+  const online = useContext(JournalOnline);
+  const sig = keys.join("|");
+  const [urls, setUrls] = useState({});
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const ks = sig ? sig.split("|") : [];
+      const out = {};
+      const need = [];
+      for (const k of ks) {
+        if (k.startsWith("local/")) out[k] = localPhoto(k);
+        else {
+          const c = PHOTO_URLS.get(k);
+          if (c && c.exp > Date.now()) out[k] = c.url;
+          else need.push(k);
+        }
+      }
+      if (need.length) {
+        const got = await photoUrls(need, online);
+        for (const [k, u] of Object.entries(got)) {
+          PHOTO_URLS.set(k, { url: u, exp: Date.now() + 3 * 3600 * 1000 });
+          out[k] = u;
+        }
+      }
+      if (alive) setUrls(out);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [sig, online]);
+  return urls;
+}
+const photoKeys = (text) => String(text || "").split("\n").map((l) => l.match(PHOTO)?.[1]).filter(Boolean);
+
+/** 사진 여러 장 — 누르면 크게, onRemove 가 있으면 × */
+function PhotoGrid({ keys, onRemove, small }) {
+  const urls = usePhotoUrls(keys);
+  const [view, setView] = useState(null);
+  if (!keys.length) return null;
+  return (
+    <>
+      <div className={"flex flex-wrap gap-2 " + (small ? "" : "my-1.5")}>
+        {keys.map((k, i) => (
+          <span key={k + i} className="group relative">
+            <button type="button" onClick={() => setView(i)} className={"block overflow-hidden rounded-lg border border-stone-200 bg-stone-100 " + (small ? "h-24 w-20" : "h-44 w-36 sm:h-52 sm:w-40")}>
+              {urls[k] ? <img src={urls[k]} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-stone-300"><ImagePlus size={16} /></span>}
+            </button>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={() => onRemove(k)}
+                aria-label="사진 빼기"
+                className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-stone-800 text-white opacity-80 hover:opacity-100"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      {view != null && <Viewer slides={keys.map((k) => ({ url: urls[k] }))} start={view} onClose={() => setView(null)} />}
+    </>
+  );
+}
+
+/** 읽기 모양의 토글 */
+function ToggleBlock({ b }) {
+  const [open, setOpen] = useState(b.open);
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen(!open)} className="-ml-1 flex items-start gap-1 rounded px-1 text-left hover:bg-stone-50">
+        <ChevronRight size={16} className={"mt-[6px] shrink-0 text-stone-500 transition-transform " + (open ? "rotate-90" : "")} />
+        <span className="font-medium">
+          <Line text={b.text} />
+        </span>
+      </button>
+      {open && (
+        <div className="ml-[7px] border-l border-stone-100 pl-4">
+          {b.kids.trim() ? <Rendered text={b.kids} /> : <p className="text-sm text-stone-400">비어 있어요</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -241,17 +521,17 @@ function undoKeys(e, back) {
 }
 
 // 단축키 — 노션과 같게. e.code 로 본다(한글 자판이어도 같은 키)
-const MARK_KEYS = { KeyB: "**", KeyU: "__", KeyI: "*", KeyE: "`" };
-const MARK_SHIFT_KEYS = { KeyS: "~~", KeyH: "==", KeyX: "~~" };
+const MARK_KEYS = { KeyB: MK.b, KeyU: MK.u, KeyI: MK.i, KeyE: "`" };
+const MARK_SHIFT_KEYS = { KeyS: MK.s, KeyH: MK.h, KeyX: MK.s };
 
 /** 폰처럼 단축키가 없을 때 누르는 꾸미기 단추 (누르는 동안 글 칸 포커스를 안 뺏는다) */
 function MarkBar({ target, text, put, small }) {
   const items = [
-    [Bold, "**", "굵게 (Ctrl+B)"],
-    [Underline, "__", "밑줄 (Ctrl+U)"],
-    [Highlighter, "==", "형광펜 (Ctrl+Shift+H)"],
-    [Strikethrough, "~~", "취소선 (Ctrl+Shift+S)"],
-    [Italic, "*", "기울임 (Ctrl+I)"],
+    [Bold, MK.b, "굵게 (Ctrl+B)"],
+    [Underline, MK.u, "밑줄 (Ctrl+U)"],
+    [Highlighter, MK.h, "형광펜 (Ctrl+Shift+H)"],
+    [Strikethrough, MK.s, "취소선 (Ctrl+Shift+S)"],
+    [Italic, MK.i, "기울임 (Ctrl+I)"],
   ];
   return (
     <span className="flex shrink-0 items-center gap-0.5">
@@ -265,7 +545,7 @@ function MarkBar({ target, text, put, small }) {
           onClick={() => wrapMark(target.current, text, put, mk)}
           className={"flex items-center justify-center rounded-md text-stone-500 hover:bg-stone-100 hover:text-stone-900 " + (small ? "h-6 w-6" : "h-7 w-7")}
         >
-          <Icon size={small ? 13 : 14} className={mk === "==" ? "text-amber-600" : ""} />
+          <Icon size={small ? 13 : 14} className={mk === MK.h ? "text-amber-600" : ""} />
         </button>
       ))}
     </span>
@@ -285,8 +565,30 @@ function Line({ text }) {
 
 function Rendered({ text }) {
   const blocks = [];
-  for (const raw of String(text || "").split("\n")) {
+  const L = String(text || "").split("\n");
+  for (let i = 0; i < L.length; i++) {
+    const raw = L[i];
     let m;
+    if ((m = raw.match(TOGGLE))) {
+      const ind = m[1].length;
+      const kids = [];
+      let j = i + 1;
+      while (j < L.length && inside(L[j], ind)) kids.push(L[j++]);
+      while (kids.length && !kids[kids.length - 1].trim()) {
+        kids.pop();
+        j--;
+      }
+      const cut = ind + INDENT.length;
+      blocks.push({ t: "toggle", open: m[2] === "▾", text: m[3], kids: kids.map((k) => k.slice(Math.min(cut, k.length - k.trimStart().length))).join("\n") });
+      i = j - 1;
+      continue;
+    }
+    if ((m = raw.match(PHOTO))) {
+      const last = blocks[blocks.length - 1];
+      if (last?.t === "photos") last.keys.push(m[1]);
+      else blocks.push({ t: "photos", keys: [m[1]] });
+      continue;
+    }
     if ((m = raw.match(HEAD))) blocks.push({ t: "h", text: m[1] });
     else if (/^\s*(-{3,}|—{2,})\s*$/.test(raw)) blocks.push({ t: "hr" });
     else if ((m = raw.match(/^\s*>\s?(.*)$/))) blocks.push({ t: "q", text: m[1] });
@@ -310,7 +612,11 @@ function Rendered({ text }) {
   return (
     <div className="max-w-2xl text-[15px] leading-7 text-stone-800">
       {blocks.map((b, i) =>
-        b.t === "h" ? (
+        b.t === "toggle" ? (
+          <ToggleBlock key={i} b={b} />
+        ) : b.t === "photos" ? (
+          <PhotoGrid key={i} keys={b.keys} />
+        ) : b.t === "h" ? (
           <h4 key={i} className="mt-5 mb-1 flex items-center gap-2 text-sm font-semibold text-rose-800 first:mt-0">
             <span className="h-3.5 w-1 rounded-full bg-rose-300" />
             {marks(b.text)}
@@ -394,7 +700,19 @@ function outlineKeys(text, put, opts = {}) {
     const v = e.target.value;
     const pos = e.target.selectionStart;
     const typed = v.length === text.length + 1 ? v[pos - 1] : "";
+    if (typed === "\n") e.target.dataset.enter = "1"; // 아래 keyup 보강이 두 번 넣지 않게
+    // '---' 를 치면 가로줄 + 다음 줄로 (10/3 세원: "—- 세 번 누르면 작대기")
+    if (opts.slash && typed === "-" && /^-{3}$/.test(v.slice(v.lastIndexOf("\n", pos - 1) + 1, pos)) && (v[pos] === undefined || v[pos] === "\n"))
+      return step(v.slice(0, pos) + "\n" + v.slice(pos), pos + 1);
     if (typed === " ") {
+      // '/토글 ' 처럼 명령 이름 + 스페이스
+      const { start: ls, line: ll } = lineAt(v, pos);
+      const cmd = opts.slash && ll.slice(0, pos - ls).match(/^( *)\/(\S+) $/);
+      const hit = cmd && SLASH.find((c) => c.text && (c.name === cmd[2] || c.alias.includes(cmd[2].toLowerCase())));
+      if (hit) {
+        const ins = (hit.flat ? "" : cmd[1]) + hit.text;
+        return step(v.slice(0, ls) + ins + v.slice(pos), ls + ins.length);
+      }
       const { start, line } = lineAt(v, pos);
       const m = line.slice(0, pos - start).match(/^( *)[-*] $/);
       if (m) {
@@ -412,7 +730,7 @@ function outlineKeys(text, put, opts = {}) {
       const two = v.slice(pos - 2, pos);
       const hit = AUTO.find(([k]) => k === two);
       const lineHead = v.slice(v.lastIndexOf("\n", pos - 1) + 1, pos);
-      if (hit && !(two === "--" && /^\s*--$/.test(lineHead))) return step(v.slice(0, pos - 2) + hit[1] + v.slice(pos), pos - 1);
+      if (hit && !(two === "--" && /^\s*-+$/.test(lineHead))) return step(v.slice(0, pos - 2) + hit[1] + v.slice(pos), pos - 1);
     }
     if (typed === "\n") {
       const lineStart = v.lastIndexOf("\n", pos - 2) + 1;
@@ -425,6 +743,20 @@ function outlineKeys(text, put, opts = {}) {
         return step(v.slice(0, lineStart) + repl + v.slice(pos), lineStart + repl.length);
       }
       if (n && !n[4].trim()) return step(v.slice(0, lineStart) + v.slice(pos), lineStart);
+      // 토글 줄: 빈 토글이면 표시를 없애고, 열린 토글이면 안쪽(한 칸 더 들여), 닫힌 토글이면 같은 높이
+      const tg = prev.match(TOGGLE);
+      if (tg && !tg[3].trim()) return step(v.slice(0, lineStart) + tg[1] + v.slice(pos), lineStart + tg[1].length);
+      if (tg) {
+        const sp = tg[2] === "▾" ? tg[1] + INDENT : tg[1];
+        return step(v.slice(0, pos) + sp + v.slice(pos), pos + sp.length);
+      }
+      // 들여 쓴 그냥 글(토글 안): 같은 만큼 들여서, 빈 줄이면 한 칸 내어
+      const pl = !b && !n && prev.match(/^( +)(.*)$/);
+      if (pl && !pl[2].trim()) {
+        const sp = INDENT.repeat(Math.max(0, depthOf(pl[1]) - 1));
+        return step(v.slice(0, lineStart) + sp + v.slice(pos), lineStart + sp.length);
+      }
+      if (pl) return step(v.slice(0, pos) + pl[1] + v.slice(pos), pos + pl[1].length);
       const add = b ? (BOX.includes(b[2]) ? INDENT.repeat(depthOf(b[1])) + "☐ " : bulletOf(depthOf(b[1]))) : n ? `${n[1]}${Number(n[2]) + 1}${n[3]} ` : "";
       if (add) return step(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
     }
@@ -433,6 +765,38 @@ function outlineKeys(text, put, opts = {}) {
 
   const onKeyDown = (e) => {
     const el = e.currentTarget;
+    if (e.key === "Enter") delete el.dataset.enter;
+    // 보이지 않는 꾸미기 표시는 한 번에 건너뛴다 (지울 때·화살표)
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && el.selectionStart === el.selectionEnd) {
+      const p0 = el.selectionStart;
+      if (e.key === "Backspace" && isMk(text[p0 - 1] || "")) {
+        let j = p0;
+        while (j > 0 && isMk(text[j - 1])) j--;
+        if (j === 0) return e.preventDefault();
+        e.preventDefault();
+        let t = text.slice(0, j - 1) + text.slice(j);
+        t = t.replace(/([\u2060-\u2064])\1/g, "");
+        return put(t, Math.min(j - 1, t.length));
+      }
+      if (e.key === "Delete" && isMk(text[p0] || "")) {
+        let j = p0;
+        while (j < text.length && isMk(text[j])) j++;
+        if (j >= text.length) return e.preventDefault();
+        e.preventDefault();
+        const t = (text.slice(0, j) + text.slice(j + 1)).replace(/([\u2060-\u2064])\1/g, "");
+        return put(t, p0);
+      }
+      if (!e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        const d = e.key === "ArrowLeft" ? -1 : 1;
+        let j = p0 + d;
+        while (j > 0 && j < text.length && isMk(text[d < 0 ? j : j - 1])) j += d;
+        if (Math.abs(j - p0) > 1) {
+          e.preventDefault();
+          el.setSelectionRange(j, j);
+          return;
+        }
+      }
+    }
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const mk = e.shiftKey ? MARK_SHIFT_KEYS[e.code] : MARK_KEYS[e.code];
       if (mk) {
@@ -452,7 +816,13 @@ function outlineKeys(text, put, opts = {}) {
       step(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), pos);
     } else if (e.key === "Tab") {
       e.preventDefault(); // 칸 밖으로 나가지 않게
-      if (!b) return;
+      if (!b) {
+        const sp = line.match(/^ */)[0];
+        const nd = depthOf(sp) + (e.shiftKey ? -1 : 1);
+        if (nd < 0 || nd > 3 || (!line.trim() && !e.shiftKey && !opts.slash)) return;
+        const pre = INDENT.repeat(nd);
+        return step(text.slice(0, start) + pre + line.slice(sp.length) + text.slice(end), Math.max(start + pre.length, pos + pre.length - sp.length));
+      }
       const d = depthOf(b[1]);
       const nd = e.shiftKey ? d - 1 : d + 1;
       if (nd < 0 || nd > 3) return;
@@ -460,6 +830,12 @@ function outlineKeys(text, put, opts = {}) {
       const mark = b[2] === "✓" || BOX.includes(b[2]) ? b[2] : glyph(nd);
       const pre = INDENT.repeat(nd) + mark + " ";
       step(text.slice(0, start) + pre + b[3] + text.slice(end), Math.max(start + pre.length, pos + pre.length - oldPre));
+    } else if (e.key === "Backspace" && !b && el.selectionEnd === pos && pos > start && pos === start + line.match(/^ */)[0].length) {
+      // 들여 쓴 줄 맨 앞에서 지우기 = 한 칸 내어쓰기
+      e.preventDefault();
+      const nd = depthOf(line.slice(0, pos - start)) - 1;
+      const pre = INDENT.repeat(Math.max(0, nd));
+      step(text.slice(0, start) + pre + line.trimStart() + text.slice(end), start + pre.length);
     } else if (e.key === "Backspace" && b && el.selectionEnd === pos && pos === start + b[1].length + 2) {
       e.preventDefault();
       const d = depthOf(b[1]);
@@ -481,8 +857,62 @@ function outlineKeys(text, put, opts = {}) {
     const mark = b[2] === "☐" ? "☑" : b[2] === "☑" ? "☐" : b[2] === "✓" ? glyph(depthOf(b[1])) : "✓";
     step(text.slice(0, start) + b[1] + mark + " " + b[3] + text.slice(end), end);
   };
-  return { onChange, onKeyDown, onMouseUp };
+  // 한글 보강 (10/3 세원: "- 스페이스로 나온 점에서 엔터 치면 점 살려서 밑으로") — 한글을 조합하던 중에 엔터를 치면
+  // 브라우저가 조합 끝내기와 줄 나누기를 따로 보내서 위 onChange 가 엔터를 못 알아챌 때가 있다. 손을 뗄 때 한 번 더 본다:
+  // 방금 만든 빈 줄 바로 위가 글이 든 점·체크 줄이면 그 모양을 이어 준다.
+  const onKeyUp = (e) => {
+    const el = e.currentTarget;
+    if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (el.dataset.enter) {
+      delete el.dataset.enter;
+      return;
+    }
+    const v = el.value;
+    const pos = el.selectionStart;
+    if (pos !== el.selectionEnd || pos === 0 || v[pos - 1] !== "\n" || (v[pos] && v[pos] !== "\n")) return;
+    const prev = v.slice(v.lastIndexOf("\n", pos - 2) + 1, pos - 1);
+    const b = prev.match(LINE_ANY);
+    if (!b || !b[3].trim() || b[2] === "✓" || b[2] === "☑") return;
+    const add = BOX.includes(b[2]) ? INDENT.repeat(depthOf(b[1])) + "☐ " : bulletOf(depthOf(b[1]));
+    step(v.slice(0, pos) + add + v.slice(pos), pos + add.length);
+  };
+  // 복사·잘라내기는 보이지 않는 표시를 빼고 (카톡 등에 붙일 때 깨끗하게)
+  const clip = (cut) => (e) => {
+    const el = e.currentTarget;
+    const a = el.selectionStart;
+    const z = el.selectionEnd;
+    if (a === z) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", text.slice(a, z).replace(MK_ALL, ""));
+    if (cut) step(text.slice(0, a) + text.slice(z), a);
+  };
+  return { onChange, onKeyDown, onMouseUp, onKeyUp, onCopy: clip(false), onCut: clip(true) };
 }
+
+// '/' 명령 (10/3 세원: "/토글 누르면 가능하게") — 줄 맨 앞에 / 를 치면 메뉴. 이름 + 스페이스로도 바로 된다
+const SLASH = [
+  { name: "토글", alias: ["toggle", "접기"], text: "▾ ", hint: "누르면 접고 펴는 줄" },
+  { name: "체크박스", alias: ["check", "todo", "할일", "체크"], text: "☐ ", hint: "☐ 할 일" },
+  { name: "점 목록", alias: ["bullet", "list", "목록", "점"], text: "• ", hint: "• 목록" },
+  { name: "번호 목록", alias: ["number", "번호"], text: "1. ", hint: "1. 2. 3." },
+  { name: "소제목", alias: ["head", "제목"], text: "■ ", flat: true, hint: "■ 굵은 제목" },
+  { name: "구분선", alias: ["divider", "hr", "선", "가로줄"], text: "---\n", flat: true, hint: "가로줄" },
+  { name: "인용", alias: ["quote"], text: "> ", hint: "> 인용" },
+  { name: "사진", alias: ["photo", "image", "이미지"], text: null, hint: "사진 붙이기" },
+  { name: "지금 시각", alias: ["time", "시간", "시각"], text: null, hint: "14:20" },
+];
+const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+const choOf = (t) =>
+  [...t]
+    .map((c) => {
+      const k = c.charCodeAt(0) - 0xac00;
+      return k >= 0 && k < 11172 ? CHO[Math.floor(k / 588)] : c;
+    })
+    .join("");
+const slashHits = (q) => {
+  const lq = q.toLowerCase();
+  return SLASH.filter((c) => !q || c.name.includes(q) || choOf(c.name.replace(/\s/g, "")).startsWith(choOf(q)) || c.alias.some((a) => a.startsWith(lq)));
+};
 
 // ---------------------------------------------------------------- 쓰기 (쓰는 대로 저장)
 //
@@ -494,12 +924,24 @@ function outlineKeys(text, put, opts = {}) {
 const HEADS = ["오늘 한 일", "도매·거래처", "상품·촬영", "콘텐츠", "CS·배송", "메모·생각"];
 const STARTER = "■ 오늘 한 일\n• \n\n■ 메모·생각\n• ";
 
-function Editor({ initial, onSave }) {
-  const [text, setText] = useState(initial);
+function Editor({ initial: raw, onSave }) {
+  const online = useContext(JournalOnline);
+  const [initial] = useState(() => toInvisible(raw));
+  // full = 저장하는 전체 글(접힌 토글 안쪽 포함), 칸에는 접힌 줄을 뺀 view.text 가 보인다
+  const [full, setFull] = useState(initial);
+  const view = useMemo(() => foldView(full), [full]);
+  const text = view.text;
+  const viewRef = useRef(view);
   const [state, setState] = useState("idle"); // idle | saving | saved | error
+  const [menu, setMenu] = useState(null); // '/' 메뉴 {start, q, at}
+  const [pick, setPick] = useState(0);
+  const [uploading, setUploading] = useState(0);
+  const [photoMsg, setPhotoMsg] = useState("");
+  const shut = useRef(-1); // Esc 로 닫은 '/' 줄의 시작 자리
+  const file = useRef(null);
   const box = useRef(null);
   const latest = useRef(initial);
-  const saved = useRef(initial);
+  const saved = useRef(raw);
   const timer = useRef(null);
   const saveRef = useRef(onSave);
   const caretTo = useRef(null);
@@ -539,15 +981,94 @@ function Editor({ initial, onSave }) {
   }, [flush]);
 
   const undo = useUndo();
-  const put = (next, caret, opts = {}) => {
+  /** 전체 글 바꾸기 */
+  const setAll = (next, caret, opts = {}) => {
     if (opts.history !== false) undo.record(latest.current, box.current?.selectionStart ?? null, next, opts.step);
-    setText(next);
+    setFull(next);
     latest.current = next;
+    viewRef.current = foldView(next);
     setState("idle");
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, 800);
     if (caret != null) caretTo.current = caret;
   };
+  /** 보이는 글 바꾸기 → 접힌 줄을 되넣어 전체 글로 */
+  const put = (next, caret, opts = {}) => setAll(unfold(next, viewRef.current), caret, opts);
+
+  /** 보이는 줄 i 의 토글을 접고 펴기 */
+  const flip = (vi) => {
+    const fi = viewRef.current.map[vi];
+    const L = latest.current.split("\n");
+    const m = L[fi]?.match(TOGGLE);
+    if (!m) return false;
+    L[fi] = m[1] + (m[2] === "▾" ? "▸" : "▾") + " " + m[3];
+    setAll(L.join("\n"), box.current?.selectionStart ?? null, { step: true });
+    return true;
+  };
+
+  // '/' 메뉴 — 커서가 '/글자' 로만 된 줄 끝에 있을 때
+  const watch = (el) => {
+    if (!el) return;
+    const v = el.value;
+    const pos = el.selectionStart;
+    if (pos !== el.selectionEnd) return setMenu(null);
+    const { start, end, line } = lineAt(v, pos);
+    const m = pos === end && line.match(/^( *)\/([^\s/]*)$/);
+    if (!m || shut.current === start) return setMenu(null);
+    const hits = slashHits(m[2]);
+    if (!hits.length) return setMenu(null);
+    setMenu((old) => {
+      if (!old || old.start !== start) setPick(0);
+      return { start, q: m[2], sp: m[1], hits };
+    });
+  };
+  const now = () => {
+    const d = new Date();
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")} `;
+  };
+  /** 메뉴에서 고르기 — '/…' 줄을 그 모양으로. 한글 조합 중 엔터로 줄이 하나 더 생겼으면 그 줄도 거둔다 */
+  const run = (cmd, start) => {
+    const v = viewRef.current.text;
+    const { end, line } = lineAt(v, start);
+    const m = line.match(/^( *)\/[^\s/]*$/);
+    if (!m) return;
+    setMenu(null);
+    let tail = v.slice(end);
+    if (/^\n[ ]*(?=\n|$)/.test(tail) && box.current?.selectionStart > end) tail = tail.replace(/^\n[ ]*/, "");
+    if (cmd.name === "사진") {
+      const t = v.slice(0, start) + m[1] + tail;
+      put(t, start + m[1].length, { step: true });
+      file.current?.click();
+      return;
+    }
+    const ins = cmd.name === "지금 시각" ? m[1] + now() : (cmd.flat ? "" : m[1]) + cmd.text;
+    put(v.slice(0, start) + ins + tail, start + ins.length, { step: true });
+  };
+
+  /** 사진 붙이기 — 올린 뒤 커서 자리(새 줄)에 [사진:키] 줄로 */
+  const attach = async (files) => {
+    const list = [...files].filter((f) => f.type.startsWith("image/"));
+    if (!list.length) return;
+    const at = box.current ? box.current.selectionEnd : text.length;
+    setUploading(list.length);
+    setPhotoMsg("");
+    const keys = [];
+    try {
+      for (const f of list) keys.push(await addPhoto(f, online));
+    } catch (e) {
+      setPhotoMsg(e.message || "사진을 올리지 못했어요.");
+    }
+    setUploading(0);
+    if (!keys.length) return;
+    const v = viewRef.current.text;
+    const p = Math.min(at, v.length);
+    const before = v.slice(0, p);
+    const after = v.slice(p);
+    const pre = before && !before.endsWith("\n") ? "\n" : "";
+    const ins = pre + keys.map((k) => `[사진:${k}]`).join("\n") + "\n";
+    put(before + ins + after.replace(/^\n/, ""), p + ins.length, { step: true });
+  };
+  const dropPhoto = (k) => setAll(latest.current.split("\n").filter((l) => l.match(PHOTO)?.[1] !== k).join("\n"), null, { step: true });
 
   /** 커서 자리에 넣기 — block 이면 새 줄에서 시작하고, 앞 글과 한 줄 띄운다 */
   const insert = (str, block) => {
@@ -563,20 +1084,65 @@ function Editor({ initial, onSave }) {
 
   // put 은 치는 순간(이벤트)에만 불린다 — 그리는 동안 refs 를 읽지 않는다
   // oxlint-disable-next-line react/refs, react-hooks/refs
-  const keys = outlineKeys(text, put);
-  const { onChange, onMouseUp } = keys;
+  const keys = outlineKeys(text, put, { slash: true });
   const back = (dir) => {
     const snap = undo.step(dir, latest.current, box.current?.selectionStart ?? 0);
-    if (snap) put(snap.text, snap.caret ?? snap.text.length, { history: false });
+    if (snap) setAll(snap.text, snap.caret ?? snap.text.length, { history: false });
   };
+  const onChange = (e) => {
+    keys.onChange(e);
+    const el = e.target;
+    setTimeout(() => watch(el), 0);
+  };
+  const lineNo = (pos) => text.slice(0, pos).split("\n").length - 1;
   const onKeyDown = (e) => {
-    if (!undoKeys(e, back)) keys.onKeyDown(e);
+    if (menu) {
+      const n = menu.hits.length;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setPick((k) => (k + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const cmd = menu.hits[Math.min(pick, n - 1)];
+        const st = menu.start;
+        // 한글 조합 중이면 조합이 끝난 뒤에
+        if (e.nativeEvent.isComposing || e.keyCode === 229) setTimeout(() => run(cmd, st), 0);
+        else run(cmd, st);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        shut.current = menu.start;
+        setMenu(null);
+        return;
+      }
+    }
+    if (undoKeys(e, back)) return;
+    const el = e.currentTarget;
+    // Ctrl+엔터 — 토글 줄이면 접고 펴기
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && TOGGLE.test(lineAt(text, el.selectionStart).line)) {
+      e.preventDefault();
+      flip(lineNo(el.selectionStart));
+      return;
+    }
+    keys.onKeyDown(e);
   };
-
-  const now = () => {
-    const d = new Date();
-    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")} `;
+  // ▾▸ 를 누르면 접고 펴기 (누른 자리가 바로 그 앞·뒤일 때만)
+  const onMouseUp = (e) => {
+    const el = e.currentTarget;
+    const pos = el.selectionStart;
+    if (pos === el.selectionEnd) {
+      const { start, line } = lineAt(text, pos);
+      const m = line.match(TOGGLE);
+      const at = start + (m ? m[1].length : 0);
+      if (m && (pos === at || pos === at + 1) && flip(lineNo(pos))) return;
+    }
+    keys.onMouseUp(e);
+    watch(el);
   };
+  const photos = photoKeys(full);
 
   return (
     <div>
@@ -613,6 +1179,25 @@ function Editor({ initial, onSave }) {
         >
           <Clock size={13} /> 지금 시각
         </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => file.current?.click()}
+          className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs text-stone-500 hover:bg-stone-100"
+        >
+          {uploading ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />} {uploading ? `사진 ${uploading}장 올리는 중` : "사진"}
+        </button>
+        <input
+          ref={file}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            attach(e.target.files);
+            e.target.value = "";
+          }}
+        />
 
         <span className="ml-auto shrink-0 pl-2 text-[11px] text-stone-400">
           {state === "saving" ? (
@@ -625,19 +1210,63 @@ function Editor({ initial, onSave }) {
         </span>
       </div>
 
-      <div className="relative max-w-3xl">
-        <Mirror text={text} className="px-6 py-5 text-[15px] leading-7 text-stone-800" />
+      <div
+        className="relative max-w-3xl"
+        onDragOver={(e) => [...e.dataTransfer.types].includes("Files") && e.preventDefault()}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files.length) return;
+          e.preventDefault();
+          attach(e.dataTransfer.files);
+        }}
+      >
+        <Mirror text={text} hidden={view.hidden} className="px-6 py-5 text-[15px] leading-7 text-stone-800" />
         <textarea
           ref={box}
           value={text}
           onChange={onChange}
           onKeyDown={onKeyDown}
+          onKeyUp={keys.onKeyUp}
           onMouseUp={onMouseUp}
-          onBlur={flush}
+          onCopy={keys.onCopy}
+          onCut={keys.onCut}
+          onPaste={(e) => {
+            const fs = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+            if (!fs.length) return;
+            e.preventDefault();
+            attach(fs);
+          }}
+          onBlur={() => {
+            setMenu(null);
+            flush();
+          }}
           spellCheck={false}
-          placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. '- ' 로 점 목록, 탭으로 들여쓰기. 글을 고르고 Ctrl+B 굵게 · Ctrl+U 밑줄 · Ctrl+Shift+H 형광펜. 쓰는 대로 저장돼요."
+          placeholder="위 단추로 소제목을 넣거나, 그냥 떠오르는 대로 써요. '/' 를 치면 토글·체크박스·구분선·사진 메뉴, '- ' 점 목록, '---' 가로줄. 글을 고르고 Ctrl+B 굵게 · Ctrl+U 밑줄 · Ctrl+Shift+H 형광펜. 사진은 붙여넣기·끌어다 놓기도 돼요."
           className="relative block min-h-[22rem] w-full resize-none bg-transparent px-6 py-5 text-[15px] leading-7 whitespace-pre-wrap text-transparent caret-stone-800 outline-none [field-sizing:content] [overflow-wrap:break-word] placeholder:text-stone-300 selection:bg-sky-200/60"
         />
+        {menu && (
+          // 커서 자리 재기 — 글 칸과 똑같이 깔고, '/' 줄 시작 자리에 메뉴를 붙인다
+          <div aria-hidden className="pointer-events-none invisible absolute inset-0 z-20 px-6 py-5 text-[15px] leading-7 whitespace-pre-wrap [overflow-wrap:break-word]">
+            {text.slice(0, menu.start)}
+            <span className="relative">
+              <span className="pointer-events-auto visible absolute top-7 left-0 w-56 overflow-hidden rounded-xl border border-stone-200 bg-white py-1 text-sm shadow-lg">
+                {menu.hits.map((c, k) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => run(c, menu.start)}
+                    onMouseEnter={() => setPick(k)}
+                    className={"flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left " + (k === pick ? "bg-rose-50 text-rose-900" : "text-stone-700")}
+                  >
+                    <span className="font-medium">{c.name}</span>
+                    <span className="text-[11px] text-stone-400">{c.hint}</span>
+                  </button>
+                ))}
+                <span className="block border-t border-stone-100 px-3 pt-1 text-[10px] text-stone-400">↑↓ 고르기 · 엔터 · Esc 닫기</span>
+              </span>
+            </span>
+          </div>
+        )}
         {!text && (
           <button
             type="button"
@@ -648,6 +1277,13 @@ function Editor({ initial, onSave }) {
           </button>
         )}
       </div>
+      {(photos.length > 0 || photoMsg) && (
+        <div className="border-t border-dashed border-stone-100 px-6 py-3">
+          <div className="mb-1.5 text-xs font-semibold text-stone-500">붙인 사진 {photos.length > 0 && photos.length}</div>
+          {photoMsg && <p className="mb-1 text-xs text-rose-700">{photoMsg}</p>}
+          <PhotoGrid keys={photos} small onRemove={dropPhoto} />
+        </div>
+      )}
     </div>
   );
 }
@@ -814,7 +1450,7 @@ function dropDone(t, caret) {
 
 /** 할 일 → 글 (끝낸 줄은 ✓) */
 const todosToText = (items) =>
-  items.map((t) => INDENT.repeat(t.depth || 0) + (t.box ? (t.done ? "☑" : "☐") : t.done ? "✓" : glyph(t.depth || 0)) + " " + t.text).join("\n");
+  items.map((t) => INDENT.repeat(t.depth || 0) + (t.box ? (t.done ? "☑" : "☐") : t.done ? "✓" : glyph(t.depth || 0)) + " " + toInvisible(t.text)).join("\n");
 
 /** 읽기 모양의 체크박스 */
 function BoxMark({ done }) {
@@ -1005,6 +1641,9 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
           value={text}
           onChange={onChange}
           onKeyDown={onKeyDown}
+          onKeyUp={keys.onKeyUp}
+          onCopy={keys.onCopy}
+          onCut={keys.onCut}
           onMouseUp={onMouseUp}
           spellCheck={false}
           onFocus={() => {
@@ -1434,6 +2073,7 @@ export default function JournalPage({ online }) {
   })[0];
 
   return (
+    <JournalOnline.Provider value={online}>
     <div>
       <div className="mb-4">
         <h2 className="flex items-center gap-1.5 text-xl font-bold text-stone-900">
@@ -1606,5 +2246,6 @@ export default function JournalPage({ online }) {
         </div>
       )}
     </div>
+    </JournalOnline.Provider>
   );
 }
