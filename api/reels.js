@@ -230,6 +230,28 @@ const RESTRUCTURE_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자�
 
 // ------------------------------------------------------------- 2) 우리 상품으로 바꾸기
 
+/**
+ * 대본 바탕 (10/3 세원: "AI가 레퍼런스의 대본을 그대로 가져와서 그걸 가공해 줬으면. 레퍼 대본을 참고해서 창작하지 말고.
+ * 이걸 베이스로 깔아 줘. 그래서 내가 수정할 때도 괜찮을 것 같아.")
+ */
+const BASE_TEXT = `
+--- 대본 만드는 법 (가장 중요) ---
+- 레퍼런스 대본을 **한 줄도 빼지 말고 순서대로 그대로 깔고**(baseLines), 줄마다 **우리 상품에 안 맞는 말만** 바꿔라. 창작하지 마라.
+- 바꾸는 것: 상품명·옷 종류·소재·색·핏·디테일·가격·입는 상황처럼 상품이 바뀌면 틀린 말이 되는 부분. 바꿔 넣는 말은 **우리 상품 글에 있는 사실**만.
+- 그대로 두는 것: 말투·어미·문장 길이·줄 수·순서·시각·감탄사·문장부호·이모지·밈 표현·'말:' 표시. 바꿀 게 없는 줄은 **글자 그대로**.
+- 새 문장을 지어 넣거나, 줄을 합치거나, 지우지 마라. 레퍼런스 줄이 우리 상품에 도저히 안 맞으면 그 줄만 최소한으로 고쳐라.
+- 룩·상품이 여러 개인데 레퍼런스가 한 벌을 소개하면, 상품을 소개하는 줄 묶음을 룩마다 되풀이해도 된다(말투 그대로, 그 줄들의 at 은 비움).
+- 메모(세원 지시)가 훅·문장을 정해 주면 그 줄만 메모대로 바꾼다.
+- hook 은 baseLines 첫 줄(들)의 ours, scenes 의 text 도 ours 와 같게. script 는 빈 문자열로 둔다(앱이 ours 로 만든다).
+- 레퍼런스 대본이 아예 없을 때만 baseLines 를 빈 배열로 두고 script 를 새로 쓴다.`;
+
+/** 바탕 줄 → 대본 ([시각] 줄) */
+function withBase(out) {
+  const lines = Array.isArray(out.baseLines) ? out.baseLines.filter((l) => l && (l.ours || l.ref)) : [];
+  if (!lines.length) return out;
+  return { ...out, script: lines.map((l) => (l.at ? `[${l.at}] ` : "") + (l.ours ?? l.ref)).join("\n") };
+}
+
 const AdaptSchema = z.object({
   product: z.object({
     name: z.string().describe("대표 상품명(룩이 여럿이면 첫 룩의 주인공)"),
@@ -257,8 +279,19 @@ const AdaptSchema = z.object({
       }),
     )
     .describe("레퍼런스 틀의 빈칸을 우리 상품으로 채운 것. slots 가 주어졌으면 전부 채운다"),
-  hook: z.string().describe("우리 릴스의 첫 1~3초 훅. 레퍼런스의 훅 방식을 따르되 우리 상품으로"),
-  script: z.string().describe("우리 릴스 대본 전체. 자막으로 그대로 쓸 수 있게 줄바꿈으로"),
+  baseLines: z
+    .array(
+      z.object({
+        at: z.string().describe("레퍼런스 대본 그 줄 앞 시각 그대로(예: '0:03.5'). 시각이 없으면 빈 문자열"),
+        ref: z.string().describe("레퍼런스 대본 그 줄 그대로 (시각 표시만 빼고, '말:' 은 그대로)"),
+        ours: z.string().describe("그 줄을 우리 상품에 맞게 바꾼 것. 바꿀 게 없으면 ref 와 글자 하나 다르지 않게 그대로"),
+      }),
+    )
+    .describe("레퍼런스 대본을 한 줄도 빼지 않고 순서대로 깔고, 줄마다 우리 상품으로 바꾼 것 — 우리 대본의 바탕. 레퍼런스 대본이 없을 때만 빈 배열"),
+  hook: z.string().describe("우리 릴스의 첫 1~3초 훅 — baseLines 첫 줄(들)의 ours"),
+  script: z
+    .string()
+    .describe("baseLines 가 있으면 빈 문자열로 둔다(앱이 ours 로 만든다). 레퍼런스 대본이 없을 때만 새로 쓴 대본 전체를 줄바꿈으로"),
   scenes: z
     .array(
       z.object({
@@ -282,8 +315,7 @@ const ADAPT_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기
 0. **룩이 여러 개면 룩 순서가 대본 순서다.** 룩 1 → 룩 2 → 룩 3 으로 넘어가게 짜고,
    룩마다 한 가지씩만 보여줘라(전부 설명하면 늘어진다). 한 룩에 상품이 여럿이면 같이 입은 코디다.
 1. 상품 글을 읽고 **어떤 옷인지, 누구에게, 무엇으로 설득할지**를 먼저 정리해라.
-2. 레퍼런스의 **구조(훅 방식 → 전개 → CTA)를 그대로 빌려서**, 내용만 우리 상품으로 바꾼 대본을 써라.
-   베끼는 게 아니라 **틀을 가져오는 것**이다.
+2. 레퍼런스 **대본을 그대로 깔고 우리 상품에 안 맞는 말만 바꿔라** — 아래 '대본 만드는 법'을 따른다.
 3. 촬영할 사람이 보고 바로 찍을 수 있게 **장면별 촬영 지시**를 붙여라.
 4. 레퍼런스에 **빈칸 틀(template/slots)** 이 있으면 그 빈칸을 우리 상품으로 **전부 채워라**(filled).
    빈칸에 넣는 말은 **상품 글에 실제로 있는 사실**이어야 한다.
@@ -326,14 +358,14 @@ function mixText(mix) {
   return [
     "\n--- 이번엔 섞어 만든다 ---",
     "후보에서 하나를 고르지 말고, 아래처럼 **부분마다 다른 레퍼런스**를 빌려 우리 상품 릴스 한 편으로 이어라.",
-    "- 훅: 그 레퍼런스의 훅 공식·시작 방식을 빌려 우리 상품 말로 새로 쓴다(문장을 베끼지 않는다).",
+    "- 대본 바탕(baseLines): **'대본 말투' 레퍼런스의 대본**(없으면 '내용 흐름' 레퍼런스 대본)을 그대로 깔고 우리 상품에 안 맞는 말만 바꾼다('대본 만드는 법').",
+    "- 훅: 바탕 대본의 첫 줄(들)을 '훅' 레퍼런스의 훅 문장으로 갈아 끼우고 우리 상품 말만 바꾼다(그 줄의 ref 는 훅 레퍼런스 문장).",
     "- 내용 흐름: 그 레퍼런스의 전개 순서·장면 수·CTA 방식을 따른다.",
     "- 구도·촬영: scenes 의 shot 과 shots 를 그 레퍼런스의 구도·카메라·동작으로 짠다.",
-    "- 대본 말투: 문장 길이·말투·리듬(반말/존댓말, 끊어 치기 등)을 그 레퍼런스처럼.",
     "부분끼리 어긋나면(예: 무자막 구도인데 말 많은 대본) 자연스럽게 맞추고, chosenWhy 에 **무엇을 어디서 빌려 어떻게 이었는지** 2~4줄로 적어라. 레퍼런스는 id(rm…) 말고 **제목으로** 불러라(사람이 읽는다).",
     "chosen 에는 훅을 빌린 레퍼런스 id(없으면 흐름 레퍼런스 id). 빈칸 틀은 쓰지 않으니 filled 는 빈 배열.",
     part("hook", "첫 1~3초 훅", [h.hook && `훅: ${h.hook}`, h.hookType && `훅 방식: ${h.hookType}`, h.formula?.line && `훅 공식: A=${h.formula.a} / B=${h.formula.b} — ${h.formula.why || ""}`, h.empathy && `공감 포인트: ${h.empathy}`]),
-    part("flow", "내용 흐름", [f.flow && `흐름: ${f.flow}`, f.cta && `CTA: ${f.cta}`, f.lines?.length && `문장 역할:\n${f.lines.map((l) => "  " + l).join("\n")}`]),
+    part("flow", "내용 흐름", [f.flow && `흐름: ${f.flow}`, f.cta && `CTA: ${f.cta}`, f.lines?.length && `문장 역할:\n${f.lines.map((l) => "  " + l).join("\n")}`, f.script && `대본(바탕 후보):\n${f.script}`]),
     part("shots", "구도·촬영", [s.seconds && `길이: 약 ${s.seconds}초`, s.scenes?.length && `장면:\n${s.scenes.map((l) => "  " + l).join("\n")}`]),
     ownText(mix.own),
     part("script", "대본 말투", [w.kind && `형태: ${w.kind}`, w.script && `대본:\n${w.script}`]),
@@ -399,7 +431,7 @@ const REVISE_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 �
 
 const PRODUCT_REEL_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기획자다.
 이번엔 **상품이 먼저 정해졌다.** 아래 레퍼런스 후보(우리 라이브러리에 모아 둔, 잘 된 릴스 분석) 중에서
-**이 상품에 가장 맞는 구조 하나**를 골라(chosen), 그 구조를 빌려 우리 상품 릴스를 기획해라.
+**이 상품에 가장 맞는 레퍼런스 하나**를 골라(chosen), **그 레퍼런스의 대본을 바탕으로 깔고** 우리 상품에 맞게 바꿔 기획해라(아래 '대본 만드는 법').
 
 고르는 기준: 상품의 강점(핏·소재·코디 활용·가격)과 레퍼런스의 훅 방식·전개가 맞는지, 레퍼런스 성과가 좋은지,
 판매 숫자(잘 팔림/뜨는 중)에 맞는 각도인지. 제목 앞에 **★BEST** 가 붙은 후보는 우리가 직접 "우리한테 맞고 좋다"고 고른 것 —
@@ -567,8 +599,9 @@ function redoText(body) {
   if (!body.avoid && !body.direction) return "";
   return [
     "\n--- 다시 만들기 ---",
-    body.avoid ? `앞서 만든 것(이건 피해라, 같은 훅·같은 전개로 또 쓰지 마라):\n${String(body.avoid).slice(0, 2000)}` : "",
-    body.direction ? `이번엔 이렇게: ${String(body.direction).slice(0, 500)}` : "완전히 다른 각도·다른 훅 방식으로 새로 써라.",
+    body.avoid ? `앞서 만든 것(이것과 똑같이 만들지 마라):\n${String(body.avoid).slice(0, 2000)}` : "",
+    "레퍼런스 대본 바탕(줄·순서·말투)은 그대로 두고, **바꿔 넣는 말**(상품을 설명하는 표현·강조하는 점·소구점)을 앞서 만든 것과 다르게 골라라.",
+    body.direction ? `이번엔 이렇게: ${String(body.direction).slice(0, 500)} (방향이 '새로 써'·'다른 레퍼런스' 처럼 바탕을 벗어나라는 뜻이면 그걸 따른다)` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -717,6 +750,7 @@ export default async function handler(req, res) {
       const mix = body.mix && typeof body.mix === "object" ? body.mix : null;
       const text = [
         PRODUCT_REEL_PROMPT,
+        BASE_TEXT,
         mix ? mixText(mix) : "\n--- 레퍼런스 후보 ---",
         mix ? "" : cands.length
           ? cands
@@ -729,7 +763,7 @@ export default async function handler(req, res) {
                   c.performance ? `  성과: ${c.performance}` : "",
                   c.template ? `  빈칸 틀:\n${String(c.template).split("\n").map((l) => "    " + l).join("\n")}` : "",
                   c.slots?.length ? `  빈칸: ${c.slots.map((x) => `${x.key}(${x.hint}; 원래 "${x.original}")`).join(" / ")}` : "",
-                  c.script ? `  대본:\n${String(c.script).slice(0, 700)}` : "",
+                  c.script ? `  대본:\n${String(c.script).slice(0, 1600)}` : "",
                 ]
                   .filter(Boolean)
                   .join("\n"),
@@ -755,7 +789,7 @@ export default async function handler(req, res) {
         else throw err;
       }
       return res.status(200).json({
-        ...parsedOf(r, "릴스 기획"),
+        ...withBase(parsedOf(r, "릴스 기획")),
         productTitle: products[0].title,
         productTitles: products.map((p) => p.title),
         images: imgs,
@@ -779,6 +813,7 @@ export default async function handler(req, res) {
       const ref = body.reference || {};
       const text = [
         ADAPT_PROMPT,
+        BASE_TEXT,
         "\n--- 레퍼런스 릴스 ---",
         `제목: ${ref.title || ""}`,
         `훅: ${ref.hook || ""}`,
@@ -805,7 +840,7 @@ export default async function handler(req, res) {
         else throw err;
       }
       return res.status(200).json({
-        ...parsedOf(r, "대본 만들기"),
+        ...withBase(parsedOf(r, "대본 만들기")),
         productTitles: products.map((p) => p.title),
         images: photos.urls,
       });

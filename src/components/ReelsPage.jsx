@@ -26,6 +26,7 @@ import {
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf } from "../lib/reels";
 import LookPicker from "./LookPicker";
+import BaseScript from "./BaseScript";
 import { emptyLook } from "../lib/looks";
 import { newId } from "../lib/id";
 import {
@@ -1008,15 +1009,16 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                         )}
                       </div>
 
-                      <div>
-                        <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-stone-500">AI가 새로 쓴 대본</span>
-                          <CopyButton text={plan.script || ""} />
-                        </div>
-                        <p className="rounded-xl border border-stone-200 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">
-                          {plan.script}
-                        </p>
-                      </div>
+                      <BaseScript
+                        key={plan.script}
+                        plan={plan}
+                        onSeek={urls.video ? (t) => setSeek((x) => ({ t, n: (x?.n || 0) + 1 })) : undefined}
+                        onSave={(v) => {
+                          const next = { ...plan, script: v };
+                          setPlan(next);
+                          onSave({ ...item, plan: next });
+                        }}
+                      />
 
                       {plan.scenes?.length > 0 && (
                         <div>

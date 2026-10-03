@@ -8,6 +8,7 @@ import LookPicker, { ProductSearch } from "./LookPicker";
 import { CopyButton, EditableTitle } from "./ContentBits";
 import { Empty } from "./ui";
 import RefPicker, { RefSummary } from "./RefPicker";
+import BaseScript from "./BaseScript";
 
 /**
  * 우리 상품에서 시작하는 릴스 기획 (세원 2026-09-22):
@@ -583,6 +584,15 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
     setSeek((x) => ({ t, n: (x?.n || 0) + 1 }));
   };
   const canSeek = !item.mix && clips.length > 0 && clips[0].item.hasVideo;
+  // 바탕 대본의 시각은 바탕이 된 레퍼런스 것 — 섞어 만들기면 '대본 말투'(없으면 '내용 흐름') 레퍼런스
+  const baseId = item.mix ? item.mix.script || item.mix.flow : ref?.id;
+  const baseClip = clips.find((c) => c.id === baseId);
+  const seekBase = baseClip?.item.hasVideo
+    ? (t) => {
+        show(baseId);
+        setSeek((x) => ({ t, n: (x?.n || 0) + 1 }));
+      }
+    : undefined;
   return (
     <div className="flex max-h-[92vh] flex-col">
       <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
@@ -664,7 +674,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
           </div>
         )}
         <EditableText key={`h${p.hook}`} label="첫 1~3초 훅" value={p.hook} strong tone="soft" onSave={(v) => onSave({ ...item, plan: { ...p, hook: v } })} />
-        {filledScript && (
+        {filledScript && !p.baseLines?.length && (
           <div>
             <div className="mb-1 flex items-center justify-between">
               <span className="text-xs font-semibold text-stone-500">
@@ -692,7 +702,7 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
             </div>
           </div>
         )}
-        <EditableText key={`s${p.script}`} label="AI가 새로 쓴 대본" value={p.script} copy onSave={(v) => onSave({ ...item, plan: { ...p, script: v } })} />
+        <BaseScript key={`s${p.script}`} plan={p} onSeek={seekBase} onSave={(v) => onSave({ ...item, plan: { ...p, script: v } })} />
         {p.scenes?.length > 0 && (
           <div>
             <div className="mb-1 text-xs font-semibold text-stone-500">촬영 순서</div>

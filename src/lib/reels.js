@@ -97,9 +97,10 @@ export function mixPayload(library, mix) {
       id: it.id,
       title: r.title || it.title,
       ...(key === "hook" && { hook: r.hook, hookType: r.structure?.hookType, formula: r.hookFormula, empathy: r.empathy }),
-      ...(key === "flow" && { flow: r.structure?.flow, cta: r.structure?.cta, lines: (r.lines || []).map((l) => `${l.role}: ${l.text}`).slice(0, 12) }),
+      // 대본 바탕(10/3)은 '대본 말투' 레퍼런스 — 없으면 '내용 흐름' 레퍼런스 대본을 바탕으로
+      ...(key === "flow" && { flow: r.structure?.flow, cta: r.structure?.cta, lines: (r.lines || []).map((l) => `${l.role}: ${l.text}`).slice(0, 12), ...(!mix?.script && { script: String(r.script || "").slice(0, 2000) }) }),
       ...(key === "shots" && { scenes: (r.scenes || []).map((s) => `${s.at} ${s.visual}`).slice(0, 14), seconds: r.seconds }),
-      ...(key === "script" && { script: String(r.script || "").slice(0, 900), kind: r.kind }),
+      ...(key === "script" && { script: String(r.script || "").slice(0, 2000), kind: r.kind }),
     };
   }
   return out;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -276,6 +276,42 @@ function OptInput({ value, onChange, options, placeholder }) {
   );
 }
 
+/** 촬영 1차·2차·3차… — 날짜 + 그때 찍은 색상·사이즈. + 로 늘리고 × 로 뺀다 (10/3) */
+function ShootRounds({ shoots, onChange, options }) {
+  const put = (i, v) => onChange(shoots.map((s, k) => (k === i ? { ...s, ...v } : s)));
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs font-medium text-stone-500">촬영 {shoots.length > 1 && <span className="text-rose-700">· {shoots.length}차까지</span>}</div>
+      {shoots.map((s, i) => (
+        <div key={i} className="space-y-1.5 rounded-xl border border-stone-200 bg-stone-50/50 p-2.5">
+          <div className="flex items-center gap-2">
+            <span className="w-9 shrink-0 text-sm font-semibold text-rose-800">{i + 1}차</span>
+            <input type="date" value={s.on || ""} onChange={(e) => put(i, { on: e.target.value })} className={FIELD + " min-w-0 flex-1"} />
+            {i > 0 && (
+              <button
+                type="button"
+                onClick={() => onChange(shoots.filter((_, k) => k !== i))}
+                aria-label={`${i + 1}차 촬영 빼기`}
+                className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-rose-700"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+          <OptInput value={s.opts} onChange={(v) => put(i, { opts: v })} options={options} placeholder={i ? "아더컬러 등 — 예: 아이보리 / M" : "촬영 색상 및 사이즈 — 예: 블랙 / Free"} />
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...shoots, { on: "", opts: "" }])}
+        className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-stone-300 py-2 text-sm font-medium text-stone-600 hover:border-rose-300 hover:bg-rose-50/50 hover:text-rose-800"
+      >
+        <Plus size={14} /> {shoots.length + 1}차 촬영 추가 <span className="text-xs font-normal text-stone-400">아더컬러 등</span>
+      </button>
+    </div>
+  );
+}
+
 export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, startPay }) {
   const [x, setX] = useState(() => {
     const base = { ...EMPTY, ...item };
@@ -522,17 +558,12 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   <OptInput value={x.arrivedOpts} onChange={(v) => set({ arrivedOpts: v })} options={[...colorList, ...sizeList]} placeholder="예: 블랙, 진베이지 / M" />
                 </Label>
                 {sample && (
-                  <Label title={`반납까지 며칠 (기본 ${RETURN_DAYS}일)`}>
+                  <Label title={`반납 기한 — 입고일 포함 며칠째 (기본 ${RETURN_DAYS}일)`}>
                     <input value={x.returnDays || ""} onChange={(e) => set({ returnDays: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder={String(RETURN_DAYS)} className={FIELD} />
                   </Label>
                 )}
-                <Label title="촬영 날짜">
-                  <input type="date" value={x.shootDate || ""} onChange={(e) => set({ shootDate: e.target.value })} className={FIELD} />
-                </Label>
-                <Label title="촬영 색상 및 사이즈">
-                  <OptInput value={x.shootOpts} onChange={(v) => set({ shootOpts: v })} options={[...colorList, ...sizeList]} placeholder="예: 블랙 / Free" />
-                </Label>
               </div>
+              <ShootRounds shoots={shootsOf(x)} onChange={(s) => set(withShoots(s))} options={[...colorList, ...sizeList]} />
               <div className="flex flex-wrap gap-1.5">
                 {CHANNELS.map(([k, label]) => (
                   <Toggle key={k} on={x.channels?.[k]} onClick={() => set({ channels: { ...(x.channels || {}), [k]: !x.channels?.[k] } })}>
@@ -1433,7 +1464,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       </div>
       <p className="mb-2 px-1 text-xs text-stone-500">
         {tab === "returns"
-          ? `입고일 + ${RETURN_DAYS}일로 반납 기한을 저절로 계산해요. 일부만 사면 '샘플 결제'에 적고, 나머지를 보냈으면 '거래처 반납' → '반납 완료'로 넘어가요.`
+          ? `입고일 포함 ${RETURN_DAYS}일째를 반납 기한으로 저절로 계산해요(10/1 입고 → 10/${RETURN_DAYS}). 일부만 사면 '샘플 결제'에 적고, 나머지를 보냈으면 '거래처 반납' → '반납 완료'로 넘어가요.`
           : tab === "returned"
             ? "거래처에 반납했거나 받은 걸 전부 결제한 샘플이에요. 반납한 날짜별로 모았어요."
             : tab === "drop"

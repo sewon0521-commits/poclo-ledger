@@ -18,7 +18,7 @@
 //    asked, askedOn, pickup, retryOn,      // 거래처 샘플 요청(+날짜) · 샘플 픽업 요청 · 샘플 재요청 날짜
 //    refused, refusedOn, refusedWhy,       // 거래처가 샘플이 안 된다고 함 → 보류·드랍에 '샘플 안 됨'으로 (이유 한 줄)
 //    arrivedOn, arrivedOpts,               // 입고일 · 입고된 색상·사이즈
-//    pickedOn, shootDate, shootOpts,       // 촬영 날짜 · 촬영 색상 및 사이즈
+//    pickedOn, shoots[{on, opts}],          // 촬영 1차·2차… (날짜 · 색상 및 사이즈). shootDate·shootOpts 는 1차 사본
 //    shotOn, doneOn, channels:{cafe24},
 //    returning, hold, packed, packedOn, paid, returnedOn, returnDays,
 //    buyQty,                               // 사입 수량 (대납금 = 도매가 × 수량)
@@ -59,11 +59,26 @@ export function normalize(x) {
 /** 샘플의 끝 — 거래처에 반납했거나, 받은 걸 전부 결제했다 */
 export const closed = (x) => !!x.returnedOn || !!x.paid?.all;
 
-/** 반납 기한 — 샘플이고 입고일이 있고 아직 끝나지 않았을 때만 */
+/**
+ * 반납 기한 — 샘플이고 입고일이 있고 아직 끝나지 않았을 때만.
+ * 10/3 세원: "반납 날짜를 입고일 포함 14일로" — 입고일이 1일째, 14일째가 기한 (10/1 입고 → 10/14). 예전엔 입고일 + 14일(10/15)이었다.
+ */
 export function dueOf(x) {
   if (x.type === "buy" || !x.arrivedOn || closed(x)) return "";
-  return shiftDay(x.arrivedOn, Number(x.returnDays) || RETURN_DAYS);
+  return shiftDay(x.arrivedOn, Math.max(1, Number(x.returnDays) || RETURN_DAYS) - 1);
 }
+
+/**
+ * 촬영 기록 (10/3 세원: "터지는 상품은 아더컬러를 찍는 경우가 많아. 9/1 1차, 잘 팔려서 9/5 2차, 아더컬러 추가해서 또 터지면 9/10 3차 — + 로 늘리게")
+ * shoots = [{on, opts}] (1차부터). 예전 칸 shootDate·shootOpts 는 1차로 읽고, 고치면 1차 값으로 같이 적어 둔다(코디 촬영일 등 예전 코드용).
+ */
+export function shootsOf(x) {
+  if (Array.isArray(x.shoots) && x.shoots.length) {
+    return x.shoots.map((s, i) => (i === 0 && !s.on && x.shootDate ? { ...s, on: x.shootDate } : s));
+  }
+  return [{ on: x.shootDate || "", opts: x.shootOpts || "" }];
+}
+export const withShoots = (shoots) => ({ shoots, shootDate: shoots[0]?.on || "", shootOpts: shoots[0]?.opts || "" });
 
 /** 오늘부터 며칠 남았나 (음수 = 초과) */
 export function daysLeft(due, today = dayKey()) {
