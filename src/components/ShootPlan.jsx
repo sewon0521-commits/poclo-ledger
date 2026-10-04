@@ -35,9 +35,9 @@ import { clipImages, filesOf } from "../lib/pasteImages";
  *    이번 촬영 날씨 — 언제 올라가고 사람들이 이날 보니 이 날씨에 어떤 제품을 사겠구나, 쇼만마에서 어떤 코디를 찍어라·
  *    지금 어떤 코디가 뜬다는 걸 내가 정리해 넣는 칸."
  *
- * 탭 셋 (settings 키):
- *   촬영 회차      shoot_sessions  [{id, on, title, place, uploads:[날짜], cuts:[{id,text,done}], videos:[…], sellNote, memo}]
- *   쇼핑몰 BEST 컷  shop_best       [{id, name, url, photos:[보관 키]}] — 쇼핑몰 베스트 카테고리 사진을 참고용으로 (노션 그대로)
+ * 탭 둘 (settings 키):
+ *   촬영 회차      shoot_sessions  [{id, on, title, place, uploads:[날짜], cuts:[{id,text,done}], videos:[…], shops:[{id,name,url,photos}], sellNote, memo}]
+ *                  shops = 그 촬영에서 따라갈 쇼핑몰 BEST 컷 (10/4 탭에서 회차 안으로). 예전 탭 것(shop_best)은 회차 창에서 '가져오기'로 옮긴다
  *   쇼만마 코디 노트 shomanma_notes  [{id, on, text, photos:[]}]
  * 날씨는 Open-Meteo(무료·키 없음, 서울) — 16일 안은 예보, 그 뒤는 작년 같은 날. 기온별 옷차림은 흔히 쓰는 표로 짐작만 한다.
  * 사진은 신상 관리와 같은 보관함(reels/shoot/…), 이 기기 저장 모드면 이 기기에.
@@ -381,7 +381,8 @@ const dday = (d) => {
   return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `${-n}일 전`;
 };
 
-function SessionSheet({ session, codis, items, notes, onSave, onRemove, onClose, onNotes }) {
+function SessionSheet({ session, codis, items, notes, onSave, onRemove, onClose, onNotes, online, legacy = [], onTakeLegacy }) {
+  const [msg, setMsg] = useState("");
   const [s, setS] = useState(session);
   const latest = useRef(s);
   const timer = useRef(null);
@@ -479,6 +480,31 @@ function SessionSheet({ session, codis, items, notes, onSave, onRemove, onClose,
             <CheckList title="찍을 영상" icon={Video} list={s.videos || []} onChange={(v) => set({ videos: v })} presets={VIDEOS} />
           </div>
 
+          {legacy.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-rose-300 bg-rose-50/50 px-3 py-2 text-xs text-rose-900">
+              예전 '쇼핑몰 BEST 컷' 탭에 모아 둔 것 {legacy.length}곳 · 사진 {legacy.reduce((n, x) => n + (x.photos || []).length, 0)}장
+              <button
+                type="button"
+                onClick={() => {
+                  set({ shops: [...(latest.current.shops || []), ...legacy] });
+                  onTakeLegacy();
+                }}
+                className="rounded-lg bg-rose-700 px-2.5 py-1 font-semibold text-white"
+              >
+                이 촬영으로 가져오기
+              </button>
+            </div>
+          )}
+          <ShopBoard list={s.shops || []} change={(fn) => set({ shops: fn(latest.current.shops || []) })} online={online} onMsg={setMsg} />
+          {msg && (
+            <p className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              {msg}
+              <button type="button" onClick={() => setMsg("")} aria-label="닫기">
+                <X size={12} />
+              </button>
+            </p>
+          )}
+
           <div className="rounded-xl border border-stone-200 p-3">
             <div className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-stone-800">
               <Shirt size={15} className="text-rose-700" /> 이날 코디 {dayCodis.length > 0 && <span className="font-normal text-stone-400">{dayCodis.length}개</span>}
@@ -546,7 +572,7 @@ function SessionSheet({ session, codis, items, notes, onSave, onRemove, onClose,
   );
 }
 
-function SessionsTab({ sessions, codis, items, notes, onNotes }) {
+function SessionsTab({ sessions, codis, items, notes, onNotes, online, legacy, onTakeLegacy }) {
   const [open, setOpen] = useState(null);
   const today = dayKey();
   const all = sessions.items;
@@ -577,6 +603,7 @@ function SessionsTab({ sessions, codis, items, notes, onNotes }) {
           )}
           <span>컷 {cuts.filter((x) => x.done).length}/{cuts.length}</span>
           <span>영상 {vids.filter((x) => x.done).length}/{vids.length}</span>
+          {(s.shops || []).length > 0 && <span>BEST 컷 {(s.shops || []).reduce((n, x) => n + (x.photos || []).length, 0)}장 · {(s.shops || []).length}곳</span>}
           {nCodi > 0 && <span>코디 {nCodi}</span>}
           {s.uploads?.filter(Boolean).length > 0 && <span>업로드 {s.uploads.filter(Boolean).map(md).join(", ")}</span>}
         </div>
@@ -622,6 +649,9 @@ function SessionsTab({ sessions, codis, items, notes, onNotes }) {
           notes={notes}
           onSave={sessions.save}
           onRemove={sessions.drop}
+          online={online}
+          legacy={legacy}
+          onTakeLegacy={onTakeLegacy}
           onClose={() => setOpen(null)}
           onNotes={() => {
             setOpen(null);
@@ -636,7 +666,11 @@ function SessionsTab({ sessions, codis, items, notes, onNotes }) {
 // ---------------------------------------------------------------- 쇼핑몰 BEST 컷
 
 const OPEN_KEY = "poclo_shop_best_open";
-function ShopsTab({ shops, online }) {
+/**
+ * 쇼핑몰 BEST 컷 (10/4 세원: "촬영 회차 안에 쇼핑몰 BEST 컷이 들어갔으면. 촬영마다 우리가 지향하는 각 쇼핑몰의 코디 사진이 달라지기 때문에")
+ * 촬영 회차마다 따로 — list = 그 회차의 shops [{id, name, url, photos}], change(fn) = 목록을 고치는 함수.
+ */
+function ShopBoard({ list, change, online, onMsg }) {
   const [openIds, setOpenIds] = useState(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || "[]"));
@@ -654,7 +688,7 @@ function ShopsTab({ shops, online }) {
   const file = useRef(null);
   const target = useRef(null);
   const urls = usePhotoUrls(
-    shops.items.filter((s) => openIds.has(s.id)).flatMap((s) => s.photos || []),
+    list.filter((s) => openIds.has(s.id)).flatMap((s) => s.photos || []),
     online,
   );
   const toggle = (id) =>
@@ -676,7 +710,7 @@ function ShopsTab({ shops, online }) {
     const list = await filesOf(clip);
     if (!list.length) {
       setBusy("");
-      shops.setMsg("붙여넣은 것에서 사진을 못 찾았어요. 사진 위에서 오른쪽 클릭 → '이미지 복사' 한 뒤 붙여넣어 보세요.");
+      onMsg("붙여넣은 것에서 사진을 못 찾았어요. 사진 위에서 오른쪽 클릭 → '이미지 복사' 한 뒤 붙여넣어 보세요.");
       return;
     }
     const previews = list.map((f) => URL.createObjectURL(f));
@@ -684,9 +718,9 @@ function ShopsTab({ shops, online }) {
     setBusy(`사진 ${list.length}장 올리는 중…`);
     try {
       const keys = await savePhotos(list, online);
-      await shops.change((v) => ({ ...v, items: (v.items || []).map((s) => (s.id === shopId ? { ...s, photos: [...(s.photos || []), ...keys] } : s)) }));
+      change((l) => l.map((s) => (s.id === shopId ? { ...s, photos: [...(s.photos || []), ...keys] } : s)));
     } catch (e) {
-      shops.setMsg(e.message || "사진을 올리지 못했어요.");
+      onMsg(e.message || "사진을 올리지 못했어요.");
     }
     setPending((p) => ({ ...p, [shopId]: (p[shopId] || []).filter((u) => !previews.includes(u)) }));
     setBusy("");
@@ -698,10 +732,9 @@ function ShopsTab({ shops, online }) {
       const clip = clipImages(e.clipboardData);
       if (!clip.files.length && !clip.urls.length) return;
       e.preventDefault();
-      const list = shops.items;
       const id = (list.some((s) => s.id === active) && active) || list.find((s) => openIds.has(s.id))?.id || list[0]?.id;
       if (!id) {
-        shops.setMsg("먼저 '쇼핑몰 추가'로 칸을 만들어 주세요. 그다음 붙여넣으면 들어가요.");
+        onMsg("먼저 '쇼핑몰 추가'로 칸을 만들어 주세요. 그다음 붙여넣으면 들어가요.");
         return;
       }
       setActive(id);
@@ -712,11 +745,16 @@ function ShopsTab({ shops, online }) {
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-stone-500">쇼핑몰 베스트 사진을 쇼핑몰별로 모아 촬영 때 참고해요. 사진을 복사해서 <b className="font-semibold text-stone-700">Ctrl+V</b> 하면 마우스를 올려 둔 칸에 바로 들어가요(끌어다 놓기도 돼요).</p>
-        <button type="button" onClick={() => setAdding(true)} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
-          <Store size={16} /> 쇼핑몰 추가
+    <div className="rounded-xl border border-stone-200 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
+            <Store size={15} className="text-rose-700" /> 쇼핑몰 BEST 컷 <span className="font-normal text-stone-400">이번 촬영에서 따라갈 코디 사진</span>
+          </span>
+          <span className="block text-[11px] text-stone-400">사진을 복사해서 Ctrl+V 하면 마우스를 올려 둔 칸에 바로 들어가요 · 끌어다 놓기도 돼요</span>
+        </span>
+        <button type="button" onClick={() => setAdding(true)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+          <Plus size={13} /> 쇼핑몰 추가
         </button>
       </div>
       {busy && (
@@ -733,7 +771,7 @@ function ShopsTab({ shops, online }) {
             disabled={!name.trim()}
             onClick={async () => {
               const s = { id: newId("sb"), name: name.trim(), url: url.trim(), photos: [], createdAt: new Date().toISOString() };
-              await shops.change((v) => ({ ...v, items: [...(v.items || []), s] }));
+              change((l) => [...l, s]);
               setOpenIds((o) => new Set([...o, s.id]));
               setActive(s.id);
               setName("");
@@ -749,11 +787,11 @@ function ShopsTab({ shops, online }) {
           </button>
         </div>
       )}
-      {!shops.items.length && !adding ? (
-        <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">'쇼핑몰 추가'로 페트리코어 · 윈느처럼 참고하는 쇼핑몰 칸을 만들어 보세요.</p>
+      {!list.length && !adding ? (
+        <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">'쇼핑몰 추가'로 이번 촬영에서 참고할 쇼핑몰 칸(페트리코어 · 윈느 …)을 만들어 보세요.</p>
       ) : (
         <div className="space-y-2">
-          {shops.items.map((s) => {
+          {list.map((s) => {
             const isOpen = openIds.has(s.id);
             const photos = s.photos || [];
             return (
@@ -788,7 +826,7 @@ function ShopsTab({ shops, online }) {
                       onBlur={(e) => {
                         const v = e.target.value.trim();
                         setEditing(null);
-                        if (v && v !== s.name) shops.save({ ...s, name: v });
+                        if (v && v !== s.name) change((l) => l.map((x) => (x.id === s.id ? { ...x, name: v } : x)));
                       }}
                       onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                       className="min-w-0 flex-1 rounded-md border border-rose-400 px-2 py-1 text-sm outline-none"
@@ -814,7 +852,7 @@ function ShopsTab({ shops, online }) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => window.confirm(`'${s.name}' 칸과 사진 ${photos.length}장을 지울까요?`) && shops.drop(s.id)}
+                    onClick={() => window.confirm(`'${s.name}' 칸과 사진 ${photos.length}장을 지울까요?`) && change((l) => l.filter((x) => x.id !== s.id))}
                     aria-label="쇼핑몰 지우기"
                     className="shrink-0 rounded p-1 text-stone-400 hover:text-rose-700"
                   >
@@ -824,7 +862,7 @@ function ShopsTab({ shops, online }) {
                 {isOpen && (
                   <div className="border-t border-stone-100 p-3">
                     {photos.length || pending[s.id]?.length ? (
-                      <PhotoGrid keys={photos} urls={urls} pending={pending[s.id] || []} onRemove={(k) => shops.save({ ...s, photos: photos.filter((x) => x !== k) })} />
+                      <PhotoGrid keys={photos} urls={urls} pending={pending[s.id] || []} onRemove={(k) => change((l) => l.map((x) => (x.id === s.id ? { ...x, photos: (x.photos || []).filter((y) => y !== k) } : x)))} />
                     ) : (
                       <p className="rounded-xl border border-dashed border-stone-200 py-8 text-center text-sm text-stone-400">사진을 복사해서 이 칸에 마우스를 올리고 Ctrl+V · 끌어다 놓기 · '사진' 단추</p>
                     )}
@@ -997,9 +1035,9 @@ function NotesTab({ notes, online }) {
 
 // ---------------------------------------------------------------- 화면
 
+// 쇼핑몰 BEST 컷은 10/4 부터 촬영 회차 안에 (세원: "목록에서는 지우고 촬영 회차 폴더 안으로")
 const TABS = [
   ["sessions", "촬영 회차"],
-  ["shops", "쇼핑몰 BEST 컷"],
   ["notes", "쇼만마 코디 노트"],
 ];
 const TAB_KEY = "poclo_shoot_plan_tab";
@@ -1010,7 +1048,8 @@ export default function ShootPlan({ d, online }) {
   const notes = useList(KEYS.notes, online);
   const [tab, setTabState] = useState(() => {
     try {
-      return localStorage.getItem(TAB_KEY) || "sessions";
+      const t = localStorage.getItem(TAB_KEY);
+      return TABS.some(([k]) => k === t) ? t : "sessions";
     } catch {
       return "sessions";
     }
@@ -1025,13 +1064,13 @@ export default function ShootPlan({ d, online }) {
   };
   const sortedNotes = useMemo(() => [...notes.items].sort((a, b) => (b.on || "").localeCompare(a.on || "")), [notes.items]);
   const msg = sessions.msg || shops.msg || notes.msg;
-  const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, shops: shops.items.length, notes: notes.items.length };
+  const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, notes: notes.items.length };
 
   return (
     <div>
       <div className="mb-4">
         <h2 className="text-xl font-bold text-stone-900">코디 촬영 관리</h2>
-        <p className="mt-0.5 text-sm text-stone-500">이번 촬영에 찍을 컷·영상, 촬영일·올라가는 날 날씨, 참고할 쇼핑몰 BEST 컷, 쇼만마에서 들은 코디를 한곳에.</p>
+        <p className="mt-0.5 text-sm text-stone-500">촬영마다 찍을 컷·영상, 촬영일·올라가는 날 날씨, 따라갈 쇼핑몰 BEST 컷을 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
       </div>
       {msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -1058,9 +1097,16 @@ export default function ShootPlan({ d, online }) {
           <Loader2 size={20} className="animate-spin" />
         </div>
       ) : tab === "sessions" ? (
-        <SessionsTab sessions={sessions} codis={d.codis} items={d.items} notes={sortedNotes} onNotes={() => setTab("notes")} />
-      ) : tab === "shops" ? (
-        <ShopsTab shops={shops} online={online} />
+        <SessionsTab
+          sessions={sessions}
+          codis={d.codis}
+          items={d.items}
+          notes={sortedNotes}
+          onNotes={() => setTab("notes")}
+          online={online}
+          legacy={shops.items}
+          onTakeLegacy={() => shops.change(() => ({ items: [] }))}
+        />
       ) : (
         <NotesTab notes={notes} online={online} />
       )}
