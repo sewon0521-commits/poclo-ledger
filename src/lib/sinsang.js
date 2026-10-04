@@ -34,7 +34,7 @@ export const STAGES = [
   ["shot", "등록", "촬영 끝 — 상품등록 대기"],
   ["done", "업데이트 완료", "등록까지 끝난 상품"],
 ];
-export const stageName = (k) => (k === "drop" ? "보류·드랍" : k === "trash" ? "휴지통" : STAGES.find(([s]) => s === k)?.[1] || "요청");
+export const stageName = (k) => (k === "drop" ? "보류·드랍" : k === "trash" ? "휴지통" : k === "back" ? "반납 등록" : STAGES.find(([s]) => s === k)?.[1] || "요청");
 
 /**
  * 사입 대납금 — 사입 상품의 도매가 × 수량(안 적으면 1장). 샘플은 0.
@@ -51,6 +51,8 @@ export const RETURN_DAYS = 14;
 const OLD = { want: "request", arrived: "arrived", pick: "pick", planned: "pick", shot: "shot", back: "drop" };
 export function normalize(x) {
   const y = { type: "sample", ...x, stage: x.stage || OLD[x.status] || "request" };
+  // 10/5: '반납 등록'은 보류·드랍이 아니라 반납 쪽(stage back) — 예전에 보류·드랍으로 간 반납 등록 샘플도 그쪽으로 본다
+  if (y.stage === "drop" && y.returning && !y.refused && y.type !== "buy") y.stage = "back";
   if (x.settle === "returned" && !x.returnedOn) y.returnedOn = x.settledOn || "";
   if (x.settle === "paid" && !x.paid) y.paid = { on: x.settledOn || "" };
   return y;
@@ -116,6 +118,7 @@ export function paidLabel(p) {
 /** 단계를 옮길 때 같이 적는 것 — 날짜는 그때 오늘로 */
 export function moveTo(x, stage, today = dayKey()) {
   const p = { stage };
+  if (stage === "back") Object.assign(p, { returning: true, backOn: x.backOn || today });
   if (stage !== "drop" && stage !== "trash") p.refused = false;
   if (stage !== "trash") p.trashedOn = "";
   if (stage === "arrived") Object.assign(p, { arrivedOn: x.arrivedOn || today, returning: false, hold: false });

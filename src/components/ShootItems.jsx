@@ -168,7 +168,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
               <button type="button" onClick={go("pick")} className={MAIN}>
                 {sample ? "샘플 픽" : "사입 픽"}
               </button>
-              <button type="button" onClick={act(sample ? { stage: "drop", returning: true } : { stage: "drop", hold: true })} className={SUB}>
+              <button type="button" onClick={sample ? go("back") : act({ stage: "drop", hold: true })} title={sample ? "촬영 안 하고 돌려보낼 샘플 — '반납·결제 예정'으로 가요" : "보류 — '보류·드랍'으로 가요"} className={SUB}>
                 {sample ? "반납 등록" : "보류"}
               </button>
             </div>
@@ -192,6 +192,11 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
           )}
           {tab === "returns" && (
             <>
+              {x.stage === "back" && (
+                <button type="button" onClick={go("arrived")} title="반납 등록을 취소하고 입고·픽으로" className="flex w-full items-center justify-center gap-1 rounded-lg py-0.5 text-[11px] text-stone-400 hover:text-stone-700">
+                  <Undo2 size={11} /> 반납 등록 취소
+                </button>
+              )}
               <Toggle wide on={x.packed} onClick={act(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
                 <PackageCheck size={12} /> 포장 완료{x.packed && x.packedOn ? ` · ${md(x.packedOn)}` : ""}
               </Toggle>
@@ -551,6 +556,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                       {label}
                     </option>
                   ))}
+                  <option value="back">반납 등록</option>
                   <option value="drop">보류·드랍</option>
                   <option value="trash">휴지통</option>
                 </select>
@@ -626,7 +632,16 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                 <div className="space-y-2 border-t border-stone-100 pt-2">
                   <div className="text-xs font-semibold text-stone-500">반납 · 결제</div>
                   <div className="flex flex-wrap gap-1.5">
-                    <Toggle on={x.returning} onClick={() => set({ returning: !x.returning })}>
+                    <Toggle
+                      on={x.returning}
+                      onClick={() =>
+                        set(
+                          x.returning
+                            ? { returning: false, ...(x.stage === "back" ? { stage: "arrived" } : {}) }
+                            : { returning: true, backOn: x.backOn || today, ...(["arrived", "drop"].includes(x.stage) ? { stage: "back" } : {}) },
+                        )
+                      }
+                    >
                       반납 등록
                     </Toggle>
                     <Toggle on={x.packed} onClick={() => set(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
@@ -1504,6 +1519,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
+  const [backOnly, setBackOnly] = useState(false); // 반납·결제 예정 — 반납 등록한 것만
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
@@ -1536,7 +1552,9 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
     })();
   }, [items, vendors, onVendor]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const inTab = (x, t) => (t === "returns" ? !!dueOf(x) : t === "returned" ? x.type !== "buy" && closed(x) : x.stage === t);
+  // 반납 등록(back)은 반납·결제 예정에. 입고일이 없어 기한을 못 세는 것만 보류·드랍에 남겨 둔다(안 보이는 상품이 없게)
+  const inTab = (x, t) =>
+    t === "returns" ? !!dueOf(x) : t === "returned" ? x.type !== "buy" && closed(x) : t === "drop" ? x.stage === "drop" || (x.stage === "back" && !dueOf(x) && !closed(x)) : x.stage === t;
   const count = (t) => items.filter((x) => inTab(x, t)).length;
   const dues = items.filter((x) => dueOf(x)).map((x) => daysLeft(dueOf(x), today));
   const overdue = dues.filter((n) => n < 0).length;
@@ -1555,9 +1573,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!reqOnly || tab !== "request" || !!x[reqOnly]) &&
         (!retryDay || reqOnly !== "retryOn" || x.retryOn === retryDay) &&
         (!dueDay || tab !== "returns" || dueOf(x) === dueDay) &&
+        (!backOnly || tab !== "returns" || x.stage === "back") &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
@@ -1587,6 +1606,15 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         const n = daysLeft(due, today);
         return { title: `${dayTitle(due)} · ${dueLabel(n)} · ${l.length}개`, tone: n < 0 ? "text-rose-700" : n <= 3 ? "text-amber-700" : "text-stone-600", list: l };
       });
+    if (tab === "drop") {
+      // 10/5: 샘플 안 됨과 보류가 섞여 하나하나 찾기 어려웠다 → 두 묶음
+      const no = shown.filter((x) => x.refused);
+      const hold = shown.filter((x) => !x.refused);
+      return [
+        no.length && { title: `샘플 안 됨 · ${no.length}개`, tone: "text-rose-700", list: no },
+        hold.length && { title: `보류 · ${hold.length}개`, tone: "text-stone-600", list: hold },
+      ].filter(Boolean);
+    }
     if (tab === "returned")
       return by((x) => x.returnedOn || x.paid?.on || "", (a, b) => b[0].localeCompare(a[0])).map(([day, l]) => ({ title: day ? `${dayTitle(day)} · ${l.length}개` : `날짜 없음 · ${l.length}개`, list: l }));
     return [{ title: "", list: shown }];
@@ -1682,7 +1710,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           : tab === "returned"
             ? "거래처에 반납했거나 받은 걸 전부 결제한 샘플이에요. 반납한 날짜별로 모았어요."
             : tab === "drop"
-              ? "반납 등록했거나 보류한 상품이에요. 안 되는 상품은 '휴지통'으로 — 다음에 신마에서 같은 상품을 담으면 막아 줘요."
+              ? "거래처가 샘플이 안 된다고 한 상품(샘플 안 됨)과 보류한 상품이에요. 반납 등록한 샘플은 '반납·결제 예정'에 있어요. 안 되는 상품은 '휴지통'으로 — 다음에 신마에서 같은 상품을 담으면 막아 줘요."
               : tab === "trash"
               ? "버린 상품이에요. 신마에서 같은 상품을 다시 담으려고 하면 '휴지통에 버린 상품'이라고 막아요."
               : STAGES.find(([k]) => k === tab)?.[2]}
@@ -1719,6 +1747,17 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               {label} 모아보기 <span className={reqOnly === k ? "text-emerald-100" : "text-stone-400"}>{items.filter((x) => x.stage === "request" && x[k]).length}</span>
             </button>
           ))}
+        {tab === "returns" && (
+          <button
+            type="button"
+            onClick={() => setBackOnly(!backOnly)}
+            aria-pressed={backOnly}
+            title="입고·픽에서 '반납 등록'한 샘플(촬영 안 하고 돌려보낼 것)만"
+            className={"rounded-full border px-3 py-1 text-xs font-medium " + (backOnly ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}
+          >
+            반납 등록한 것만 <span className={backOnly ? "text-stone-300" : "text-stone-400"}>{items.filter((x) => x.stage === "back" && dueOf(x)).length}</span>
+          </button>
+        )}
         {tab === "pick" && (
           <button type="button" onClick={() => setWeekOnly(!weekOnly)} className={"rounded-full border px-3 py-1 text-xs font-medium " + (weekOnly ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}>
             이번 주 픽만
