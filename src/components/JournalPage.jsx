@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { putPhoto, photoUrls } from "../lib/shoot";
 import { Viewer } from "./ShootBits";
+import { clipImages, filesOf } from "../lib/pasteImages";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
 import { newId } from "../lib/id";
 
@@ -1260,9 +1261,10 @@ function Editor({ initial: raw, onSave }) {
         className="relative max-w-3xl"
         onDragOver={(e) => [...e.dataTransfer.types].includes("Files") && e.preventDefault()}
         onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return;
+          const clip = clipImages(e.dataTransfer);
+          if (!clip.files.length && !clip.urls.length) return;
           e.preventDefault();
-          attach(e.dataTransfer.files);
+          filesOf(clip).then(attach);
         }}
       >
         <Mirror text={text} hidden={view.hidden} boxRef={mirror} live className="px-6 py-5 text-[15px] leading-7 text-stone-800" />
@@ -1276,10 +1278,12 @@ function Editor({ initial: raw, onSave }) {
           onCopy={keys.onCopy}
           onCut={keys.onCut}
           onPaste={(e) => {
-            const fs = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
-            if (!fs.length) return;
+            // 사진만 왔을 때 사진으로 (글과 같이 복사한 건 글로 둔다) — 사진 주소로 와도 받아 온다
+            const clip = clipImages(e.clipboardData);
+            const plain = e.clipboardData.getData("text/plain").trim();
+            if (!clip.files.length && !(clip.urls.length && (!plain || clip.urls.includes(plain)))) return;
             e.preventDefault();
-            attach(fs);
+            filesOf(clip).then(attach);
           }}
           onBlur={() => {
             setMenu(null);

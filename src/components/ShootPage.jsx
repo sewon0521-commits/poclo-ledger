@@ -8,6 +8,7 @@ import { normalize, moveTo, DEFAULT_MSGS } from "../lib/sinsang";
 import { dayKey } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
+import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
 /**
@@ -431,28 +432,42 @@ function RefsView({ d, online }) {
 
   const addTag = (group, t) => d.saveTags((v) => ({ ...DEFAULT_TAGS, ...v, [group]: [...new Set([...(v[group] || DEFAULT_TAGS[group]), t])] }));
   const here = sel !== "all" && sel !== "none" ? sel : null;
+  // 복사한 사진을 Ctrl+V 하면 바로 넣기 창 (10/4 세원: "레퍼런스에서 가져온 사진 복사 붙여넣기하면 넣어지게")
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (adding || e.target.closest?.("input, textarea")) return;
+      const clip = clipImages(e.clipboardData);
+      if (!clip.files.length && !clip.urls.length) return;
+      e.preventDefault();
+      filesOf(clip).then((files) => files.length && setAdding({ files, folder: here }));
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [adding, here]);
 
   return (
     <div
       className="relative min-h-[70vh]"
       onDragOver={(e) => {
-        if (![...e.dataTransfer.types].includes("Files")) return;
+        const t = [...e.dataTransfer.types];
+        if (!t.includes("Files") && !t.includes("text/uri-list") && !t.includes("text/html")) return;
         e.preventDefault();
         setDropping(true);
       }}
       onDragLeave={(e) => e.currentTarget === e.target && setDropping(false)}
       onDrop={(e) => {
-        const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"));
-        if (!files.length) return;
-        e.preventDefault();
+        // 다른 창의 사진을 바로 끌어 와도(주소로 온다) 들어가게
+        const clip = clipImages(e.dataTransfer);
         setDropping(false);
-        setAdding({ files, folder: here });
+        if (!clip.files.length && !clip.urls.length) return;
+        e.preventDefault();
+        filesOf(clip).then((files) => files.length && setAdding({ files, folder: here }));
       }}
     >
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <h2 className="text-xl font-bold text-stone-900">촬영 레퍼런스</h2>
-          <p className="mt-0.5 text-sm text-stone-500">착용샷 참고 사진을 목록별로 모아요. 사진을 화면에 끌어다 놓으면 바로 넣을 수 있어요.</p>
+          <p className="mt-0.5 text-sm text-stone-500">착용샷 참고 사진을 목록별로 모아요. 사진을 복사해서 Ctrl+V 하거나 화면에 끌어다 놓으면 바로 넣을 수 있어요.</p>
           <p className="mt-0.5 hidden text-xs text-stone-400 sm:block">여러 장 옮기기: 왼쪽 위 네모를 누르거나, 눌러 끌어서 네모로 잡거나, Ctrl(하나씩)·Shift(한 번에)를 누른 채 클릭</p>
         </div>
         <button type="button" onClick={() => setAdding({ files: [], folder: here })} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">

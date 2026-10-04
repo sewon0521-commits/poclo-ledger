@@ -27,6 +27,7 @@ import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls } fr
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { BigSlides } from "./ContentBits";
+import { clipImages, filesOf } from "../lib/pasteImages";
 
 /**
  * 촬영 › 코디 촬영 관리 (10/4 세원 — 노션 '쇼핑몰 별 BEST 컷 모음' 화면을 보여 주며):
@@ -112,6 +113,8 @@ async function savePhotos(files, online) {
   for (const f of [...files].filter((x) => x.type.startsWith("image/"))) {
     const key = await putPhoto(f, online);
     if (key) {
+      // 서명 주소를 다시 받기 전에도 바로 보이게 — 붙여넣은 그 사진을 그대로 보여 준다
+      URLS.set(key, { url: URL.createObjectURL(f), exp: Date.now() + 3 * 3600 * 1000 });
       out.push(key);
       continue;
     }
@@ -155,9 +158,9 @@ function usePhotoUrls(keys, online) {
 }
 
 /** 사진 칸 — 누르면 전체 화면(확대), × 빼기 */
-function PhotoGrid({ keys, urls, onRemove, size = "md" }) {
+function PhotoGrid({ keys, urls, onRemove, size = "md", pending = [] }) {
   const [view, setView] = useState(null);
-  if (!keys.length) return null;
+  if (!keys.length && !pending.length) return null;
   const cols = size === "sm" ? "grid-cols-4 sm:grid-cols-6" : "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6";
   return (
     <>
@@ -177,6 +180,12 @@ function PhotoGrid({ keys, urls, onRemove, size = "md" }) {
                 <X size={13} />
               </button>
             )}
+          </span>
+        ))}
+        {pending.map((u) => (
+          <span key={u} className="relative block aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">
+            <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
+            <Loader2 size={18} className="absolute inset-0 m-auto animate-spin text-white drop-shadow" />
           </span>
         ))}
       </div>
@@ -635,8 +644,9 @@ function ShopsTab({ shops, online }) {
       return new Set();
     }
   });
-  const [active, setActive] = useState(null); // 붙여넣기(Ctrl+V)가 들어갈 쇼핑몰
+  const [active, setActive] = useState(null); // 붙여넣기(Ctrl+V)가 들어갈 쇼핑몰 — 마지막에 누르거나 마우스를 올린 칸
   const [busy, setBusy] = useState("");
+  const [pending, setPending] = useState({}); // 쇼핑몰 id → 올리는 중인 사진 미리 보기
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -659,27 +669,43 @@ function ShopsTab({ shops, online }) {
       }
       return n;
     });
-  const addPhotos = async (shopId, files) => {
-    const list = [...files].filter((f) => f.type.startsWith("image/"));
-    if (!list.length) return;
+  /** 사진 넣기 — 붙여넣은 사진이 바로 보이고(흐리게 + 도는 표시), 올라가면 진하게 */
+  const addPhotos = async (shopId, clip) => {
+    setOpenIds((o) => new Set([...o, shopId]));
+    setBusy(clip.files.length ? `사진 ${clip.files.length}장 올리는 중…` : "사진 주소에서 사진 받는 중…");
+    const list = await filesOf(clip);
+    if (!list.length) {
+      setBusy("");
+      shops.setMsg("붙여넣은 것에서 사진을 못 찾았어요. 사진 위에서 오른쪽 클릭 → '이미지 복사' 한 뒤 붙여넣어 보세요.");
+      return;
+    }
+    const previews = list.map((f) => URL.createObjectURL(f));
+    setPending((p) => ({ ...p, [shopId]: [...(p[shopId] || []), ...previews] }));
     setBusy(`사진 ${list.length}장 올리는 중…`);
     try {
       const keys = await savePhotos(list, online);
       await shops.change((v) => ({ ...v, items: (v.items || []).map((s) => (s.id === shopId ? { ...s, photos: [...(s.photos || []), ...keys] } : s)) }));
-      setOpenIds((o) => new Set([...o, shopId]));
     } catch (e) {
       shops.setMsg(e.message || "사진을 올리지 못했어요.");
     }
+    setPending((p) => ({ ...p, [shopId]: (p[shopId] || []).filter((u) => !previews.includes(u)) }));
     setBusy("");
   };
-  // 붙여넣기 — 마지막에 누른(펼친) 쇼핑몰로
+  // 붙여넣기 — 화면 어디서든 Ctrl+V. 들어갈 칸: 마지막에 누르거나 마우스를 올린 칸 → 없으면 펼쳐 둔 첫 칸 → 첫 칸
   useEffect(() => {
     const onPaste = (e) => {
-      if (e.target.closest?.("input, textarea")) return;
-      const fs = [...(e.clipboardData?.files || [])];
-      if (!fs.length || !active) return;
+      if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
+      const clip = clipImages(e.clipboardData);
+      if (!clip.files.length && !clip.urls.length) return;
       e.preventDefault();
-      addPhotos(active, fs);
+      const list = shops.items;
+      const id = (list.some((s) => s.id === active) && active) || list.find((s) => openIds.has(s.id))?.id || list[0]?.id;
+      if (!id) {
+        shops.setMsg("먼저 '쇼핑몰 추가'로 칸을 만들어 주세요. 그다음 붙여넣으면 들어가요.");
+        return;
+      }
+      setActive(id);
+      addPhotos(id, clip);
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
@@ -688,7 +714,7 @@ function ShopsTab({ shops, online }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-stone-500">쇼핑몰 베스트 카테고리 사진을 쇼핑몰별로 모아 촬영 때 참고해요. 칸에 사진을 끌어다 놓거나, 칸을 누른 뒤 Ctrl+V.</p>
+        <p className="text-sm text-stone-500">쇼핑몰 베스트 사진을 쇼핑몰별로 모아 촬영 때 참고해요. 사진을 복사해서 <b className="font-semibold text-stone-700">Ctrl+V</b> 하면 마우스를 올려 둔 칸에 바로 들어가요(끌어다 놓기도 돼요).</p>
         <button type="button" onClick={() => setAdding(true)} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <Store size={16} /> 쇼핑몰 추가
         </button>
@@ -734,12 +760,15 @@ function ShopsTab({ shops, online }) {
               <section
                 key={s.id}
                 onMouseDown={() => setActive(s.id)}
-                onDragOver={(e) => [...e.dataTransfer.types].includes("Files") && e.preventDefault()}
+                onMouseEnter={() => setActive(s.id)}
+                onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
-                  if (!e.dataTransfer.files.length) return;
+                  // 다른 창의 사진을 바로 끌어 와도(주소로 온다) 들어가게
+                  const clip = clipImages(e.dataTransfer);
+                  if (!clip.files.length && !clip.urls.length) return;
                   e.preventDefault();
                   setActive(s.id);
-                  addPhotos(s.id, e.dataTransfer.files);
+                  addPhotos(s.id, clip);
                 }}
                 className={"rounded-2xl border bg-white " + (active === s.id ? "border-rose-300" : "border-stone-200")}
               >
@@ -750,6 +779,7 @@ function ShopsTab({ shops, online }) {
                     </span>
                     {editing === s.id ? null : <span className="truncate font-semibold text-stone-900">{s.name}</span>}
                     <span className="shrink-0 text-xs text-stone-400">{photos.length}장</span>
+                    {active === s.id && <span className="hidden shrink-0 rounded bg-rose-50 px-1.5 text-[10px] font-medium text-rose-700 sm:inline">Ctrl+V 하면 여기로</span>}
                   </button>
                   {editing === s.id && (
                     <input
@@ -793,10 +823,10 @@ function ShopsTab({ shops, online }) {
                 </header>
                 {isOpen && (
                   <div className="border-t border-stone-100 p-3">
-                    {photos.length ? (
-                      <PhotoGrid keys={photos} urls={urls} onRemove={(k) => shops.save({ ...s, photos: photos.filter((x) => x !== k) })} />
+                    {photos.length || pending[s.id]?.length ? (
+                      <PhotoGrid keys={photos} urls={urls} pending={pending[s.id] || []} onRemove={(k) => shops.save({ ...s, photos: photos.filter((x) => x !== k) })} />
                     ) : (
-                      <p className="rounded-xl border border-dashed border-stone-200 py-8 text-center text-sm text-stone-400">사진을 여기로 끌어다 놓거나 '사진' 단추 · 이 칸을 누르고 Ctrl+V</p>
+                      <p className="rounded-xl border border-dashed border-stone-200 py-8 text-center text-sm text-stone-400">사진을 복사해서 이 칸에 마우스를 올리고 Ctrl+V · 끌어다 놓기 · '사진' 단추</p>
                     )}
                   </div>
                 )}
@@ -812,7 +842,7 @@ function ShopsTab({ shops, online }) {
         multiple
         hidden
         onChange={(e) => {
-          if (target.current) addPhotos(target.current, e.target.files);
+          if (target.current) addPhotos(target.current, { files: [...e.target.files], urls: [] });
           e.target.value = "";
         }}
       />
@@ -825,29 +855,47 @@ function ShopsTab({ shops, online }) {
 function NotesTab({ notes, online }) {
   const [draft, setDraft] = useState({ on: dayKey(), text: "", photos: [] });
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState([]);
   const [edit, setEdit] = useState(null);
   const file = useRef(null);
   const sorted = useMemo(() => [...notes.items].sort((a, b) => (b.on || "").localeCompare(a.on || "") || (b.createdAt || "").localeCompare(a.createdAt || "")), [notes.items]);
   const urls = usePhotoUrls([...draft.photos, ...sorted.flatMap((n) => n.photos || [])], online);
-  const attach = async (files) => {
+  const attach = async (clip) => {
     setBusy(true);
+    const files = await filesOf(clip);
+    const previews = files.map((f) => URL.createObjectURL(f));
+    setPending((p) => [...p, ...previews]);
     try {
       const keys = await savePhotos(files, online);
       setDraft((d) => ({ ...d, photos: [...d.photos, ...keys] }));
     } catch (e) {
       notes.setMsg(e.message || "사진을 올리지 못했어요.");
     }
+    setPending((p) => p.filter((u) => !previews.includes(u)));
     setBusy(false);
   };
+  // 글 칸 밖에서 Ctrl+V 해도 새 노트에 붙는다
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (e.target.closest?.("input, textarea")) return;
+      const clip = clipImages(e.clipboardData);
+      if (!clip.files.length && !clip.urls.length) return;
+      e.preventDefault();
+      attach(clip);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="space-y-4">
       <div
         className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4"
-        onDragOver={(e) => [...e.dataTransfer.types].includes("Files") && e.preventDefault()}
+        onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return;
+          const clip = clipImages(e.dataTransfer);
+          if (!clip.files.length && !clip.urls.length) return;
           e.preventDefault();
-          attach(e.dataTransfer.files);
+          attach(clip);
         }}
       >
         <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-amber-900">
@@ -858,23 +906,25 @@ function NotesTab({ notes, online }) {
           <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-900">
             {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />} 사진
           </button>
-          <input ref={file} type="file" accept="image/*" multiple hidden onChange={(e) => (attach(e.target.files), (e.target.value = ""))} />
+          <input ref={file} type="file" accept="image/*" multiple hidden onChange={(e) => (attach({ files: [...e.target.files], urls: [] }), (e.target.value = ""))} />
         </div>
         <textarea
           value={draft.text}
           onChange={(e) => setDraft({ ...draft, text: e.target.value })}
           onPaste={(e) => {
-            const fs = [...e.clipboardData.files];
-            if (!fs.length) return;
+            // 글과 같이 복사한 건 글로 두고, 사진만 왔을 때 사진으로
+            const clip = clipImages(e.clipboardData);
+            const text = e.clipboardData.getData("text/plain").trim();
+            if (!clip.files.length && !(clip.urls.length && (!text || clip.urls.includes(text)))) return;
             e.preventDefault();
-            attach(fs);
+            attach(clip);
           }}
-          placeholder={"예:\n- 지금 뜨는 코디: 셔츠 + 니트 베스트 레이어드, 와이드 데님\n- 이번 주 찍어라: 트렌치 + 롱스커트, 앉은 컷 많이\n- 피할 것: 반팔 단독 착장"}
+          placeholder={"예:\n- 지금 뜨는 코디: 셔츠 + 니트 베스트 레이어드, 와이드 데님\n- 이번 주 찍어라: 트렌치 + 롱스커트, 앉은 컷 많이\n- 피할 것: 반팔 단독 착장\n(사진은 복사해서 Ctrl+V)"}
           className={FIELD + " mt-2 h-32 resize-y bg-white text-sm"}
         />
-        {draft.photos.length > 0 && (
+        {(draft.photos.length > 0 || pending.length > 0) && (
           <div className="mt-2">
-            <PhotoGrid keys={draft.photos} urls={urls} size="sm" onRemove={(k) => setDraft({ ...draft, photos: draft.photos.filter((x) => x !== k) })} />
+            <PhotoGrid keys={draft.photos} urls={urls} size="sm" pending={pending} onRemove={(k) => setDraft({ ...draft, photos: draft.photos.filter((x) => x !== k) })} />
           </div>
         )}
         <div className="mt-2 flex justify-end">
