@@ -65,8 +65,21 @@ export const closed = (x) => !!x.returnedOn || !!x.paid?.all;
  */
 export function dueOf(x) {
   if (x.type === "buy" || !x.arrivedOn || closed(x)) return "";
-  return shiftDay(x.arrivedOn, Math.max(1, Number(x.returnDays) || RETURN_DAYS) - 1);
+  return shiftDay(x.arrivedOn, Math.max(1, Number(x.returnDays) || RETURN_DAYS) - 1 + extendDays(x));
 }
+
+/**
+ * 반납 기한 연장 (10/4 세원: "샘플을 받고 사진을 찍어야 했는데 못 찍으면 거래처한테 일주일만 늘려 달라고 요청하거든. 늘리는 란 + 멘트 바로 복사")
+ * extensions = [{on: 연장한 날, days}] — 거래처가 된다고 하면 하나씩 쌓인다. 기한은 원래 기한 + 다 더한 날수. extendAskedOn = 멘트를 복사한(요청한) 날.
+ */
+export const extendDays = (x) => (x.extensions || []).reduce((n, e) => n + (Number(e.days) || 0), 0);
+export const EXTEND_MSG = `사장님 안녕하세요!
+다름이 아니라 저번에 내려주셨던 [제품명] 상품 촬영을 아직 못해서요ㅠ
+혹시 일주일만 기간 연장 가능한지 여쭤보려고 연락드렸습니다..!`;
+const SPAN = (d) => (d === 7 ? "일주일만" : d === 14 ? "2주만" : d % 7 === 0 ? `${d / 7}주만` : `${d}일만`);
+/** 연장 요청 멘트 — [제품명] 자리에 [345,348], 늘릴 날이 7일이 아니면 '일주일만'도 맞춰 바꾼다 */
+export const extendText = (names, days = 7) =>
+  EXTEND_MSG.replace("[제품명]", `[${names.join(",")}]`).replace("일주일만", SPAN(Number(days) || 7));
 
 /**
  * 촬영 기록 (10/3 세원: "터지는 상품은 아더컬러를 찍는 경우가 많아. 9/1 1차, 잘 팔려서 9/5 2차, 아더컬러 추가해서 또 터지면 9/10 3차 — + 로 늘리게")

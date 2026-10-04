@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy } from "lucide-react";
+import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -62,7 +62,7 @@ function Toggle({ on, onClick, children, wide }) {
 }
 
 /** 상품 카드 — tab 에 따라 다음 단계로 넘기는 단추가 달라진다. onPatch(바뀐 칸) */
-export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, selectable, selected }) {
+export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, selectable, selected }) {
   const sample = x.type !== "buy";
   const act = (patch) => (e) => {
     e.stopPropagation();
@@ -110,6 +110,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, select
           <span className="flex flex-wrap gap-1">
             <DueBadge x={x} today={today} />
             {x.returning && !closed(x) && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납 예정</span>}
+            {extendDays(x) > 0 && !closed(x) && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">연장 +{extendDays(x)}일</span>}
             {x.refused && gone && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">샘플 안 됨</span>}
             {x.packed && !x.returnedOn && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white">포장 완료</span>}
             {x.paid && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-medium text-white">결제함</span>}
@@ -210,6 +211,19 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, select
                 </button>
               </div>
             </>
+          )}
+          {/* 반납 기한 연장 — 아직 반납·결제 안 끝난 샘플 (10/4) */}
+          {onExtend && sample && dueOf(x) && ["arrived", "pick", "shot", "returns"].includes(tab) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onExtend();
+              }}
+              className="flex w-full items-center justify-center gap-1 rounded-lg py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50"
+            >
+              <CalendarPlus size={12} /> 반납 기한 연장{x.extendAskedOn && !extendDays(x) ? ` · ${md(x.extendAskedOn)} 요청함` : ""}
+            </button>
           )}
           {tab === "returned" && (
             <button type="button" onClick={act({ returnedOn: "", settle: null, ...(x.paid ? { paid: { ...x.paid, all: false } } : {}) })} className={SUB + " flex w-full items-center justify-center gap-1"}>
@@ -313,6 +327,8 @@ function ShootRounds({ shoots, onChange, options }) {
 }
 
 export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, startPay }) {
+  const [extOpen, setExtOpen] = useState(false);
+  const extOps = extendOps(d.saveItems, today);
   const [x, setX] = useState(() => {
     const base = { ...EMPTY, ...item };
     // 카드에서 '샘플 결제'로 들어왔으면 결제 칸을 열어 둔다
@@ -563,6 +579,40 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   </Label>
                 )}
               </div>
+              {sample && x.arrivedOn && !closed(x) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm">
+                  <span className="text-amber-950">
+                    반납 기한 <b className="font-semibold">{md(dueOf(x))}</b>
+                    {extendDays(x) > 0 && <span className="ml-1 text-xs text-amber-800">(연장 +{extendDays(x)}일 · {(x.extensions || []).map((e) => md(e.on)).join(", ")})</span>}
+                    {x.extendAskedOn && <span className="ml-1 text-xs text-amber-700">· {md(x.extendAskedOn)} 연장 요청</span>}
+                  </span>
+                  {x.id && (
+                    <button type="button" onClick={() => setExtOpen(true)} className="flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white">
+                      <CalendarPlus size={13} /> 기한 연장 · 멘트
+                    </button>
+                  )}
+                </div>
+              )}
+              {extOpen && (
+                <ExtendSheet
+                  x={x}
+                  items={d.items}
+                  today={today}
+                  onApply={(ids, days) => {
+                    if (ids.includes(x.id)) set({ extensions: [...(x.extensions || []), { on: today, days }] });
+                    extOps.apply(ids, days);
+                  }}
+                  onAsked={(ids) => {
+                    if (ids.includes(x.id)) set({ extendAskedOn: today });
+                    extOps.asked(ids);
+                  }}
+                  onUndo={(id) => {
+                    set({ extensions: (x.extensions || []).slice(0, -1) });
+                    extOps.undo(id);
+                  }}
+                  onClose={() => setExtOpen(false)}
+                />
+              )}
               <ShootRounds shoots={shootsOf(x)} onChange={(s) => set(withShoots(s))} options={[...colorList, ...sizeList]} />
               <div className="flex flex-wrap gap-1.5">
                 {CHANNELS.map(([k, label]) => (
@@ -731,6 +781,162 @@ const copy = async (text) => {
  * 카톡은 밖에서 대신 보낼 수 없어서(lib/sinsang.js) 여기까지가 자동이다: 글 만들기 → 복사 → 보낸 뒤 '요청함' 한 번에.
  * m = {vendor, list(그 거래처의 요청 단계 상품), picks(글에 넣을 상품 id), kind, kakao, phone, copied}
  */
+function extendOps(saveItems, today) {
+  const map = (ids, fn) => saveItems((v) => ({ ...v, items: (v.items || []).map((it) => (ids.includes(it.id) ? fn(it) : it)) }));
+  return {
+    apply: (ids, days) => map(ids, (it) => ({ ...it, extensions: [...(it.extensions || []), { on: today, days }] })),
+    asked: (ids) => map(ids, (it) => ({ ...it, extendAskedOn: today })),
+    undo: (id) => map([id], (it) => ({ ...it, extensions: (it.extensions || []).slice(0, -1) })),
+  };
+}
+
+/**
+ * 반납 기한 연장 (10/4 세원) — 멘트를 복사해 카톡으로 보내고, 거래처가 된다고 하면 '연장됐어요'.
+ * 같은 거래처의 다른 샘플도 같이 넣을 수 있다(한 번에 부탁하니까). 멘트 [제품명] 자리에 [이름,이름].
+ */
+function ExtendSheet({ x, items, today, onApply, onAsked, onUndo, onClose }) {
+  const sameVendor = (y) => (x.vendorId ? y.vendorId === x.vendorId : !!x.vendor && y.vendor === x.vendor);
+  const others = items.filter((y) => y.id !== x.id && y.type !== "buy" && dueOf(y) && sameVendor(y));
+  const [picks, setPicks] = useState([x.id]);
+  const [days, setDays] = useState(7);
+  const [custom, setCustom] = useState(null);
+  const [note, setNote] = useState("");
+  const chosen = [x, ...others].filter((y) => picks.includes(y.id));
+  const text = custom ?? extendText(chosen.map((y) => y.name || y.fullName).filter(Boolean), days);
+  const due = dueOf(x);
+  const friend = friendName(x.vendor, x.place);
+  const n = Number(days) || 0;
+  return (
+    <Sheet onClose={onClose}>
+      <SheetHead title={`반납 기한 연장 · ${x.vendor || "거래처 없음"}`} onClose={onClose} />
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-stone-50 px-3 py-2.5 text-sm">
+          <span>
+            지금 반납 기한 <b className="font-semibold text-stone-900">{due ? `${md(due)} (${dueLabel(daysLeft(due, today))})` : "—"}</b>
+            {extendDays(x) > 0 && <span className="ml-1.5 text-xs text-amber-700">이미 +{extendDays(x)}일 연장</span>}
+          </span>
+          {friend && (
+            <button type="button" onClick={async () => setNote((await copy(friend)) ? `카톡 이름 '${friend}' 복사했어요.` : "복사가 막혔어요.")} className="text-xs text-stone-500 hover:text-stone-800">
+              카톡 이름 {friend} 복사
+            </button>
+          )}
+        </div>
+
+        {others.length > 0 && (
+          <div>
+            <div className="mb-1.5 text-xs font-semibold text-stone-500">같은 거래처 샘플도 같이 부탁하기</div>
+            <div className="flex flex-wrap gap-1.5">
+              {[x, ...others].map((y) => {
+                const on = picks.includes(y.id);
+                return (
+                  <button
+                    key={y.id}
+                    type="button"
+                    disabled={y.id === x.id}
+                    onClick={() => {
+                      setCustom(null);
+                      setPicks(on ? picks.filter((k) => k !== y.id) : [...picks, y.id]);
+                    }}
+                    className={"rounded-full border px-2.5 py-1 text-xs " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-rose-300")}
+                  >
+                    {y.name || "이름 없음"} <span className={on ? "text-rose-200" : "text-stone-400"}>~{md(dueOf(y))}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-stone-500">거래처에 보낼 멘트</span>
+            {custom != null && (
+              <button type="button" onClick={() => setCustom(null)} className="text-[11px] text-stone-400 hover:text-stone-700">
+                처음 멘트로
+              </button>
+            )}
+          </div>
+          <textarea value={text} onChange={(e) => setCustom(e.target.value)} className={FIELD + " h-28 resize-y text-sm leading-relaxed"} />
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copy(text);
+              setNote(ok ? "멘트를 복사했어요. 카톡에서 거래처 방에 붙여넣기(Ctrl+V) 하세요." : "복사가 막혔어요. 글을 끌어서 직접 복사해 주세요.");
+              if (ok) onAsked(picks);
+            }}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-stone-900 py-2.5 text-sm font-semibold text-white"
+          >
+            <Copy size={15} /> 멘트 복사
+          </button>
+          {note && <p className="mt-1.5 text-xs text-emerald-700">{note}</p>}
+        </div>
+
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+          <div className="mb-2 text-xs font-semibold text-amber-900">거래처가 된다고 했으면</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-amber-900">늘릴 날</span>
+            {[3, 7, 14].map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => {
+                  setDays(d);
+                  setCustom(null);
+                }}
+                className={"rounded-full border px-2.5 py-1 text-xs " + (n === d ? "border-amber-600 bg-amber-600 text-white" : "border-amber-200 bg-white text-amber-900")}
+              >
+                {d === 7 ? "일주일" : d === 14 ? "2주" : `${d}일`}
+              </button>
+            ))}
+            <input
+              value={days}
+              onChange={(e) => {
+                setDays(e.target.value.replace(/[^0-9]/g, ""));
+                setCustom(null);
+              }}
+              inputMode="numeric"
+              className="w-14 rounded-lg border border-amber-200 bg-white px-2 py-1 text-center text-sm"
+            />
+            <span className="text-xs text-amber-900">일</span>
+          </div>
+          <button
+            type="button"
+            disabled={!n}
+            onClick={() => {
+              onApply(picks, n);
+              onClose();
+            }}
+            className="mt-2.5 w-full rounded-xl bg-amber-600 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
+          >
+            연장됐어요 · 반납 기한 +{n}일{due ? ` (${md(due)} → ${md(shiftDay(due, n))})` : ""}
+            {picks.length > 1 ? ` · ${picks.length}개` : ""}
+          </button>
+        </div>
+
+        {(x.extensions || []).length > 0 && (
+          <div>
+            <div className="mb-1 text-xs font-semibold text-stone-500">연장 기록</div>
+            <ul className="space-y-1 text-sm">
+              {x.extensions.map((e, i) => (
+                <li key={i} className="flex items-center justify-between gap-2 rounded-lg bg-stone-50 px-3 py-1.5">
+                  <span>
+                    {md(e.on)} 연장 <b className="font-semibold">+{e.days}일</b>
+                  </span>
+                  {i === x.extensions.length - 1 && (
+                    <button type="button" onClick={() => onUndo(x.id)} className="flex items-center gap-1 text-xs text-stone-400 hover:text-rose-700">
+                      <Undo2 size={12} /> 되돌리기
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose, refusals = [], onDropRefusal }) {
   // 연락처 — 담을 때 제품 설명에서 읽은 것 먼저, 없으면 돈 › 거래처의 전화·메모
   const memo = contactOf(m.memo);
@@ -1297,6 +1503,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
   const [refuseFor, setRefuseFor] = useState(null);
+  const [extendFor, setExtendFor] = useState(null); // 반납 기한 연장 창 (10/4)
+  const ext = extendOps(d.saveItems, today);
 
   // 담아 둔 상품을 돈 › 거래처와 잇는다 (10/1 세원: "거래처에 어차피 등록해야 하는데 없으면 추가, 있으면 매칭")
   // 신상마켓에서 담은 것(goodsId 있음) 중 아직 안 이어진 것만 — 이름은 한글 먼저로 고치고, 상품명도 다듬는다.
@@ -1554,7 +1762,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} />
+                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} />
                 ))}
               </div>
             </section>
@@ -1564,6 +1772,17 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
 
       {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} onVendor={onVendor} today={today} onClose={() => setEdit(null)} />}
       {guide && <ClipGuide onClose={() => setGuide(false)} />}
+      {extendFor && (
+        <ExtendSheet
+          x={items.find((y) => y.id === extendFor.id) || extendFor}
+          items={items}
+          today={today}
+          onApply={ext.apply}
+          onAsked={ext.asked}
+          onUndo={ext.undo}
+          onClose={() => setExtendFor(null)}
+        />
+      )}
       {msgFor && (
         <MsgSheet
           m={msgFor}
