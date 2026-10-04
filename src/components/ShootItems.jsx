@@ -1315,14 +1315,16 @@ function KindMix({ items, kinds, kind, onKind }) {
 // 세원 10/1: "재요청 모아보기 누르면 위에 캘린더 뜨고 언제 어딜 요청해야 되는지 — 살짝 날짜별로."
 // 한 달 달력에 재요청 날짜마다 거래처 이름(두 곳까지 + 외 N). 날짜를 누르면 그날 것만, 다시 누르면 전부. 아래 목록은 날짜별 묶음.
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
-function RetryCalendar({ items, today, day, onDay }) {
+// 재요청 달력 · 반납 달력 같이 쓴다 (10/4 세원: "반납·결제 예정도 재요청 모아보기처럼 캘린더로. 언제 반납해야 되는지 한눈에 안 보여서")
+// dateOf = 그 상품의 날짜(재요청일 · 반납 기한), label = 제목에 붙는 말
+function RetryCalendar({ items, today, day, onDay, dateOf = (x) => x.retryOn, label = "재요청" }) {
   const [ym, setYm] = useState(() => today.slice(0, 7)); // 늘 이번 달부터 — 지난 달에 밀린 건 아래 줄로 알려 준다
-  const behind = items.filter((x) => x.retryOn < `${ym}-01`).length;
+  const behind = items.filter((x) => dateOf(x) < `${ym}-01`).length;
   const [y, m] = ym.split("-").map(Number);
   const start = new Date(y, m - 1, 1).getDay();
   const days = new Date(y, m, 0).getDate();
   const byDay = new Map();
-  for (const x of items) byDay.set(x.retryOn, [...(byDay.get(x.retryOn) || []), x]);
+  for (const x of items) byDay.set(dateOf(x), [...(byDay.get(dateOf(x)) || []), x]);
   const move = (d) => {
     const t = new Date(y, m - 1 + d, 1);
     setYm(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`);
@@ -1335,7 +1337,7 @@ function RetryCalendar({ items, today, day, onDay }) {
           ‹
         </button>
         <span className="text-sm font-semibold text-stone-800">
-          {y}년 {m}월 재요청 <span className="font-normal text-stone-400">· 날짜를 누르면 그날 것만</span>
+          {y}년 {m}월 {label} <span className="font-normal text-stone-400">· 날짜를 누르면 그날 것만</span>
         </span>
         <button type="button" onClick={() => move(1)} className="rounded-md px-2 py-1 text-stone-500 hover:bg-stone-100" aria-label="다음 달">
           ›
@@ -1352,7 +1354,8 @@ function RetryCalendar({ items, today, day, onDay }) {
           const list = byDay.get(k) || [];
           const names = [...new Set(list.map((x) => x.vendor || x.name))];
           const past = k < today;
-          const tone = !list.length ? "" : past ? "border-rose-300 bg-rose-50" : k === today ? "border-amber-300 bg-amber-50" : "border-stone-300 bg-stone-50";
+          const soon = !past && daysLeft(k, today) <= 3;
+          const tone = !list.length ? "" : past ? "border-rose-300 bg-rose-50" : soon ? "border-amber-300 bg-amber-50" : "border-stone-300 bg-stone-50";
           return (
             <button
               key={k}
@@ -1372,11 +1375,12 @@ function RetryCalendar({ items, today, day, onDay }) {
                 </span>
               ))}
               {names.length > 2 && <span className="text-[10px] text-stone-400">외 {names.length - 2}</span>}
+              {list.length > 1 && <span className="mt-auto self-end text-[9px] text-stone-400 tabular-nums">{list.length}개</span>}
             </button>
           );
         })}
       </div>
-      {behind > 0 && <p className="mt-2 text-xs font-medium text-rose-700">이전 달에 재요청 날짜가 지난 것 {behind}개 — 아래 목록 맨 위에 있어요.</p>}
+      {behind > 0 && <p className="mt-2 text-xs font-medium text-rose-700">이전 달에 {label} 날짜가 지난 것 {behind}개 — 아래 목록 맨 위에 있어요.</p>}
       {day && (
         <button type="button" onClick={() => onDay("")} className="mt-2 text-xs text-stone-500 underline">
           {dayTitle(day)}만 보는 중 — 전부 보기
@@ -1499,6 +1503,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [weekOnly, setWeekOnly] = useState(false);
   const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
+  const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
@@ -1549,9 +1554,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!weekOnly || tab !== "pick" || (x.pickedOn || "") >= weekAgo) &&
         (!reqOnly || tab !== "request" || !!x[reqOnly]) &&
         (!retryDay || reqOnly !== "retryOn" || x.retryOn === retryDay) &&
+        (!dueDay || tab !== "returns" || dueOf(x) === dueDay) &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
@@ -1733,6 +1739,9 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       </div>
 
       {tab === "request" && reqOnly === "pickup" && shown.length > 0 && <PickupList items={shown} vendors={vendors} />}
+      {tab === "returns" && (
+        <RetryCalendar items={items.filter((x) => inTab(x, "returns") && dueOf(x))} today={today} day={dueDay} onDay={setDueDay} dateOf={dueOf} label="반납 기한" />
+      )}
       {tab === "request" && reqOnly === "retryOn" && <RetryCalendar items={items.filter((x) => x.stage === "request" && x.retryOn)} today={today} day={retryDay} onDay={setRetryDay} />}
 
       {shown.length === 0 ? (
