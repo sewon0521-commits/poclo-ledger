@@ -7,6 +7,7 @@ import Pipeline, { ItemCard } from "./ShootItems";
 import { normalize, moveTo, DEFAULT_MSGS } from "../lib/sinsang";
 import { dayKey } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
+import ShootPlan from "./ShootPlan";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
 /**
@@ -898,6 +899,8 @@ export default function ShootPage({ view, online, vendors = [], onVendor, dealt 
         </div>
       ) : view === "refs" ? (
         <RefsView d={d} online={online} />
+      ) : view === "plan" ? (
+        <ShootPlan d={d} online={online} />
       ) : (
         <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
       )}

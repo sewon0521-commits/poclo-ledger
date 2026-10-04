@@ -589,8 +589,8 @@ export default function App() {
                   onSaveReel={S.saveReel}
                   onSaveCarousel={S.saveCarousel}
                 />
-              ) : page === "shoot" || page === "shootRefs" ? (
-                <ShootPage key={page} view={page === "shootRefs" ? "refs" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
+              ) : page === "shoot" || page === "shootRefs" || page === "shootPlan" ? (
+                <ShootPage key={page} view={page === "shootRefs" ? "refs" : page === "shootPlan" ? "plan" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
               ) : page === "invoiceReq" ? (
                 <InvoiceRequestPage tx={tx} vendors={vendors} online={L.mode === "remote" && !!L.session} onPatchTxs={L.patchTxs} onBreakdown={openBreakdown} />
               ) : page === "subs" ? (
