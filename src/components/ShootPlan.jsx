@@ -22,12 +22,14 @@ import {
   Store,
   Megaphone,
   Shirt,
+  Images,
 } from "lucide-react";
 import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { BigSlides } from "./ContentBits";
 import { clipImages, filesOf } from "../lib/pasteImages";
+import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
 
 /**
  * 촬영 › 코디 촬영 관리 (10/4 세원 — 노션 '쇼핑몰 별 BEST 컷 모음' 화면을 보여 주며):
@@ -381,7 +383,141 @@ const dday = (d) => {
   return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `${-n}일 전`;
 };
 
-function SessionSheet({ session, codis, items, notes, onSave, onRemove, onClose, onNotes, online, legacy = [], onTakeLegacy }) {
+// 예전 '옷 종류' 꼬리표 사진은 같은 이름 상위 목록으로 (촬영 레퍼런스와 같게)
+const withFolder = (r) => (r.folderId || r.folder ? r : { ...r, folder: (r.clothes || [])[0] || "" });
+
+/** 촬영 레퍼런스에서 사진 고르기 (10/6 세원: "코디 촬영 관리 폴더 만든 곳에서 촬영 레퍼런스에 있는 사진 레퍼런스를 픽할 수 있었으면") */
+function RefPick({ d, picked, onDone, onClose }) {
+  const [sel, setSel] = useState(picked);
+  const [folder, setFolder] = useState("");
+  const [cut, setCut] = useState("");
+  const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
+  const refs = d.refs
+    .map(withFolder)
+    .filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && (!cut || (r.cuts || []).includes(cut)));
+  const flip = (id) => setSel((x) => (x.includes(id) ? x.filter((k) => k !== id) : [...x, id]));
+  return (
+    <div className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
+      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
+      <div className="sheet relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
+          <span className="font-semibold text-stone-900">촬영 레퍼런스에서 고르기 <span className="text-sm font-normal text-stone-400">{sel.length}장 골랐어요</span></span>
+          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+            <X size={20} />
+          </button>
+        </header>
+        <div className="shrink-0 space-y-2 border-b border-stone-100 px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={folder} onChange={(e) => setFolder(e.target.value)} className={FIELD + " max-w-xs py-1.5 text-sm"}>
+              <option value="">목록 전체</option>
+              {ordered(d.folders).map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.depth ? `${"　".repeat(f.depth)}└ ${f.name}` : f.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-stone-400">{refs.length}장</span>
+          </div>
+          {(d.tags?.cuts || []).length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {["", ...d.tags.cuts].map((c) => (
+                <button
+                  key={c || "all"}
+                  type="button"
+                  onClick={() => setCut(c)}
+                  className={"rounded-full border px-2.5 py-0.5 text-xs " + (cut === c ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}
+                >
+                  {c || "컷 전체"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {refs.length ? (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+              {refs.map((r) => {
+                const on = sel.includes(r.id);
+                return (
+                  <button key={r.id} type="button" onClick={() => flip(r.id)} className={"relative block aspect-[3/4] overflow-hidden rounded-xl bg-stone-100 " + (on ? "ring-[3px] ring-rose-600" : "")}>
+                    {d.urls[r.photo] && <img src={d.urls[r.photo]} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                    <span className={"absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border-2 " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-white bg-black/20 text-transparent")}>
+                      <Check size={14} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="py-10 text-center text-sm text-stone-400">{d.refs.length ? "이 목록·컷에는 사진이 없어요." : "촬영 › 촬영 레퍼런스에 사진을 넣으면 여기서 골라요."}</p>
+          )}
+        </div>
+        <footer className="flex shrink-0 justify-end gap-2 border-t border-stone-200 px-4 py-2.5">
+          <button type="button" onClick={onClose} className="rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-600">
+            그만두기
+          </button>
+          <button type="button" onClick={() => onDone(sel)} className="rounded-xl bg-rose-700 px-5 py-2 text-sm font-semibold text-white">
+            {sel.length}장 담기
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/** 회차에 고른 촬영 레퍼런스 — 누르면 크게, × 빼기 */
+function PickedRefs({ d, ids, onChange }) {
+  const [pick, setPick] = useState(false);
+  const [view, setView] = useState(null);
+  const refs = ids.map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
+  return (
+    <div className="rounded-xl border border-stone-200 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
+          <Images size={15} className="text-rose-700" /> 촬영 레퍼런스 {refs.length > 0 && <span className="font-normal text-stone-400">{refs.length}장</span>}
+        </span>
+        <button type="button" onClick={() => setPick(true)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+          <Plus size={13} /> 레퍼런스에서 고르기
+        </button>
+      </div>
+      {refs.length ? (
+        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+          {refs.map((r, i) => (
+            <span key={r.id} className="group relative">
+              <button type="button" onClick={() => setView(i)} className="block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
+                {d.urls[r.photo] && <img src={d.urls[r.photo]} alt="" loading="lazy" className="h-full w-full object-cover" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange(ids.filter((k) => k !== r.id))}
+                aria-label="빼기"
+                className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 max-sm:opacity-80"
+              >
+                <X size={13} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">촬영 레퍼런스에 모아 둔 사진 중 이번 촬영에 쓸 컷을 골라 두세요.</p>
+      )}
+      {pick && (
+        <RefPick
+          d={d}
+          picked={ids}
+          onClose={() => setPick(false)}
+          onDone={(next) => {
+            onChange(next);
+            setPick(false);
+          }}
+        />
+      )}
+      {view != null && <BigSlides urls={refs.map((r) => d.urls[r.photo] || "")} start={view} onClose={() => setView(null)} />}
+    </div>
+  );
+}
+
+function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClose, onNotes, online, legacy = [], onTakeLegacy }) {
   const [msg, setMsg] = useState("");
   const [s, setS] = useState(session);
   const latest = useRef(s);
@@ -495,6 +631,7 @@ function SessionSheet({ session, codis, items, notes, onSave, onRemove, onClose,
               </button>
             </div>
           )}
+          <PickedRefs d={d} ids={s.refIds || []} onChange={(v) => set({ refIds: v })} />
           <ShopBoard list={s.shops || []} change={(fn) => set({ shops: fn(latest.current.shops || []) })} online={online} onMsg={setMsg} />
           {msg && (
             <p className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
@@ -572,7 +709,7 @@ function SessionSheet({ session, codis, items, notes, onSave, onRemove, onClose,
   );
 }
 
-function SessionsTab({ sessions, codis, items, notes, onNotes, online, legacy, onTakeLegacy }) {
+function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy, onTakeLegacy }) {
   const [open, setOpen] = useState(null);
   const today = dayKey();
   const all = sessions.items;
@@ -603,6 +740,7 @@ function SessionsTab({ sessions, codis, items, notes, onNotes, online, legacy, o
           )}
           <span>컷 {cuts.filter((x) => x.done).length}/{cuts.length}</span>
           <span>영상 {vids.filter((x) => x.done).length}/{vids.length}</span>
+          {(s.refIds || []).length > 0 && <span>레퍼런스 {s.refIds.length}장</span>}
           {(s.shops || []).length > 0 && <span>BEST 컷 {(s.shops || []).reduce((n, x) => n + (x.photos || []).length, 0)}장 · {(s.shops || []).length}곳</span>}
           {nCodi > 0 && <span>코디 {nCodi}</span>}
           {s.uploads?.filter(Boolean).length > 0 && <span>업로드 {s.uploads.filter(Boolean).map(md).join(", ")}</span>}
@@ -644,6 +782,7 @@ function SessionsTab({ sessions, codis, items, notes, onNotes, online, legacy, o
         <SessionSheet
           key={open.id}
           session={sessions.items.find((x) => x.id === open.id) || open}
+          d={d}
           codis={codis}
           items={items}
           notes={notes}
@@ -1099,6 +1238,7 @@ export default function ShootPlan({ d, online }) {
       ) : tab === "sessions" ? (
         <SessionsTab
           sessions={sessions}
+          d={d}
           codis={d.codis}
           items={d.items}
           notes={sortedNotes}
