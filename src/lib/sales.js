@@ -369,3 +369,6 @@ export function buildDays(daily, costs, monthly) {
 }
 
 export const monthsOf = (rows) => [...new Set(rows.map((r) => r.date.slice(0, 7)))].sort();
+
+/** 주문도 매출도 없는 날의 0원 줄 (10/5 — 광고비만 쓴 날을 매출 장부에 적을 수 있게) */
+export const EMPTY_DAY = { cafeGross: 0, cafeRefund: 0, cafeShip: 0, gross: 0, refund: 0, net: 0, cogs: 0, qty: 0, orders: 0, shipIncome: 0, naverNet: 0, ads: 0 };

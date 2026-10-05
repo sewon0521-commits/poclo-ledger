@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isRemote, supabase } from "./supabase";
-import { DEFAULT_COSTS } from "./sales";
+import { DEFAULT_COSTS, EMPTY_DAY } from "./sales";
 import { SEED_DAYS, SEED_MONTHLY } from "./seed";
 
 const ROWS_KEY = "poclo_sales_rows";
@@ -251,7 +251,11 @@ export function useSales(session) {
   const putDaily = useCallback((daily) => merge(daily), [merge]);
 
   /** 하루 한 줄을 손으로 고친다. 화면 표에서 숫자를 직접 눌러 바꿀 때 쓴다. */
-  const editRow = useCallback((date, patch) => merge([{ date, ...patch }]), [merge]);
+  // 줄이 없던 날(주문 0건)이면 다른 칸은 0으로 채워 새 줄을 만든다 (10/5 — 광고비만 쓴 날)
+  const editRow = useCallback(
+    (date, patch) => merge([{ date, ...patch }], (prev) => (prev.date ? null : { ...EMPTY_DAY, ...patch })),
+    [merge],
+  );
 
   /** 카페24 애널리틱스 CSV — 총매출·환불·배송비만 덮는다. 주문 쪽 숫자는 안 건드린다. */
   const putCafe = useCallback((list) => merge(list), [merge]);

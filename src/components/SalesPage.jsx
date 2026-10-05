@@ -597,6 +597,7 @@ export default function SalesPage({
                   <tr key={d.date} className="hover:bg-stone-50">
                     <td className="px-3 py-1.5 text-left whitespace-nowrap text-stone-600">
                       {dayLabel(d.date)}
+                      {!d.revenue && !d.orders && <span className="ml-1.5 rounded bg-stone-100 px-1 text-[10px] text-stone-400">주문 없음</span>}
                     </td>
                     <td className="px-1 py-1.5">
                       <EditNum
