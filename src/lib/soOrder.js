@@ -6,6 +6,11 @@
 // 넥스트팩 변환기와 같게 — 색상 칸에 옵션 그대로([베이지-M]), 사이즈·사진·코드·샵 제품명은 비움,
 // 메모 맨 앞에 '미송가능' / '미송X', 매장·도매 상품명·색상·사이즈가 같은 줄은 수량을 합친다.
 //
+// 매장명 (10/6 세원: "도매처 상품명, 매장명 따로 떨어지게, 매장명 수정 가능하게"):
+//   이지어드민 '제조사'는 우리가 붙인 이름일 때가 있다(단정·제이·사르르·메디 = 우리 상품명 머리말) — 진짜 매장은
+//   공급처상품명 뒤 괄호 '(남평화 3층 100 / 퍼플그레이)' 에 있다. → 괄호를 떼서 도매 상품명 / 위치 / 매장명으로 나누고(splitName),
+//   SO+ 매장명 = 괄호 매장명 → 지난번 그 제조사에 적은 매장명(settings so_prices.stores) → 제조사. 화면에서 고칠 수 있다.
+//
 // 단가 찾는 순서 (한 장 값):
 //   ① 매입 장부 — 같은 거래처 장끼에서 같은 도매 상품명의 가장 최근 단가 (실제로 낸 값)
 //   ② 판매가 목록 — 우리 상품명(이지어드민 '상품명' = 카페24 상품명) 또는 메모 이름(도매 상품명)의 공급가.
@@ -41,7 +46,19 @@ export const sameVendor = (a, b) => {
   return pa.some((x) => pb.includes(x)) || (squash(a) && squash(a) === squash(b));
 };
 
-/** 이지어드민 발주 파일 글 → {title, on, rows:[{id, vendor, name, shopName, option, qty, code, memo}]} */
+/** '단추딥브이니트 (남평화 3층 100 / 퍼플그레이)' → {name: 단추딥브이니트, place: 남평화 3층 100, store: 퍼플그레이} */
+export function splitName(raw) {
+  const s = String(raw || "").trim();
+  const m = s.match(/^(.+?)\s*\(([^()]*)\)\s*$/);
+  if (!m) return { name: s, place: "", store: "" };
+  const parts = m[2].split("/").map((x) => x.trim()).filter(Boolean);
+  const isPlace = (x) => /\d|층|호|지하|B\d/i.test(x);
+  if (parts.length >= 2 && isPlace(parts[0])) return { name: m[1].trim(), place: parts[0], store: parts.slice(1).join(" / ") };
+  if (parts.length === 1 && isPlace(parts[0])) return { name: m[1].trim(), place: parts[0], store: "" };
+  return { name: s, place: "", store: "" };
+}
+
+/** 이지어드민 발주 파일 글 → {title, on, rows:[{id, vendor(제조사), name(도매 상품명), rawName, place, parsedStore, shopName, option, qty, code, memo}]} */
 export function parseOrder(text) {
   const all = parseCsv(text || "");
   const at = all.findIndex((r) => head(r, ["공급처상품명", "도매처상품명", "도매상품명"]) >= 0 && head(r, ["제조사", "공급처", "매장명", "거래처"]) >= 0);
@@ -69,7 +86,8 @@ export function parseOrder(text) {
     rows.push({
       id: `${rows.length}-${cell(r, "code") || name}`,
       vendor,
-      name,
+      ...(({ name: n, place, store }) => ({ name: n, place, parsedStore: store }))(splitName(name)),
+      rawName: name,
       shopName: cell(r, "shopName"),
       option: cell(r, "option"),
       qty: Math.max(0, parseInt(cell(r, "qty").replace(/[^\d-]/g, ""), 10) || 0),
@@ -94,7 +112,8 @@ export function findPrice(row, { tx, vendors, pricing, memory }) {
   let led = null;
   if (w) {
     for (const t of tx || []) {
-      if (!sameVendor(vname[t.vendorId] || "", row.vendor)) continue;
+      const vn = vname[t.vendorId] || "";
+      if (!sameVendor(vn, row.store || row.vendor) && !sameVendor(vn, row.vendor)) continue;
       for (const it of t.items || []) {
         const base = squash(String(it.name || "").split("/")[0]);
         const price = Math.round(Number(it.unitPrice) || 0);
@@ -110,7 +129,7 @@ export function findPrice(row, { tx, vendors, pricing, memory }) {
   let cands = s ? (pricing || []).filter((p) => p.supply > 0 && shopKey(p.name) === s) : [];
   if (!cands.length && w) cands = (pricing || []).filter((p) => p.supply > 0 && p.memoName && wholesaleKey(p.memoName) === w);
   if (cands.length > 1) {
-    const sameV = cands.filter((p) => !p.vendor || sameVendor(p.vendor, row.vendor));
+    const sameV = cands.filter((p) => !p.vendor || sameVendor(p.vendor, row.store || row.vendor) || sameVendor(p.vendor, row.vendor));
     if (sameV.length) cands = sameV;
   }
   let pri = null;
@@ -140,15 +159,18 @@ export function findPrice(row, { tx, vendors, pricing, memory }) {
   return { price: null, from: "", note: "", alt: "" };
 }
 
-/** 직접 적은 단가 기억 키 — 거래처 + 도매 상품명 */
-export const memoryKey = (row) => `${vendorParts(row.vendor)[0] || squash(row.vendor)}|${wholesaleKey(row.name)}`;
+/** 직접 적은 단가 기억 키 — 매장 + 도매 상품명 */
+export const memoryKey = (row) => {
+  const v = row.store || row.vendor;
+  return `${vendorParts(v)[0] || squash(v)}|${wholesaleKey(row.name)}`;
+};
 
 /** SO+ 에 붙일 줄 — 같은 매장·도매 상품명·색상(옵션)·타입은 수량을 합친다 */
 export function soLines(rows, type) {
   const out = [];
   const byKey = new Map();
   for (const r of rows) {
-    const k = [r.vendor, r.name, r.option].map(squash).join("|");
+    const k = [r.store || r.vendor, r.name, r.option].map(squash).join("|");
     const had = byKey.get(k);
     if (had) {
       had.qty += r.qty;
@@ -160,7 +182,7 @@ export function soLines(rows, type) {
   }
   return out.map((r) => {
     const memo = [r.miss === "no" ? "미송X" : r.miss === "yes" ? "미송가능" : "", r.memo].filter(Boolean).join(" ");
-    const cells = [r.vendor, type || "주문", r.name, r.option, "", String(r.qty), r.price > 0 ? String(Math.round(r.price)) : "", memo, "", "", ""];
+    const cells = [r.store || r.vendor, type || "주문", r.name, r.option, "", String(r.qty), r.price > 0 ? String(Math.round(r.price)) : "", memo, "", "", ""];
     return cells.map((c) => String(c).replace(/[\t\r\n]+/g, " ")).join("\t");
   });
 }

@@ -4,19 +4,29 @@ import { won } from "../lib/sales";
 import { loadKey, changeKey, FIELD } from "../lib/shoot";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
-import { parseOrder, findPrice, memoryKey, soLines, SO_TYPES } from "../lib/soOrder";
+import { parseOrder, findPrice, memoryKey, soLines, splitName, SO_TYPES } from "../lib/soOrder";
 
 /**
  * 돈 › 매입 › SO+ 발주 변환 (lib/soOrder.js 머리말).
  * 이지어드민 발주 엑셀 → 줄마다 한 장 단가를 채워서 → SO+ '엑셀 붙여넣기' 칸 모양으로 복사.
- * 만들던 발주는 이 기기에 남는다(poclo_so_draft). 직접 고친 단가는 복사할 때 settings so_prices 에 기억한다.
+ * 만들던 발주는 이 기기에 남는다(poclo_so_draft). 직접 고친 단가·매장명은 복사할 때 settings so_prices {prices, stores} 에 기억한다.
  */
 
 const DRAFT = "poclo_so_draft";
 const MEMORY = "so_prices";
 const readDraft = () => {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT) || "null");
+    const d = JSON.parse(localStorage.getItem(DRAFT) || "null");
+    if (!d?.rows) return d;
+    // 10/6 전에 만든 발주 — 도매 상품명에 붙은 위치·매장을 뗀다
+    return {
+      ...d,
+      rows: d.rows.map((r) => {
+        if (r.rawName != null) return r;
+        const sp = splitName(r.name);
+        return { ...r, rawName: r.name, name: sp.name, place: sp.place, parsedStore: sp.store };
+      }),
+    };
   } catch {
     return null;
   }
@@ -75,6 +85,7 @@ function MissChip({ value, onChange }) {
 export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const [draft, setDraft] = useState(readDraft);
   const [memory, setMemory] = useState({});
+  const [stores, setStores] = useState({}); // 제조사 → 지난번 적은 매장명
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -93,7 +104,9 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
 
   const loadMemory = useCallback(async () => {
     try {
-      setMemory((await loadKey(MEMORY, online, { prices: {} })).prices || {});
+      const m = await loadKey(MEMORY, online, { prices: {} });
+      setMemory(m.prices || {});
+      setStores(m.stores || {});
     } catch {
       /* 기억한 단가 없이도 된다 */
     }
@@ -103,20 +116,24 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     loadMemory();
   }, [loadMemory]);
 
+  // 매장명: 직접 고친 값 → 괄호 안 매장명(지난번에 고쳐 둔 이름이 있으면 그것, 키 '@괄호 이름') → 지난번 그 제조사에 적은 매장명 → 제조사
+  const autoStore = useCallback((r) => (r.parsedStore ? stores["@" + r.parsedStore] || r.parsedStore : stores[r.vendor] || r.vendor), [stores]);
+  const withStore = useMemo(() => (draft?.rows || []).map((r) => ({ ...r, store: r.storeEdit || autoStore(r) })), [draft?.rows, autoStore]);
+
   // 줄마다 찾은 단가 — 장끼·판매가 목록이 바뀌면 다시 찾는다(직접 고친 값은 그대로)
   const found = useMemo(() => {
     const src = { tx, vendors, pricing, memory };
-    return Object.fromEntries((draft?.rows || []).map((r) => [r.id, findPrice(r, src)]));
-  }, [draft?.rows, tx, vendors, pricing, memory]);
+    return Object.fromEntries(withStore.map((r) => [r.id, findPrice(r, src)]));
+  }, [withStore, tx, vendors, pricing, memory]);
 
   const rows = useMemo(
     () =>
-      (draft?.rows || []).map((r) => {
+      withStore.map((r) => {
         const f = found[r.id] || {};
         const price = r.manual != null ? r.manual : f.price;
         return { ...r, price: price > 0 ? price : null, auto: f };
       }),
-    [draft?.rows, found],
+    [withStore, found],
   );
 
   const read = async (f) => {
@@ -153,6 +170,17 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   }, []);
 
   const patchRow = (id, p) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => (r.id === id ? { ...r, ...p } : r)) }));
+  // 매장명을 고치면 같은 제조사·같은 매장으로 읽힌 다른 줄도 같이 (디벨롭 두 줄처럼)
+  const setStore = (row, value) => {
+    const v = value.trim();
+    const before = autoStore(row);
+    setDraft((d) => ({
+      ...d,
+      rows: d.rows.map((x) =>
+        x.id === row.id || (x.vendor === row.vendor && autoStore(x) === before && !x.storeEdit) ? { ...x, storeEdit: v && v !== autoStore(x) ? v : null } : x,
+      ),
+    }));
+  };
   const allMiss = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, miss: v })) }));
 
   const type = draft?.type || "주문";
@@ -175,15 +203,28 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     setCopied(`${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`);
     // 직접 적은 단가는 다음 발주 때 쓰게 기억 (장끼·판매가 목록에 없는 상품용)
     const mine = rows.filter((r) => r.manual > 0);
-    if (mine.length) {
+    // 매장명 기억 — 괄호에서 읽은 이름을 고쳤으면 '@괄호 이름' → 고친 이름, 제조사 → 매장명(다음 발주에 괄호가 없어도 그 매장으로)
+    const named = {};
+    for (const r of rows) {
+      if (!r.store) continue;
+      if (r.parsedStore && r.storeEdit) named["@" + r.parsedStore] = r.store;
+      if (r.storeEdit || r.store !== r.vendor) named[r.vendor] = r.store;
+    }
+    const newNames = Object.entries(named).filter(([k, v]) => (stores[k] || (k.startsWith("@") ? k.slice(1) : k)) !== v);
+    if (mine.length || newNames.length) {
       try {
         const next = await changeKey(
           MEMORY,
           online,
-          (v) => ({ ...v, prices: { ...(v.prices || {}), ...Object.fromEntries(mine.map((r) => [memoryKey(r), { price: r.manual, on: dayKey(), name: r.name, vendor: r.vendor }])) } }),
+          (v) => ({
+            ...v,
+            prices: { ...(v.prices || {}), ...Object.fromEntries(mine.map((r) => [memoryKey(r), { price: r.manual, on: dayKey(), name: r.name, vendor: r.store }])) },
+            stores: { ...(v.stores || {}), ...named },
+          }),
           { prices: {} },
         );
         setMemory(next.prices || {});
+        setStores(next.stores || {});
       } catch {
         /* 기억은 못 해도 복사는 됐다 */
       }
@@ -285,7 +326,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
               <thead className="border-b border-stone-200 bg-stone-50 text-left text-xs text-stone-500">
                 <tr>
                   <th className="px-3 py-2 font-medium">매장명</th>
-                  <th className="px-3 py-2 font-medium">도매처 상품명 · 우리 상품명</th>
+                  <th className="px-3 py-2 font-medium">도매처 상품명</th>
                   <th className="px-3 py-2 font-medium">색상</th>
                   <th className="px-3 py-2 text-right font-medium">수량</th>
                   <th className="px-3 py-2 font-medium">한 장 단가</th>
@@ -311,9 +352,26 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                   const edited = r.manual != null;
                   return (
                     <tr key={r.id} className="align-top">
-                      <td className="px-3 py-2 font-medium whitespace-nowrap text-stone-900">{r.vendor}</td>
-                      <td className="max-w-[16rem] px-3 py-2">
-                        <div className="text-stone-900">{r.name}</div>
+                      <td className="px-3 py-2">
+                        <input
+                          key={r.store}
+                          defaultValue={r.store}
+                          onBlur={(e) => e.target.value.trim() !== r.store && setStore(r, e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                          aria-label={`${r.name} 매장명`}
+                          title="SO+ 에 들어갈 매장명 — 고치면 같은 제조사 줄도 같이 바뀌어요"
+                          className={
+                            "w-32 rounded-lg border px-2 py-1 font-medium text-stone-900 outline-none focus:border-rose-600 " +
+                            (r.storeEdit ? "border-rose-300 bg-rose-50/50" : "border-stone-200 bg-white")
+                          }
+                        />
+                        <div className="mt-0.5 max-w-[8rem] text-[11px] leading-tight text-stone-400">
+                          {r.place && <div className="truncate">{r.place}</div>}
+                          {r.store !== r.vendor && <div className="truncate">제조사 {r.vendor}</div>}
+                        </div>
+                      </td>
+                      <td className="max-w-[15rem] px-3 py-2">
+                        <div className="font-medium text-stone-900">{r.name}</div>
                         {r.shopName && <div className="truncate text-xs text-stone-400">{r.shopName}</div>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-stone-700">{r.option}</td>
@@ -327,7 +385,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             patchRow(r.id, { manual: v ? Number(v) : null });
                           }}
                           placeholder="단가"
-                          aria-label={`${r.vendor} ${r.name} 한 장 단가`}
+                          aria-label={`${r.store} ${r.name} 한 장 단가`}
                           className={
                             "w-24 rounded-lg border px-2 py-1 text-right tabular-nums outline-none focus:border-rose-600 " +
                             (r.price ? "border-stone-300 bg-white" : "border-amber-400 bg-amber-50")
@@ -403,7 +461,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
               <summary className="cursor-pointer text-xs text-stone-500">복사되는 내용 보기</summary>
               <textarea readOnly value={text} rows={Math.min(14, lines.length + 1)} className="mt-2 w-full rounded-lg border border-stone-200 bg-stone-50 p-2 font-mono text-[11px] leading-5 text-stone-700" />
               <p className="mt-1 text-[11px] text-stone-400">
-                열 순서: 매장명 · 타입 · 제품명(도매) · 색상 · 사이즈 · 수량 · 개당단가 · 메모 · 사진링크 · 코드 — 넥스트팩 변환기 때 SO+ 에 맞춰 둔 그대로예요. 같은 매장·상품·색상 줄은 수량을 합쳐요.
+                열 순서: 매장명 · 타입 · 제품명(도매) · 색상 · 사이즈 · 수량 · 개당단가 · 메모 · 사진링크 · 코드 — 넥스트팩 변환기 때 SO+ 에 맞춰 둔 그대로예요. 제품명 뒤에 붙어 있던 '(위치 / 매장)'은 떼고 매장명 칸으로 옮겼어요. 같은 매장·상품·색상 줄은 수량을 합쳐요.
               </p>
             </details>
           </div>
