@@ -159,6 +159,78 @@ window.__pocloClip = async function (w, origin) {
     .map(function (x) {
       return x.s;
     });
+  // 디테일컷 (10/6 세원: "디테일컷 버튼이 있으면 눌러서 사이즈표가 나와") — 사이즈표는 거래처가 올린 디테일컷 사진에 있을 때가 많다.
+  // 글·대표 사진을 다 읽은 뒤에 눌러 보고, 그때 보이는(새로 나온) 사진들을 같이 보낸다 → 상품 창에서 사이즈표를 고른다.
+  // 화면 구조를 아직 못 봐서(자동 접속을 막아 둠) 무엇을 봤는지 dcp 로 같이 보낸다 — 어긋나면 그걸 보고 고친다.
+  var dc = [],
+    dcp = null;
+  try {
+    var srcOf = function (g) {
+      return g.currentSrc || g.src || (g.dataset && (g.dataset.src || g.dataset.lazySrc)) || "";
+    };
+    var photoish = function (g) {
+      var s = srcOf(g);
+      return /^https?:/.test(s) && !(g.naturalWidth && g.naturalWidth < 150) && !/\.svg|icon|logo|sprite/i.test(s);
+    };
+    var inBox = function () {
+      var seenS = {};
+      return [].slice
+        .call((box || document).querySelectorAll("img"))
+        .filter(photoish)
+        .map(srcOf)
+        .filter(function (s) {
+          return seenS[s] ? false : (seenS[s] = 1);
+        });
+    };
+    var visBig = function () {
+      return [].slice
+        .call(document.images)
+        .filter(function (g) {
+          return photoish(g) && seen(g) && g.getBoundingClientRect().width >= 150;
+        })
+        .map(srcOf);
+    };
+    var btn = [].slice
+      .call(document.querySelectorAll("body *"))
+      .filter(function (e) {
+        return own(e).replace(/\s/g, "") === "디테일컷" && seen(e);
+      })
+      .pop();
+    if (btn) {
+      var hit = btn.closest("button, a, [role=button]") || btn;
+      var href = hit.tagName === "A" ? hit.getAttribute("href") || "" : "";
+      var leaves = href && !/^(#|javascript:)/i.test(href) && hit.target !== "_blank";
+      var before = inBox();
+      if (!leaves) {
+        hit.click();
+        await sleep(900);
+      }
+      var after = visBig();
+      var nowBox = inBox();
+      // 'N / M' 쪽수 — 디테일컷이 몇 번째 사진부터인지
+      var pg = null;
+      [].slice.call((box || document.body).querySelectorAll("*")).some(function (e) {
+        var m = own(e).match(/^(\d+)\s*\/\s*(\d+)$/);
+        if (m && seen(e)) pg = [+m[1], +m[2]];
+        return !!pg;
+      });
+      var pick = [];
+      if (pg && nowBox.length === pg[1] && pg[0] > 1) pick = nowBox.slice(pg[0] - 1);
+      var add = function (s) {
+        if (s && s !== imgs[0] && pick.indexOf(s) < 0) pick.push(s);
+      };
+      after.forEach(add);
+      nowBox
+        .filter(function (s) {
+          return before.indexOf(s) < 0;
+        })
+        .forEach(add);
+      dc = pick.slice(0, 15);
+      dcp = { tag: hit.tagName, leaves: !!leaves, before: before.length, box: nowBox.length, vis: after.length, pg: pg, n: dc.length, html: (hit.parentElement || hit).outerHTML.slice(0, 500) };
+    }
+  } catch (e) {
+    dcp = { err: String(e).slice(0, 200) };
+  }
   var d = {
     u: location.href,
     ti: document.title,
@@ -170,6 +242,8 @@ window.__pocloClip = async function (w, origin) {
     a: r.how + (r.ok ? "" : " · 칸 못 찾음"),
     ds: ds.join("\n").slice(0, 1500),
     hd: top ? (top.innerText || "").slice(0, 200) : "",
+    dc: dc,
+    dcp: dcp,
   };
   try {
     if (imgs[0]) {

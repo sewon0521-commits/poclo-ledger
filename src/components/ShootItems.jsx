@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus } from "lucide-react";
-import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
-import { STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
+import { FIELD, md, won, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
+import { urlsToFiles } from "../lib/pasteImages";
+import { BigSlides } from "./ContentBits";
+import { measuresOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -331,6 +333,148 @@ function ShootRounds({ shoots, onChange, options }) {
   );
 }
 
+/**
+ * 사이즈표 · 실측 (10/6 세원: "디테일컷 버튼을 누르면 사이즈표가 나와. 사이즈표나 사이즈 잰 거 칸 하나").
+ * 실측 글(sizeText — 담을 때 제품 설명에서 뽑음) · 사이즈표 사진(sizePhotos — 보관함 키 또는 주소, 캡처 붙여넣기)
+ * · 신마 디테일컷(detailPhotos — 담기 단추가 디테일컷을 눌러 가져온 신마 사진, 사이즈표인 것을 골라 담는다).
+ */
+const isUrl = (k) => /^(https?:|data:|blob:)/.test(k || "");
+function SizeBox({ x, setX, online, onHot, onFiles, busy }) {
+  const photos = x.sizePhotos || [];
+  const detail = x.detailPhotos || [];
+  const [signed, setSigned] = useState({});
+  const [view, setView] = useState(null); // {urls, start}
+  const [taking, setTaking] = useState("");
+  const keysSig = photos.filter((k) => !isUrl(k)).join("|");
+  useEffect(() => {
+    const need = keysSig ? keysSig.split("|") : [];
+    if (!need.length) return;
+    let alive = true;
+    photoUrls(need, online).then((m) => alive && setSigned((s) => ({ ...s, ...m })));
+    return () => {
+      alive = false;
+    };
+  }, [keysSig, online]);
+  const src = (k) => (isUrl(k) ? k : signed[k] || "");
+  const found = !x.sizeText && measuresOf(x.desc);
+  const file = useRef(null);
+  // 신마 디테일컷 → 사이즈표 (우리 보관함으로 옮겨 둔다 — 못 옮기면 신마 주소 그대로)
+  const take = async (u) => {
+    if (taking) return;
+    setTaking(u);
+    let key = u;
+    try {
+      const [f] = await urlsToFiles([u]);
+      if (f) key = (await putPhoto(f, online)) || u;
+    } catch {
+      key = u;
+    }
+    setX((p) => ({ ...p, sizePhotos: [...(p.sizePhotos || []), key], sizeFrom: { ...(p.sizeFrom || {}), [key]: u } }));
+    setTaking("");
+  };
+  const taken = (u) => photos.includes(u) || Object.values(x.sizeFrom || {}).includes(u);
+  return (
+    <div
+      onMouseEnter={() => onHot(true)}
+      onMouseLeave={() => onHot(false)}
+      onFocus={() => onHot(true)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        const fs = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith("image/"));
+        if (!fs.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onFiles(fs);
+      }}
+      className="space-y-2 rounded-xl border border-stone-200 p-3 hover:border-rose-200"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          <span className="text-xs font-semibold text-stone-700">사이즈표 · 실측</span>
+          <span className="ml-1.5 text-[11px] text-stone-400">캡처는 이 칸에 마우스를 올리고 Ctrl+V</span>
+        </span>
+        <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1 text-xs font-medium text-stone-600 hover:border-rose-300">
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />} 사이즈표 사진
+        </button>
+        <input
+          ref={file}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const fs = [...(e.target.files || [])];
+            e.target.value = "";
+            if (fs.length) onFiles(fs);
+          }}
+        />
+      </div>
+      <textarea
+        value={x.sizeText || ""}
+        onChange={(e) => setX((p) => ({ ...p, sizeText: e.target.value }))}
+        placeholder="실측 — 예: 총장 58 / 가슴 52 / 어깨 44 / 소매 60 (S·M 이면 줄마다)"
+        className={FIELD + " min-h-[3.5rem] font-mono text-xs [field-sizing:content]"}
+      />
+      {found && (
+        <div className="rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-semibold">제품 설명에 실측이 있어요</span>
+            <button type="button" onClick={() => setX((p) => ({ ...p, sizeText: found }))} className="rounded-md bg-amber-600 px-2 py-0.5 font-semibold text-white">
+              넣기
+            </button>
+          </div>
+          <pre className="font-sans whitespace-pre-wrap">{found}</pre>
+        </div>
+      )}
+      {photos.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {photos.map((k, i) => (
+            <span key={k} className="group relative">
+              <button type="button" onClick={() => setView({ urls: photos.map(src), start: i })} className="block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
+                {src(k) && <img src={src(k)} alt="" className="h-full w-full object-cover" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setX((p) => ({ ...p, sizePhotos: (p.sizePhotos || []).filter((y) => y !== k) }))}
+                aria-label="사이즈표 빼기"
+                className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 max-sm:opacity-80"
+              >
+                <X size={13} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {detail.length > 0 && (
+        <div className="space-y-1.5 border-t border-stone-100 pt-2">
+          <div className="text-[11px] text-stone-500">신마 디테일컷 {detail.length}장 — 사이즈표인 사진의 '사이즈표로'를 누르면 위로 담겨요 (사진을 누르면 크게)</div>
+          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
+            {detail.map((u, i) => (
+              <span key={u} className="relative">
+                <button type="button" onClick={() => setView({ urls: detail, start: i })} className="block aspect-[3/4] w-full overflow-hidden rounded-md bg-stone-100">
+                  <img src={u} alt="" loading="lazy" className="h-full w-full object-cover" />
+                </button>
+                <button
+                  type="button"
+                  disabled={taken(u) || !!taking}
+                  onClick={() => take(u)}
+                  className={
+                    "absolute inset-x-1 bottom-1 rounded px-1 py-0.5 text-[10px] font-semibold " +
+                    (taken(u) ? "bg-emerald-600 text-white" : "bg-white/90 text-stone-800 hover:bg-white")
+                  }
+                >
+                  {taken(u) ? "✓ 담김" : taking === u ? "담는 중…" : "사이즈표로"}
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {view && <BigSlides urls={view.urls} start={view.start} onClose={() => setView(null)} />}
+    </div>
+  );
+}
+
 export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, startPay }) {
   const [extOpen, setExtOpen] = useState(false);
   const extOps = extendOps(d.saveItems, today);
@@ -345,6 +489,29 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
   const [editNote, setEditNote] = useState(-1);
   const [vendorEdit, setVendorEdit] = useState(false);
   const set = (patch) => setX((p) => ({ ...p, ...patch }));
+  // 붙여넣기가 갈 곳 — 사이즈표 칸 위에 마우스가 있거나 그 안을 누르고 있으면 사이즈표, 아니면 대표 사진
+  const sizeHot = useRef(false);
+  const [sizeBusy, setSizeBusy] = useState(false);
+  const addSize = async (files) => {
+    setSizeBusy(true);
+    try {
+      const keys = [];
+      for (const f of files) {
+        const k = await putPhoto(f, online);
+        // 이 기기 저장 모드(시험)에서는 보관함이 없어서 사진을 글로 넣어 둔다
+        keys.push(k || (await new Promise((r) => {
+          const fr = new FileReader();
+          fr.onload = () => r(String(fr.result));
+          fr.readAsDataURL(f);
+        })));
+      }
+      setX((p) => ({ ...p, sizePhotos: [...(p.sizePhotos || []), ...keys] }));
+    } catch (e) {
+      d.setMsg(e.message || "사이즈표 사진을 넣지 못했어요.");
+    } finally {
+      setSizeBusy(false);
+    }
+  };
   // 돈 › 거래처의 그 거래처 (vendorId 로 잇는다 — 이름은 바뀔 수 있다)
   const linked = vendors.find((v) => v.id === x.vendorId) || null;
   // 거래처 정보를 고치면 돈 › 거래처 기록이 바뀌고, 신상 관리의 같은 거래처 상품도 새 이름·위치로 (세원 10/1)
@@ -405,8 +572,11 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
       <div
         className="min-h-0 flex-1 overflow-y-auto p-4"
         onPaste={(e) => {
-          const f = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
-          if (f) upload(f);
+          const fs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+          if (!fs.length) return;
+          e.preventDefault();
+          if (sizeHot.current) addSize(fs);
+          else upload(fs[0]);
         }}
       >
         <div className="grid gap-4 sm:grid-cols-[11rem_1fr]">
@@ -543,6 +713,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                 <input value={x.origin || ""} onChange={(e) => set({ origin: e.target.value })} className={FIELD} />
               </Label>
             </div>
+            <SizeBox x={x} setX={setX} online={online} onHot={(v) => (sizeHot.current = v)} onFiles={addSize} busy={sizeBusy} />
             <Label title="메모">
               <textarea value={x.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 깔깨져서 목~일밤 재요청" className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
             </Label>

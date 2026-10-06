@@ -417,8 +417,27 @@ const NOISE = /^.{0,6}랭킹.{0,6}$|^\d+위$|^[\d,]+$|^NEW$|^BEST$|^디테일컷
 /** 주소에 든 상품번호 (상품을 누르면 주소 뒤에 modalGid=… 가 붙는다) */
 const urlGoods = (u) => (String(u || "").match(/(?:modalGid|gid|goodsId)=(\d{6,11})/i) || String(u || "").match(/\/goods\/(\d{6,11})/) || [])[1] || "";
 
+// 실측 (10/6 세원: "디테일컷을 누르면 사이즈표가 나와. 사이즈표나 사이즈 잰 거 칸 하나") —
+// 거래처가 제품 설명에 '총장50 / 가슴품64 / 어깨너비68' 처럼 적어 두는 일이 많다 → 그 줄만 뽑는다.
+// 부위 이름 — '품'은 '품목·상품·품번' 이 아닌 홀로 쓰인 것만, '기장'은 '팔기장·소매기장·총기장' 포함
+const PART =
+  "총\\s*기?장|(?<![가-힣])기장|팔\\s*(?:기장|길이|통)|소매\\s*(?:기장|길이|통|단면)?|가슴(?:\\s*단면|\\s*품)?|(?<![가-힣])품(?![가-힣])|어깨(?:\\s*너비)?|암홀|허리(?:\\s*단면)?|엉덩이|힙|허벅지|밑\\s*[위단]|목\\s*둘레|(?<![가-힣])폭|밑면\\s*폭";
+const MEASURE = new RegExp(`(${PART})[^\\d\\n]{0,8}\\d`);
+const MEASURE_NOT = /\d{2,4}-\d{3,4}-\d{4}|원\b|[₩￦]|층|호\b|택배|카톡|카카오|KAKAO|매장|교환|반품|불량|장\s*이상|장씩|리오더|주문|편차|사진|소요|니다[.!]?$/i;
+/** 제품 설명 → 실측 글 (줄마다 '부위 숫자', 없으면 "") */
+export function measuresOf(desc) {
+  const out = [];
+  for (const raw of String(desc || "").split("\n")) {
+    const l = raw.replace(/^[\s*·•\-ㆍ]+/, "").replace(/\s+/g, " ").trim();
+    // 부위 이름 바로 뒤(8자 안)에 숫자 — '가슴 50' · '총장50cm' · 'S 총장 60 / 가슴 48' · '어깨/46'
+    if (!l || l.length > 90 || !MEASURE.test(l) || MEASURE_NOT.test(l)) continue;
+    if (!out.includes(l)) out.push(l);
+  }
+  return out.slice(0, 24).join("\n");
+}
+
 /**
- * 담기 단추가 넘긴 것 {u, ti, t, im, ph, v, g, a, ds, hd} → 상품 칸.
+ * 담기 단추가 넘긴 것 {u, ti, t, im, ph, v, g, a, ds, hd, dc} → 상품 칸.
  * 신상마켓 상품 창의 글 순서 (세원 10/1 화면): 거래처명 / 위치(디오트 1층 C09) / 상품명 / 상품번호 / ₩가격 /
  *   상세정보(제조국·색상·사이즈·혼용률·낱장여부·상품등록정보) / (세탁 및 상품 주의사항) / 제품 설명 / 상품 문의 / 재고문의…
  * **상품번호 줄을 기준으로** 위아래를 읽는다 — 주변 글(뒤에 깔린 목록·필터)이 같이 와도 엉뚱한 걸 안 집는다.
@@ -501,6 +520,10 @@ export function parseClip(d) {
     kind: guessKind(`${name} ${title}`, cat.join(" ")),
     contact: contactOf(desc),
     desc: desc.slice(0, 800),
+    sizeText: measuresOf(desc),
+    // 디테일컷을 눌러 보인 사진들 (사이즈표가 그 안에 있을 때가 많다) — 신마 주소 그대로, 상품 창에서 사이즈표를 고른다
+    detailPhotos: (d.dc || []).filter((u) => /^https?:/.test(u)).slice(0, 15),
+    probe: d.dcp || null,
     photoUrl: (d.im || [])[0] || "",
     photoData: d.ph || "",
   };
