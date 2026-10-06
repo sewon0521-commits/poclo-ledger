@@ -27,6 +27,7 @@ import SalesPage from "./components/SalesPage";
 import PnlPage from "./components/PnlPage";
 import PendingPage from "./components/PendingPage";
 import PricingPage from "./components/PricingPage";
+import SoOrderPage from "./components/SoOrderPage";
 import ReelsPage from "./components/ReelsPage";
 import CarouselPage from "./components/CarouselPage";
 import AccountsPage from "./components/AccountsPage";
@@ -359,7 +360,7 @@ export default function App() {
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}
-        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" ? "max-w-6xl" : "max-w-4xl")}>
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "soOrder" ? "max-w-6xl" : "max-w-4xl")}>
           <div className="mb-4 flex justify-end">
             <SyncBadge
               live={L.live}
@@ -627,6 +628,8 @@ export default function App() {
                     setPage("pending");
                   }}
                 />
+              ) : page === "soOrder" ? (
+                <SoOrderPage tx={tx} vendors={vendors} pricing={S.pricing} online={L.mode === "remote" && !!L.session} />
               ) : page === "pending" ? (
                 <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} initialTab={pendingTab} />
               ) : page === "vendors" ? (
