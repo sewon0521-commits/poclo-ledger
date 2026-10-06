@@ -465,41 +465,169 @@ function RefPick({ d, picked, onDone, onClose }) {
   );
 }
 
-/** 회차에 고른 촬영 레퍼런스 — 누르면 크게, × 빼기 */
-function PickedRefs({ d, ids, onChange }) {
+const REF_FOLDER_KEY = "poclo_plan_ref_folder"; // 붙인 사진이 들어갈 촬영 레퍼런스 목록 (기기마다 기억)
+
+/**
+ * 회차에 고른 촬영 레퍼런스 — 누르면 크게, × 빼기.
+ * 10/6 세원: "레퍼런스 사진 넣을 때도 복붙으로" → 복사한 사진 Ctrl+V(마우스를 올린 칸) · 끌어다 놓기 · '사진' 고르기.
+ * 붙인 사진은 촬영 레퍼런스(shoot_refs)에도 새 사진으로 담기고(고른 목록으로), 이 회차에 바로 들어간다.
+ */
+function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot }) {
   const [pick, setPick] = useState(false);
   const [view, setView] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [pending, setPending] = useState([]); // 올리는 중인 사진 미리 보기
+  const [shown, setShown] = useState({}); // 방금 붙인 사진 — 서명 주소가 오기 전에도 그 사진으로
+  const [folder, setFolder] = useState(() => {
+    try {
+      return localStorage.getItem(REF_FOLDER_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
+  const file = useRef(null);
+  const folderId = d.folders.some((f) => f.id === folder) ? folder : "";
   const refs = ids.map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
+  const src = (r) => d.urls[r.photo] || shown[r.id] || "";
+  const chooseFolder = (v) => {
+    setFolder(v);
+    try {
+      localStorage.setItem(REF_FOLDER_KEY, v);
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
+
+  const add = async (clip) => {
+    onHot();
+    setBusy(clip.files.length ? `사진 ${clip.files.length}장 넣는 중…` : "사진 주소에서 사진 받는 중…");
+    const files = await filesOf(clip);
+    if (!files.length) {
+      setBusy("");
+      onMsg("붙여넣은 것에서 사진을 못 찾았어요. 사진 위에서 오른쪽 클릭 → '이미지 복사' 한 뒤 붙여넣어 보세요.");
+      return;
+    }
+    const previews = files.map((f) => URL.createObjectURL(f));
+    setPending((p) => [...p, ...previews]);
+    try {
+      const made = [];
+      for (const [i, f] of files.entries()) {
+        setBusy(`촬영 레퍼런스에 넣는 중 ${i + 1}/${files.length}`);
+        const photo = await putPhoto(f, online);
+        made.push({ id: newId("r"), photo, folderId: folderId || null, cuts: [], place: "", memo: "", createdAt: new Date().toISOString() });
+      }
+      setShown((m) => ({ ...m, ...Object.fromEntries(made.map((r, i) => [r.id, previews[i]])) }));
+      await d.saveRefs((v) => ({ ...v, items: [...made, ...(v.items || [])] }));
+      onAdd(made.map((r) => r.id));
+    } catch (e) {
+      onMsg(e.message || "사진을 넣지 못했어요.");
+    }
+    setPending((p) => p.filter((u) => !previews.includes(u)));
+    setBusy("");
+  };
+
+  // 붙여넣기 — 이 칸에 마우스를 올렸거나 마지막에 누른 칸이면. 쇼핑몰 BEST 칸보다 먼저 받는다(capture).
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (!hot || pick || view != null) return;
+      if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
+      const clip = clipImages(e.clipboardData);
+      if (!clip.files.length && !clip.urls.length) return;
+      e.preventDefault();
+      add(clip);
+    };
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <div className="rounded-xl border border-stone-200 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-          <Images size={15} className="text-rose-700" /> 촬영 레퍼런스 {refs.length > 0 && <span className="font-normal text-stone-400">{refs.length}장</span>}
+    <div
+      onMouseEnter={onHot}
+      onMouseDown={onHot}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        // 다른 창의 사진을 바로 끌어 와도(주소로 온다) 들어가게
+        const clip = clipImages(e.dataTransfer);
+        if (!clip.files.length && !clip.urls.length) return;
+        e.preventDefault();
+        add(clip);
+      }}
+      className={"rounded-xl border p-3 " + (hot ? "border-rose-300" : "border-stone-200")}
+    >
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
+            <Images size={15} className="text-rose-700" /> 촬영 레퍼런스 {refs.length > 0 && <span className="font-normal text-stone-400">{refs.length}장</span>}
+            {hot && <span className="hidden shrink-0 rounded bg-rose-50 px-1.5 text-[10px] font-medium text-rose-700 sm:inline">Ctrl+V 하면 여기로</span>}
+          </span>
+          <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-stone-400">
+            사진을 복사해서 Ctrl+V · 끌어다 놓기 — 촬영 레퍼런스
+            <select value={folderId} onChange={(e) => chooseFolder(e.target.value)} aria-label="붙인 사진을 넣을 목록" className="max-w-[9rem] rounded-md border border-stone-200 bg-white px-1.5 py-0.5 text-[11px] text-stone-700">
+              <option value="">목록 없이</option>
+              {ordered(d.folders).map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.depth ? `${"　".repeat(f.depth)}└ ${f.name}` : f.name}
+                </option>
+              ))}
+            </select>
+            에도 같이 담겨요
+          </span>
         </span>
-        <button type="button" onClick={() => setPick(true)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
-          <Plus size={13} /> 레퍼런스에서 고르기
-        </button>
+        <span className="flex shrink-0 gap-1.5">
+          <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+            <ImagePlus size={13} /> 사진
+          </button>
+          <button type="button" onClick={() => setPick(true)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+            <Plus size={13} /> 레퍼런스에서 고르기
+          </button>
+        </span>
+        <input
+          ref={file}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = [...(e.target.files || [])];
+            e.target.value = "";
+            if (files.length) add({ files, urls: [] });
+          }}
+        />
       </div>
-      {refs.length ? (
+      {busy && (
+        <p className="mb-2 flex items-center gap-1.5 text-sm text-stone-600">
+          <Loader2 size={14} className="animate-spin" /> {busy}
+        </p>
+      )}
+      {refs.length || pending.length ? (
         <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
           {refs.map((r, i) => (
             <span key={r.id} className="group relative">
               <button type="button" onClick={() => setView(i)} className="block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
-                {d.urls[r.photo] && <img src={d.urls[r.photo]} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                {src(r) && <img src={src(r)} alt="" loading="lazy" className="h-full w-full object-cover" />}
               </button>
               <button
                 type="button"
                 onClick={() => onChange(ids.filter((k) => k !== r.id))}
                 aria-label="빼기"
+                title="이 촬영에서만 빼요 (촬영 레퍼런스에는 남아요)"
                 className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 max-sm:opacity-80"
               >
                 <X size={13} />
               </button>
             </span>
           ))}
+          {pending.map((u) => (
+            <span key={u} className="relative block aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">
+              <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
+              <Loader2 size={18} className="absolute inset-0 m-auto animate-spin text-white drop-shadow" />
+            </span>
+          ))}
         </div>
       ) : (
-        <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">촬영 레퍼런스에 모아 둔 사진 중 이번 촬영에 쓸 컷을 골라 두세요.</p>
+        <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">
+          촬영 레퍼런스에서 고르거나, 사진을 복사해서 여기에 Ctrl+V 하면 바로 들어가요.
+        </p>
       )}
       {pick && (
         <RefPick
@@ -512,13 +640,15 @@ function PickedRefs({ d, ids, onChange }) {
           }}
         />
       )}
-      {view != null && <BigSlides urls={refs.map((r) => d.urls[r.photo] || "")} start={view} onClose={() => setView(null)} />}
+      {view != null && <BigSlides urls={refs.map(src)} start={view} onClose={() => setView(null)} />}
     </div>
   );
 }
 
 function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClose, onNotes, online, legacy = [], onTakeLegacy }) {
   const [msg, setMsg] = useState("");
+  // Ctrl+V 가 들어갈 칸 — 마우스를 올리거나 누른 칸. 아직 없으면 쇼핑몰 칸이 있을 때 쇼핑몰, 없으면 촬영 레퍼런스
+  const [pasteTo, setPasteTo] = useState("");
   const [s, setS] = useState(session);
   const latest = useRef(s);
   const timer = useRef(null);
@@ -631,8 +761,24 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
               </button>
             </div>
           )}
-          <PickedRefs d={d} ids={s.refIds || []} onChange={(v) => set({ refIds: v })} />
-          <ShopBoard list={s.shops || []} change={(fn) => set({ shops: fn(latest.current.shops || []) })} online={online} onMsg={setMsg} />
+          <PickedRefs
+            d={d}
+            ids={s.refIds || []}
+            onChange={(v) => set({ refIds: v })}
+            onAdd={(more) => set({ refIds: [...(latest.current.refIds || []), ...more] })}
+            online={online}
+            onMsg={setMsg}
+            hot={pasteTo === "refs" || (!pasteTo && !(s.shops || []).length)}
+            onHot={() => setPasteTo("refs")}
+          />
+          <ShopBoard
+            list={s.shops || []}
+            change={(fn) => set({ shops: fn(latest.current.shops || []) })}
+            online={online}
+            onMsg={setMsg}
+            hot={pasteTo !== "refs"}
+            onHot={() => setPasteTo("shops")}
+          />
           {msg && (
             <p className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {msg}
@@ -809,7 +955,7 @@ const OPEN_KEY = "poclo_shop_best_open";
  * 쇼핑몰 BEST 컷 (10/4 세원: "촬영 회차 안에 쇼핑몰 BEST 컷이 들어갔으면. 촬영마다 우리가 지향하는 각 쇼핑몰의 코디 사진이 달라지기 때문에")
  * 촬영 회차마다 따로 — list = 그 회차의 shops [{id, name, url, photos}], change(fn) = 목록을 고치는 함수.
  */
-function ShopBoard({ list, change, online, onMsg }) {
+function ShopBoard({ list, change, online, onMsg, hot = true, onHot }) {
   const [openIds, setOpenIds] = useState(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || "[]"));
@@ -867,6 +1013,7 @@ function ShopBoard({ list, change, online, onMsg }) {
   // 붙여넣기 — 화면 어디서든 Ctrl+V. 들어갈 칸: 마지막에 누르거나 마우스를 올린 칸 → 없으면 펼쳐 둔 첫 칸 → 첫 칸
   useEffect(() => {
     const onPaste = (e) => {
+      if (e.defaultPrevented || !hot) return; // 촬영 레퍼런스 칸이 받았다
       if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
       const clip = clipImages(e.clipboardData);
       if (!clip.files.length && !clip.urls.length) return;
@@ -884,7 +1031,7 @@ function ShopBoard({ list, change, online, onMsg }) {
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="rounded-xl border border-stone-200 p-3">
+    <div onMouseEnter={onHot} onMouseDown={onHot} className="rounded-xl border border-stone-200 p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="min-w-0">
           <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
@@ -947,7 +1094,7 @@ function ShopBoard({ list, change, online, onMsg }) {
                   setActive(s.id);
                   addPhotos(s.id, clip);
                 }}
-                className={"rounded-2xl border bg-white " + (active === s.id ? "border-rose-300" : "border-stone-200")}
+                className={"rounded-2xl border bg-white " + (hot && active === s.id ? "border-rose-300" : "border-stone-200")}
               >
                 <header className="flex items-center gap-2 px-3 py-2">
                   <button type="button" onClick={() => toggle(s.id)} className="group/tg flex min-w-0 flex-1 items-center gap-1.5 text-left">
@@ -956,7 +1103,7 @@ function ShopBoard({ list, change, online, onMsg }) {
                     </span>
                     {editing === s.id ? null : <span className="truncate font-semibold text-stone-900">{s.name}</span>}
                     <span className="shrink-0 text-xs text-stone-400">{photos.length}장</span>
-                    {active === s.id && <span className="hidden shrink-0 rounded bg-rose-50 px-1.5 text-[10px] font-medium text-rose-700 sm:inline">Ctrl+V 하면 여기로</span>}
+                    {hot && active === s.id && <span className="hidden shrink-0 rounded bg-rose-50 px-1.5 text-[10px] font-medium text-rose-700 sm:inline">Ctrl+V 하면 여기로</span>}
                   </button>
                   {editing === s.id && (
                     <input
