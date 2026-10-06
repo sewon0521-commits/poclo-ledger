@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus } from "lucide-react";
+import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus, Ruler } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
 import { urlsToFiles } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
+import { MeasureBox, MeasureSheet } from "./MeasureBox";
+import { filled } from "../lib/measure";
 import { measuresOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
@@ -64,7 +66,7 @@ function Toggle({ on, onClick, children, wide }) {
 }
 
 /** 상품 카드 — tab 에 따라 다음 단계로 넘기는 단추가 달라진다. onPatch(바뀐 칸) */
-export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, selectable, selected }) {
+export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, onMeasure, selectable, selected }) {
   const sample = x.type !== "buy";
   const act = (patch) => (e) => {
     e.stopPropagation();
@@ -202,6 +204,19 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
               <Toggle wide on={x.packed} onClick={act(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
                 <PackageCheck size={12} /> 포장 완료{x.packed && x.packedOn ? ` · ${md(x.packedOn)}` : ""}
               </Toggle>
+              {/* 포장하면서 실측 재기 (10/6 세원: "샘플을 거래처에 다시 보낼 때 포장하면서 사이즈를 재거든") */}
+              {onMeasure && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMeasure();
+                  }}
+                  className={SUB + " flex w-full items-center justify-center gap-1 " + (filled(x.measure).n ? "border-emerald-300 text-emerald-800" : "")}
+                >
+                  <Ruler size={12} /> {filled(x.measure).n ? `실측 ${filled(x.measure).n}/${filled(x.measure).of}` : "실측 재기"}
+                </button>
+              )}
               <div className="flex gap-1">
                 <button type="button" onClick={act({ returnedOn: today, settle: null, ...(x.paid ? { paid: x.paid } : {}) })} className={MAIN}>
                   거래처 반납
@@ -390,7 +405,7 @@ function SizeBox({ x, setX, online, onHot, onFiles, busy }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>
-          <span className="text-xs font-semibold text-stone-700">사이즈표 · 실측</span>
+          <span className="text-xs font-semibold text-stone-700">거래처 사이즈표 · 실측</span>
           <span className="ml-1.5 text-[11px] text-stone-400">캡처는 이 칸에 마우스를 올리고 Ctrl+V</span>
         </span>
         <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1 text-xs font-medium text-stone-600 hover:border-rose-300">
@@ -713,6 +728,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                 <input value={x.origin || ""} onChange={(e) => set({ origin: e.target.value })} className={FIELD} />
               </Label>
             </div>
+            <MeasureBox x={x} onChange={(measure) => set({ measure })} />
             <SizeBox x={x} setX={setX} online={online} onHot={(v) => (sizeHot.current = v)} onFiles={addSize} busy={sizeBusy} />
             <Label title="메모">
               <textarea value={x.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 깔깨져서 목~일밤 재요청" className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
@@ -1696,6 +1712,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [msgFor, setMsgFor] = useState(null);
   const [refuseFor, setRefuseFor] = useState(null);
   const [extendFor, setExtendFor] = useState(null); // 반납 기한 연장 창 (10/4)
+  const [measureFor, setMeasureFor] = useState(null); // 실측 재기 창 (10/6)
   const ext = extendOps(d.saveItems, today);
 
   // 담아 둔 상품을 돈 › 거래처와 잇는다 (10/1 세원: "거래처에 어차피 등록해야 하는데 없으면 추가, 있으면 매칭")
@@ -1981,7 +1998,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} />
+                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} />
                 ))}
               </div>
             </section>
@@ -1991,6 +2008,17 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
 
       {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} onVendor={onVendor} today={today} onClose={() => setEdit(null)} />}
       {guide && <ClipGuide onClose={() => setGuide(false)} />}
+      {measureFor && (
+        <MeasureSheet
+          item={items.find((y) => y.id === measureFor.id) || measureFor}
+          url={srcOf(measureFor, d.urls)}
+          onClose={() => setMeasureFor(null)}
+          onSave={async (measure) => {
+            await d.saveItems(upsert({ id: measureFor.id, measure }));
+            setMeasureFor(null);
+          }}
+        />
+      )}
       {extendFor && (
         <ExtendSheet
           x={items.find((y) => y.id === extendFor.id) || extendFor}
