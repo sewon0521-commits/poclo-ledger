@@ -1,64 +1,226 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, ExternalLink, ChevronDown, Repeat, AlertTriangle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Trash2, ExternalLink, ChevronDown, Repeat, AlertTriangle, ArrowUpRight, ImagePlus, X } from "lucide-react";
 import { loadKey, changeKey, upsert, remove, FIELD, md } from "../lib/shoot";
 import { won } from "../lib/sales";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
-import { CYCLES, STATUSES, KINDS, QUICK, nextPay, daysUntil, monthly, summary, tileColor } from "../lib/subs";
+import { CYCLES, STATUSES, KINDS, QUICK, nextPay, daysUntil, monthly, summary, tileColor, brandOf, nameFit, makeLogo } from "../lib/subs";
+import { clipImages, filesOf } from "../lib/pasteImages";
 import { Sheet, SheetHead, Chips } from "./ShootBits";
 
 /**
  * 돈 › 구독 · 고정 지출 (lib/subs.js).
- * 맨 위 = 한 달에 얼마 나가나 · 30일 안에 나갈 돈. 그 아래 = 다음 결제일 순서로 한 줄씩(가장 가까운 결제가 맨 위).
- * 무료체험은 '체험 끝나면 첫 결제'를 노랗게 — 해지하려면 그 전에 해야 하니까.
+ * 맨 위 = 한 달에 얼마 나가나 · 30일 안에 나갈 돈. 그 아래 = 다음 결제일 순서로 **카드**(가장 가까운 결제가 맨 앞).
+ * 10/7 세원(노션 카드 화면): "줄로 보이지 말고 블록으로, 썸네일은 직관적으로" → 위에 로고 썸네일, 아래 이름 · 상태 · 결제 시작일 · 다음 결제일 · 구독료 · 월간.
+ * 무료체험은 '무료체험 중'(빨강) + 7일 안에 끝나면 위에 노란 줄 — 해지하려면 그 전에 해야 하니까.
  */
 
-const EMPTY = { name: "", cycle: "month", price: "", status: "active", start: "", card: "", kind: "", url: "", memo: "" };
+const EMPTY = { name: "", cycle: "month", price: "", status: "active", start: "", card: "", kind: "", url: "", memo: "", logo: "", logoBg: "" };
 const KEY = "subscriptions";
+const GRID = "grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4";
+const dot = (k) => (k ? k.replaceAll("-", ".") : "—");
 
-function Tile({ name, size = "h-10 w-10 text-base" }) {
+/** 로고 썸네일 — 붙여 넣은 로고 → 알아보는 곳은 글자·색 로고 → 이름 크게. 폭에 맞춰 커진다(@container + cqw). */
+function Thumb({ s }) {
+  const box = "@container flex h-full w-full items-center justify-center overflow-hidden";
+  if (s.logo)
+    return (
+      <div className={box} style={{ background: s.logoBg || "#fff" }}>
+        <img src={s.logo} alt="" className="max-h-[52%] max-w-[70%] object-contain" />
+      </div>
+    );
+  const b = brandOf(s.name);
+  if (b) {
+    const font = { fontSize: `${b.size}cqw`, fontWeight: b.weight, color: b.color, letterSpacing: b.tracking, fontStyle: b.italic ? "italic" : undefined, fontFamily: b.serif ? "Georgia, 'Times New Roman', serif" : undefined, lineHeight: 1 };
+    return (
+      <div className={box + " gap-[2.5cqw]"} style={{ background: b.bg }} aria-hidden>
+        {b.icon === "burst" && (
+          <svg viewBox="-12 -12 24 24" style={{ width: "11cqw", height: "11cqw" }}>
+            {Array.from({ length: 10 }, (_, i) => (
+              <line key={i} x1="0" y1="-3.2" x2="0" y2="-10.5" stroke={b.iconColor} strokeWidth="2.8" strokeLinecap="round" transform={`rotate(${i * 36})`} />
+            ))}
+          </svg>
+        )}
+        {b.icon === "play" && (
+          <svg viewBox="0 0 28 20" style={{ width: "11cqw" }}>
+            <rect width="28" height="20" rx="5.5" fill="#FF0000" />
+            <path d="M11.2 5.8 18.4 10l-7.2 4.2z" fill="#fff" />
+          </svg>
+        )}
+        {b.letters ? (
+          <span style={font}>
+            {b.letters.map(([ch, c], i) => (
+              <span key={i} style={{ color: c }}>
+                {ch}
+              </span>
+            ))}
+          </span>
+        ) : b.boxed ? (
+          <span className="flex items-center justify-center" style={{ ...font, width: "24cqw", height: "24cqw", border: "1.3cqw solid #111", borderRadius: "3cqw", background: "#fff" }}>
+            {b.text}
+          </span>
+        ) : (
+          <span style={{ ...font, transform: b.squish ? "scaleX(0.78)" : undefined }}>{b.text}</span>
+        )}
+      </div>
+    );
+  }
+  const c = tileColor(s.name);
   return (
-    <span className={"flex shrink-0 items-center justify-center rounded-xl font-bold text-white " + size} style={{ background: tileColor(name) }} aria-hidden>
-      {String(name || "?").trim().slice(0, 1).toUpperCase()}
-    </span>
+    <div className={box} style={{ background: `linear-gradient(135deg, ${c}14, ${c}2e)` }} aria-hidden>
+      <span className="line-clamp-2 max-w-[84%] text-center font-bold break-keep" style={{ color: c, fontSize: `${nameFit(s.name)}cqw`, lineHeight: 1.15, letterSpacing: "-0.02em" }}>
+        {String(s.name || "?").trim()}
+      </span>
+    </div>
   );
 }
 
-function Due({ s, today }) {
+const STATUS_CHIP = {
+  active: ["구독 중", "bg-emerald-50 text-emerald-700", "bg-emerald-500"],
+  trial: ["무료체험 중", "bg-rose-50 text-rose-700", "bg-rose-500"],
+  ended: ["해지", "bg-stone-100 text-stone-500", "bg-stone-400"],
+};
+
+function Card({ s, today, onOpen }) {
   const at = nextPay(s, today);
-  if (!at) return <span className="text-xs text-stone-400">{s.status === "ended" ? `해지 ${md(s.endedOn) || ""}` : "결제일 없음"}</span>;
-  const n = daysUntil(at, today);
-  const tone = s.status === "trial" ? "bg-amber-100 text-amber-900" : n <= 3 ? "bg-rose-100 text-rose-800" : "bg-stone-100 text-stone-600";
+  const n = at ? daysUntil(at, today) : null;
+  const [label, tone, dotTone] = STATUS_CHIP[s.status] || STATUS_CHIP.active;
+  const ended = s.status === "ended";
+  const trial = s.status === "trial";
+  const due = n == null ? "" : n === 0 ? "오늘 결제" : `D-${n}`;
+  const dueTone = trial ? "bg-amber-100 text-amber-900" : n <= 3 ? "bg-rose-600 text-white" : "bg-white/95 text-stone-700";
+  const rows = ended
+    ? [["해지한 날", dot(s.endedOn)]]
+    : trial
+      ? [["첫 결제일", dot(s.start)]]
+      : [
+          ["결제 시작일", dot(s.start)],
+          ["다음 결제일", dot(at)],
+        ];
+  rows.push(["구독료", `${won(s.price)}원`]);
+  if (s.card) rows.push(["결제 수단", s.card]);
   return (
-    <span className="flex flex-col items-end gap-0.5">
-      <span className={"rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums " + tone}>{n === 0 ? "오늘" : `D-${n}`}</span>
-      <span className="text-[11px] text-stone-400 tabular-nums">{md(at)}</span>
-    </span>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}
+      className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white text-left transition hover:-translate-y-0.5 hover:border-stone-300 hover:shadow-md focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:outline-none active:scale-[0.985]"
+    >
+      <div className={"relative aspect-[16/9] border-b border-stone-100 " + (ended ? "opacity-50 grayscale" : "")}>
+        <Thumb s={s} />
+        {due && <span className={"absolute top-2 left-2 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow-sm tabular-nums " + dueTone}>{due}</span>}
+      </div>
+      <div className="flex flex-1 flex-col gap-2 p-3 sm:p-3.5">
+        <div className="flex min-w-0 items-center gap-1">
+          <b className="truncate text-[15px] font-semibold text-stone-900">{s.name}</b>
+          {/^https?:\/\//.test(s.url) && (
+            <a href={s.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="해지·결제 관리 열기" className="shrink-0 rounded p-0.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+              <ArrowUpRight size={15} />
+            </a>
+          )}
+        </div>
+        <span className={"inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold " + tone}>
+          <span className={"h-1.5 w-1.5 rounded-full " + dotTone} />
+          {label}
+        </span>
+        <dl className="space-y-1 text-xs">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex items-baseline justify-between gap-2">
+              <dt className="shrink-0 text-stone-400">{k}</dt>
+              <dd className="truncate text-right font-medium text-stone-800 tabular-nums">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-auto flex flex-wrap gap-1 pt-0.5">
+          <span className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[11px] font-medium text-stone-600">
+            {s.cycle === "year" ? `연간 · 월 ${won(monthly({ ...s, status: "active" }))}원꼴` : "월간"}
+          </span>
+          {s.kind && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-stone-50 px-1.5 py-0.5 text-[11px] text-stone-500">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: KIND_COLOR[kindOf(s)] }} />
+              {s.kind}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
-function Row({ s, today, onOpen }) {
-  const trial = s.status === "trial";
+/** 고치기 창의 썸네일 칸 — 미리 보기 + 로고 사진 넣기(고르기 · 끌어다 놓기 · 창이 열린 동안 Ctrl+V) */
+function LogoField({ x, set }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const input = useRef(null);
+  const take = useCallback(
+    async (files) => {
+      const f = files?.[0];
+      if (!f) return;
+      setBusy(true);
+      setErr("");
+      try {
+        set(await makeLogo(f));
+      } catch (e) {
+        setErr(e.message || "사진을 넣지 못했어요.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [set],
+  );
+  useEffect(() => {
+    const onPaste = (e) => {
+      const c = clipImages(e.clipboardData);
+      if (!c.files.length && !c.urls.length) return; // 글은 칸에 그대로
+      e.preventDefault();
+      filesOf(c).then(take);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [take]);
+  const auto = !x.logo && brandOf(x.name);
   return (
-    <button type="button" onClick={onOpen} className={"flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-stone-50 " + (s.status === "ended" ? "opacity-55" : "")}>
-      <Tile name={s.name} />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <b className="truncate font-semibold text-stone-900">{s.name}</b>
-          {trial && <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">무료체험</span>}
-        </span>
-        <span className="block truncate text-xs text-stone-500">
-          {[s.kind, s.card, trial && nextPay(s, today) ? "체험 끝나면 첫 결제" : ""].filter(Boolean).join(" · ") || (s.cycle === "year" ? "연간 결제" : "월간 결제")}
-        </span>
-      </span>
-      <span className="shrink-0 text-right tabular-nums">
-        <b className="block text-stone-900">{won(s.price)}원</b>
-        <span className="text-[11px] text-stone-400">{s.cycle === "year" ? `연간 · 월 ${won(monthly({ ...s, status: "active" }))}원꼴` : "매달"}</span>
-      </span>
-      <span className="w-14 shrink-0 text-right">
-        <Due s={s} today={today} />
-      </span>
-    </button>
+    <div className="space-y-1">
+      <span className="text-xs font-semibold text-stone-500">썸네일</span>
+      <div className="flex items-start gap-3">
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            filesOf(clipImages(e.dataTransfer)).then(take);
+          }}
+          className={"relative aspect-[16/9] w-40 shrink-0 overflow-hidden rounded-xl border border-stone-200 " + (busy ? "opacity-50" : "")}
+        >
+          <Thumb s={x} />
+        </div>
+        <div className="min-w-0 space-y-1.5 text-xs text-stone-500">
+          <p>{x.logo ? "넣은 로고 사진이에요." : auto ? "이름을 알아봐서 로고 모양으로 보여요." : "로고 사진을 넣으면 카드에 그대로 보여요. 안 넣으면 이름이 크게 나와요."}</p>
+          <p className="text-stone-400">캡처해서 Ctrl+V · 끌어다 놓기 — 둘레 여백은 저절로 잘라요.</p>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => input.current?.click()} className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 font-medium text-stone-700 hover:border-stone-400">
+              <ImagePlus size={13} /> 로고 사진
+            </button>
+            {x.logo && (
+              <button type="button" onClick={() => set({ logo: "", logoBg: "" })} className="flex items-center gap-1 rounded-lg px-2 py-1 text-stone-400 hover:text-rose-600">
+                <X size={13} /> 빼기
+              </button>
+            )}
+          </div>
+          {err && <p className="text-rose-600">{err}</p>}
+        </div>
+      </div>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          take([...e.target.files]);
+          e.target.value = "";
+        }}
+      />
+    </div>
   );
 }
 
@@ -142,7 +304,7 @@ function SpendChart({ list }) {
 
 function Editor({ seed, onSave, onRemove, onClose }) {
   const [x, setX] = useState({ ...EMPTY, ...seed });
-  const set = (p) => setX((v) => ({ ...v, ...p }));
+  const set = useCallback((p) => setX((v) => ({ ...v, ...p })), []);
   const ok = x.name.trim() && Number(x.price) > 0;
   const SEG = "flex-1 rounded-md py-1.5 text-sm font-medium ";
   return (
@@ -168,6 +330,7 @@ function Editor({ seed, onSave, onRemove, onClose }) {
             <input value={x.price ? won(x.price) : ""} onChange={(e) => set({ price: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="0" className={FIELD + " text-right font-semibold tabular-nums"} />
           </label>
         </div>
+        <LogoField x={x} set={set} />
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1">
             <span className="text-xs font-semibold text-stone-500">주기</span>
@@ -347,21 +510,24 @@ export default function SubsPage({ online }) {
             <h3 className="text-sm font-semibold text-stone-700">다음 결제 순서</h3>
             <span className="text-xs text-stone-400">누르면 고쳐요</span>
           </div>
-          <div className="divide-y divide-stone-100 overflow-hidden rounded-2xl border border-stone-200 bg-white">
-            {live.map((s) => (
-              <Row key={s.id} s={s} today={today} onOpen={() => setEdit(s)} />
-            ))}
-            {!live.length && <p className="px-4 py-6 text-center text-sm text-stone-400">지금 구독 중인 게 없어요.</p>}
-          </div>
+          {live.length ? (
+            <div className={GRID}>
+              {live.map((s) => (
+                <Card key={s.id} s={s} today={today} onOpen={() => setEdit(s)} />
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-2xl border border-stone-200 bg-white px-4 py-6 text-center text-sm text-stone-400">지금 구독 중인 게 없어요.</p>
+          )}
           {ended.length > 0 && (
             <div className="mt-3">
               <button type="button" onClick={() => setShowEnded(!showEnded)} className="flex items-center gap-1 px-1 text-sm text-stone-500">
                 <ChevronDown size={14} className={showEnded ? "rotate-180" : ""} /> 해지한 것 {ended.length}
               </button>
               {showEnded && (
-                <div className="mt-1.5 divide-y divide-stone-100 overflow-hidden rounded-2xl border border-stone-200 bg-white">
+                <div className={"mt-1.5 " + GRID}>
                   {ended.map((s) => (
-                    <Row key={s.id} s={s} today={today} onOpen={() => setEdit(s)} />
+                    <Card key={s.id} s={s} today={today} onOpen={() => setEdit(s)} />
                   ))}
                 </div>
               )}
