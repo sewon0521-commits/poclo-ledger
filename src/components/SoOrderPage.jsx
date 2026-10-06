@@ -4,7 +4,7 @@ import { won } from "../lib/sales";
 import { loadKey, changeKey, FIELD } from "../lib/shoot";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
-import { parseOrder, findPrice, memoryKey, soLines, splitName, SO_TYPES } from "../lib/soOrder";
+import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES } from "../lib/soOrder";
 
 /**
  * 돈 › 매입 › SO+ 발주 변환 (lib/soOrder.js 머리말).
@@ -118,7 +118,16 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
 
   // 매장명: 직접 고친 값 → 괄호 안 매장명(지난번에 고쳐 둔 이름이 있으면 그것, 키 '@괄호 이름') → 지난번 그 제조사에 적은 매장명 → 제조사
   const autoStore = useCallback((r) => (r.parsedStore ? stores["@" + r.parsedStore] || r.parsedStore : stores[r.vendor] || r.vendor), [stores]);
-  const withStore = useMemo(() => (draft?.rows || []).map((r) => ({ ...r, store: r.storeEdit || autoStore(r) })), [draft?.rows, autoStore]);
+  // 매장 위치 (10/6 세원: "매장명 밑에 해당 거래처 매장 위치, 복사 내용엔 안 들어가게") — 돈 › 거래처 주소 → 없으면 이지어드민 괄호 위치. 화면에만.
+  const addrOf = useCallback((store) => (vendors || []).find((v) => v.address && sameVendor(v.name, store))?.address || "", [vendors]);
+  const withStore = useMemo(
+    () =>
+      (draft?.rows || []).map((r) => {
+        const store = r.storeEdit || autoStore(r);
+        return { ...r, store, addr: addrOf(store) || r.place || "" };
+      }),
+    [draft?.rows, autoStore, addrOf],
+  );
 
   // 줄마다 찾은 단가 — 장끼·판매가 목록이 바뀌면 다시 찾는다(직접 고친 값은 그대로)
   const found = useMemo(() => {
@@ -365,8 +374,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             (r.storeEdit ? "border-rose-300 bg-rose-50/50" : "border-stone-200 bg-white")
                           }
                         />
-                        <div className="mt-0.5 max-w-[8rem] text-[11px] leading-tight text-stone-400">
-                          {r.place && <div className="truncate">{r.place}</div>}
+                        <div className="mt-0.5 max-w-[8.5rem] space-y-px text-[11px] leading-tight text-stone-400">
+                          {r.addr ? <div className="text-stone-600">{r.addr}</div> : <div className="text-amber-700">위치 모름</div>}
                           {r.store !== r.vendor && <div className="truncate">제조사 {r.vendor}</div>}
                         </div>
                       </td>
