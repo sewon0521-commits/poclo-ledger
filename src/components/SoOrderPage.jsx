@@ -375,7 +375,33 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         {r.shopName && <div className="truncate text-xs text-stone-400">{r.shopName}</div>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-stone-700">{r.option}</td>
-                      <td className="px-3 py-2 text-right text-stone-900 tabular-nums">{r.qty}</td>
+                      <td className="px-3 py-2 text-right">
+                        {/* 10/6 세원: "수량도 변경 가능하게" — 칸을 벗어나거나 엔터에 적용, 1 아래로는 안 내려간다(줄을 빼려면 ×) */}
+                        <input
+                          key={r.qty}
+                          defaultValue={r.qty}
+                          inputMode="numeric"
+                          onBlur={(e) => {
+                            const n = parseInt(e.target.value.replace(/[^\d]/g, ""), 10);
+                            if (!n || n < 1) {
+                              e.target.value = String(r.qty);
+                              return;
+                            }
+                            if (n !== r.qty) patchRow(r.id, { qty: n, qtyFrom: r.qtyFrom ?? r.qty });
+                          }}
+                          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                          aria-label={`${r.name} 수량`}
+                          className={
+                            "w-14 rounded-lg border px-2 py-1 text-right text-stone-900 tabular-nums outline-none focus:border-rose-600 " +
+                            (r.qtyFrom != null && r.qtyFrom !== r.qty ? "border-rose-300 bg-rose-50/50" : "border-stone-200 bg-white")
+                          }
+                        />
+                        {r.qtyFrom != null && r.qtyFrom !== r.qty && (
+                          <button type="button" onClick={() => patchRow(r.id, { qty: r.qtyFrom, qtyFrom: null })} title="원래 수량으로" className="mt-0.5 block w-full text-right text-[11px] text-stone-400 underline decoration-dotted">
+                            원래 {r.qtyFrom}
+                          </button>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         <input
                           value={r.price ? String(r.price) : ""}
