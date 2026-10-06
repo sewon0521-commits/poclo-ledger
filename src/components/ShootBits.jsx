@@ -35,7 +35,7 @@ export function SheetHead({ title, onClose, right }) {
 }
 
 /** 꼬리표 칩 줄 — multi 면 여러 개, 아니면 하나(다시 누르면 풀림) */
-export function Chips({ list, value, onChange, multi, all, onAdd }) {
+export function Chips({ list, value, onChange, multi, all, onAdd, addLabel = "+ 꼬리표", addPrompt = "새 꼬리표 이름" }) {
   const has = (t) => (multi ? (value || []).includes(t) : value === t);
   return (
     <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
@@ -62,12 +62,12 @@ export function Chips({ list, value, onChange, multi, all, onAdd }) {
         <button
           type="button"
           onClick={() => {
-            const n = window.prompt("새 꼬리표 이름");
+            const n = window.prompt(addPrompt);
             if (n?.trim()) onAdd(n.trim());
           }}
           className="shrink-0 rounded-full border border-dashed border-stone-300 px-2.5 py-1.5 text-xs text-stone-500 hover:border-rose-300 hover:text-rose-700"
         >
-          + 꼬리표
+          {addLabel}
         </button>
       )}
     </div>

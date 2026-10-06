@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store } from "lucide-react";
+import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
 import Pipeline, { ItemCard } from "./ShootItems";
@@ -171,7 +171,43 @@ async function sameImage(a, b) {
   return true;
 }
 
-function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone, onAddTag, onClose }) {
+const LAST_SHOP = "poclo_ref_last_shop"; // 넣기 창에서 마지막에 고른 쇼핑몰 — 같은 쇼핑몰을 이어서 캡처하니까
+
+/** 쇼핑몰 줄 — 누르면 그 쇼핑몰 사진만 (10/6 세원: "같은 경쟁사 쇼핑몰 사진들이 많이 겹칠 텐데, 클릭하면 각 쇼핑몰을 모으게") */
+function ShopRow({ shops, counts, none, total, value, onChange }) {
+  const chip = (key, label, n) => (
+    <button
+      key={key || "all"}
+      type="button"
+      onClick={() => onChange(value === key ? "" : key)}
+      className={
+        "flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium " +
+        (value === key ? "border-rose-700 bg-rose-700 text-white" : n ? "border-stone-200 bg-white text-stone-600 hover:border-stone-300" : "border-stone-100 bg-white text-stone-300")
+      }
+    >
+      {label}
+      <span className={value === key ? "text-rose-200" : "text-stone-400"}>{n}</span>
+    </button>
+  );
+  return (
+    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+      <span className="mr-1 flex w-14 shrink-0 items-center gap-1 text-xs text-stone-400">
+        <Store size={12} /> 쇼핑몰
+      </span>
+      {shops.length ? (
+        <>
+          {chip("", "전체", total)}
+          {shops.map((s) => chip(s, s, counts[s] || 0))}
+          {none > 0 && chip("__none", "쇼핑몰 없음", none)}
+        </>
+      ) : (
+        <span className="text-xs text-stone-400">사진을 넣을 때 쇼핑몰을 고르거나, 사진을 골라 아래 '쇼핑몰 지정'을 누르면 여기서 쇼핑몰별로 모아 봐요.</span>
+      )}
+    </div>
+  );
+}
+
+function RefUpload({ tags, shops = [], folders, online, initialFiles, initialFolder, initialShop, onDone, onAddTag, onClose }) {
   const [files, setFiles] = useState(initialFiles || []);
   const [flash, setFlash] = useState("");
   const filesRef = useRef(files);
@@ -209,6 +245,15 @@ function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone,
     return () => window.removeEventListener("paste", onPaste);
   }); // eslint-disable-line react-hooks/exhaustive-deps
   const [folderId, setFolderId] = useState(initialFolder || null);
+  const [shop, setShop] = useState(() => {
+    if (initialShop) return initialShop;
+    try {
+      const last = localStorage.getItem(LAST_SHOP) || "";
+      return shops.includes(last) ? last : "";
+    } catch {
+      return "";
+    }
+  });
   const [cuts, setCuts] = useState([]);
   const [place, setPlace] = useState("");
   const [memo, setMemo] = useState("");
@@ -221,7 +266,12 @@ function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone,
     for (const [i, f] of files.entries()) {
       setBusy(`올리는 중 ${i + 1}/${files.length}`);
       const photo = await putPhoto(f, online);
-      made.push({ id: newId("r"), photo, folderId, cuts, place, memo, createdAt: new Date().toISOString() });
+      made.push({ id: newId("r"), photo, folderId, cuts, place, shop, memo, createdAt: new Date().toISOString() });
+    }
+    try {
+      localStorage.setItem(LAST_SHOP, shop);
+    } catch {
+      /* 기억 못 해도 된다 */
     }
     await onDone(made);
     setBusy("");
@@ -271,6 +321,20 @@ function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone,
           <FolderSelect folders={folders} value={folderId} onChange={setFolderId} />
         </label>
         <div className="space-y-1.5">
+          <div className="text-xs font-semibold text-stone-500">어느 쇼핑몰 사진이에요? (선택 — 마지막에 고른 쇼핑몰이 미리 골라져 있어요)</div>
+          <Chips
+            list={shops}
+            value={shop}
+            onChange={setShop}
+            addLabel="+ 쇼핑몰"
+            addPrompt="쇼핑몰 이름 — 예: 페트리코어"
+            onAdd={(t) => {
+              onAddTag("shops", t);
+              setShop(t);
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
           <div className="text-xs font-semibold text-stone-500">컷 종류 (선택 · 여러 개 가능)</div>
           <Chips list={tags.cuts} value={cuts} onChange={setCuts} multi onAdd={(t) => onAddTag("cuts", t)} />
         </div>
@@ -291,7 +355,7 @@ function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone,
   );
 }
 
-function RefEdit({ refItem, tags, folders, url, onSave, onRemove, onClose, onAddTag }) {
+function RefEdit({ refItem, tags, shops = [], folders, url, onSave, onRemove, onClose, onAddTag }) {
   const [r, setR] = useState({ ...refItem, folderId: folderIdOf(refItem, folders) });
   return (
     <Sheet onClose={onClose}>
@@ -300,6 +364,18 @@ function RefEdit({ refItem, tags, folders, url, onSave, onRemove, onClose, onAdd
         <Photo url={url} className="mx-auto aspect-[3/4] w-40 rounded-xl" />
         <div className="text-xs font-semibold text-stone-500">목록</div>
         <FolderSelect folders={folders} value={r.folderId} onChange={(v) => setR({ ...r, folderId: v, folder: "" })} />
+        <div className="text-xs font-semibold text-stone-500">쇼핑몰</div>
+        <Chips
+          list={shops}
+          value={r.shop || ""}
+          onChange={(v) => setR({ ...r, shop: v })}
+          addLabel="+ 쇼핑몰"
+          addPrompt="쇼핑몰 이름 — 예: 페트리코어"
+          onAdd={(t) => {
+            onAddTag("shops", t);
+            setR({ ...r, shop: t });
+          }}
+        />
         <div className="text-xs font-semibold text-stone-500">컷 종류</div>
         <Chips list={tags.cuts} value={r.cuts} onChange={(v) => setR({ ...r, cuts: v })} multi onAdd={(t) => onAddTag("cuts", t)} />
         <div className="text-xs font-semibold text-stone-500">장소</div>
@@ -380,6 +456,7 @@ function useMarquee(gridRef, ids, picked, setPicked) {
 function RefsView({ d, online }) {
   const [sel, setSel] = useState("all");
   const [cut, setCut] = useState("");
+  const [shop, setShop] = useState(""); // "" 전체 · "__none" 쇼핑몰 없음 · 쇼핑몰 이름
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(null); // {files, folder}
   const [edit, setEdit] = useState(null);
@@ -394,7 +471,9 @@ function RefsView({ d, online }) {
 
   const folders = d.folders;
   const refs = useMemo(() => d.refs.map(withFolder), [d.refs]);
-  const shown = useMemo(() => {
+  const shops = useMemo(() => shopsOf(d.tags, d.refs), [d.tags, d.refs]);
+  // 쇼핑몰 빼고 거른 것 — 쇼핑몰 줄의 숫자는 지금 보는 목록·컷 안에서 센다
+  const base = useMemo(() => {
     const ids = sel === "all" || sel === "none" ? null : new Set(withChildren(sel, folders));
     const n = q.trim().toLowerCase();
     return refs.filter((r) => {
@@ -402,9 +481,15 @@ function RefsView({ d, online }) {
       if (sel === "none" && f) return false;
       if (ids && !ids.has(f)) return false;
       if (cut && !(r.cuts || []).includes(cut)) return false;
-      return !n || `${r.memo || ""} ${(r.cuts || []).join(" ")} ${r.place || ""}`.toLowerCase().includes(n);
+      return !n || `${r.memo || ""} ${(r.cuts || []).join(" ")} ${r.place || ""} ${r.shop || ""}`.toLowerCase().includes(n);
     });
   }, [refs, folders, sel, cut, q]);
+  const shopCount = useMemo(() => {
+    const m = {};
+    for (const r of base) if (r.shop) m[r.shop] = (m[r.shop] || 0) + 1;
+    return m;
+  }, [base]);
+  const shown = useMemo(() => (shop ? base.filter((r) => (shop === "__none" ? !r.shop : r.shop === shop)) : base), [base, shop]);
   const ids = useMemo(() => shown.map((r) => r.id), [shown]);
   const mq = useMarquee(grid, ids, picked, setPicked);
   // 목록을 바꾸면 안 보이게 된 것은 고른 데서 뺀다
@@ -480,6 +565,26 @@ function RefsView({ d, online }) {
       setBusy("");
     }
   };
+  // 고른 사진에 쇼핑몰 달기 · 빼기
+  const shopAll = async (v) => {
+    let name = v === "__none" ? "" : v;
+    if (v === "__new") {
+      const t = window.prompt("쇼핑몰 이름 — 예: 페트리코어");
+      if (!t?.trim()) return;
+      name = t.trim();
+      addTag("shops", name);
+    }
+    const n = picked.size;
+    setBusy("쇼핑몰 다는 중…");
+    try {
+      await d.saveRefs((x) => ({ ...x, items: (x.items || []).map((r) => (picked.has(r.id) ? { ...r, shop: name } : r)) }));
+      setPicked(new Set());
+      setBusy(name ? `${n}장에 '${name}'을(를) 달았어요` : `${n}장에서 쇼핑몰을 뺐어요`);
+      setTimeout(() => setBusy(""), 3000);
+    } catch {
+      setBusy("");
+    }
+  };
   const removeAll = async () => {
     if (!window.confirm(`고른 사진 ${picked.size}장을 지울까요?`)) return;
     await d.saveRefs((v) => ({ ...v, items: (v.items || []).filter((x) => !picked.has(x.id)) }));
@@ -531,15 +636,18 @@ function RefsView({ d, online }) {
         </button>
       </div>
 
-      <FolderBar items={refs} folders={folders} sel={sel} onSel={setSel} onEdit={() => setEditCats(true)} q={q} setQ={setQ} searchPlaceholder="메모·컷 검색">
+      <FolderBar items={refs} folders={folders} sel={sel} onSel={setSel} onEdit={() => setEditCats(true)} q={q} setQ={setQ} searchPlaceholder="메모·컷·쇼핑몰 검색">
         <div className="mt-2 border-t border-stone-100 pt-2">
           <Chips list={d.tags.cuts} value={cut} onChange={setCut} all="컷 전체" />
+        </div>
+        <div className="mt-2 border-t border-stone-100 pt-2">
+          <ShopRow shops={shops} counts={shopCount} none={base.filter((r) => !r.shop).length} total={base.length} value={shop} onChange={setShop} />
         </div>
       </FolderBar>
 
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-          {d.refs.length ? "이 목록에 사진이 아직 없어요." : "사진을 여기로 끌어다 놓거나 '사진 넣기'로 참고 사진을 모아 보세요. 인스타 캡처도 돼요."}
+          {d.refs.length ? (shop ? "이 목록·쇼핑몰에 맞는 사진이 없어요." : "이 목록에 사진이 아직 없어요.") : "사진을 여기로 끌어다 놓거나 '사진 넣기'로 참고 사진을 모아 보세요. 인스타 캡처도 돼요."}
         </p>
       ) : (
         <div ref={grid} onPointerDown={mq.onPointerDown} className="grid select-none grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -585,6 +693,7 @@ function RefsView({ d, online }) {
                 <Check size={14} strokeWidth={3} />
               </button>
               <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-wrap gap-1 rounded-b-xl bg-gradient-to-t from-black/60 to-transparent p-1.5 pt-6">
+                {r.shop && <span className="rounded bg-rose-700/90 px-1.5 py-0.5 text-[10px] font-semibold text-white">{r.shop}</span>}
                 <span className="rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-stone-800">{pathName(folderIdOf(r, folders), folders).split(" › ").pop()}</span>
                 {(r.cuts || []).slice(0, 2).map((t) => (
                   <span key={t} className="rounded bg-white/70 px-1.5 py-0.5 text-[10px] text-stone-700">
@@ -637,6 +746,24 @@ function RefsView({ d, online }) {
                     <option value="__none">미분류</option>
                   </select>
                 </label>
+                <label className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 py-1.5 font-semibold text-stone-700">
+                  <Store size={15} />
+                  <select
+                    value=""
+                    disabled={!!busy}
+                    onChange={(e) => e.target.value && shopAll(e.target.value)}
+                    className="max-w-[9rem] cursor-pointer bg-transparent font-semibold outline-none"
+                  >
+                    <option value="">쇼핑몰 지정</option>
+                    {shops.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                    <option value="__new">+ 새 쇼핑몰…</option>
+                    <option value="__none">쇼핑몰 빼기</option>
+                  </select>
+                </label>
                 <button type="button" onClick={() => setPicked(new Set(ids))} className="rounded-lg px-2 py-1.5 text-stone-600 hover:bg-stone-100">
                   전부 고르기
                 </button>
@@ -661,10 +788,12 @@ function RefsView({ d, online }) {
       {adding && (
         <RefUpload
           tags={d.tags}
+          shops={shops}
           folders={folders}
           online={online}
           initialFiles={adding.files}
           initialFolder={adding.folder}
+          initialShop={shop && shop !== "__none" ? shop : ""}
           onAddTag={addTag}
           onClose={() => setAdding(null)}
           onDone={async (made) => {
@@ -677,6 +806,7 @@ function RefsView({ d, online }) {
         <RefEdit
           refItem={edit}
           tags={d.tags}
+          shops={shops}
           folders={folders}
           url={d.urls[edit.photo]}
           onAddTag={addTag}
@@ -719,11 +849,15 @@ function CodiEdit({ codi, d, onClose }) {
   const [tab, setTab] = useState("items");
   const [folder, setFolder] = useState(null);
   const [cut, setCut] = useState("");
+  const [shop, setShop] = useState("");
   const toggle = (k, id) => setC((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
   const today = dayKey();
   const items = d.items.map(normalize).filter((x) => ["arrived", "pick"].includes(x.stage) || c.itemIds.includes(x.id));
   const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
-  const refs = d.refs.map(withFolder).filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && (!cut || (r.cuts || []).includes(cut)));
+  const refs = d.refs
+    .map(withFolder)
+    .filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && (!cut || (r.cuts || []).includes(cut)) && (!shop || r.shop === shop));
+  const shops = shopsOf(d.tags, d.refs);
   return (
     <Sheet onClose={onClose} wide>
       <SheetHead title={codi.id ? "코디 고치기" : "코디 만들기"} onClose={onClose} />
@@ -759,6 +893,7 @@ function CodiEdit({ codi, d, onClose }) {
           <div className="space-y-2">
             <FolderSelect folders={d.folders} value={folder} onChange={setFolder} />
             <Chips list={d.tags.cuts} value={cut} onChange={setCut} all="컷 전체" />
+            {shops.length > 0 && <Chips list={shops} value={shop} onChange={setShop} all="쇼핑몰 전체" />}
             {refs.length ? (
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                 {refs.map((r) => {
