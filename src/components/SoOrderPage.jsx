@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileSpreadsheet, Copy, Check, X, Loader2, RotateCcw, Info } from "lucide-react";
+import { FileSpreadsheet, Copy, Check, X, Loader2, RotateCcw, Info, Save } from "lucide-react";
 import { won } from "../lib/sales";
-import { loadKey, changeKey, FIELD } from "../lib/shoot";
+import { loadKey, changeKey, upsert, remove, FIELD } from "../lib/shoot";
+import { newId } from "../lib/id";
+import { Tab } from "./ui";
+import SoSaved from "./SoSaved";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
 import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES } from "../lib/soOrder";
@@ -14,6 +17,8 @@ import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TY
 
 const DRAFT = "poclo_so_draft";
 const MEMORY = "so_prices";
+const INDEX = "so_orders"; // 저장한 발주 목록(요약) — 한 발주 전체는 'so_order_<id>'
+const VIEW = "poclo_so_view";
 const readDraft = () => {
   try {
     const d = JSON.parse(localStorage.getItem(DRAFT) || "null");
@@ -92,6 +97,24 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const [copied, setCopied] = useState("");
   const [allMemo, setAllMemo] = useState("");
   const file = useRef(null);
+  const [view, setViewState] = useState(() => {
+    try {
+      return localStorage.getItem(VIEW) || "make";
+    } catch {
+      return "make";
+    }
+  });
+  const setView = (v) => {
+    setViewState(v);
+    try {
+      localStorage.setItem(VIEW, v);
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
+  const [saved, setSaved] = useState([]);
+  const [savedLoaded, setSavedLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     try {
@@ -115,6 +138,19 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
     loadMemory();
   }, [loadMemory]);
+  const loadSaved = useCallback(async () => {
+    try {
+      setSaved((await loadKey(INDEX, online)).items || []);
+    } catch {
+      /* 목록을 못 읽어도 만들기는 된다 */
+    } finally {
+      setSavedLoaded(true);
+    }
+  }, [online]);
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    loadSaved();
+  }, [loadSaved]);
 
   // 매장명: 직접 고친 값 → 괄호 안 매장명(지난번에 고쳐 둔 이름이 있으면 그것, 키 '@괄호 이름') → 지난번 그 제조사에 적은 매장명 → 제조사
   const autoStore = useCallback((r) => (r.parsedStore ? stores["@" + r.parsedStore] || r.parsedStore : stores[r.vendor] || r.vendor), [stores]);
@@ -201,6 +237,64 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const noMiss = rows.filter((r) => !r.miss);
   const differ = rows.filter((r) => r.manual == null && r.auto?.alt);
 
+  // 날짜별 저장 (10/6 세원: "다 끝나면 날짜별로 저장") — 날짜 기본 = 이지어드민 요청일. 복사할 때도 저절로 저장(같은 발주는 덮어씀)
+  const saveOn = draft?.saveOn || draft?.on || dayKey();
+  const sig = `${saveOn}|${text}`;
+  const isSaved = !!draft?.savedId && draft.savedSig === sig;
+  const saveOrder = async () => {
+    if (!draft || !rows.length) return false;
+    setSaving(true);
+    try {
+      const id = draft.savedId || newId("so");
+      const savedAt = new Date().toISOString();
+      const pick = ({ auto, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
+      const stores = [...new Set(rows.map((r) => r.store || r.vendor))];
+      const rec = { id, on: saveOn, reqOn: draft.on || "", title: draft.title || draft.file || "발주", file: draft.file || "", type, savedAt, lines: lines.length, pieces, total, text, rows: rows.map(pick) };
+      await changeKey(`so_order_${id}`, online, () => rec, {});
+      const next = await changeKey(INDEX, online, upsert({ id, on: saveOn, title: rec.title, lines: rec.lines, pieces, total, stores, savedAt }));
+      setSaved(next.items || []);
+      setDraft((d) => ({ ...d, savedId: id, savedSig: sig, savedAt }));
+      return true;
+    } catch (e) {
+      setMsg(e.message || "저장하지 못했어요.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+  const openSaved = (rec) => {
+    if (draft && !isSaved && !window.confirm("만들던 발주가 저장 안 된 채 바뀌어요. 저장한 발주를 불러올까요?")) return;
+    const strip = (r) => {
+      const out = { ...r };
+      for (const k of ["store", "addr", "price", "note"]) delete out[k];
+      return out;
+    };
+    setDraft({
+      title: rec.title,
+      on: rec.reqOn || rec.on,
+      file: rec.file,
+      at: rec.savedAt,
+      type: rec.type || "주문",
+      rows: rec.rows.map(strip),
+      savedId: rec.id,
+      saveOn: rec.on,
+      savedSig: `${rec.on}|${rec.text}`,
+      savedAt: rec.savedAt,
+    });
+    setCopied("");
+    setView("make");
+  };
+  const deleteSaved = async (id) => {
+    try {
+      await changeKey(`so_order_${id}`, online, () => ({}), {});
+      const next = await changeKey(INDEX, online, remove(id));
+      setSaved(next.items || []);
+      if (draft?.savedId === id) setDraft((d) => ({ ...d, savedId: null, savedSig: null }));
+    } catch (e) {
+      setMsg(e.message || "지우지 못했어요.");
+    }
+  };
+
   const copy = async () => {
     if (noMiss.length) return;
     const ok = await copyText(text);
@@ -210,6 +304,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     }
     const now = new Date();
     setCopied(`${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`);
+    saveOrder();
     // 직접 적은 단가는 다음 발주 때 쓰게 기억 (장끼·판매가 목록에 없는 상품용)
     const mine = rows.filter((r) => r.manual > 0);
     // 매장명 기억 — 괄호에서 읽은 이름을 고쳤으면 '@괄호 이름' → 고친 이름, 제조사 → 매장명(다음 발주에 괄호가 없어도 그 매장으로)
@@ -258,10 +353,10 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
           <h2 className="text-xl font-bold text-stone-900">SO+ 발주 변환</h2>
           <p className="mt-0.5 text-sm text-stone-500">이지어드민 발주 엑셀을 넣으면 한 장 단가까지 채워서 SO+ '엑셀 붙여넣기' 칸 모양으로 복사해요. 수량 × 단가는 SO+ 가 곱해요.</p>
         </div>
-        {draft && (
+        {draft && view === "make" && (
           <button
             type="button"
-            onClick={() => window.confirm("지금 발주를 비우고 새로 넣을까요?") && setDraft(null)}
+            onClick={() => (isSaved || window.confirm("지금 발주가 저장 안 됐어요. 비우고 새로 넣을까요?")) && setDraft(null)}
             className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-sm text-stone-600 hover:border-rose-300 hover:text-rose-800"
           >
             <RotateCcw size={14} /> 새 발주 넣기
@@ -278,7 +373,18 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
         </div>
       )}
 
-      {!draft ? (
+      <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1">
+        <Tab active={view === "make"} onClick={() => setView("make")}>
+          발주 만들기
+        </Tab>
+        <Tab active={view === "saved"} onClick={() => setView("saved")}>
+          저장한 발주 <span className="text-stone-400">{saved.length}</span>
+        </Tab>
+      </div>
+
+      {view === "saved" ? (
+        <SoSaved items={saved} loaded={savedLoaded} online={online} onLoad={openSaved} onDelete={deleteSaved} copyText={copyText} />
+      ) : !draft ? (
         <button
           type="button"
           onClick={() => file.current?.click()}
@@ -482,16 +588,44 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                     <Check size={14} /> {copied} 복사했어요 — SO+ › 엑셀 사입 관리 › 엑셀 붙여넣기 칸에 Ctrl+V → '변환'
                   </div>
                 )}
+                {draft.savedId &&
+                  (isSaved ? (
+                    <div className="flex items-center gap-1 text-emerald-700">
+                      <Check size={14} /> {saveOn.slice(5, 7) * 1}/{saveOn.slice(8, 10) * 1} 발주로 저장됨 · '저장한 발주'에서 다시 볼 수 있어요
+                    </div>
+                  ) : (
+                    <div className="text-amber-700">저장한 뒤 바뀐 게 있어요 — 다시 저장하거나 복사하면 덮어써요.</div>
+                  ))}
               </div>
-              <button
-                type="button"
-                disabled={!!noMiss.length || !lines.length}
-                onClick={copy}
-                className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-5 py-2.5 font-semibold text-white disabled:bg-stone-300"
-              >
-                <Copy size={16} /> SO+ 모양으로 복사
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs text-stone-500">
+                  날짜
+                  <input
+                    type="date"
+                    value={saveOn}
+                    onChange={(e) => e.target.value && setDraft((d) => ({ ...d, saveOn: e.target.value }))}
+                    className="rounded-lg border border-stone-200 px-2 py-1.5 text-sm text-stone-800"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={saving || !lines.length}
+                  onClick={saveOrder}
+                  className="flex items-center gap-1.5 rounded-xl border border-stone-300 px-4 py-2.5 font-semibold text-stone-700 hover:border-rose-300 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} 저장
+                </button>
+                <button
+                  type="button"
+                  disabled={!!noMiss.length || !lines.length}
+                  onClick={copy}
+                  className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-5 py-2.5 font-semibold text-white disabled:bg-stone-300"
+                >
+                  <Copy size={16} /> SO+ 모양으로 복사
+                </button>
+              </div>
             </div>
+            <p className="mt-2 text-[11px] text-stone-400">복사하면 이 날짜로 저장도 같이 돼요(같은 발주는 덮어써요). 저장한 발주는 위 '저장한 발주'에서 날짜별로 보고, 다시 복사하거나 불러와서 고쳐요.</p>
             <details className="mt-3">
               <summary className="cursor-pointer text-xs text-stone-500">복사되는 내용 보기</summary>
               <textarea readOnly value={text} rows={Math.min(14, lines.length + 1)} className="mt-2 w-full rounded-lg border border-stone-200 bg-stone-50 p-2 font-mono text-[11px] leading-5 text-stone-700" />
@@ -513,7 +647,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
           read(f);
         }}
       />
-      {draft && (
+      {draft && view === "make" && (
         <p className="mt-3 text-center text-[11px] text-stone-400">
           다른 발주는 이 화면 아무 데나 파일을 끌어다 놓아도 돼요 ·{" "}
           <button type="button" onClick={() => file.current?.click()} className="underline decoration-dotted">
