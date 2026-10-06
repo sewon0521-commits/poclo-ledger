@@ -24,7 +24,8 @@ import {
   Shirt,
   Images,
 } from "lucide-react";
-import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf } from "../lib/shoot";
+import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut } from "../lib/shoot";
+import { CutFilter } from "./CutBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { BigSlides } from "./ContentBits";
@@ -396,7 +397,7 @@ function RefPick({ d, picked, onDone, onClose }) {
   const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
   const refs = d.refs
     .map(withFolder)
-    .filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && (!cut || (r.cuts || []).includes(cut)) && (!shop || r.shop === shop));
+    .filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && hasCut(r, cut) && (!shop || r.shop === shop));
   const flip = (id) => setSel((x) => (x.includes(id) ? x.filter((k) => k !== id) : [...x, id]));
   return (
     <div className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
@@ -420,20 +421,7 @@ function RefPick({ d, picked, onDone, onClose }) {
             </select>
             <span className="text-xs text-stone-400">{refs.length}장</span>
           </div>
-          {(d.tags?.cuts || []).length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {["", ...d.tags.cuts].map((c) => (
-                <button
-                  key={c || "all"}
-                  type="button"
-                  onClick={() => setCut(c)}
-                  className={"rounded-full border px-2.5 py-0.5 text-xs " + (cut === c ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}
-                >
-                  {c || "컷 전체"}
-                </button>
-              ))}
-            </div>
-          )}
+          {(d.tags?.cuts || []).length > 0 && <CutFilter tags={d.tags} value={cut} onChange={setCut} />}
           {shops.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {["", ...shops].map((s) => (

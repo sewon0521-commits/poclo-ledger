@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf } from "../lib/shoot";
+import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel } from "../lib/shoot";
+import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
 import Pipeline, { ItemCard } from "./ShootItems";
@@ -336,7 +337,15 @@ function RefUpload({ tags, shops = [], folders, online, initialFiles, initialFol
         </div>
         <div className="space-y-1.5">
           <div className="text-xs font-semibold text-stone-500">컷 종류 (선택 · 여러 개 가능)</div>
-          <Chips list={tags.cuts} value={cuts} onChange={setCuts} multi onAdd={(t) => onAddTag("cuts", t)} />
+          <CutPicker
+            tags={tags}
+            value={cuts}
+            onChange={setCuts}
+            onAdd={(t) => {
+              onAddTag("cuts", t);
+              setCuts((c) => [...c, t]);
+            }}
+          />
         </div>
         <div className="space-y-1.5">
           <div className="text-xs font-semibold text-stone-500">장소 (선택)</div>
@@ -377,7 +386,15 @@ function RefEdit({ refItem, tags, shops = [], folders, url, onSave, onRemove, on
           }}
         />
         <div className="text-xs font-semibold text-stone-500">컷 종류</div>
-        <Chips list={tags.cuts} value={r.cuts} onChange={(v) => setR({ ...r, cuts: v })} multi onAdd={(t) => onAddTag("cuts", t)} />
+        <CutPicker
+          tags={tags}
+          value={r.cuts || []}
+          onChange={(v) => setR({ ...r, cuts: v })}
+          onAdd={(t) => {
+            onAddTag("cuts", t);
+            setR({ ...r, cuts: [...(r.cuts || []), t] });
+          }}
+        />
         <div className="text-xs font-semibold text-stone-500">장소</div>
         <Chips list={tags.places} value={r.place} onChange={(v) => setR({ ...r, place: v })} onAdd={(t) => onAddTag("places", t)} />
         <input value={r.memo || ""} onChange={(e) => setR({ ...r, memo: e.target.value })} placeholder="메모" className={FIELD} />
@@ -462,6 +479,7 @@ function RefsView({ d, online }) {
   const [edit, setEdit] = useState(null);
   const [view, setView] = useState(null);
   const [editCats, setEditCats] = useState(false);
+  const [editCuts, setEditCuts] = useState(false); // 컷 종류 편집 (10/7)
   const [dropping, setDropping] = useState(false);
   const [picked, setPicked] = useState(() => new Set());
   const [busy, setBusy] = useState("");
@@ -480,7 +498,7 @@ function RefsView({ d, online }) {
       const f = folderIdOf(r, folders);
       if (sel === "none" && f) return false;
       if (ids && !ids.has(f)) return false;
-      if (cut && !(r.cuts || []).includes(cut)) return false;
+      if (!hasCut(r, cut)) return false;
       return !n || `${r.memo || ""} ${(r.cuts || []).join(" ")} ${r.place || ""} ${r.shop || ""}`.toLowerCase().includes(n);
     });
   }, [refs, folders, sel, cut, q]);
@@ -638,7 +656,7 @@ function RefsView({ d, online }) {
 
       <FolderBar items={refs} folders={folders} sel={sel} onSel={setSel} onEdit={() => setEditCats(true)} q={q} setQ={setQ} searchPlaceholder="메모·컷·쇼핑몰 검색">
         <div className="mt-2 border-t border-stone-100 pt-2">
-          <Chips list={d.tags.cuts} value={cut} onChange={setCut} all="컷 전체" />
+          <CutFilter tags={d.tags} value={cut} onChange={setCut} onEdit={() => setEditCuts(true)} />
         </div>
         <div className="mt-2 border-t border-stone-100 pt-2">
           <ShopRow shops={shops} counts={shopCount} none={base.filter((r) => !r.shop).length} total={base.length} value={shop} onChange={setShop} />
@@ -697,7 +715,7 @@ function RefsView({ d, online }) {
                 <span className="rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-stone-800">{pathName(folderIdOf(r, folders), folders).split(" › ").pop()}</span>
                 {(r.cuts || []).slice(0, 2).map((t) => (
                   <span key={t} className="rounded bg-white/70 px-1.5 py-0.5 text-[10px] text-stone-700">
-                    {t}
+                    {cutLabel(t)}
                   </span>
                 ))}
               </span>
@@ -821,6 +839,18 @@ function RefsView({ d, online }) {
           }}
         />
       )}
+      {editCuts && (
+        <CutEditor
+          tags={d.tags}
+          refs={d.refs}
+          onSaveTags={d.saveTags}
+          onSaveRefs={d.saveRefs}
+          onClose={() => {
+            setEditCuts(false);
+            setCut("");
+          }}
+        />
+      )}
       {editCats && (
         <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
           <button type="button" aria-label="닫기" onClick={() => setEditCats(false)} className="absolute inset-0 cursor-default" />
@@ -856,7 +886,7 @@ function CodiEdit({ codi, d, onClose }) {
   const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
   const refs = d.refs
     .map(withFolder)
-    .filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && (!cut || (r.cuts || []).includes(cut)) && (!shop || r.shop === shop));
+    .filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && hasCut(r, cut) && (!shop || r.shop === shop));
   const shops = shopsOf(d.tags, d.refs);
   return (
     <Sheet onClose={onClose} wide>
@@ -892,7 +922,7 @@ function CodiEdit({ codi, d, onClose }) {
         ) : (
           <div className="space-y-2">
             <FolderSelect folders={d.folders} value={folder} onChange={setFolder} />
-            <Chips list={d.tags.cuts} value={cut} onChange={setCut} all="컷 전체" />
+            <CutFilter tags={d.tags} value={cut} onChange={setCut} />
             {shops.length > 0 && <Chips list={shops} value={shop} onChange={setShop} all="쇼핑몰 전체" />}
             {refs.length ? (
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">

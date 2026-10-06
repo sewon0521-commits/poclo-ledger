@@ -8,7 +8,7 @@
 //   shoot_items  상품 블록 [{id, name, vendor, place, kind, price, url, photo, status, shootDate, options, size, memo, createdAt}]
 //   shoot_codis  코디      [{id, name, itemIds, refIds, shootDate, memo, done, createdAt}]
 //   shoot_refs   레퍼런스  [{id, photo, folderId, cuts:[], place, shop, memo, createdAt}]  (shop = 사진을 가져온 쇼핑몰, 10/6)
-//   shoot_tags   꼬리표    {clothes:[], cuts:[], places:[]}  (세원이 더하고 뺀다)
+//   shoot_tags   꼬리표    {clothes:[], cuts:[], cutSubs:{}, places:[], shops:[]}  (세원이 더하고 빼고 이름을 바꾼다 — 컷은 '컷 편집')
 // 사진은 Storage 'reels' 버킷의 shoot/<id>.jpg (긴 변 1400).
 // 신상마켓 링크(url)는 지금은 적어만 둔다 — 연동하면 이 칸에서 사진·이름·거래처·위치·가격을 채운다.
 
@@ -20,7 +20,14 @@ export const DEFAULT_TAGS = {
   cuts: ["전신 정면", "측면·뒷모습", "워킹", "앉은 컷", "상반신", "디테일", "거울 셀카", "소품·연출"],
   places: ["실내", "거리", "카페", "계단·벽"],
   shops: [], // 사진을 가져온 쇼핑몰 (10/6) — 레퍼런스의 shop
+  cutSubs: {}, // 세부 컷 (10/7) {'거울 셀카': ['정면', '측면']} — 사진에는 '거울 셀카 › 정면'
 };
+
+// 컷 — '거울 셀카' 로 거르면 '거울 셀카 › 정면' 같은 세부 컷 사진까지 (components/CutBits.jsx)
+export const CUT_SEP = " › ";
+export const subsOf = (tags, top) => (top && tags?.cutSubs?.[top]) || [];
+export const hasCut = (r, cut) => !cut || (r.cuts || []).some((c) => c === cut || c.startsWith(cut + CUT_SEP));
+export const cutLabel = (c) => String(c || "").replace(CUT_SEP, "·");
 
 /** 쇼핑몰 이름 목록 — 꼬리표에 있는 것 + 사진에 달린 것 (먼저 만든 순서) */
 export const shopsOf = (tags, refs) => [...new Set([...(tags?.shops || []), ...(refs || []).map((r) => r.shop).filter(Boolean)])];
