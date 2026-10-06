@@ -161,8 +161,53 @@ function FolderSelect({ folders, value, onChange }) {
 /** 예전(9/30 첫 판) 사진은 옷 종류 꼬리표만 있다 — 같은 이름의 상위 폴더로 보이게 */
 const withFolder = (r) => (r.folderId || r.folder ? r : { ...r, folder: (r.clothes || [])[0] || "" });
 
+/** 같은 사진인가 (같은 캡처를 두 번 붙여넣은 것) — 크기가 같을 때만 바이트를 맞대 본다 */
+async function sameImage(a, b) {
+  if (a.size !== b.size || a.type !== b.type) return false;
+  const [x, y] = await Promise.all([a.arrayBuffer(), b.arrayBuffer()]);
+  const u = new Uint8Array(x);
+  const v = new Uint8Array(y);
+  for (let i = 0; i < u.length; i++) if (u[i] !== v[i]) return false;
+  return true;
+}
+
 function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone, onAddTag, onClose }) {
   const [files, setFiles] = useState(initialFiles || []);
+  const [flash, setFlash] = useState("");
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+  // 창이 열려 있는 동안 붙여넣기·끌어다 놓기를 계속하면 여기에 쌓인다 (10/6 세원: "하나씩 캡처·복사하면서 연속으로 붙여넣기 — 지금은 하나 붙이면 저장하고 또 해야 돼")
+  const addFiles = async (list) => {
+    const fresh = [];
+    let dup = 0;
+    for (const f of list.filter((x) => x.type.startsWith("image/"))) {
+      let same = false;
+      for (const g of [...filesRef.current, ...fresh]) if (await sameImage(f, g)) same = true;
+      if (same) dup += 1;
+      else fresh.push(f);
+    }
+    if (fresh.length) setFiles((p) => [...p, ...fresh]);
+    setFlash(dup && !fresh.length ? "같은 사진이라 또 넣지 않았어요" : `${filesRef.current.length + fresh.length}장째 붙였어요${dup ? ` · 같은 사진 ${dup}장은 뺐어요` : ""}`);
+  };
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(""), 2500);
+    return () => clearTimeout(t);
+  }, [flash]);
+  useEffect(() => {
+    const onPaste = (e) => {
+      const clip = clipImages(e.clipboardData);
+      // 메모·장소 칸에 글을 붙일 때는 그대로 — 사진 파일이 왔을 때만 가로챈다
+      const inField = e.target.closest?.("input, textarea");
+      if (inField ? !clip.files.length : !clip.files.length && !clip.urls.length) return;
+      e.preventDefault();
+      filesOf(clip).then(addFiles);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   const [folderId, setFolderId] = useState(initialFolder || null);
   const [cuts, setCuts] = useState([]);
   const [place, setPlace] = useState("");
@@ -189,15 +234,26 @@ function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone,
         className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
+          // 바깥 화면의 끌어다 놓기(새 창 열기)로 번지지 않게 여기서 끝낸다 — 다른 창 사진(주소)도 받는다
+          const clip = clipImages(e.dataTransfer);
           e.preventDefault();
-          setFiles((p) => [...p, ...[...e.dataTransfer.files].filter((f) => f.type.startsWith("image/"))]);
+          e.stopPropagation();
+          if (clip.files.length || clip.urls.length) filesOf(clip).then(addFiles);
         }}
       >
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-stone-300 py-5 text-sm text-stone-500 hover:border-rose-300">
+        <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-stone-300 py-5 text-center text-sm text-stone-500 hover:border-rose-300">
           <ImagePlus size={22} />
-          {files.length ? `${files.length}장 · 더 고르거나 끌어다 놓기` : "사진 고르기 · 끌어다 놓기 (여러 장, 캡처도 돼요)"}
-          <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => setFiles((p) => [...p, ...Array.from(e.target.files || [])])} />
+          {files.length ? (
+            <>
+              <span className="font-semibold text-stone-800">{files.length}장 모였어요</span>
+              <span className="text-xs">캡처하고 계속 Ctrl+V 하면 여기에 쌓여요 · 더 고르거나 끌어다 놓기도 돼요</span>
+            </>
+          ) : (
+            "사진 고르기 · 끌어다 놓기 · Ctrl+V (여러 장, 캡처도 돼요)"
+          )}
+          <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(Array.from(e.target.files || []))} />
         </label>
+        {flash && <p className="-mt-2 text-center text-xs font-medium text-emerald-700">{flash}</p>}
         {previews.length > 0 && (
           <div className="grid grid-cols-4 gap-1.5">
             {previews.map((u, i) => (
@@ -223,7 +279,7 @@ function RefUpload({ tags, folders, online, initialFiles, initialFolder, onDone,
           <Chips list={tags.places} value={place} onChange={setPlace} onAdd={(t) => onAddTag("places", t)} />
         </div>
         <input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모 (선택) — 예: 다리 꼬는 포즈, 가방 한쪽 어깨" className={FIELD} />
-        <p className="text-[11px] text-stone-400">고른 목록·꼬리표는 이번에 넣는 사진 전부에 붙어요. 나중에 사진마다 옮기거나 고칠 수 있어요.</p>
+        <p className="text-[11px] text-stone-400">고른 목록·꼬리표는 이번에 넣는 사진 전부에 붙어요. 나중에 사진마다 옮기거나 고칠 수 있어요. 다 모은 뒤 아래 단추를 한 번만 누르면 돼요.</p>
       </div>
       <footer className="shrink-0 border-t border-stone-200 p-3">
         <button type="button" disabled={!files.length || !!busy} onClick={go} className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 font-semibold text-white disabled:bg-stone-300">
