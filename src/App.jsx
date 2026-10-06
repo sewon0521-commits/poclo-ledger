@@ -28,6 +28,7 @@ import PnlPage from "./components/PnlPage";
 import PendingPage from "./components/PendingPage";
 import PricingPage from "./components/PricingPage";
 import SoOrderPage from "./components/SoOrderPage";
+import MusicPage from "./components/MusicPage";
 import ReelsPage from "./components/ReelsPage";
 import CarouselPage from "./components/CarouselPage";
 import AccountsPage from "./components/AccountsPage";
@@ -628,6 +629,8 @@ export default function App() {
                     setPage("pending");
                   }}
                 />
+              ) : page === "music" ? (
+                <MusicPage online={L.mode === "remote" && !!L.session} />
               ) : page === "soOrder" ? (
                 <SoOrderPage tx={tx} vendors={vendors} pricing={S.pricing} online={L.mode === "remote" && !!L.session} />
               ) : page === "pending" ? (
