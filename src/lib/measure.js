@@ -128,3 +128,48 @@ export function parseMeasure(text, m) {
   }
   return null;
 }
+
+// 착용정보 (10/8 세원: "계절감·신축성·두께감·촉감 적을 칸 — 앞으로 상품등록할 때 여기 있는 상품 정보를 가져가게")
+// 선택지는 상품등록(poclo-cafe24 detail_page.py WEAR, 에디봇과 같음) 그대로. 계절감만 여러 개.
+// 상품에 wear = {계절감:["봄/가을","겨울"], 신축성:"좋음", 두께감:"적당함", 촉감:"부드러움"}
+export const WEAR = [
+  ["계절감", ["봄/가을", "여름", "겨울"]],
+  ["신축성", ["없음", "적당함", "좋음"]],
+  ["두께감", ["얇음", "적당함", "두꺼움"]],
+  ["촉감", ["부드러움", "적당함", "까슬함"]],
+];
+// 네 칸 모두 여러 개 고를 수 있다 — 상품등록(memo.py)이 '얇음~적당함'·'적당함, 두꺼움' 을 칸 여러 개로 받아서
+const asList = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+const wearVal = (w, k) => asList(w?.[k]).join(", ");
+/** 상품등록 메모(정보.txt) 줄 — '계절감: 봄/가을, 겨울' (memo.py 가 읽는 모양) */
+export const wearLines = (w) =>
+  WEAR.map(([k]) => (wearVal(w, k) ? `${k}: ${wearVal(w, k)}` : ""))
+    .filter(Boolean)
+    .join("\n");
+export const wearSummary = (w) =>
+  WEAR.map(([k]) => wearVal(w, k))
+    .filter(Boolean)
+    .join(" · ");
+export const hasWear = (w) => WEAR.some(([k]) => asList(w?.[k]).length);
+
+// 다른 말 → 우리 선택지 (memo.py WEAR_ALIAS 와 같게 + 신마 옷감정보 말)
+const ALIAS = {
+  계절감: { 봄: "봄/가을", 가을: "봄/가을", 봄가을: "봄/가을", 간절기: "봄/가을", 여름: "여름", 겨울: "겨울" },
+  신축성: { 없음: "없음", 약간: "적당함", 조금: "적당함", 보통: "적당함", 중간: "적당함", 적당함: "적당함", 있음: "좋음", 많음: "좋음", 좋음: "좋음", 우수: "좋음" },
+  두께감: { 얇음: "얇음", 얇은: "얇음", 보통: "적당함", 중간: "적당함", 적당함: "적당함", 도톰: "두꺼움", 도톰함: "두꺼움", 두툼함: "두꺼움", 두꺼움: "두꺼움", 두꺼운: "두꺼움" },
+  촉감: { 부드러움: "부드러움", 부드러운: "부드러움", 보통: "적당함", 적당함: "적당함", 까슬함: "까슬함", 까슬: "까슬함", 거침: "까슬함", 거칠음: "까슬함" },
+};
+/** '봄/가을, 겨울' · '없음~적당함' · ['봄','가을'] → 우리 선택지 목록 (모르는 말은 뺀다) */
+export function normWear(key, v) {
+  const opts = (WEAR.find(([k]) => k === key) || [])[1] || [];
+  const words = asList(v)
+    .flatMap((x) => String(x).split(/[,·~]|\s{2,}/))
+    .map((x) => x.replace(/\s*\(.*?\)\s*/g, "").trim())
+    .filter(Boolean);
+  const out = [];
+  for (const w of words) {
+    if (/^(사계절|4계절|전계절)$/.test(w) && key === "계절감") out.push(...opts);
+    else out.push(opts.includes(w) ? w : ALIAS[key]?.[w] || ALIAS[key]?.[w.replace(/\s/g, "")]);
+  }
+  return [...new Set(out.filter((x) => opts.includes(x)))];
+}

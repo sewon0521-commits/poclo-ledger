@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Ruler, Copy, Check, Pencil, Eraser, Wand2 } from "lucide-react";
-import { MEASURE_CATS, catOf, blankMeasure, sizeNames, filled, measureText, parseMeasure } from "../lib/measure";
+import { MEASURE_CATS, catOf, blankMeasure, sizeNames, filled, measureText, parseMeasure, WEAR, wearLines } from "../lib/measure";
 import { dayKey } from "../lib/journal";
 import { Sheet, SheetHead, Photo } from "./ShootBits";
 
@@ -33,6 +33,8 @@ async function copyText(text) {
 const clean = (s) => String(s || "").replace(/[^\d.~\-/]/g, "");
 
 export function MeasureBox({ x, onChange, big = false }) {
+  // 복사 글에는 착용정보(계절감…)도 같이 — 상품등록 메모에 한 번에 붙이게
+  const wearText = wearLines(x.wear);
   const m = x.measure || blankMeasure(x);
   const cat = catOf(m.cat);
   const sizes = m.sizes?.length ? m.sizes : ["FREE"];
@@ -51,6 +53,7 @@ export function MeasureBox({ x, onChange, big = false }) {
   };
   const f = filled({ ...m, sizes });
   const out = measureText({ ...m, sizes });
+  const copyAll = [out.text, wearText].filter(Boolean).join("\n\n");
   // 엔터(폰 자판 '다음') → 다음 칸. 여러 사이즈면 한 벌(한 사이즈)씩 위에서 아래로
   const order = sizes.flatMap((s) => cat.parts.map((p) => `${s}|${p}`));
   const next = (key) => {
@@ -185,8 +188,8 @@ export function MeasureBox({ x, onChange, big = false }) {
       <div className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
-          disabled={!out.text}
-          onClick={async () => setCopied((await copyText(out.text)) ? "복사했어요 — 상품등록 메모(정보.txt)에 붙여넣으면 사이즈가 다 들어가요" : "복사가 막혔어요")}
+          disabled={!copyAll}
+          onClick={async () => setCopied((await copyText(copyAll)) ? "복사했어요 — 상품등록 메모(정보.txt)에 붙여넣으면 사이즈·착용정보가 다 들어가요" : "복사가 막혔어요")}
           className="flex items-center gap-1 rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-stone-300"
         >
           {copied ? <Check size={13} /> : <Copy size={13} />} 복사 (상품등록 메모 모양)
@@ -208,12 +211,50 @@ export function MeasureBox({ x, onChange, big = false }) {
       </div>
       {copied && <p className="text-[11px] text-emerald-700">{copied}</p>}
       {out.missing.length > 0 && <p className="text-[11px] text-amber-700">{out.missing.join(" · ")}은(는) 비어 있는 사이즈가 있어서 복사에서 뺐어요.</p>}
-      {out.text && (
+      {copyAll && (
         <details>
           <summary className="cursor-pointer text-[11px] text-stone-400">복사되는 글 보기</summary>
-          <pre className="mt-1 rounded-lg bg-stone-50 p-2 font-sans text-xs whitespace-pre-wrap text-stone-700">{out.text}</pre>
+          <pre className="mt-1 rounded-lg bg-stone-50 p-2 font-sans text-xs whitespace-pre-wrap text-stone-700">{copyAll}</pre>
         </details>
       )}
+    </div>
+  );
+}
+
+/** 착용정보 — 누르기만 (폰에서 한 손으로). 같은 칩을 다시 누르면 빠진다. 계절감은 여러 개 */
+export function WearBox({ wear = {}, onChange, wearFrom = "" }) {
+  const list = (k) => (Array.isArray(wear[k]) ? wear[k] : wear[k] ? [wear[k]] : []);
+  const pick = (k, v) => {
+    const cur = list(k);
+    onChange({ ...wear, [k]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] });
+  };
+  return (
+    <div className="space-y-2 rounded-xl border border-stone-200 p-3">
+      <div className="text-xs font-semibold text-stone-700">
+        착용정보 <span className="font-normal text-stone-400">여러 개 골라도 돼요 · 상품등록 때 그대로 가져가요</span>
+        {wearFrom && <span className="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">{wearFrom}에서 가져옴</span>}
+      </div>
+      {WEAR.map(([k, opts]) => (
+        <div key={k} className="flex items-center gap-2">
+          <span className="w-12 shrink-0 text-xs font-medium text-stone-500">{k}</span>
+          <div className="flex flex-wrap gap-1.5">
+            {opts.map((v) => {
+              const on = list(k).includes(v);
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => pick(k, v)}
+                  aria-pressed={on}
+                  className={"rounded-full border px-3 py-1.5 text-xs font-medium " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
+                >
+                  {v}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

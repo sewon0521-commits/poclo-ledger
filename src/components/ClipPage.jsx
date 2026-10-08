@@ -3,6 +3,7 @@ import { Check, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, md, won, loadKey, changeKey, upsert, putPhoto } from "../lib/shoot";
 import { parseClip, normalize, stageName, findVendor, vendorFill, contactLines, refusalsOf, refusalText } from "../lib/sinsang";
 import { newId } from "../lib/id";
+import { hasWear, wearSummary } from "../lib/measure";
 import { Chips, Photo } from "./ShootBits";
 
 /**
@@ -50,8 +51,8 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           setState("error");
           return;
         }
-        // 디테일컷을 어떻게 봤는지 — 신마 화면을 직접 못 봐서, 어긋나면 이걸 보고 고친다 (최근 5개)
-        if (p.probe) changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, ...p.probe, dc: p.detailPhotos }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
+        // 옷감정보를 어떻게 봤는지 — 신마 화면을 직접 못 봐서, 어긋나면 이걸 보고 고친다 (최근 5개)
+        if (p.fabricProbe) changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, fabric: p.fabricProbe, wear: p.wear }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
         const same = cur.map(normalize).find((x) => (p.goodsId ? x.goodsId === p.goodsId : p.url && x.url === p.url));
         const past = ((await loadKey("sample_refusals", online).catch(() => ({}))).items || []);
         const warn = (vid, name) => alive() && setRefused(refusalsOf(past, vid, name));
@@ -59,12 +60,14 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           // 이미 담긴 상품 — 실측·디테일컷이 비어 있으면 이번에 읽은 것으로 채운다(예전에 담은 상품을 다시 눌러 사이즈표 받기)
           const fill = {};
           if (!same.sizeText && p.sizeText) fill.sizeText = p.sizeText;
-          if (!(same.detailPhotos || []).length && p.detailPhotos.length) fill.detailPhotos = p.detailPhotos;
+          if (same.hasDetailCut == null && p.hasDetailCut != null) fill.hasDetailCut = p.hasDetailCut;
+          if (!hasWear(same.wear) && hasWear(p.wear)) Object.assign(fill, { wear: p.wear, wearFrom: "신마" });
           if (Object.keys(fill).length) await changeKey("shoot_items", online, upsert({ id: same.id, ...fill }));
           if (!alive()) return;
           warn(same.vendorId, same.vendor);
           setItem({ ...same, ...fill });
-          if (fill.detailPhotos || fill.sizeText) setVendorNote([fill.detailPhotos && `디테일컷 ${fill.detailPhotos.length}장`, fill.sizeText && "실측"].filter(Boolean).join(" · ") + "을(를) 더 담았어요");
+          if (fill.hasDetailCut != null || fill.sizeText || fill.wear)
+            setVendorNote([fill.hasDetailCut != null && `디테일컷 ${fill.hasDetailCut ? "있음" : "없음"}`, fill.sizeText && "실측", fill.wear && `착용정보(${wearSummary(fill.wear)})`].filter(Boolean).join(" · ") + "을(를) 더 담았어요");
           setState("dup");
           return;
         }
@@ -119,7 +122,8 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
           contact: p.contact,
           desc: p.desc,
           sizeText: p.sizeText,
-          detailPhotos: p.detailPhotos,
+          hasDetailCut: p.hasDetailCut,
+          ...(hasWear(p.wear) ? { wear: p.wear, wearFrom: "신마" } : {}),
           photo: key || "",
           photoUrl: key ? "" : p.photoUrl,
           memo: "",

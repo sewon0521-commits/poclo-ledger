@@ -26,6 +26,7 @@
 //    notes:[{by, text, at}], createdAt}
 
 import { dayKey, shiftDay } from "./journal";
+import { WEAR, normWear } from "./measure";
 
 export const STAGES = [
   ["request", "요청", "요청할 상품을 담아 두고, 거래처 이름 옆 '카톡 글 복사'로 요청하세요. 안 된다는 상품은 '안 됨'."],
@@ -437,7 +438,7 @@ export function measuresOf(desc) {
 }
 
 /**
- * 담기 단추가 넘긴 것 {u, ti, t, im, ph, v, g, a, ds, hd, dc} → 상품 칸.
+ * 담기 단추가 넘긴 것 {u, ti, t, im, ph, v, g, a, ds, hd, hdc, ok} → 상품 칸.
  * 신상마켓 상품 창의 글 순서 (세원 10/1 화면): 거래처명 / 위치(디오트 1층 C09) / 상품명 / 상품번호 / ₩가격 /
  *   상세정보(제조국·색상·사이즈·혼용률·낱장여부·상품등록정보) / (세탁 및 상품 주의사항) / 제품 설명 / 상품 문의 / 재고문의…
  * **상품번호 줄을 기준으로** 위아래를 읽는다 — 주변 글(뒤에 깔린 목록·필터)이 같이 와도 엉뚱한 걸 안 집는다.
@@ -521,9 +522,11 @@ export function parseClip(d) {
     contact: contactOf(desc),
     desc: desc.slice(0, 800),
     sizeText: measuresOf(desc),
-    // 디테일컷을 눌러 보인 사진들 (사이즈표가 그 안에 있을 때가 많다) — 신마 주소 그대로, 상품 창에서 사이즈표를 고른다
-    detailPhotos: (d.dc || []).filter((u) => /^https?:/.test(u)).slice(0, 15),
-    probe: d.dcp || null,
+    // 신마 상품 사진에 '디테일컷' 단추가 있나 (10/8) — 사이즈표가 디테일컷에 있을 때가 많다. 예전 단추는 안 보내서 undefined
+    hasDetailCut: typeof d.hdc === "boolean" ? d.hdc : undefined,
+    // 옷감정보 (10/8) — 신마 '세탁 및 상품 주의사항' 에서 고른 것 → 계절감·신축성·두께감·촉감
+    wear: Object.fromEntries(WEAR.map(([k]) => [k, normWear(k, d.ok?.w?.[k])]).filter(([, v]) => v.length)),
+    fabricProbe: d.ok?.probe || null,
     photoUrl: (d.im || [])[0] || "",
     photoData: d.ph || "",
   };

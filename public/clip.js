@@ -159,77 +159,104 @@ window.__pocloClip = async function (w, origin) {
     .map(function (x) {
       return x.s;
     });
-  // 디테일컷 (10/6 세원: "디테일컷 버튼이 있으면 눌러서 사이즈표가 나와") — 사이즈표는 거래처가 올린 디테일컷 사진에 있을 때가 많다.
-  // 글·대표 사진을 다 읽은 뒤에 눌러 보고, 그때 보이는(새로 나온) 사진들을 같이 보낸다 → 상품 창에서 사이즈표를 고른다.
-  // 화면 구조를 아직 못 봐서(자동 접속을 막아 둠) 무엇을 봤는지 dcp 로 같이 보낸다 — 어긋나면 그걸 보고 고친다.
-  var dc = [],
-    dcp = null;
+  // 디테일컷 (10/8 세원: "디테일컷 버튼이 있는지 없는지만 판단해 줘") — 누르지 않고, 상품 창에 '디테일컷' 글자 단추가 있는지만 본다.
+  // 상품 창(box) 안에서 찾고(뒤 목록에 같은 글자가 있어도 안 섞이게), 창을 못 찾았으면 화면에 보이는 것만.
+  var hasDc = false;
   try {
-    var srcOf = function (g) {
-      return g.currentSrc || g.src || (g.dataset && (g.dataset.src || g.dataset.lazySrc)) || "";
-    };
-    var photoish = function (g) {
-      var s = srcOf(g);
-      return /^https?:/.test(s) && !(g.naturalWidth && g.naturalWidth < 150) && !/\.svg|icon|logo|sprite/i.test(s);
-    };
-    var inBox = function () {
-      var seenS = {};
-      return [].slice
-        .call((box || document).querySelectorAll("img"))
-        .filter(photoish)
-        .map(srcOf)
-        .filter(function (s) {
-          return seenS[s] ? false : (seenS[s] = 1);
-        });
-    };
-    var visBig = function () {
-      return [].slice
-        .call(document.images)
-        .filter(function (g) {
-          return photoish(g) && seen(g) && g.getBoundingClientRect().width >= 150;
-        })
-        .map(srcOf);
-    };
-    var btn = [].slice
-      .call(document.querySelectorAll("body *"))
-      .filter(function (e) {
-        return own(e).replace(/\s/g, "") === "디테일컷" && seen(e);
-      })
-      .pop();
-    if (btn) {
-      var hit = btn.closest("button, a, [role=button]") || btn;
-      var href = hit.tagName === "A" ? hit.getAttribute("href") || "" : "";
-      var leaves = href && !/^(#|javascript:)/i.test(href) && hit.target !== "_blank";
-      var before = inBox();
-      if (!leaves) {
-        hit.click();
-        await sleep(900);
-      }
-      var after = visBig();
-      var nowBox = inBox();
-      // 'N / M' 쪽수 — 디테일컷이 몇 번째 사진부터인지
-      var pg = null;
-      [].slice.call((box || document.body).querySelectorAll("*")).some(function (e) {
-        var m = own(e).match(/^(\d+)\s*\/\s*(\d+)$/);
-        if (m && seen(e)) pg = [+m[1], +m[2]];
-        return !!pg;
-      });
-      var pick = [];
-      if (pg && nowBox.length === pg[1] && pg[0] > 1) pick = nowBox.slice(pg[0] - 1);
-      var add = function (s) {
-        if (s && s !== imgs[0] && pick.indexOf(s) < 0) pick.push(s);
-      };
-      after.forEach(add);
-      nowBox
-        .filter(function (s) {
-          return before.indexOf(s) < 0;
-        })
-        .forEach(add);
-      dc = pick.slice(0, 15);
-      dcp = { tag: hit.tagName, leaves: !!leaves, before: before.length, box: nowBox.length, vis: after.length, pg: pg, n: dc.length, html: (hit.parentElement || hit).outerHTML.slice(0, 500) };
-    }
+    var pool = box ? box.querySelectorAll("*") : document.querySelectorAll("body *");
+    hasDc = [].slice.call(pool).some(function (e) {
+      var r = e.getBoundingClientRect();
+      return own(e).replace(/\s/g, "") === "디테일컷" && r.width > 0 && r.height > 0 && (box ? true : seen(e));
+    });
   } catch (e) {
-    dcp = { err: String(e).slice(0, 200) };
+    void e;
+  }
+  // 옷감정보 (10/8 세원: "계절감·신축성·두께감·촉감 — 신마 '세탁 및 상품 주의사항' 옷감정보에 있어. 담을 때 긁어와지게").
+  // 그 칸이 접혀 있으면 한 번 눌러 편다(제품 설명과 같은 방식). 줄마다 이름(두께감·신축성·계절…)과 선택지가 있고 고른 것만 표시가 다르다 →
+  // 표시(aria·class 의 on/active/selected/checked, 체크 입력)를 먼저 보고, 없으면 글자색·굵기·바탕이 혼자 다른 것을 고른 것으로 본다.
+  // 신마 화면을 직접 못 봐서 무엇을 봤는지 ok.probe 로 같이 보낸다 — 어긋나면 그걸 보고 고친다.
+  var ok = null;
+  try {
+    var LABELS = { 두께감: "두께감", 두께: "두께감", 신축성: "신축성", 신축: "신축성", 계절: "계절감", 계절감: "계절감", 시즌: "계절감", 촉감: "촉감", 비침: "비침", 안감: "안감" };
+    var wh = leaf("세탁 및 상품 주의사항");
+    var fabricText = function () {
+      var sc = wh;
+      for (var q = 0; sc && q < 4 && !/옷감|두께|신축|계절/.test(sc.innerText || ""); q++) sc = sc.parentElement;
+      return sc ? sc.innerText || "" : "";
+    };
+    if (wh && !/옷감|두께|신축|계절/.test(fabricText())) {
+      wh.click();
+      for (var w8 = 0; w8 < 15 && !/옷감|두께|신축|계절/.test(fabricText()); w8++) await sleep(100);
+    }
+    var root = box || document.body;
+    var picked = {},
+      rows = [];
+    var marked = function (e) {
+      var c = String(e.className && e.className.baseVal != null ? e.className.baseVal : e.className || "");
+      if (/(^|[-_\s])(on|active|selected|checked|is-?active|is-?selected|is-?checked|current)([-_\s]|$)/i.test(c)) return true;
+      if (e.getAttribute && /true/.test((e.getAttribute("aria-checked") || "") + (e.getAttribute("aria-selected") || "") + (e.getAttribute("aria-pressed") || ""))) return true;
+      var inp = e.querySelector && e.querySelector("input[type=checkbox],input[type=radio]");
+      return !!(inp && inp.checked) || (e.tagName === "INPUT" && e.checked);
+    };
+    // 눈에 띄는 정도 — 굵을수록 · 바탕색이 있을수록 · 글자에 색이 있을수록 · 진할수록 크다 (고른 것은 보통 더 눈에 띈다)
+    var loud = function (e) {
+      var cs = getComputedStyle(e),
+        s = 0;
+      if (+cs.fontWeight >= 600) s += 2;
+      if (!/rgba?\(0, 0, 0, 0\)|transparent|rgb\(255, 255, 255\)/.test(cs.backgroundColor)) s += 2;
+      var c = (cs.color.match(/\d+/g) || [0, 0, 0]).map(Number);
+      if (Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]) > 40) s += 1.5;
+      return s + (255 - (c[0] + c[1] + c[2]) / 3) / 255;
+    };
+    [].slice.call(root.querySelectorAll("*")).forEach(function (e) {
+      var name = LABELS[own(e).replace(/\s|:/g, "")];
+      if (!name || picked[name] || !e.getBoundingClientRect().width) return;
+      // 그 줄 — 이름 칸에서 위로 올라가며 선택지(짧은 글 칸)가 2개 이상 들어오는 곳
+      var row = e.parentElement,
+        opts = [];
+      for (var up = 0; row && up < 3; up++) {
+        opts = [].slice.call(row.querySelectorAll("*")).filter(function (o) {
+          var t = (o.innerText || "").trim();
+          return o !== e && !o.contains(e) && !e.contains(o) && t && t.length <= 8 && t.indexOf("\n") < 0 && !LABELS[t.replace(/\s|:/g, "")];
+        });
+        // 가장 안쪽 칸만 (같은 글을 품은 바깥 칸은 뺀다)
+        opts = opts.filter(function (o) {
+          return !opts.some(function (p) {
+            return p !== o && o.contains(p) && (p.innerText || "").trim() === (o.innerText || "").trim();
+          });
+        });
+        if (opts.length >= 2) break;
+        row = row.parentElement;
+      }
+      if (opts.length < 2) return;
+      var texts = opts.map(function (o) {
+        return (o.innerText || "").trim();
+      });
+      var sel = opts.filter(function (o) {
+        return marked(o) || (o.parentElement && marked(o.parentElement) && o.parentElement !== row);
+      });
+      var how = "표시";
+      if (!sel.length) {
+        // 표시가 없으면 모양으로 — 가장 눈에 띄는 것(들)이 고른 것. 다 똑같으면 고른 게 없는 것으로
+        var louds = opts.map(loud),
+          top = Math.max.apply(null, louds),
+          low = Math.min.apply(null, louds);
+        sel = top - low > 0.05 ? opts.filter(function (o, i) {
+          return top - louds[i] < 0.05;
+        }) : [];
+        how = "모양";
+      }
+      picked[name] = sel.map(function (o) {
+        return (o.innerText || "").trim();
+      });
+      rows.push({ n: name, o: texts.slice(0, 8), s: picked[name], h: how });
+    });
+    if (rows.length) {
+      var fw = leaf("옷감정보") || leaf("옷감 정보");
+      ok = { w: picked, probe: { rows: rows, html: fw ? (fw.parentElement || fw).outerHTML.slice(0, 1500) : "" } };
+    } else if (wh) ok = { w: {}, probe: { rows: [], text: fabricText().slice(0, 600) } };
+  } catch (e) {
+    ok = { w: {}, probe: { err: String(e).slice(0, 200) } };
   }
   var d = {
     u: location.href,
@@ -242,8 +269,8 @@ window.__pocloClip = async function (w, origin) {
     a: r.how + (r.ok ? "" : " · 칸 못 찾음"),
     ds: ds.join("\n").slice(0, 1500),
     hd: top ? (top.innerText || "").slice(0, 200) : "",
-    dc: dc,
-    dcp: dcp,
+    hdc: hasDc,
+    ok: ok,
   };
   try {
     if (imgs[0]) {
