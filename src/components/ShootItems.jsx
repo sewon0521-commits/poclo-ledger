@@ -750,7 +750,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               </Label>
               {/* 신마 원래 상품명 — 특징이 적혀 있어서 신마에 다시 안 들어가도 되게 (10/8 세원) */}
               <div className="block space-y-1">
-                <span className="flex items-center justify-between gap-2 text-xs font-semibold text-stone-500">
+                <span className="flex h-5 items-center justify-between gap-2 text-xs font-semibold text-stone-500">
                   신마 상품명 (특징까지 전부)
                   {x.fullName && (
                     <button
@@ -765,12 +765,13 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                     </button>
                   )}
                 </span>
-                <textarea
+                {/* 한 줄 칸 — 길면 아래로 늘지 않고 옆으로 이어진다(10/8 세원: "칸 넘어가면 옆으로 쭉, 미관상"). 마우스를 올리면 전부 보인다 */}
+                <input
                   value={x.fullName || ""}
                   onChange={(e) => set({ fullName: e.target.value })}
-                  rows={1}
+                  title={x.fullName || ""}
                   placeholder="신마에서 담으면 원래 상품명이 여기 남아요"
-                  className={FIELD + " min-h-[38px] resize-none [field-sizing:content]"}
+                  className={FIELD}
                 />
               </div>
               {/* label 로 감싸면 제목을 누를 때 목록 단추가 같이 눌린다 — div 로 */}
@@ -817,6 +818,11 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               ))}
             {x.refused && <ItemRefusal x={x} rec={(d.refusals || []).find((r) => (r.itemIds || []).includes(x.id))} />}
             <RefusalNote list={refusalsOf(d.refusals, x.vendorId, x.vendor)} />
+
+            {/* 메모는 가격 위 (10/8 세원) */}
+            <Label title="메모">
+              <textarea value={x.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 깔깨져서 목~일밤 재요청" className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
+            </Label>
 
             <Fold title="가격 · 판매가" summary={priceSummary(x) || "도매가 · 판매가 · 1+1"} open={open.price} onToggle={() => flip("price")}>
               <PriceBox x={x} set={set} field={FIELD} />
@@ -871,10 +877,6 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               <MeasureBox x={x} onChange={(measure) => set({ measure })} />
               <SizeBox x={x} setX={setX} online={online} onHot={(v) => (sizeHot.current = v)} onFiles={addSize} busy={sizeBusy} />
             </Fold>
-
-            <Label title="메모">
-              <textarea value={x.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 깔깨져서 목~일밤 재요청" className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
-            </Label>
 
             <Fold title="진행" summary={flowSummary(x)} open={open.flow} onToggle={() => flip("flow")}>
               <div className="flex flex-wrap items-center gap-2">
