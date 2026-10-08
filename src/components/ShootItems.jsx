@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus, Ruler } from "lucide-react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus, Ruler, ChevronRight } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto, photoUrls } from "../lib/shoot";
 import { urlsToFiles } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
@@ -11,6 +11,8 @@ import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
 import VendorPicker from "./VendorPicker";
 import VendorEditor from "./VendorEditor";
+import PriceBox from "./PriceBox";
+import { PricingCtx, priceSummary, pricingRowOf, pricingChange, toNum } from "../lib/priceKit";
 
 /**
  * 신상 관리 — 상품 한 장이 요청 → 입고·픽 → 촬영 → 등록 → 업데이트 완료로 옮겨 다닌다 (lib/sinsang.js 머리말).
@@ -490,19 +492,106 @@ function SizeBox({ x, setX, online, onHot, onFiles, busy }) {
   );
 }
 
+/**
+ * 상품 창을 칸으로 나눈다 (10/8 세원: "상품 정보를 볼 수 있는 칸이 많아져서 복잡하다. 토글로 줄이든 재배치하든").
+ * 위(사진 · 종류 · 상품명 · 신마 상품명 · 거래처 · 위치)와 메모는 늘 보이고, 나머지는 접는 칸 — 접혀 있어도 제목 옆에 요약 한 줄.
+ * 어느 칸을 펴 두는지는 기기마다 기억한다(상품등록하는 PC 는 가격·상품 정보, 폰은 진행 위주 같은 식으로).
+ */
+const FOLD_KEY = "poclo_item_folds";
+const FOLD_DEFAULT = { price: true, info: true, size: false, flow: false, settle: false };
+function useFolds(force) {
+  const [open, setOpen] = useState(() => {
+    let saved = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(FOLD_KEY) || "{}");
+    } catch {
+      saved = {};
+    }
+    return { ...FOLD_DEFAULT, ...saved, ...force };
+  });
+  const flip = (k) =>
+    setOpen((o) => {
+      const n = { ...o, [k]: !o[k] };
+      try {
+        localStorage.setItem(FOLD_KEY, JSON.stringify(n));
+      } catch {
+        /* 기억 못 해도 화면은 된다 */
+      }
+      return n;
+    });
+  return [open, flip];
+}
+
+function Fold({ title, summary, open, onToggle, children }) {
+  return (
+    <section className={"rounded-xl border border-stone-200 " + (open ? "bg-white" : "bg-stone-50/60 hover:bg-stone-50")}>
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+        <ChevronRight size={15} className={"shrink-0 text-stone-400 transition-transform duration-150 " + (open ? "rotate-90" : "")} />
+        <span className="shrink-0 text-sm font-semibold text-stone-800">{title}</span>
+        {!open && summary && <span className="min-w-0 flex-1 truncate text-right text-xs text-stone-500 tabular-nums">{summary}</span>}
+      </button>
+      {open && <div className="space-y-3 border-t border-stone-100 p-3">{children}</div>}
+    </section>
+  );
+}
+
+const flowSummary = (x) => {
+  const shot = shootsOf(x).filter((r) => r.on);
+  return [
+    stageName(x.stage),
+    x.asked && "요청함",
+    x.pickup && "픽업 요청",
+    x.retryOn && `재요청 ${md(x.retryOn)}`,
+    x.arrivedOn && `입고 ${md(x.arrivedOn)}`,
+    shot.length > 0 && `촬영 ${shot.length > 1 ? `${shot.length}차 ` : ""}${md(shot.at(-1).on)}`,
+    Object.values(x.channels || {}).some(Boolean) && "업로드함",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+};
+const settleSummary = (x) =>
+  [
+    dueOf(x) && !closed(x) && `기한 ${md(dueOf(x))}`,
+    x.returning && "반납 등록",
+    x.packed && `포장${x.packedOn ? ` ${md(x.packedOn)}` : ""}`,
+    x.paid && "결제함",
+    x.returnedOn && `반납 ${md(x.returnedOn)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ") || "반납 등록 · 포장 · 결제";
+const sizeSummary = (x) => {
+  const m = filled(x.measure);
+  return (
+    [
+      m.n > 0 && `실측 ${m.n}/${m.of}`,
+      x.sizeText && "거래처 실측",
+      (x.sizePhotos || []).length > 0 && `사이즈표 ${x.sizePhotos.length}장`,
+      (x.detailPhotos || []).length > 0 && `디테일컷 ${x.detailPhotos.length}장`,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "직접 잰 실측 · 거래처 사이즈표"
+  );
+};
+
 export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, startPay }) {
   const [extOpen, setExtOpen] = useState(false);
   const extOps = extendOps(d.saveItems, today);
+  const kit = useContext(PricingCtx);
   const [x, setX] = useState(() => {
-    const base = { ...EMPTY, ...item };
+    let base = { ...EMPTY, ...item };
+    // 판매가 목록에 이미 있는 상품이면 그 판매가를 불러온다 (계산기에서 먼저 정해 둔 것)
+    const row = !toNum(base.sellPrice) && kit ? pricingRowOf(base, kit.items) : null;
+    if (row?.price) base = { ...base, sellPrice: String(row.price), pair: !!row.price1p1, price1p1: row.price1p1 ? String(row.price1p1) : "", pricingId: row.id, price: base.price || String(row.supply || "") };
     // 카드에서 '샘플 결제'로 들어왔으면 결제 칸을 열어 둔다
     return startPay && !base.paid ? { ...base, paid: { on: today, colors: "", sizes: "", qty: "", amount: "" } } : base;
   });
+  const [open, flip] = useFolds(startPay ? { settle: true } : {});
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState("");
   const [note, setNote] = useState("");
   const [editNote, setEditNote] = useState(-1);
   const [vendorEdit, setVendorEdit] = useState(false);
+  const [copied, setCopied] = useState(false);
   const set = (patch) => setX((p) => ({ ...p, ...patch }));
   // 붙여넣기가 갈 곳 — 사이즈표 칸 위에 마우스가 있거나 그 안을 누르고 있으면 사이즈표, 아니면 대표 사진
   const sizeHot = useRef(false);
@@ -556,7 +645,19 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
     }
   };
   const save = async () => {
-    await d.saveItems(upsert({ ...x, settle: null, id: x.id || newId("i"), createdAt: x.createdAt || new Date().toISOString() }));
+    let next = { ...x, settle: null, id: x.id || newId("i"), createdAt: x.createdAt || new Date().toISOString() };
+    // 판매가를 정했으면 돈 › 판매가 목록에도 (같은 줄이 있으면 숫자만 고침)
+    const ch = kit ? pricingChange(x, kit.items) : null;
+    if (ch) {
+      const id = ch.id || newId("p");
+      try {
+        if (ch.patch) await kit.save({ ...ch.patch, id });
+        next = { ...next, pricingId: id };
+      } catch (e) {
+        d.setMsg(`판매가 목록에 담지 못했어요 (${e.message || "다시 시도해 주세요"}). 상품은 저장했어요.`);
+      }
+    }
+    await d.saveItems(upsert(next));
     onClose();
   };
   const putNotes = (notes) => {
@@ -570,6 +671,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
     putNotes([...(x.notes || []), { by: who(), text, at: new Date().toISOString() }]);
   };
   const pay = (p) => set({ paid: { ...(x.paid || {}), ...p } });
+  const info = [x.colors, x.sizes, x.fabric, x.origin].filter(Boolean).join(" · ");
 
   return (
     <Sheet onClose={onClose} wide>
@@ -595,8 +697,9 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
         }}
       >
         <div className="grid gap-4 sm:grid-cols-[11rem_1fr]">
-          <div className="space-y-2">
-            <label className="relative block aspect-[3/4] w-full cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 hover:border-rose-300">
+          {/* 폰에서는 사진을 작게 왼쪽에, 샘플/사입·반납 기한을 그 옆에 — 사진이 화면을 다 먹지 않게 */}
+          <div className="flex gap-3 sm:block sm:space-y-2">
+            <label className="relative block aspect-[3/4] w-28 shrink-0 cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 hover:border-rose-300 sm:w-full">
               {preview || srcOf(x, d.urls) ? (
                 <img src={preview || srcOf(x, d.urls)} alt="" className="h-full w-full object-cover" />
               ) : (
@@ -611,23 +714,29 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               )}
               <input type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
             </label>
-            <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-xs">
-              {[
-                ["sample", "샘플"],
-                ["buy", "사입"],
-              ].map(([k, label]) => (
-                <button key={k} type="button" onClick={() => set({ type: k })} className={"flex-1 rounded-md py-1.5 font-medium " + ((x.type || "sample") === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            {due && (
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-xs">
+                {[
+                  ["sample", "샘플"],
+                  ["buy", "사입"],
+                ].map(([k, label]) => (
+                  <button key={k} type="button" onClick={() => set({ type: k })} className={"flex-1 rounded-md py-1.5 font-medium " + ((x.type || "sample") === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
+                    {label}
+                  </button>
+                ))}
+              </div>
               <p className="rounded-lg bg-stone-50 px-2.5 py-2 text-[11px] leading-relaxed text-stone-600">
-                반납 기한 <b className="text-stone-900">{dayTitle(due)}</b>
-                <br />
-                <DueBadge x={x} today={today} className="mt-1 inline-block ring-1 ring-stone-200" />
+                단계 <b className="text-stone-900">{stageName(x.stage)}</b>
+                {due && (
+                  <>
+                    <br />
+                    반납 기한 <b className="text-stone-900">{dayTitle(due)}</b>
+                    <br />
+                    <DueBadge x={x} today={today} className="mt-1 inline-block ring-1 ring-stone-200" />
+                  </>
+                )}
               </p>
-            )}
+            </div>
           </div>
 
           <div className="min-w-0 space-y-3">
@@ -635,10 +744,35 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               <span className="text-xs font-semibold text-stone-500">종류</span>
               <Chips list={d.tags.clothes} value={x.kind} onChange={(v) => set({ kind: v })} />
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid items-start gap-2 sm:grid-cols-2">
               <Label title="상품명 (거래처 상품명)">
                 <input value={x.name} onChange={(e) => set({ name: e.target.value })} placeholder="예: 코듀로이반팬츠" className={FIELD} />
               </Label>
+              {/* 신마 원래 상품명 — 특징이 적혀 있어서 신마에 다시 안 들어가도 되게 (10/8 세원) */}
+              <div className="block space-y-1">
+                <span className="flex items-center justify-between gap-2 text-xs font-semibold text-stone-500">
+                  신마 상품명 (특징까지 전부)
+                  {x.fullName && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setCopied(await copy(x.fullName));
+                        setTimeout(() => setCopied(false), 1500);
+                      }}
+                      className="flex items-center gap-0.5 font-medium text-stone-400 hover:text-stone-700"
+                    >
+                      {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? "복사됨" : "복사"}
+                    </button>
+                  )}
+                </span>
+                <textarea
+                  value={x.fullName || ""}
+                  onChange={(e) => set({ fullName: e.target.value })}
+                  rows={1}
+                  placeholder="신마에서 담으면 원래 상품명이 여기 남아요"
+                  className={FIELD + " min-h-[38px] resize-none [field-sizing:content]"}
+                />
+              </div>
               {/* label 로 감싸면 제목을 누를 때 목록 단추가 같이 눌린다 — div 로 */}
               <div className="block space-y-1 text-sm">
                 <span className="text-xs font-semibold text-stone-500">거래처 (돈 › 거래처)</span>
@@ -664,14 +798,6 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               <Label title="위치">
                 <input value={x.place} onChange={(e) => set({ place: e.target.value })} placeholder="예: 디오트 3층 E18" className={FIELD} />
               </Label>
-              <Label title="도매가">
-                <input value={x.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="14000" className={FIELD} />
-              </Label>
-              {!sample && (
-                <Label title={`사입 수량 (대납금 ${(buyAmount(x) || 0).toLocaleString("ko-KR")}원)`}>
-                  <input value={x.buyQty || ""} onChange={(e) => set({ buyQty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="1" className={FIELD} />
-                </Label>
-              )}
             </div>
             {linked &&
               onVendor &&
@@ -691,50 +817,66 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               ))}
             {x.refused && <ItemRefusal x={x} rec={(d.refusals || []).find((r) => (r.itemIds || []).includes(x.id))} />}
             <RefusalNote list={refusalsOf(d.refusals, x.vendorId, x.vendor)} />
-            {(contactLines(x.contact).length > 0 || x.desc) && (
-              <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
-                <span className="font-semibold text-stone-500">거래처가 제품 설명에 적어 둔 것</span>
-                {contactLines(x.contact).length > 0 && <p className="mt-0.5 text-stone-800 select-all">{contactLines(x.contact).join(" · ")}</p>}
-                {x.desc && (
-                  <details className="mt-1">
-                    <summary className="cursor-pointer text-stone-500">전체 글 보기</summary>
-                    <p className="mt-1 whitespace-pre-line">{x.desc}</p>
-                  </details>
-                )}
+
+            <Fold title="가격 · 판매가" summary={priceSummary(x) || "도매가 · 판매가 · 1+1"} open={open.price} onToggle={() => flip("price")}>
+              <PriceBox x={x} set={set} field={FIELD} />
+              {!sample && (
+                <Label title={`사입 수량 (대납금 ${(buyAmount(x) || 0).toLocaleString("ko-KR")}원)`}>
+                  <input value={x.buyQty || ""} onChange={(e) => set({ buyQty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="1" className={FIELD} />
+                </Label>
+              )}
+            </Fold>
+
+            <Fold title="상품 정보" summary={info || "신마 링크 · 색상 · 사이즈 · 혼용률 · 제조국"} open={open.info} onToggle={() => flip("info")}>
+              <Label title="신마 링크">
+                <span className="relative block">
+                  <Link2 size={14} className="absolute top-2.5 left-3 text-stone-400" />
+                  <input value={x.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://sinsangmarket.kr/…" className={FIELD + " pl-8" + (x.url ? " pr-20" : "")} />
+                  {/^https?:\/\//.test(x.url || "") && (
+                    <a href={x.url} target="_blank" rel="noreferrer" className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100">
+                      <ExternalLink size={12} /> 열기
+                    </a>
+                  )}
+                </span>
+              </Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Label title="색상">
+                  <input value={x.colors || ""} onChange={(e) => set({ colors: e.target.value })} className={FIELD} />
+                </Label>
+                <Label title="사이즈">
+                  <input value={x.sizes || ""} onChange={(e) => set({ sizes: e.target.value })} className={FIELD} />
+                </Label>
+                <Label title="혼용률">
+                  <input value={x.fabric || ""} onChange={(e) => set({ fabric: e.target.value })} className={FIELD} />
+                </Label>
+                <Label title="제조국">
+                  <input value={x.origin || ""} onChange={(e) => set({ origin: e.target.value })} className={FIELD} />
+                </Label>
               </div>
-            )}
-            <Label title="신마 링크">
-              <span className="relative block">
-                <Link2 size={14} className="absolute top-2.5 left-3 text-stone-400" />
-                <input value={x.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://sinsangmarket.kr/…" className={FIELD + " pl-8" + (x.url ? " pr-20" : "")} />
-                {/^https?:\/\//.test(x.url || "") && (
-                  <a href={x.url} target="_blank" rel="noreferrer" className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100">
-                    <ExternalLink size={12} /> 열기
-                  </a>
-                )}
-              </span>
-            </Label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Label title="색상">
-                <input value={x.colors || ""} onChange={(e) => set({ colors: e.target.value })} className={FIELD} />
-              </Label>
-              <Label title="사이즈">
-                <input value={x.sizes || ""} onChange={(e) => set({ sizes: e.target.value })} className={FIELD} />
-              </Label>
-              <Label title="혼용률">
-                <input value={x.fabric || ""} onChange={(e) => set({ fabric: e.target.value })} className={FIELD} />
-              </Label>
-              <Label title="제조국">
-                <input value={x.origin || ""} onChange={(e) => set({ origin: e.target.value })} className={FIELD} />
-              </Label>
-            </div>
-            <MeasureBox x={x} onChange={(measure) => set({ measure })} />
-            <SizeBox x={x} setX={setX} online={online} onHot={(v) => (sizeHot.current = v)} onFiles={addSize} busy={sizeBusy} />
+              {(contactLines(x.contact).length > 0 || x.desc) && (
+                <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
+                  <span className="font-semibold text-stone-500">거래처가 제품 설명에 적어 둔 것</span>
+                  {contactLines(x.contact).length > 0 && <p className="mt-0.5 text-stone-800 select-all">{contactLines(x.contact).join(" · ")}</p>}
+                  {x.desc && (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-stone-500">전체 글 보기</summary>
+                      <p className="mt-1 whitespace-pre-line">{x.desc}</p>
+                    </details>
+                  )}
+                </div>
+              )}
+            </Fold>
+
+            <Fold title="사이즈 · 실측" summary={sizeSummary(x)} open={open.size} onToggle={() => flip("size")}>
+              <MeasureBox x={x} onChange={(measure) => set({ measure })} />
+              <SizeBox x={x} setX={setX} online={online} onHot={(v) => (sizeHot.current = v)} onFiles={addSize} busy={sizeBusy} />
+            </Fold>
+
             <Label title="메모">
               <textarea value={x.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 깔깨져서 목~일밤 재요청" className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
             </Label>
 
-            <div className="space-y-2 rounded-xl border border-stone-200 p-3">
+            <Fold title="진행" summary={flowSummary(x)} open={open.flow} onToggle={() => flip("flow")}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold text-stone-500">단계</span>
                 <select value={x.stage} onChange={(e) => set(moveTo(x, e.target.value, today))} className="rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm">
@@ -786,27 +928,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   )}
                 </div>
               )}
-              {extOpen && (
-                <ExtendSheet
-                  x={x}
-                  items={d.items}
-                  today={today}
-                  onApply={(ids, days) => {
-                    if (ids.includes(x.id)) set({ extensions: [...(x.extensions || []), { on: today, days }] });
-                    extOps.apply(ids, days);
-                  }}
-                  onAsked={(ids) => {
-                    if (ids.includes(x.id)) set({ extendAskedOn: today });
-                    extOps.asked(ids);
-                  }}
-                  onUndo={(id) => {
-                    set({ extensions: (x.extensions || []).slice(0, -1) });
-                    extOps.undo(id);
-                  }}
-                  onClose={() => setExtOpen(false)}
-                />
-              )}
-              <ShootRounds shoots={shootsOf(x)} onChange={(s) => set(withShoots(s))} options={[...colorList, ...sizeList]} />
+              <ShootRounds shoots={shootsOf(x)} onChange={(r) => set(withShoots(r))} options={[...colorList, ...sizeList]} />
               <div className="flex flex-wrap gap-1.5">
                 {CHANNELS.map(([k, label]) => (
                   <Toggle key={k} on={x.channels?.[k]} onClick={() => set({ channels: { ...(x.channels || {}), [k]: !x.channels?.[k] } })}>
@@ -814,82 +936,101 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   </Toggle>
                 ))}
               </div>
+            </Fold>
+            {extOpen && (
+              <ExtendSheet
+                x={x}
+                items={d.items}
+                today={today}
+                onApply={(ids, days) => {
+                  if (ids.includes(x.id)) set({ extensions: [...(x.extensions || []), { on: today, days }] });
+                  extOps.apply(ids, days);
+                }}
+                onAsked={(ids) => {
+                  if (ids.includes(x.id)) set({ extendAskedOn: today });
+                  extOps.asked(ids);
+                }}
+                onUndo={(id) => {
+                  set({ extensions: (x.extensions || []).slice(0, -1) });
+                  extOps.undo(id);
+                }}
+                onClose={() => setExtOpen(false)}
+              />
+            )}
 
-              {sample && (
-                <div className="space-y-2 border-t border-stone-100 pt-2">
-                  <div className="text-xs font-semibold text-stone-500">반납 · 결제</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Toggle
-                      on={x.returning}
-                      onClick={() =>
-                        set(
-                          x.returning
-                            ? { returning: false, ...(x.stage === "back" ? { stage: "arrived" } : {}) }
-                            : { returning: true, backOn: x.backOn || today, ...(["arrived", "drop"].includes(x.stage) ? { stage: "back" } : {}) },
-                        )
-                      }
-                    >
-                      반납 등록
-                    </Toggle>
-                    <Toggle on={x.packed} onClick={() => set(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
-                      포장 완료
-                    </Toggle>
-                    <Toggle on={!!x.paid} onClick={() => set({ paid: x.paid ? null : { on: today, colors: "", sizes: "", qty: "", amount: "" }, settle: null })}>
-                      샘플 결제함
-                    </Toggle>
-                    <Toggle on={!!x.returnedOn} onClick={() => set({ returnedOn: x.returnedOn ? "" : today, settle: null })}>
-                      거래처 반납함
+            {sample && (
+              <Fold title="반납 · 결제" summary={settleSummary(x)} open={open.settle} onToggle={() => flip("settle")}>
+                <div className="flex flex-wrap gap-1.5">
+                  <Toggle
+                    on={x.returning}
+                    onClick={() =>
+                      set(
+                        x.returning
+                          ? { returning: false, ...(x.stage === "back" ? { stage: "arrived" } : {}) }
+                          : { returning: true, backOn: x.backOn || today, ...(["arrived", "drop"].includes(x.stage) ? { stage: "back" } : {}) },
+                      )
+                    }
+                  >
+                    반납 등록
+                  </Toggle>
+                  <Toggle on={x.packed} onClick={() => set(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
+                    포장 완료
+                  </Toggle>
+                  <Toggle on={!!x.paid} onClick={() => set({ paid: x.paid ? null : { on: today, colors: "", sizes: "", qty: "", amount: "" }, settle: null })}>
+                    샘플 결제함
+                  </Toggle>
+                  <Toggle on={!!x.returnedOn} onClick={() => set({ returnedOn: x.returnedOn ? "" : today, settle: null })}>
+                    거래처 반납함
+                  </Toggle>
+                </div>
+                {x.packed && (
+                  <Label title="포장한 날">
+                    <input type="date" value={x.packedOn || ""} onChange={(e) => set({ packedOn: e.target.value })} className={FIELD} />
+                  </Label>
+                )}
+                {x.paid && (
+                  <div className="space-y-2 rounded-lg bg-teal-50/70 p-2.5">
+                    <div className="text-xs font-semibold text-teal-900">샘플 결제 — 무엇을 얼마에 샀나요</div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Label title="결제한 색상">
+                        <OptInput value={x.paid.colors} onChange={(v) => pay({ colors: v })} options={colorList} placeholder="예: 블랙" />
+                      </Label>
+                      <Label title="결제한 사이즈">
+                        <OptInput value={x.paid.sizes} onChange={(v) => pay({ sizes: v })} options={sizeList} placeholder="예: M" />
+                      </Label>
+                      <Label title="몇 장">
+                        <input value={x.paid.qty || ""} onChange={(e) => pay({ qty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="1" className={FIELD} />
+                      </Label>
+                      <Label title="결제 금액 (원)">
+                        <input value={x.paid.amount || ""} onChange={(e) => pay({ amount: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder={x.price ? String(x.price) : "0"} className={FIELD} />
+                      </Label>
+                      <Label title="결제한 날">
+                        <input type="date" value={x.paid.on || ""} onChange={(e) => pay({ on: e.target.value })} className={FIELD} />
+                      </Label>
+                    </div>
+                    <Toggle wide on={x.paid.all} onClick={() => pay({ all: !x.paid.all })}>
+                      받은 걸 전부 결제했어요 (반납할 것 없음)
                     </Toggle>
                   </div>
-                  {x.packed && (
-                    <Label title="포장한 날">
-                      <input type="date" value={x.packedOn || ""} onChange={(e) => set({ packedOn: e.target.value })} className={FIELD} />
+                )}
+                {x.returnedOn && (
+                  <div className="space-y-1 rounded-lg bg-stone-50 p-2.5">
+                    <Label title="거래처에 반납한 날">
+                      <input type="date" value={x.returnedOn} onChange={(e) => set({ returnedOn: e.target.value })} className={FIELD} />
                     </Label>
-                  )}
-                  {x.paid && (
-                    <div className="space-y-2 rounded-lg bg-teal-50/70 p-2.5">
-                      <div className="text-xs font-semibold text-teal-900">샘플 결제 — 무엇을 얼마에 샀나요</div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <Label title="결제한 색상">
-                          <OptInput value={x.paid.colors} onChange={(v) => pay({ colors: v })} options={colorList} placeholder="예: 블랙" />
-                        </Label>
-                        <Label title="결제한 사이즈">
-                          <OptInput value={x.paid.sizes} onChange={(v) => pay({ sizes: v })} options={sizeList} placeholder="예: M" />
-                        </Label>
-                        <Label title="몇 장">
-                          <input value={x.paid.qty || ""} onChange={(e) => pay({ qty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="1" className={FIELD} />
-                        </Label>
-                        <Label title="결제 금액 (원)">
-                          <input value={x.paid.amount || ""} onChange={(e) => pay({ amount: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder={x.price ? String(x.price) : "0"} className={FIELD} />
-                        </Label>
-                        <Label title="결제한 날">
-                          <input type="date" value={x.paid.on || ""} onChange={(e) => pay({ on: e.target.value })} className={FIELD} />
-                        </Label>
-                      </div>
-                      <Toggle wide on={x.paid.all} onClick={() => pay({ all: !x.paid.all })}>
-                        받은 걸 전부 결제했어요 (반납할 것 없음)
-                      </Toggle>
-                    </div>
-                  )}
-                  {x.returnedOn && (
-                    <div className="space-y-1 rounded-lg bg-stone-50 p-2.5">
-                      <Label title="거래처에 반납한 날">
-                        <input type="date" value={x.returnedOn} onChange={(e) => set({ returnedOn: e.target.value })} className={FIELD} />
-                      </Label>
-                      {x.paid && !x.paid.all && (
-                        <p className="text-[11px] text-stone-500">
-                          결제한 <b className="text-stone-700">{paidLabel({ colors: x.paid.colors, sizes: x.paid.sizes, qty: x.paid.qty }) || "것"}</b> 을 빼고 나머지를 반납했어요.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                    {x.paid && !x.paid.all && (
+                      <p className="text-[11px] text-stone-500">
+                        결제한 <b className="text-stone-700">{paidLabel({ colors: x.paid.colors, sizes: x.paid.sizes, qty: x.paid.qty }) || "것"}</b> 을 빼고 나머지를 반납했어요.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </Fold>
+            )}
 
             {x.id && (
               <div className="rounded-xl bg-stone-50 p-3">
-                <div className="mb-1.5 text-xs font-semibold text-stone-500">댓글</div>
+                <div className="mb-1.5 text-xs font-semibold text-stone-500">댓글{(x.notes || []).length > 0 && ` ${x.notes.length}`}</div>
                 <ul className="space-y-1">
                   {(x.notes || []).map((n, i) => (
                     <li key={i} className="group flex items-center gap-2 text-sm">

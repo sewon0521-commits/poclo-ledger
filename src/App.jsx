@@ -41,6 +41,7 @@ import ShootPage from "./components/ShootPage";
 import PasswordBox from "./components/PasswordBox";
 import ClipPage from "./components/ClipPage";
 import { readClipHash } from "./lib/sinsang";
+import { PricingCtx } from "./lib/priceKit";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
 
@@ -118,6 +119,8 @@ export default function App() {
   );
   // 매입 장부에 장끼가 있는 거래처 — 신상 관리가 '거래해 본 곳' 요청 글을 고를 때 본다
   const dealt = useMemo(() => new Set(tx.map((t) => t.vendorId)), [tx]);
+  // 신상 관리 상품 창에서 판매가를 정하려고 — 판매가 계산기와 같은 숫자·목록 (10/8)
+  const pricingKit = useMemo(() => ({ rows: S.rows, conf: S.conf, items: S.pricing, save: S.savePricing }), [S.rows, S.conf, S.pricing, S.savePricing]);
 
   // 새 거래의 기본 날짜 — 보고 있는 기간 안이면 오늘, 아니면 기간 시작일
   const defaultDate = () => {
@@ -592,7 +595,9 @@ export default function App() {
                   onSaveCarousel={S.saveCarousel}
                 />
               ) : page === "shoot" || page === "shootRefs" || page === "shootPlan" ? (
-                <ShootPage key={page} view={page === "shootRefs" ? "refs" : page === "shootPlan" ? "plan" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
+                <PricingCtx.Provider value={pricingKit}>
+                  <ShootPage key={page} view={page === "shootRefs" ? "refs" : page === "shootPlan" ? "plan" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
+                </PricingCtx.Provider>
               ) : page === "invoiceReq" ? (
                 <InvoiceRequestPage tx={tx} vendors={vendors} online={L.mode === "remote" && !!L.session} onPatchTxs={L.patchTxs} onBreakdown={openBreakdown} />
               ) : page === "subs" ? (

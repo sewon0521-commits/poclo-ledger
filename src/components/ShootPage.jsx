@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel } from "../lib/shoot";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop } from "lucide-react";
+import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
@@ -515,6 +515,29 @@ function RefsView({ d, online }) {
     // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
     setPicked((p) => (p.size ? new Set([...p].filter((id) => ids.includes(id))) : p));
   }, [ids]);
+  // 고른 게 있을 때 빈 곳(배경)을 누르면 풀린다 (10/8 세원: "드래그로 한 번에 잡고 배경 누르면 체크 풀리게")
+  // 사진·단추·아래 막대·떠 있는 창을 누른 건 빼고, 눌러 끈 것(네모 잡기)도 뺀다
+  useEffect(() => {
+    if (!picked.size) return;
+    let at = null;
+    const down = (e) => {
+      at = null;
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.target.closest?.("[data-ref], button, a, input, select, textarea, label, [role=button], [data-keep], .sheet, .backdrop-in")) return;
+      at = { x: e.clientX, y: e.clientY };
+    };
+    const up = (e) => {
+      const a = at;
+      at = null;
+      if (a && Math.hypot(e.clientX - a.x, e.clientY - a.y) < 6) setPicked(new Set());
+    };
+    window.addEventListener("pointerdown", down);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointerup", up);
+    };
+  }, [picked.size]);
   useEffect(() => {
     const key = (e) => {
       if (e.target.closest?.("input, textarea, select")) return;
@@ -603,6 +626,26 @@ function RefsView({ d, online }) {
       setBusy("");
     }
   };
+  // 고른 사진의 컷을 한 번에 정하기 (10/8 세원: "사진들 선택해서 컷 종류도 한 번에") — 고른 컷 하나로 바꾼다, '컷 빼기'는 비우기
+  const cutAll = async (v) => {
+    let cut = v === "__none" ? "" : v;
+    if (v === "__new") {
+      const t = window.prompt("새 컷 이름 — 예: 뒤돌아보기");
+      if (!t?.trim()) return;
+      cut = t.trim();
+      if (!(d.tags.cuts || []).includes(cut)) addTag("cuts", cut);
+    }
+    const n = picked.size;
+    setBusy("컷 정하는 중…");
+    try {
+      await d.saveRefs((x) => ({ ...x, items: (x.items || []).map((r) => (picked.has(r.id) ? { ...r, cuts: cut ? [cut] : [] } : r)) }));
+      setPicked(new Set());
+      setBusy(cut ? `${n}장을 '${cutLabel(cut)}' 컷으로 정했어요` : `${n}장에서 컷을 뺐어요`);
+      setTimeout(() => setBusy(""), 3000);
+    } catch {
+      setBusy("");
+    }
+  };
   const removeAll = async () => {
     if (!window.confirm(`고른 사진 ${picked.size}장을 지울까요?`)) return;
     await d.saveRefs((v) => ({ ...v, items: (v.items || []).filter((x) => !picked.has(x.id)) }));
@@ -647,7 +690,7 @@ function RefsView({ d, online }) {
         <div>
           <h2 className="text-xl font-bold text-stone-900">촬영 레퍼런스</h2>
           <p className="mt-0.5 text-sm text-stone-500">착용샷 참고 사진을 목록별로 모아요. 사진을 복사해서 Ctrl+V 하거나 화면에 끌어다 놓으면 바로 넣을 수 있어요.</p>
-          <p className="mt-0.5 hidden text-xs text-stone-400 sm:block">여러 장 옮기기: 왼쪽 위 네모를 누르거나, 눌러 끌어서 네모로 잡거나, Ctrl(하나씩)·Shift(한 번에)를 누른 채 클릭</p>
+          <p className="mt-0.5 hidden text-xs text-stone-400 sm:block">여러 장 고르기: 왼쪽 위 네모 · 빈 곳에서 눌러 끌어 네모로 잡기 · Ctrl(하나씩)·Shift(한 번에) 클릭 — 고른 뒤 빈 곳을 누르면 풀려요</p>
         </div>
         <button type="button" onClick={() => setAdding({ files: [], folder: here })} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <ImagePlus size={16} /> 사진 넣기
@@ -740,7 +783,7 @@ function RefsView({ d, online }) {
       )}
 
       {(picked.size > 0 || busy) && (
-        <div className="fixed inset-x-0 bottom-3 z-30 flex justify-center px-3">
+        <div data-keep className="fixed inset-x-0 bottom-3 z-30 flex justify-center px-3">
           <div className="sheet flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-stone-200 bg-white px-3 py-2.5 text-sm shadow-xl">
             {busy && !picked.size ? (
               <span className="px-1 text-stone-700">{busy}</span>
@@ -780,6 +823,24 @@ function RefsView({ d, online }) {
                     ))}
                     <option value="__new">+ 새 쇼핑몰…</option>
                     <option value="__none">쇼핑몰 빼기</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 py-1.5 font-semibold text-stone-700">
+                  <Crop size={15} />
+                  <select value="" disabled={!!busy} onChange={(e) => e.target.value && cutAll(e.target.value)} className="max-w-[9rem] cursor-pointer bg-transparent font-semibold outline-none">
+                    <option value="">컷 정하기</option>
+                    {(d.tags.cuts || []).flatMap((c) => [
+                      <option key={c} value={c}>
+                        {c}
+                      </option>,
+                      ...subsOf(d.tags, c).map((x) => (
+                        <option key={c + x} value={`${c}${CUT_SEP}${x}`}>
+                          {`　└ ${x}`}
+                        </option>
+                      )),
+                    ])}
+                    <option value="__new">+ 새 컷…</option>
+                    <option value="__none">컷 빼기</option>
                   </select>
                 </label>
                 <button type="button" onClick={() => setPicked(new Set(ids))} className="rounded-lg px-2 py-1.5 text-stone-600 hover:bg-stone-100">
