@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Pencil, Send, Undo2, MessageSquare, Play, ChevronDown, ExternalLink } from "lucide-react";
-import { productReel, reviseReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS } from "../lib/reels";
+import { productReel, reviseReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS, readCloseness, saveCloseness } from "../lib/reels";
 import { extractFrames } from "../lib/video";
 import { newId } from "../lib/id";
 import { shortName as short, emptyLook } from "../lib/looks";
@@ -8,7 +8,7 @@ import LookPicker, { ProductSearch } from "./LookPicker";
 import { CopyButton, EditableTitle } from "./ContentBits";
 import { Empty } from "./ui";
 import RefPicker, { RefSummary } from "./RefPicker";
-import BaseScript from "./BaseScript";
+import BaseScript, { ClosenessPick } from "./BaseScript";
 
 /**
  * 우리 상품에서 시작하는 릴스 기획 (세원 2026-09-22):
@@ -61,6 +61,8 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   const [step, setStep] = useState("");
   const [looks, setLooks] = useState(draft.looks);
   const [memo, setMemo] = useState(draft.memo || "");
+  // 레퍼런스를 얼마나 가져올지 (10/9) — 마지막에 고른 것을 기기마다 기억
+  const [closeness, setCloseness] = useState(draft.closeness || readCloseness());
   const [direction, setDirection] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -69,8 +71,8 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   // 고르는 대로 기억해 둔다 — 화면을 떠났다 와도 이어서
   useEffect(() => {
     const prev = readDraft() || {};
-    writeDraft({ ...prev, ...draft, looks, memo, refId, mix, own: own.filter((o) => o.kind === "lib").map((o) => ({ key: o.key, kind: o.kind, id: o.id, title: o.title })) });
-  }, [draft, looks, memo, refId, mix, own]);
+    writeDraft({ ...prev, ...draft, looks, memo, refId, mix, closeness, own: own.filter((o) => o.kind === "lib").map((o) => ({ key: o.key, kind: o.kind, id: o.id, title: o.title })) });
+  }, [draft, looks, memo, refId, mix, own, closeness]);
   const first = looks[0]?.products?.[0] || {};
 
   const run = async () => {
@@ -107,6 +109,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         avoid: again ? `${draft.prev.hook || ""}\n${draft.prev.script || ""}` : "",
         direction: again ? direction : "",
         mix: mixing ? { ...mixPayload(library, mix), own: ownPayload } : undefined,
+        closeness,
       });
       if (!r.ok) {
         setMsg(r.message);
@@ -153,6 +156,13 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
       </div>
       <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
       <RefPicker library={library} value={refId} onChange={setRefId} mix={mix} onMix={setMix} own={own} onOwn={setOwn} fileUrl={fileUrl} folders={folders} />
+      <ClosenessPick
+        value={closeness}
+        onChange={(v) => {
+          setCloseness(v);
+          saveCloseness(v);
+        }}
+      />
       <textarea
         value={memo}
         onChange={(e) => setMemo(e.target.value)}
@@ -872,6 +882,7 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
                   refId: item.mix ? "mix" : item.auto ? "auto" : item.refId,
                   mix: item.mix || {},
                   own: item.own || [],
+                  closeness: item.plan?.closeness,
                   prev: item.plan,
                 });
               }}

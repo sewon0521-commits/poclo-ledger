@@ -24,9 +24,9 @@ import {
   Eye,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
-import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf } from "../lib/reels";
+import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf, readCloseness, saveCloseness } from "../lib/reels";
 import LookPicker from "./LookPicker";
-import BaseScript from "./BaseScript";
+import BaseScript, { ClosenessPick } from "./BaseScript";
 import { emptyLook } from "../lib/looks";
 import { newId } from "../lib/id";
 import {
@@ -585,6 +585,8 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
       : [emptyLook(item.productUrl ? [{ url: item.productUrl, name: "예전에 넣은 상품" }] : [])],
   );
   const [memo, setMemo] = useState(item.planMemo || "");
+  // 레퍼런스를 얼마나 가져올지 (10/9)
+  const [closeness, setCloseness] = useState(item.plan?.closeness || readCloseness());
   const [direction, setDirection] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -614,6 +616,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
         // 다시 만들 때는 앞서 나온 훅·대본을 피한다 (9/23 세원: "대본을 아예 갈아엎을 수 있게")
         avoid: again ? `${plan?.hook || ""}\n${plan?.script || ""}` : "",
         direction: again ? direction : "",
+        closeness,
       });
       if (!res.ok) {
         setMsg(res.message);
@@ -920,6 +923,13 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                 <>
                   <div className="space-y-2 rounded-xl border border-stone-200 p-3">
                     <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
+                    <ClosenessPick
+                      value={closeness}
+                      onChange={(v) => {
+                        setCloseness(v);
+                        saveCloseness(v);
+                      }}
+                    />
                     <textarea
                       value={memo}
                       onChange={(e) => setMemo(e.target.value)}

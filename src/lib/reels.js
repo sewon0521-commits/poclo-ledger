@@ -55,8 +55,8 @@ export const looksPayload = (looks) =>
     .filter((l) => l.products.length);
 
 /** 우리 상품(룩 단위) + 레퍼런스 후보들 → 가장 맞는 레퍼런스를 골라 우리 릴스 기획 */
-export const productReel = ({ looks, stats, candidates, memo, avoid, direction, mix }) =>
-  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction, mix });
+export const productReel = ({ looks, stats, candidates, memo, avoid, direction, mix, closeness }) =>
+  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction, mix, closeness });
 
 /** 라이브러리 항목을 후보 요약으로 (서버 프롬프트가 길어지지 않게) */
 export const candidateOf = (it) => {
@@ -127,8 +127,75 @@ export function stampOf(line) {
 }
 
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
-export const adaptScript = ({ reference, looks, memo, avoid, direction }) =>
-  call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction });
+export const adaptScript = ({ reference, looks, memo, avoid, direction, closeness }) =>
+  call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction, closeness });
+
+// ---------------------------------------------------------------- 레퍼런스를 얼마나 가져올지
+
+/**
+ * 10/9 세원: "이 정도로 복붙하면 안 돼. 내용이랑 분위기, 멘트들을 조금씩은 가져가되 한 번에 베껴 오면 안 될 것 같아."
+ * 서버 api/reels.js 의 BASE_COPY / BASE_REMIX / BASE_FRESH 와 짝. 기본 = remix.
+ */
+export const CLOSENESS = [
+  { id: "copy", label: "거의 그대로", hint: "레퍼 문장에 우리 상품 말만 바꿔 넣어요 (예전 방식)" },
+  { id: "remix", label: "흐름·분위기만", hint: "줄마다 역할·말투는 따라가고 문장은 우리 말로 — 멘트는 2~3개만 빌려요" },
+  { id: "fresh", label: "구조만", hint: "훅 방식·전개만 빌리고 대본은 새로 써요" },
+];
+const CLOSE_KEY = "poclo_reel_closeness";
+export function readCloseness() {
+  try {
+    const v = localStorage.getItem(CLOSE_KEY);
+    return CLOSENESS.some((c) => c.id === v) ? v : "remix";
+  } catch {
+    return "remix";
+  }
+}
+export function saveCloseness(v) {
+  try {
+    localStorage.setItem(CLOSE_KEY, v);
+  } catch {
+    /* 기억 못 해도 된다 */
+  }
+}
+
+/** 견줄 글자만 — 띄어쓰기·문장부호·이모지·'말:' 빼고 */
+const bare = (t) =>
+  String(t || "")
+    .replace(/^\s*말\s*:/, "")
+    .toLowerCase()
+    .replace(/[^0-9a-z가-힣]/g, "");
+
+/** 두 줄이 얼마나 같은지 0~1 (글자 두 개씩 묶어 겹치는 비율) */
+export function lineSim(a, b) {
+  const x = bare(a);
+  const y = bare(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.length < 2 || y.length < 2) return 0;
+  const grams = (t) => {
+    const m = new Map();
+    for (let i = 0; i < t.length - 1; i++) m.set(t.slice(i, i + 2), (m.get(t.slice(i, i + 2)) || 0) + 1);
+    return m;
+  };
+  const gx = grams(x);
+  const gy = grams(y);
+  let hit = 0;
+  for (const [g, n] of gx) hit += Math.min(n, gy.get(g) || 0);
+  return (2 * hit) / (x.length - 1 + y.length - 1);
+}
+
+/** baseLines → {pct: 대본 전체가 레퍼와 겹치는 정도(%), same: 거의 그대로인 줄 수, sims: 줄마다} */
+export function overlapOf(lines) {
+  const sims = (lines || []).map((l) => lineSim(l.ref, l.ours));
+  let w = 0;
+  let sum = 0;
+  (lines || []).forEach((l, i) => {
+    const n = bare(l.ours).length;
+    w += n;
+    sum += n * sims[i];
+  });
+  return { pct: w ? Math.round((sum / w) * 100) : 0, same: sims.filter((v) => v >= 0.8).length, sims };
+}
 
 // ---------------------------------------------------------------- 빈칸 틀
 
