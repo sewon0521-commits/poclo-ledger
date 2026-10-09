@@ -1,7 +1,7 @@
 // 릴스 기획 서버 함수(/api/reels) 부르기. 키는 서버에만 있다.
 
 // 요즘 트렌드 메모 — 트렌드 칸(TrendBox)이 서버에서 읽어 이 기기에 둔 것을 기획 요청에 붙인다 (분석·보관에는 안 붙임 — 돈 아끼기)
-const PLAN_MODES = ["product", "adapt", "revise", "plan"];
+const PLAN_MODES = ["product", "adapt", "revise", "plan", "angles"];
 function withTrends(body) {
   if (!PLAN_MODES.includes(body?.mode)) return body;
   try {
@@ -55,8 +55,26 @@ export const looksPayload = (looks) =>
     .filter((l) => l.products.length);
 
 /** 우리 상품(룩 단위) + 레퍼런스 후보들 → 가장 맞는 레퍼런스를 골라 우리 릴스 기획 */
-export const productReel = ({ looks, stats, candidates, memo, avoid, direction, mix, closeness }) =>
-  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction, mix, closeness });
+export const productReel = ({ looks, stats, candidates, memo, avoid, direction, mix, closeness, angle }) =>
+  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction, mix, closeness, angle });
+
+/**
+ * 맞춰갈 방향 고르기 (10/9 세원: "레퍼 문맥의 제일 중요한 점을 내가 집든 처음 만들 때 집어 주든 — 레퍼런스랩처럼 어떻게 맞춰 갈지 고르는 란")
+ * 글만 보내서 싸다(상품 사진 없음, effort low). → {chosen, core{point,target,mood,hook}, angles[{title,same,keep,change,hook,fit}]}
+ */
+export const reelAngles = ({ looks, candidates, mix, reference, memo }) =>
+  call({ mode: "angles", looks: looksPayload(looks), candidates, mix, reference, memo });
+
+/** 고른 방향 → 요청에 실을 모양 (AngleBox state). 상품·레퍼런스가 바뀌었으면(keyNow 다름) 안 보낸다 */
+export function angleOf(state, keyNow) {
+  if (!state) return undefined;
+  if (state.pick === "custom") return state.custom?.trim() || undefined;
+  const fresh = state.res && state.key === keyNow;
+  const a = fresh && typeof state.pick === "number" ? state.res.angles?.[state.pick] : null;
+  return a ? { core: state.res.core?.point || "", title: a.title, keep: a.keep, change: a.change, hook: a.hook } : undefined;
+}
+export const chosenOf = (state, keyNow) => (state?.res && state.key === keyNow ? state.res.chosen || "" : "");
+
 
 /** 라이브러리 항목을 후보 요약으로 (서버 프롬프트가 길어지지 않게) */
 export const candidateOf = (it) => {
@@ -73,6 +91,7 @@ export const candidateOf = (it) => {
     template: r.template,
     slots: r.slots,
     script: r.script,
+    screen: r.screenText || "",
   };
 };
 
@@ -127,8 +146,8 @@ export function stampOf(line) {
 }
 
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
-export const adaptScript = ({ reference, looks, memo, avoid, direction, closeness }) =>
-  call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction, closeness });
+export const adaptScript = ({ reference, looks, memo, avoid, direction, closeness, angle }) =>
+  call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction, closeness, angle });
 
 // ---------------------------------------------------------------- 레퍼런스를 얼마나 가져올지
 

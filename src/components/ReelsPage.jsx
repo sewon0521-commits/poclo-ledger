@@ -24,9 +24,10 @@ import {
   Eye,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
-import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf, readCloseness, saveCloseness } from "../lib/reels";
+import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf, readCloseness, saveCloseness, reelAngles, angleOf } from "../lib/reels";
 import LookPicker from "./LookPicker";
 import BaseScript, { ClosenessPick } from "./BaseScript";
+import AngleBox from "./AngleBox";
 import { emptyLook } from "../lib/looks";
 import { newId } from "../lib/id";
 import {
@@ -554,6 +555,24 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
         </div>
       )}
       {msg && <p className="mt-1.5 text-xs text-stone-500">{msg}</p>}
+      {r.screenText && !edit && (
+        <details className="mt-2 rounded-xl border border-stone-200 px-3 py-2 text-sm">
+          <summary className="cursor-pointer text-xs font-semibold text-stone-500">화면 배경 글 — 대본에는 안 넣음 (레퍼 화제 참고)</summary>
+          <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-stone-600">{r.screenText}</p>
+        </details>
+      )}
+      {r.dense && item.hasVideo && onReExtract && !edit && (
+        <button
+          type="button"
+          onClick={() => {
+            if (!window.confirm(`대본을 다시 뽑을까요? (약 250~300원)${r.scriptEditedAt ? "\n직접 고친 대본도 새로 뽑은 대본으로 바뀌어요." : ""}`)) return;
+            onReExtract(item);
+          }}
+          className="mt-2 flex items-center gap-1 text-[11px] text-stone-400 hover:text-stone-700"
+        >
+          <Wand2 size={11} /> 대본이 이상하면 다시 뽑기
+        </button>
+      )}
       {!r.dense && item.hasVideo && onReExtract && !edit && (
         <div className="mt-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-xs text-stone-600">
           예전 방식으로 뽑은 대본이에요(장면 사진 10~18장만 봄). 빨리 지나가는 자막을 놓쳤을 수 있어요.
@@ -587,6 +606,9 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
   const [memo, setMemo] = useState(item.planMemo || "");
   // 레퍼런스를 얼마나 가져올지 (10/9)
   const [closeness, setCloseness] = useState(item.plan?.closeness || readCloseness());
+  // 맞춰갈 방향 (10/9)
+  const [angleSt, setAngleSt] = useState(item.angleSt || { pick: "auto", custom: "" });
+  const angleKey = JSON.stringify(looks.map((l) => l.products.map((p) => p.url || p.no || "")));
   const [direction, setDirection] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -617,6 +639,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
         avoid: again ? `${plan?.hook || ""}\n${plan?.script || ""}` : "",
         direction: again ? direction : "",
         closeness,
+        angle: angleOf(angleSt, angleKey),
       });
       if (!res.ok) {
         setMsg(res.message);
@@ -629,6 +652,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
         plan: res.data,
         filled: res.data.filled || [],
         looks,
+        angleSt,
         planMemo: memo,
         productUrl: looks[0]?.products?.[0]?.url || "",
       });
@@ -923,6 +947,13 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                 <>
                   <div className="space-y-2 rounded-xl border border-stone-200 p-3">
                     <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
+                    <AngleBox
+                      state={angleSt}
+                      onChange={setAngleSt}
+                      fetcher={() => reelAngles({ looks, reference: r, memo })}
+                      keyNow={angleKey}
+                      disabled={!looks.some((l) => l.products.length)}
+                    />
                     <ClosenessPick
                       value={closeness}
                       onChange={(v) => {

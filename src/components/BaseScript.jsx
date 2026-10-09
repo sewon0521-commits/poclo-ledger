@@ -52,6 +52,22 @@ export default function BaseScript({ plan, onSave, onSeek }) {
 
   return (
     <div>
+      {(plan?.core || plan?.angle) && (
+        <div className="mb-2 space-y-1 rounded-xl bg-stone-50 px-3 py-2 text-xs leading-relaxed">
+          {plan.core && (
+            <p>
+              <span className="mr-1 font-semibold text-stone-500">레퍼 핵심</span>
+              <span className="text-stone-800">{plan.core}</span>
+            </p>
+          )}
+          {plan.angle && (
+            <p>
+              <span className="mr-1 font-semibold text-rose-700">이번 방향</span>
+              <span className="text-stone-800">{plan.angle}</span>
+            </p>
+          )}
+        </div>
+      )}
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs font-semibold text-stone-500">
           {title}

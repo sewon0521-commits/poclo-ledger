@@ -59,13 +59,20 @@ const ScriptSchema = z.object({
   title: z.string().describe("이 릴스를 한 줄로 부르는 이름. 예: '아침 출근룩 3초 훅'"),
   kind: z.string().describe("영상 형태. '자막형' / '목소리형' / '자막+목소리' / '브이로그형' 중 하나"),
   seconds: z.number().describe("대략 몇 초짜리로 보이는지. 모르면 0"),
-  hook: z.string().describe("첫 1~3초에 쓰인 훅. 화면에 뜬 글자가 있으면 그대로"),
+  hook: z.string().describe("첫 1~3초 훅. 목소리가 있으면 첫 목소리 문장(자막 표기로), 없으면 화면 자막 그대로"),
   script: z
     .string()
     .describe(
       "전체 대본. **한 줄에 자막(또는 말) 하나**, 줄 앞에 그 자막이 처음 뜬 시각을 [0:03.5] 처럼 붙인다(초는 소수 한 자리). " +
       "자막은 글자 그대로. 화면 자막이 아니라 목소리로만 한 말은 시각 뒤에 '말:' 을 붙여 구분한다(예: '[0:04.0] 말: 제일 만만한 건…'). " +
-      "줄은 **시각 순서대로**(자막과 말이 섞여도). 시각을 모르면 줄 앞에 아무것도 붙이지 않는다",
+      "줄은 **시각 순서대로**(자막과 말이 섞여도). 시각을 모르면 줄 앞에 아무것도 붙이지 않는다. " +
+      "**화면 배경 글(screenText)은 넣지 않는다**",
+    ),
+  screenText: z
+    .string()
+    .describe(
+      "대본이 아닌 화면 글자 — 화면 한쪽에 계속 떠 있는 제목 띠, 두 문장 넘는 설명 글 덩어리(예: 'OO란? …하는 트렌드예요'), " +
+      "기사·검색·메모 화면, 상품 택·가격표. 레퍼의 화제를 알려 주니 읽은 대로 적어 둔다(줄 앞 시각 붙여도 됨). 없으면 빈 문자열",
     ),
   scenes: z
     .array(
@@ -158,9 +165,11 @@ const SCRIPT_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. �
 시간 순서대로 떠낸 장면들**이다. 사진 앞에 붙은 시간(초)을 보고 흐름을 읽어라.
 
 **할 일**
-1. 화면에 박힌 자막을 **글자 그대로** 읽어라. 자막이 릴스 대본이다. 맞춤법을 고치지 마라(영상에 쓰인 그대로).
+1. 화면에 박힌 **자막**(보라고 얹은 글씨 — 장면·말에 맞춰 바뀐다)을 **글자 그대로** 읽어라. 맞춤법을 고치지 마라(영상에 쓰인 그대로).
 2. 자막이 없으면 화면(옷·동작·장소·표정)만 보고 어떤 영상인지 읽어라.
-3. 아래에 '받아쓴 말'이 주어졌다면 그것이 실제 음성이다. 자막과 합쳐 하나의 대본으로 정리해라.
+3. 아래에 '받아쓴 말'이 주어졌다면 그것이 실제 음성이다. **목소리가 있으면 목소리가 대본의 뼈대다** — 말한 순서대로 줄을 세우고,
+   자막이 그 말을 따라 쓴 것이면 자막 글자로 적는다(받아쓰기는 틀릴 수 있다 — '들어와'로 들려도 자막이 '드루와!!'면 자막을 믿어라).
+   **목소리로 한 말이 자막으로 안 보이면 '말:' 줄로 반드시 넣어라** — 특히 첫 훅 문장. 목소리 없이 자막만 뜬 구간은 자막 줄로.
 4. 대본을 뽑은 뒤 **구조를 분석**해라 — 공감 포인트, 훅 공식(A/B), 문장별 역할, 전개, CTA.
 5. 마지막으로 이 대본을 **다른 상품에도 쓸 수 있는 틀**로 바꿔라(template + slots).
    말투·리듬·구조는 그대로 두고, **상품이 바뀌면 달라지는 자리만** {{핵심소재}} 처럼 빈칸으로 판다.
@@ -173,6 +182,9 @@ const SCRIPT_PROMPT = `너는 여성 의류 쇼핑몰의 릴스 기획자다. �
 - **없는 말을 지어내지 마라.** 안 보이면 안 보인다고 note 에 적어라.
   특히 소리는 들을 수 없으니, 목소리형인데 받아쓴 말이 없으면 그렇게 적어라.
 - 사진에 워터마크·아이디·UI(좋아요 수 등)가 보여도 대본에 넣지 마라.
+- **대본이 아닌 화면 글자는 script 에 넣지 말고 screenText 에.** 화면 위·아래에 계속 떠 있는 제목 띠, 두 문장 넘는 설명 글 덩어리
+  (트렌드 설명·기사·블로그·검색 화면·메모 캡처), 상품 택·가격표·간판이 그렇다.
+  가리는 법: 한 번에 두 문장 넘게 뜨거나, 장면이 바뀌어도 같은 자리에 그대로 있거나, 목소리·주 자막과 글씨 크기·자리가 다르면 배경 글이다.
 - '자동 받아쓰기'는 기계가 들은 것이라 틀릴 수 있다. 배경음악 가사가 섞였을 수 있으니
   **말인지 노래 가사인지 가려서**, 가사는 대본에 넣지 말고 note 에 "배경음악: …"으로 적어라.
 - 성과 숫자(좋아요·댓글 등)가 주어지면 performance 에 해석을 적어라. 조회수가 없으면 없다고 두고
@@ -192,7 +204,7 @@ function denseText(body) {
     out.push(`**자막 띠 사진**이 함께 왔다 — 사무실 PC 가 영상을 ${r.fps ? `1초에 ${r.fps}번` : "촘촘히"} 떠서, 자막이 뜨는 줄만 잘라 시간 순으로 쌓은 것이다.
 칸마다 왼쪽 위 검은 상자의 숫자가 그 칸의 시각(초)이다.
 - 자막은 **띠 사진에서 읽어라.** 장면 사진은 1~3초에 한 장이라 빠른 자막을 놓친다.
-- 0.3~0.5초만 떴다 사라지는 자막도 **하나도 빠뜨리지 마라.** 띠 사진에 보이는 자막은 전부 script 에 들어가야 한다.
+- 0.3~0.5초만 떴다 사라지는 자막도 **하나도 빠뜨리지 마라.** 띠 사진에 보이는 자막은 전부 script 에 들어가야 한다(화면 배경 글 — 제목 띠·설명 글 덩어리 — 은 빼고 screenText 로).
 - 같은 자막이 여러 칸에 이어지면 한 줄로. 글자가 한 자씩 늘어나며 완성되는 효과(타자 효과)는 **완성된 문장 하나로**, 시각은 처음 나타난 칸.
 - 띠 칸에 자막 없이 사람·옷만 보이면 그 순간은 자막이 없는 것이다.
 - 띠 칸은 자막 줄만 잘라 붙인 것이라 화면 구도는 장면 사진으로 본다.`);
@@ -243,20 +255,23 @@ const BASE_COPY = `
 - 그대로 두는 것: 말투·어미·문장 길이·줄 수·순서·시각·감탄사·문장부호·이모지·밈 표현·'말:' 표시. 바꿀 게 없는 줄은 **글자 그대로**.
 - 새 문장을 지어 넣거나, 줄을 합치거나, 지우지 마라. 레퍼런스 줄이 우리 상품에 도저히 안 맞으면 그 줄만 최소한으로 고쳐라.
 - 룩·상품이 여러 개인데 레퍼런스가 한 벌을 소개하면, 상품을 소개하는 줄 묶음을 룩마다 되풀이해도 된다(말투 그대로, 그 줄들의 at 은 비움).
-- 메모(세원 지시)가 훅·문장을 정해 주면 그 줄만 메모대로 바꾼다.
+- 메모(세원 지시)가 훅·문장을 정해 주면 그 줄만 메모대로 바꾼다. '맞춰갈 방향'을 받았으면 바꿔 넣는 말은 그 방향으로.
 - hook 은 baseLines 첫 줄(들)의 ours, scenes 의 text 도 ours 와 같게. script 는 빈 문자열로 둔다(앱이 ours 로 만든다).
 - 레퍼런스 대본이 아예 없을 때만 baseLines 를 빈 배열로 두고 script 를 새로 쓴다.`;
 
 const BASE_REMIX = `
---- 대본 만드는 법 (가장 중요) — 흐름·분위기는 빌리고 문장은 우리 말로 ---
+--- 대본 만드는 법 (가장 중요) — 핵심·흐름·분위기는 빌리고 문장은 우리 말로 ---
+- 먼저 레퍼런스의 **핵심**(core)을 잡아라 — 누구를 겨냥해, 어떤 무드·감정을, 어떤 훅 방식으로 파는지. **이 핵심은 지킨다.**
+  훅 방식을 다른 종류로 바꾸지 마라(트렌드 훅을 고민·공포 훅으로 바꾸는 식 X). 레퍼의 화제(트렌드·시즌 무드·컬러 이야기)가 우리 상품의 색·소재·핏·분위기와 닿으면
+  **그 화제를 이어라** — 예: 레퍼가 '플럼코어 트렌드'를 파는데 우리 상품에 퍼플·플럼 계열 색이 있으면 그 색으로 플럼코어 무드를 잇는다.
+  우리 상품과 전혀 안 닿을 때만 같은 종류의 다른 화제로 바꾼다. '맞춰갈 방향'을 받았으면 그 방향이 먼저다.
 - 레퍼런스 대본을 줄마다 순서대로 깔고(baseLines 의 ref), 줄마다 **같은 역할을 하는 우리 줄**(ours)을 **새 문장으로** 써라.
   빌리는 것: 그 줄이 하는 일(훅·공감·문제 제기·상품 소개·근거·반전·CTA), 전개 순서, 줄 수·시각, 한 줄 길이, 말투의 결(반말/존댓말·어미·감탄·되묻기·끊어 읽기), 분위기.
   빌리지 않는 것: **문장 그 자체.** 레퍼런스 문장에 단어만 바꿔 끼우지 말고, 우리 상품에서 나온 다른 말로 같은 효과를 내라.
 - **레퍼런스에서 글자 그대로 가져와도 되는 건 대본 전체에서 짧은 말 2~3개까지** — 그 영상의 맛을 내는 감탄사·밈·유행어 한두 마디(8자 안쪽).
   그 밖의 줄은 레퍼런스와 같은 문장이면 안 되고, 어절이 절반 넘게 겹쳐도 안 된다. 같은 멘트를 두 줄 넘게 쓰지 마라.
-- **레퍼런스에만 맞는 화제는 가져오지 마라** — 그 영상의 트렌드 이름·시즌 키워드·브랜드·숫자·상황은 우리 상품 글·메모·요즘 트렌드 메모에 근거가 있을 때만.
-  근거가 없으면 그 자리에 우리 상품의 진짜 강점을 넣는다.
-- 우리 줄에 넣는 사실(상품명·옷 종류·소재·색·핏·디테일·가격·입는 상황)은 **우리 상품 글에 있는 것만.**
+- 우리 줄에 넣는 사실(상품명·옷 종류·소재·색·핏·디테일·가격·숫자·브랜드·입는 상황)은 **우리 상품 글에 있는 것만** — 레퍼의 가격·숫자·브랜드·옷 종류를 옮기지 마라.
+  트렌드·무드 이름은 위처럼 우리 상품과 닿을 때 쓴다(근거 없이 '1위'·'품절 대란' 같은 말 금지).
 - 레퍼런스 줄이 우리 상품에 도저히 안 맞으면 같은 역할의 다른 말로 바꾼다. 줄을 합치거나 빼지는 마라(시각이 어긋난다).
 - 룩·상품이 여러 개인데 레퍼런스가 한 벌을 소개하면, 상품 소개 줄 묶음을 룩마다 되풀이해도 된다(그 줄들의 at 은 비움) — 되풀이할 때도 룩마다 문장을 다르게.
 - 메모(세원 지시)가 훅·문장을 정해 주면 그 줄은 메모대로(메모 문장은 그대로 써도 된다).
@@ -268,6 +283,7 @@ const BASE_FRESH = `
 --- 대본 만드는 법 (가장 중요) — 구조만 빌려 새로 쓰기 ---
 - 레퍼런스 대본은 **구조 참고용**이다: 훅 방식, 전개 순서, 장면 수·길이, CTA 방식만 따르고 문장은 처음부터 우리 말로 새로 써라.
 - 레퍼런스의 문장·표현·밈을 옮겨 오지 마라(짧은 감탄사 하나 정도는 괜찮다). 레퍼런스에만 맞는 화제(트렌드 이름·시즌 키워드·브랜드·숫자)는 가져오지 않는다.
+- 레퍼 **핵심**(누구를 겨냥해 어떤 무드·감정을 어떤 훅 방식으로 파는지)은 지킨다. '맞춰갈 방향'을 받았으면 그 방향이 먼저.
 - 넣는 사실은 **우리 상품 글에 있는 것만.** 메모(세원 지시)가 훅·문장을 정해 주면 그대로.
 - baseLines 는 빈 배열로 두고, script 에 새 대본 전체를 한 줄에 자막 하나씩(줄 앞 [0:03] 시각은 레퍼런스 흐름에 맞춰 붙여도 된다).
   hook 은 script 첫 줄(들), scenes 의 text 는 script 와 같게.`;
@@ -275,6 +291,92 @@ const BASE_FRESH = `
 const CLOSENESS = { copy: BASE_COPY, remix: BASE_REMIX, fresh: BASE_FRESH };
 const closenessOf = (body) => (CLOSENESS[body?.closeness] ? body.closeness : "remix");
 const baseText = (body) => CLOSENESS[closenessOf(body)];
+
+/**
+ * 맞춰갈 방향 (10/9 세원: "소슬 레퍼 후킹은 트렌드에 민감한 사람 + 퍼플코어 무드를 겨냥했는데 나온 대본은 공포 후킹이잖아?
+ * 문맥의 제일 중요한 점을 내가 집든 처음 만들 때 집어 주든 — 레퍼런스랩처럼 어떻게 맞춰 갈지 고르는 란")
+ * body.angle = 고른 방향 {core, title, keep, change, hook} 또는 직접 적은 글.
+ */
+function angleText(body) {
+  const a = body.angle;
+  if (!a) return "";
+  if (typeof a === "string") return a.trim() ? `\n--- 맞춰갈 방향 (세원이 직접 적음 — 최우선) ---\n${a.slice(0, 600)}\ncore·angle 칸은 이 방향에 맞춰 적어라.` : "";
+  return [
+    "\n--- 맞춰갈 방향 (세원이 고름 — 최우선) ---",
+    a.core ? `레퍼 핵심: ${String(a.core).slice(0, 300)}` : "",
+    `방향: ${String(a.title || "").slice(0, 200)}`,
+    a.keep ? `지킬 것: ${String(a.keep).slice(0, 300)}` : "",
+    a.change ? `바꿀 것: ${String(a.change).slice(0, 300)}` : "",
+    a.hook ? `훅 예시(참고 — 다듬어 써도 된다): ${String(a.hook).slice(0, 200)}` : "",
+    "core·angle 칸은 이 방향 그대로 적어라.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+const AnglesSchema = z.object({
+  chosen: z.string().describe("후보 여럿 중에서 고른 레퍼런스 id. 레퍼런스가 하나로 정해져 왔거나 섞어 만들기면 빈 문자열"),
+  core: z.object({
+    point: z.string().describe("이 레퍼런스의 제일 중요한 점 한 줄 — 왜 멈추고 왜 사고 싶어지는지. 예: '트렌드에 민감한 사람에게 이번 시즌 플럼코어 무드를 3만원대로 갖게 해 준다'"),
+    target: z.string().describe("누구를 겨냥하는지 짧게"),
+    mood: z.string().describe("어떤 무드·감정을 파는지 짧게"),
+    hook: z.string().describe("훅 방식 짧게 (트렌드 소환·공감·고민·반전·가격·결과 먼저 …)"),
+  }),
+  angles: z
+    .array(
+      z.object({
+        title: z.string().describe("방향 이름 한 줄. 예: '레퍼 그대로 — 플럼코어 트렌드를 우리 퍼플 컬러로'"),
+        same: z.boolean().describe("레퍼 핵심(겨냥·무드·훅 방식)을 그대로 지키는 방향이면 true"),
+        keep: z.string().describe("레퍼에서 지키는 것 한 줄"),
+        change: z.string().describe("우리 상품에 맞게 바꾸는 것 한 줄"),
+        hook: z.string().describe("이 방향의 첫 훅 예시 한 줄 — 레퍼 문장을 베끼지 말고 우리 말로"),
+        fit: z.string().describe("우리 상품 글에서 찾은 이 방향의 근거(색·소재·핏·가격 등) 한 줄. 근거가 약하면 그렇다고"),
+      }),
+    )
+    .describe("맞춰갈 방향 3개. 첫째는 반드시 레퍼 핵심을 지키는 방향(same: true), 둘째·셋째는 우리 상품 강점에서 나온 다른 각도"),
+});
+
+const ANGLES_PROMPT = `너는 여성 의류 쇼핑몰 **포클로**의 릴스 기획자다. 대본을 쓰기 전에 **방향부터** 정한다. 짧게, 칸마다 한 줄.
+
+1. 레퍼런스의 **제일 중요한 점(core)** 을 잡아라 — 누구를 겨냥해, 어떤 무드·감정을, 어떤 훅 방식으로 파는지.
+   자잘한 표현이 아니라 '이 영상이 먹힌 이유'다. 목소리·자막·화면 배경 글·구조·먹히는 이유를 같이 보고 판단해라.
+   후보가 여럿이면 이 상품에 가장 맞는 것 하나를 골라 chosen 에 id 를 적고 그 레퍼런스로. ★BEST 는 비슷하게 맞으면 먼저.
+2. 우리 상품 글을 읽고 **맞춰갈 방향 3개**를 내라.
+   - 첫째: **레퍼 핵심을 지키는 방향** — 같은 사람을 같은 무드·같은 훅 방식으로 겨냥하고, 레퍼의 화제(트렌드·무드·컬러)를 우리 상품의 색·소재·핏·가격에 잇는다.
+     이어질 근거가 약하면 fit 에 솔직하게 적는다.
+   - 둘째·셋째: 우리 상품의 진짜 강점에서 나온 다른 각도(레퍼 흐름은 쓰되 겨냥이나 훅이 다른 것). 서로 겹치지 않게.
+   - 훅 예시는 레퍼 문장을 베끼지 말고 우리 말로. 사실(가격·소재·색·숫자)은 우리 상품 글에 있는 것만.
+3. 메모(세원 지시)가 방향을 정해 주면 그걸 첫째로 다듬어 넣는다.`;
+
+/** 후보 레퍼런스 한 개 → 글 (상품 기획·방향 고르기) */
+function candText(c, max = 1600) {
+  return [
+    `[${c.id}] ${c.title}`,
+    `  훅: ${c.hook || ""} (${c.hookType || ""})`,
+    `  구조: ${c.flow || ""} · CTA: ${c.cta || ""}`,
+    `  먹히는 이유: ${c.why || ""}`,
+    c.performance ? `  성과: ${c.performance}` : "",
+    c.screen ? `  화면 배경 글(대본 아님 — 레퍼 화제 참고): ${String(c.screen).slice(0, 300)}` : "",
+    c.script ? `  대본:\n${String(c.script).slice(0, max)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** 섞어 만들기 고른 것 → 방향 고르기용 짧은 글 */
+function mixBrief(mix) {
+  const h = mix.hook || {};
+  const f = mix.flow || {};
+  const w = mix.script || {};
+  return [
+    "섞어 만들기 — 부분마다 다른 레퍼런스. 핵심(core)은 '훅'과 '내용 흐름' 레퍼런스로 잡아라.",
+    h.title || h.hook ? `훅 레퍼런스 '${h.title || ""}': ${h.hook || ""} (${h.hookType || ""}) ${h.empathy ? "· 공감: " + h.empathy : ""}` : "",
+    f.title || f.flow ? `흐름 레퍼런스 '${f.title || ""}': ${f.flow || ""} · CTA: ${f.cta || ""}` : "",
+    w.script ? `대본 말투 레퍼런스 '${w.title || ""}':\n${String(w.script).slice(0, 900)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 /** 바탕 줄 → 대본 ([시각] 줄) */
 function withBase(out) {
@@ -302,6 +404,12 @@ const AdaptSchema = z.object({
       }),
     )
     .describe("룩이 여러 개면 룩마다 한 줄. 상품이 하나면 룩 1 하나만"),
+  core: z
+    .string()
+    .describe("레퍼런스의 제일 중요한 점 한 줄 — 누구를 겨냥해 어떤 무드·감정을 어떤 훅 방식으로 파는지(자잘한 표현 말고 '먹힌 이유')"),
+  angle: z
+    .string()
+    .describe("이번 우리 대본이 그 핵심을 우리 상품에 어떻게 이었는지 한 줄. '맞춰갈 방향'을 받았으면 그 방향"),
   filled: z
     .array(
       z.object({
@@ -766,6 +874,38 @@ export default async function handler(req, res) {
       return res.status(200).json(parsedOf(r, "고친 기획"));
     }
 
+    if (body.mode === "angles") {
+      let got;
+      try {
+        got = await readLooks(body);
+      } catch (err) {
+        if (err.userFacing === 400) return fail(res, 400, "bad_request", err.message);
+        return fail(res, 422, "product_unreadable", err.message || "상품 페이지를 못 읽었어요.");
+      }
+      const { products, count } = got;
+      const cands = Array.isArray(body.candidates) ? body.candidates.slice(0, 12) : [];
+      const mix = body.mix && typeof body.mix === "object" ? body.mix : null;
+      const ref = body.reference || null;
+      const refs = ref
+        ? candText({ id: "", title: ref.title, hook: ref.hook, hookType: ref.structure?.hookType, flow: ref.structure?.flow, cta: ref.structure?.cta, why: ref.structure?.whyItWorks, screen: ref.screenText, script: ref.script }, 2000)
+        : mix
+          ? mixBrief(mix)
+          : cands.length
+            ? cands.map((c) => candText(c, 900)).join("\n\n")
+            : "(레퍼런스 없음 — core 는 '일반 판매형 릴스'로 두고 방향 3개를 상품에서)";
+      const text = [
+        ANGLES_PROMPT,
+        "\n--- 레퍼런스 ---",
+        refs,
+        count > 1 ? `\n--- 우리 상품 (룩 ${count}개) ---` : "\n--- 우리 상품 ---",
+        looksText(products, count),
+        body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
+        trendText(body),
+      ].join("\n");
+      const r = await ask(client, [{ type: "text", text }], AnglesSchema, "low");
+      return res.status(200).json(parsedOf(r, "방향 고르기"));
+    }
+
     if (body.mode === "product") {
       let got;
       try {
@@ -787,11 +927,7 @@ export default async function handler(req, res) {
           ? cands
               .map((c) =>
                 [
-                  `[${c.id}] ${c.title}`,
-                  `  훅: ${c.hook || ""} (${c.hookType || ""})`,
-                  `  구조: ${c.flow || ""} · CTA: ${c.cta || ""}`,
-                  `  먹히는 이유: ${c.why || ""}`,
-                  c.performance ? `  성과: ${c.performance}` : "",
+                  candText({ ...c, script: "" }),
                   c.template ? `  빈칸 틀:\n${String(c.template).split("\n").map((l) => "    " + l).join("\n")}` : "",
                   c.slots?.length ? `  빈칸: ${c.slots.map((x) => `${x.key}(${x.hint}; 원래 "${x.original}")`).join(" / ")}` : "",
                   c.script ? `  대본:\n${String(c.script).slice(0, 1600)}` : "",
@@ -805,6 +941,7 @@ export default async function handler(req, res) {
         looksText(products, count),
         st.reason ? `판매 숫자: ${st.reason}` : "",
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
+        angleText(body),
         trendText(body),
         STUDIO_TEXT,
         redoText(body),
@@ -851,6 +988,7 @@ export default async function handler(req, res) {
         `훅: ${ref.hook || ""}`,
         `구조: ${ref.structure?.flow || ""} (훅 방식: ${ref.structure?.hookType || ""}, CTA: ${ref.structure?.cta || ""})`,
         `대본:\n${ref.script || ""}`,
+        ref.screenText ? `화면 배경 글(대본 아님 — 레퍼 화제 참고): ${String(ref.screenText).slice(0, 400)}` : "",
         ref.template ? `빈칸 틀:\n${ref.template}` : "",
         ref.slots?.length
           ? `빈칸 목록:\n${ref.slots.map((s) => `- ${s.key}: ${s.hint} (레퍼런스에선 "${s.original}")`).join("\n")}`
@@ -858,6 +996,7 @@ export default async function handler(req, res) {
         count > 1 ? `\n--- 우리 상품 판매페이지 (룩 ${count}개) ---` : "\n--- 우리 상품 판매페이지 ---",
         looksText(products, count),
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
+        angleText(body),
         trendText(body),
         STUDIO_TEXT,
         redoText(body),
@@ -879,7 +1018,7 @@ export default async function handler(req, res) {
       });
     }
 
-    return fail(res, 400, "bad_request", "mode 는 script · adapt · product · review 중 하나여야 합니다.");
+    return fail(res, 400, "bad_request", "mode 는 script · adapt · product · angles · review 중 하나여야 합니다.");
   } catch (err) {
     if (err?.userFacing) return fail(res, err.userFacing, "unreadable", err.message);
     const status = err?.status;
