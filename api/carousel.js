@@ -317,6 +317,8 @@ export default async function handler(req, res) {
     const status = err?.status;
     const msg = String(err?.message || "");
     if (status === 400 && /credit|balance/i.test(msg)) return fail(res, 402, "no_credit", "API 잔액이 부족해요.");
+    // 10/9: 키가 지워지거나 바뀌면 401 — '잠시 뒤 다시'로 뭉뚱그려서 원인을 못 찾았다
+    if (status === 401 || /authentication|x-api-key/i.test(msg)) return fail(res, 503, "bad_key", "Claude API 키가 막혔어요(잘못된 키). Claude 콘솔에서 새 키를 만들어 Vercel 의 ANTHROPIC_API_KEY 에 넣고 다시 배포해야 해요.");
     console.error(err);
     const why =
       status === 429 ? "요청이 몰려 한도에 걸렸어요. 1분 뒤 다시 해주세요."

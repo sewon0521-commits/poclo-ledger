@@ -1649,3 +1649,12 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
   시험 중 잡은 것: `<audio>` 이벤트의 `e.currentTarget` 을 setState 함수 안에서 읽으면 null(이벤트가 먼저 비워짐) → 먼저 읽어 둔다.
 - ⚠ **공유 저장소가 거의 찼다**(10/6 잼): reels 버킷 940MB — 릴스 레퍼런스 영상 140개 760MB · 계정 아카이브 147MB · 사진 33MB. 무료 요금제면 한도 1GB.
   차면 음악뿐 아니라 영상·사진 보관도 막힌다. 길: Supabase Pro(월 $25, 100GB) / 사무실 PC 가 보관 영상을 작게 다시 인코딩(대략 절반) / 안 쓰는 영상 지우기 — 세원 결정 대기.
+
+## 52. Claude API 키 막힘 (2026-10-09)
+
+- 세원: "상품 분석이 안 되네 알아봐 줘." → 분석기 기록(`poclo-cafe24/reels_worker_log.txt`): 10/9 21:16 까지 성공, **21:17 부터 `401 authentication_error invalid x-api-key`**.
+  Vercel 의 `ANTHROPIC_API_KEY` 가 지워졌거나 바뀐 키다(이 PC `poclo-ledger/.env` 키도 같은 401). 저장소에 키가 올라간 적은 없다(`sk-ant` 는 키 모양 검사 정규식뿐) — 유출로 막힌 건 아님.
+  같은 키를 쓰는 **장끼 읽기·릴스·캐러셀 분석·기획 전부 멈춤**.
+- 고칠 길(세원이 직접 — 키는 채팅으로 받지 않는다): platform.claude.com › API keys 에서 새 키 → Vercel › poclo-ledger › Settings › Environment Variables › `ANTHROPIC_API_KEY` 고치기 → **다시 배포**(환경변수는 새 배포부터 적용).
+  (개발용 `poclo-ledger/.env` 도 같은 키로 바꾸면 이 PC 시험도 된다.)
+- 앱 문구: 릴스·캐러셀 API 가 401 을 '잠시 뒤 다시 시도'로 뭉뚱그려 원인을 몰랐다 → `bad_key` 503 "Claude API 키가 막혔어요(잘못된 키)… 새 키를 Vercel ANTHROPIC_API_KEY 에" (장끼 읽기도 같은 문구).

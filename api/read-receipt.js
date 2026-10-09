@@ -218,7 +218,7 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
-      return res.status(503).json({ error: "auth", message: "API 키가 맞지 않아요. 키를 다시 확인해 주세요." });
+      return res.status(503).json({ error: "auth", message: "Claude API 키가 막혔어요(잘못된 키). Claude 콘솔에서 새 키를 만들어 Vercel 의 ANTHROPIC_API_KEY 에 넣고 다시 배포해야 해요." });
     }
     if (err instanceof Anthropic.RateLimitError) {
       return res.status(429).json({ error: "rate_limit", message: "잠시 뒤 다시 시도해 주세요." });

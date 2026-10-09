@@ -854,6 +854,8 @@ export default async function handler(req, res) {
     if (status === 400 && /credit|balance/i.test(msg)) {
       return fail(res, 402, "no_credit", "API 잔액이 부족해요.");
     }
+    // 10/9: 키가 지워지거나 바뀌면 401 — '잠시 뒤 다시'로 뭉뚱그려서 원인을 못 찾았다
+    if (status === 401 || /authentication|x-api-key/i.test(msg)) return fail(res, 503, "bad_key", "Claude API 키가 막혔어요(잘못된 키). Claude 콘솔에서 새 키를 만들어 Vercel 의 ANTHROPIC_API_KEY 에 넣고 다시 배포해야 해요.");
     console.error(err);
     // 뭉뚱그리면 고칠 수가 없다 — 어느 쪽 문제인지 한 줄로 알려준다
     const why =
