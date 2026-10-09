@@ -1658,3 +1658,6 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - 고칠 길(세원이 직접 — 키는 채팅으로 받지 않는다): platform.claude.com › API keys 에서 새 키 → Vercel › poclo-ledger › Settings › Environment Variables › `ANTHROPIC_API_KEY` 고치기 → **다시 배포**(환경변수는 새 배포부터 적용).
   (개발용 `poclo-ledger/.env` 도 같은 키로 바꾸면 이 PC 시험도 된다.)
 - 앱 문구: 릴스·캐러셀 API 가 401 을 '잠시 뒤 다시 시도'로 뭉뚱그려 원인을 몰랐다 → `bad_key` 503 "Claude API 키가 막혔어요(잘못된 키)… 새 키를 Vercel ANTHROPIC_API_KEY 에" (장끼 읽기도 같은 문구).
+- 10/9 해결: 세원이 새 키를 Vercel 에 넣음(잔액은 있었음) → 빈 커밋으로 다시 배포 → 배포된 `/api/reels` revise 시험 200(14원).
+  키가 막힌 동안 실패한 레퍼런스 2개(bandicam 녹화)를 앱의 '분석하기'와 같은 방식으로 다시 맡김(item.job queued + reels_queue) → 106초·133초 만에 끝(241원·260원).
+  이 PC 개발용 `.env` 키는 아직 예전 것(401) — 세원이 바꾸면 여기서도 시험 가능.
