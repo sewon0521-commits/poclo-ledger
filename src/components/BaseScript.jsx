@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pencil, GitCompareArrows } from "lucide-react";
 import { CopyButton } from "./ContentBits";
-import { stampOf, overlapOf, CLOSENESS } from "../lib/reels";
+import { stampOf, overlapOf, CLOSENESS, STAMP } from "../lib/reels";
 
 /**
  * 레퍼 대본 바탕 대본 (10/3 세원: "AI가 레퍼런스 대본을 그대로 가져와서 가공해 줬으면. 참고해서 창작하지 말고.
@@ -106,7 +106,8 @@ export default function BaseScript({ plan, onSave, onSeek }) {
                 <Pencil size={12} /> 고치기
               </button>
             )}
-            <CopyButton text={script} />
+            {/* 10/10 세원: "복사 누르면 타임라인 안 나오고 대본만" — 줄 앞 [0:03.5] 시각을 뗀다 */}
+            <CopyButton text={script.split("\n").map((ln) => ln.replace(STAMP, "")).join("\n")} />
           </span>
         )}
       </div>
