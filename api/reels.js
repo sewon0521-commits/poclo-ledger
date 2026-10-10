@@ -313,7 +313,7 @@ function angleText(body) {
     `방향: ${String(a.title || "").slice(0, 200)}`,
     a.keep ? `지킬 것: ${String(a.keep).slice(0, 300)}` : "",
     a.change ? `바꿀 것: ${String(a.change).slice(0, 300)}` : "",
-    a.hook ? `훅 예시(참고 — 다듬어 써도 된다): ${String(a.hook).slice(0, 200)}` : "",
+    a.hook ? `훅 예시(참고만 — 훅 문장은 '대본 만드는 법'대로 레퍼 훅 틀을 따르는 게 먼저): ${String(a.hook).slice(0, 200)}` : "",
     "core·angle 칸은 이 방향 그대로 적어라.",
   ]
     .filter(Boolean)
