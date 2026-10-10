@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop } from "lucide-react";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
@@ -941,9 +941,20 @@ function CodiEdit({ codi, d, onClose }) {
   const [folder, setFolder] = useState(null);
   const [cut, setCut] = useState("");
   const [shop, setShop] = useState("");
+  // 상품 찾기 (10/10 세원: "코디 만들기에서 상품을 검색하게") — 치면 입고·픽·촬영 말고 다른 단계(휴지통 빼고)까지 찾는다
+  const [q, setQ] = useState("");
   const toggle = (k, id) => setC((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
   const today = dayKey();
-  const items = d.items.map(normalize).filter((x) => ["arrived", "pick"].includes(x.stage) || c.itemIds.includes(x.id));
+  const bare = (t) => String(t || "").toLowerCase().replace(/\s+/g, "");
+  const words = q.trim().split(/\s+/).filter(Boolean).map(bare);
+  const items = d.items
+    .map(normalize)
+    .filter((x) =>
+      words.length
+        ? x.stage !== "trash" &&
+          words.every((w) => bare([x.name, x.fullName, x.vendor, x.place, x.kind, x.colors, x.sizes, x.fabric, x.memo].join(" ")).includes(w))
+        : ["arrived", "pick"].includes(x.stage) || c.itemIds.includes(x.id),
+    );
   const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
   const refs = d.refs
     .map(withFolder)
@@ -970,6 +981,23 @@ function CodiEdit({ codi, d, onClose }) {
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {tab === "items" && (
+          <div className="relative mb-3">
+            <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-stone-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && q && (e.stopPropagation(), setQ(""))}
+              placeholder="상품 찾기 — 상품명 · 거래처 · 색상 (모든 단계에서)"
+              className={FIELD + " pl-9 text-sm"}
+            />
+            {q && (
+              <button type="button" onClick={() => setQ("")} aria-label="지우기" className="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
         {tab === "items" ? (
           items.length ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
@@ -978,7 +1006,9 @@ function CodiEdit({ codi, d, onClose }) {
               ))}
             </div>
           ) : (
-            <p className="py-8 text-center text-sm text-stone-400">'입고·픽'이나 '촬영' 단계에 있는 상품이 여기 나와요.</p>
+            <p className="py-8 text-center text-sm text-stone-400">
+              {q ? `'${q}'에 맞는 상품이 없어요.` : "'입고·픽'이나 '촬영' 단계에 있는 상품이 여기 나와요. 다른 단계 상품은 위에서 찾아요."}
+            </p>
           )
         ) : (
           <div className="space-y-2">
