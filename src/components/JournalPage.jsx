@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   NotebookPen,
   ChevronLeft,
@@ -26,6 +26,24 @@ import { Viewer } from "./ShootBits";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
 import { newId } from "../lib/id";
+import { kindOf } from "../lib/journalBlocks";
+
+// 노션식 편집기 (10/11) — 업무일지를 쓸 때만 받는다. 받기에 실패하면(인터넷 끊김 등) 예전 편집기로
+const NoteEditor = lazy(() =>
+  import("./JournalBlocks")
+    .then((m) => ({ default: m.NoteEditor }))
+    .catch(() => ({ default: ({ initial, onSave }) => <Editor initial={initial} onSave={onSave} /> })),
+);
+const TodoEditor = lazy(() =>
+  import("./JournalBlocks")
+    .then((m) => ({ default: m.TodoEditor }))
+    .catch(() => ({ default: (p) => <TodoText {...p} editable /> })),
+);
+const Spin = () => (
+  <div className="flex h-24 items-center justify-center text-stone-300">
+    <Loader2 size={18} className="animate-spin" />
+  </div>
+);
 
 /**
  * 일 › 업무일지 (2026-09-24). 쇼필공 ERP 업무일지는 '직원이 제출 → 대표가 받아 답하는 보고서'
@@ -369,6 +387,16 @@ async function addPhoto(file, online) {
   localStorage.setItem(LOCAL_PHOTOS, JSON.stringify(m));
   return k;
 }
+/** 보관 키 → 보이는 주소 (노션식 편집기의 사진 블록) */
+async function photoUrlOf(k, online) {
+  if (/^https?:/.test(k)) return k;
+  if (k.startsWith("local/")) return localPhoto(k);
+  const c = PHOTO_URLS.get(k);
+  if (c && c.exp > Date.now()) return c.url;
+  const got = await photoUrls([k], online);
+  if (got[k]) PHOTO_URLS.set(k, { url: got[k], exp: Date.now() + 3 * 3600 * 1000 });
+  return got[k] || "";
+}
 function usePhotoUrls(keys) {
   const online = useContext(JournalOnline);
   const sig = keys.join("|");
@@ -380,7 +408,8 @@ function usePhotoUrls(keys) {
       const out = {};
       const need = [];
       for (const k of ks) {
-        if (k.startsWith("local/")) out[k] = localPhoto(k);
+        if (/^https?:/.test(k)) out[k] = k;
+        else if (k.startsWith("local/")) out[k] = localPhoto(k);
         else {
           const c = PHOTO_URLS.get(k);
           if (c && c.exp > Date.now()) out[k] = c.url;
@@ -1369,9 +1398,15 @@ function Editor({ initial: raw, onSave }) {
 }
 
 /** 한 페이지 — 오늘 내 일지는 바로 쓰기, 지난 날은 읽기 좋게 보여 주고 '고치기' */
-function Page({ initial, editable, isToday, onSave }) {
+function Page({ initial, editable, isToday, onSave, compact }) {
+  const online = useContext(JournalOnline);
   const [editing, setEditing] = useState(editable && (isToday || !initial.trim()));
-  if (editing) return <Editor initial={initial} onSave={onSave} />;
+  if (editing)
+    return (
+      <Suspense fallback={<Spin />}>
+        <NoteEditor initial={initial} onSave={onSave} upload={(f) => addPhoto(f, online)} resolve={(k) => photoUrlOf(k, online)} compact={compact} />
+      </Suspense>
+    );
   return (
     <div className="relative px-6 py-5">
       {initial.trim() ? (
@@ -1696,9 +1731,22 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
         {items.map((r) => (
           <li key={r.id} className="flex items-start gap-2 py-0.5" style={{ paddingLeft: `${(r.depth || 0) * 22}px` }}>
             <span className="mt-[4px] flex w-4 shrink-0 justify-center">
-              <CheckBox done={r.done} size={15} />
+              {kindOf(r) === "check" ? (
+                <CheckBox done={r.done} size={15} />
+              ) : kindOf(r) === "bullet" || kindOf(r) === "number" ? (
+                <span className="mt-[5px]">
+                  <Dot depth={r.depth || 0} done={r.done} />
+                </span>
+              ) : null}
             </span>
-            <span className={"min-w-0 flex-1 text-sm leading-6 " + (r.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}>{marks(r.text)}</span>
+            <span
+              className={
+                "min-w-0 flex-1 text-sm leading-6 " +
+                (r.done ? "text-stone-400 line-through decoration-stone-300" : kindOf(r) === "heading" ? "font-semibold text-rose-800" : "text-stone-800")
+              }
+            >
+              {marks(r.text)}
+            </span>
             {!r.done && startOf(r) < date && (
               <span className="mt-1 flex shrink-0 items-center gap-0.5 text-[11px] text-amber-700">
                 <CornerDownRight size={10} /> {shortDay(startOf(r))}부터
@@ -1827,33 +1875,43 @@ function Todos({ todos, date, today, editable, onChange, onShowDone }) {
   return (
     <div className="border-t border-stone-100 px-5 py-4">
       <div className="mb-1.5 text-xs font-semibold text-stone-500">{date === today ? "오늘 할 일" : "이날 할 일"}</div>
-      <TodoText
-        key={`d${date}`}
-        items={shown}
-        date={date}
-        today={today}
-        startOn={today}
-        editable={editable && date === today}
-        hideDone={date === today}
-        placeholder="적고 엔터 · 탭으로 들여쓰기 · 다 한 일은 왼쪽 네모를 누르거나 Ctrl+엔터 → '끝낸 일'로"
-        onCommit={commit}
-      />
+      {editable && date === today ? (
+        <Suspense fallback={<Spin />}>
+          <TodoEditor
+            key={`d${date}`}
+            items={shown}
+            date={date}
+            today={today}
+            startOn={today}
+            hideDone
+            placeholder="할 일 — 엔터로 다음 줄 · 탭 들여쓰기 · '- ' 점 목록 · ⋮⋮ 끌어서 옮기기"
+            onCommit={commit}
+          />
+        </Suspense>
+      ) : (
+        <TodoText key={`d${date}`} items={shown} date={date} today={today} startOn={today} editable={false} hideDone={date === today} onCommit={commit} />
+      )}
       {date === today && <DoneToday items={doneToday} editable={editable} onUndo={undone} onAll={onShowDone} />}
 
       {date === today && (editable || later.length > 0) && (
         <div className="mt-4 border-t border-dashed border-stone-100 pt-3">
           <div className="mb-1.5 text-xs font-semibold text-stone-500">내일 할 일</div>
-          <TodoText
-            key={`t${date}`}
-            items={later}
-            date={date}
-            today={today}
-            startOn={tomorrow}
-            editable={editable}
-            hideDone
-            placeholder="내일이 되면 '오늘 할 일'로 올라와요"
-            onCommit={commit}
-          />
+          {editable ? (
+            <Suspense fallback={<Spin />}>
+              <TodoEditor
+                key={`t${date}`}
+                items={later}
+                date={date}
+                today={today}
+                startOn={tomorrow}
+                hideDone
+                placeholder="내일이 되면 '오늘 할 일'로 올라와요"
+                onCommit={commit}
+              />
+            </Suspense>
+          ) : (
+            <TodoText key={`t${date}`} items={later} date={date} today={today} startOn={tomorrow} editable={false} hideDone onCommit={commit} />
+          )}
         </div>
       )}
 
@@ -2449,7 +2507,7 @@ export function JournalQuick({ online, onOpenPage }) {
     setMe(k);
   };
 
-  const left = data ? data.todos.filter((t) => !t.done && startOf(t) <= today).length : 0;
+  const left = data ? data.todos.filter((t) => !t.done && kindOf(t) === "check" && startOf(t) <= today).length : 0;
 
   return (
     <JournalOnline.Provider value={online}>
@@ -2514,7 +2572,7 @@ export function JournalQuick({ online, onOpenPage }) {
             </div>
           ) : (
             <>
-              <Page key={`${gen}-${date}`} initial={data.days[date]?.text || ""} editable isToday={date === today} onSave={savePage} />
+              <Page key={`${gen}-${date}`} initial={data.days[date]?.text || ""} editable isToday={date === today} onSave={savePage} compact />
               <Todos key={`t${gen}`} todos={data.todos} date={date} today={today} editable onChange={setTodos} onShowDone={onOpenPage} />
             </>
           )}

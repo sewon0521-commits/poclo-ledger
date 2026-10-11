@@ -1,0 +1,68 @@
+/* 업무일지 노션식 편집기 (JournalBlocks.jsx) — ERP 모양(stone · rose-700 · Pretendard)에 맞춘다 */
+
+.poclo-bn .bn-editor {
+  padding-inline: 46px 16px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+.poclo-bn.compact .bn-editor {
+  padding-inline: 40px 10px;
+}
+/* 할 일 칸: 글자 조금 작게, 위아래 여백 적게 */
+.poclo-bn.todo .bn-editor {
+  padding-inline: 40px 8px;
+  font-size: 14px;
+  min-height: 2.5rem;
+}
+.poclo-bn.todo .bn-block-outer:not(:first-child) {
+  margin-top: 0;
+}
+
+/* 제목 크기를 일지에 맞게 — ■ 소제목(제목 3)은 예전처럼 로즈색 작은 제목 */
+.poclo-bn [data-content-type="heading"] {
+  --level: 1.45em;
+}
+.poclo-bn [data-content-type="heading"][data-level="2"] {
+  --level: 1.2em;
+}
+.poclo-bn [data-content-type="heading"][data-level="3"] {
+  --level: 0.95em;
+  color: #9f1239;
+}
+.poclo-bn [data-content-type="heading"] .bn-inline-content {
+  font-weight: 650;
+}
+
+/* 끝낸 체크박스 줄은 흐리게 + 줄 긋기 */
+.poclo-bn [data-content-type="checkListItem"][data-checked="true"] .bn-inline-content {
+  color: #a8a29e;
+  text-decoration: line-through;
+  text-decoration-color: #d6d3d1;
+}
+.poclo-bn [data-content-type="checkListItem"] input[type="checkbox"] {
+  accent-color: #be123c;
+  cursor: pointer;
+}
+
+/* 형광펜(노란 바탕)은 예전 모양과 같게 */
+.poclo-bn [data-style-type="backgroundColor"][data-value="yellow"] {
+  background-color: #fef08a;
+}
+/* 인라인 코드 */
+.poclo-bn .bn-inline-content code {
+  background: #f5f5f4;
+  color: #be123c;
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 0.92em;
+}
+/* 인용 */
+.poclo-bn [data-content-type="quote"] blockquote {
+  border-left-color: #d6d3d1;
+  color: #57534e;
+}
+/* 사진은 칸 폭에 맞게, 너무 크지 않게 */
+.poclo-bn [data-content-type="image"] img {
+  max-height: 22rem;
+  border-radius: 10px;
+}
