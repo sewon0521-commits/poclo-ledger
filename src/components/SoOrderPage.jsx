@@ -7,7 +7,8 @@ import { Tab } from "./ui";
 import SoSaved from "./SoSaved";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
-import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES } from "../lib/soOrder";
+import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt } from "../lib/soOrder";
+import { flowBoard } from "../lib/pending";
 
 /**
  * 돈 › 매입 › SO+ 발주 변환 (lib/soOrder.js 머리말).
@@ -175,6 +176,14 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     return Object.fromEntries(withStore.map((r) => [r.id, findPrice(r, src)]));
   }, [withStore, tx, vendors, pricing, memory]);
 
+  // 남은 미송 (돈 › 미송·매입금 과 같은 계산)
+  const misong = useMemo(() => {
+    const vname = Object.fromEntries((vendors || []).map((v) => [v.id, v.name]));
+    return flowBoard(tx || [], (id) => vname[id] || "", "pending")
+      .groups.flatMap((g) => g.lines)
+      .filter((l) => l.left > 0);
+  }, [tx, vendors]);
+
   const rows = useMemo(() => {
     const list = withStore.map((r) => {
       const f = found[r.id] || {};
@@ -188,11 +197,34 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       if (!first.has(storeKey(r))) first.set(storeKey(r), i);
       if (!first.has(nameKey(r))) first.set(nameKey(r), i);
     });
-    return list
+    const sorted = list
       .map((r, i) => ({ r, i }))
       .sort((a, b) => first.get(storeKey(a.r)) - first.get(storeKey(b.r)) || first.get(nameKey(a.r)) - first.get(nameKey(b.r)) || a.i - b.i)
       .map((x) => x.r);
-  }, [withStore, found]);
+
+    // 남은 미송 빼기 (10/11 세원: "발주 7장인데 미송 3개 빼서 4개 추가로 넣어야 하는 상황 — 저절로") — lib/soOrder.misongFor
+    // 같은 상품·같은 색상·사이즈면 저절로 뺀다(misongOff 면 안 뺌), 옵션이 다르면 알려만 주고 '빼기'(misongForce)로.
+    const left = new Map(misong.map((l) => [l.key, l.left]));
+    const usedBy = new Map(); // 미송 줄 → 쓴 발주 줄
+    const out = sorted.map((r) => {
+      const m = misongFor(r, misong);
+      const forced = m.loose.filter((l) => (r.misongForce || []).includes(l.key));
+      const take = r.misongOff ? [] : [...m.exact, ...forced];
+      let used = 0;
+      const from = [];
+      for (const l of take) {
+        const can = Math.min(left.get(l.key) || 0, r.qty - used);
+        if (can <= 0) continue;
+        left.set(l.key, left.get(l.key) - can);
+        used += can;
+        from.push({ key: l.key, name: l.name, qty: can, date: l.lastDate });
+        usedBy.set(l.key, r.id);
+      }
+      return { ...r, want: r.qty, qty: r.qty - used, misUsed: used, misFrom: from, misExact: m.exact, misLoose: m.loose };
+    });
+    // 옵션이 다른 미송은 아직 남았고 다른 줄이 안 쓴 것만 알려 준다
+    return out.map((r) => ({ ...r, misHint: r.misLoose.filter((l) => !usedBy.has(l.key) && (left.get(l.key) || 0) > 0 && !(r.misongForce || []).includes(l.key)) }));
+  }, [withStore, found, misong]);
 
   const read = async (f) => {
     if (!f) return;
@@ -242,12 +274,15 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const allMiss = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, miss: v })) }));
 
   const type = draft?.type || "주문";
-  const lines = useMemo(() => soLines(rows, type), [rows, type]);
+  // 미송으로 다 채운 줄(주문 0장)은 SO+ 에 안 넣는다
+  const live = useMemo(() => rows.filter((r) => r.qty > 0), [rows]);
+  const lines = useMemo(() => soLines(live, type), [live, type]);
   const text = lines.join("\n");
-  const pieces = rows.reduce((s, r) => s + r.qty, 0);
-  const total = rows.reduce((s, r) => s + r.qty * (r.price || 0), 0);
-  const noPrice = rows.filter((r) => !r.price);
-  const noMiss = rows.filter((r) => !r.miss);
+  const pieces = live.reduce((s, r) => s + r.qty, 0);
+  const total = live.reduce((s, r) => s + r.qty * (r.price || 0), 0);
+  const noPrice = live.filter((r) => !r.price);
+  const noMiss = live.filter((r) => !r.miss);
+  const misTaken = rows.filter((r) => r.misUsed > 0);
   const differ = rows.filter((r) => r.manual == null && r.auto?.alt);
 
   // 날짜별 저장 (10/6 세원: "다 끝나면 날짜별로 저장") — 날짜 기본 = 이지어드민 요청일. 복사할 때도 저절로 저장(같은 발주는 덮어씀)
@@ -260,7 +295,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     try {
       const id = draft.savedId || newId("so");
       const savedAt = new Date().toISOString();
-      const pick = ({ auto, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
+      // 저장하는 qty = SO+ 에 넣은 수량(미송 뺀 것), want = 요청 수량
+      const pick = ({ auto, misExact: _e, misLoose: _l, misHint: _h, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
       const stores = [...new Set(rows.map((r) => r.store || r.vendor))];
       const rec = { id, on: saveOn, reqOn: draft.on || "", title: draft.title || draft.file || "발주", file: draft.file || "", type, savedAt, lines: lines.length, pieces, total, text, rows: rows.map(pick) };
       await changeKey(`so_order_${id}`, online, () => rec, {});
@@ -278,8 +314,9 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const openSaved = (rec) => {
     if (draft && !isSaved && !window.confirm("만들던 발주가 저장 안 된 채 바뀌어요. 저장한 발주를 불러올까요?")) return;
     const strip = (r) => {
-      const out = { ...r };
-      for (const k of ["store", "addr", "price", "note"]) delete out[k];
+      // 불러올 땐 요청 수량으로 — 미송은 지금 남은 걸로 다시 뺀다(두 번 빼지 않게)
+      const out = { ...r, qty: r.want ?? r.qty };
+      for (const k of ["store", "addr", "price", "note", "want", "misUsed", "misFrom", "misExact", "misLoose", "misHint"]) delete out[k];
       return out;
     };
     setDraft({
@@ -484,7 +521,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                   const group = top ? rows.slice(i, end + 1) : null;
                   const sameItem = !top && nameKey(rows[i - 1]) === nameKey(r);
                   return (
-                    <tr key={r.id} className={"align-top " + (top && i > 0 ? "border-t-2 border-t-stone-300" : "")}>
+                    <tr key={r.id} className={"align-top " + (top && i > 0 ? "border-t-2 border-t-stone-300" : "") + (r.qty <= 0 ? " bg-emerald-50/40" : "")}>
                       {top && (
                       <td rowSpan={group.length} className="bg-stone-50/70 px-3 py-2">
                         <input
@@ -520,16 +557,16 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                       <td className="px-3 py-2 text-right">
                         {/* 10/6 세원: "수량도 변경 가능하게" — 칸을 벗어나거나 엔터에 적용, 1 아래로는 안 내려간다(줄을 빼려면 ×) */}
                         <input
-                          key={r.qty}
+                          key={`${r.qty}|${r.misUsed}`}
                           defaultValue={r.qty}
                           inputMode="numeric"
                           onBlur={(e) => {
                             const n = parseInt(e.target.value.replace(/[^\d]/g, ""), 10);
-                            if (!n || n < 1) {
+                            if (Number.isNaN(n) || n < (r.misUsed ? 0 : 1)) {
                               e.target.value = String(r.qty);
                               return;
                             }
-                            if (n !== r.qty) patchRow(r.id, { qty: n, qtyFrom: r.qtyFrom ?? r.qty });
+                            if (n !== r.qty) patchRow(r.id, { qty: n + r.misUsed, qtyFrom: r.qtyFrom ?? r.want });
                           }}
                           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                           aria-label={`${r.name} 수량`}
@@ -538,11 +575,40 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             (r.qtyFrom != null && r.qtyFrom !== r.qty ? "border-rose-300 bg-rose-50/50" : "border-stone-200 bg-white")
                           }
                         />
-                        {r.qtyFrom != null && r.qtyFrom !== r.qty && (
+                        {r.qtyFrom != null && r.qtyFrom !== r.want && (
                           <button type="button" onClick={() => patchRow(r.id, { qty: r.qtyFrom, qtyFrom: null })} title="원래 수량으로" className="mt-0.5 block w-full text-right text-[11px] text-stone-400 underline decoration-dotted">
                             원래 {r.qtyFrom}
                           </button>
                         )}
+                        {/* 남은 미송 (10/11) — 뺀 것 / 옵션이 달라 안 뺀 것 */}
+                        {r.misUsed > 0 && (
+                          <div
+                            className="mt-1 w-28 text-right text-[11px] leading-tight text-emerald-700"
+                            title={r.misFrom.map((x) => `${x.name} ${x.qty}장 (${x.date} 잡음)`).join("\n")}
+                          >
+                            요청 {r.want} · 미송 −{r.misUsed}
+                            {r.qty <= 0 && <div className="font-semibold">미송으로 다 채워져요 — SO+ 에 안 넣어요</div>}
+                            <button type="button" onClick={() => patchRow(r.id, { misongOff: true, misongForce: null })} className="ml-1 text-stone-400 underline decoration-dotted">
+                              안 빼기
+                            </button>
+                          </div>
+                        )}
+                        {r.misongOff && r.misExact.length > 0 && (
+                          <div className="mt-1 w-28 text-right text-[11px] leading-tight text-stone-500">
+                            미송 {r.misExact.reduce((n, l) => n + l.left, 0)}장 있음
+                            <button type="button" onClick={() => patchRow(r.id, { misongOff: false })} className="ml-1 text-emerald-700 underline decoration-dotted">
+                              빼기
+                            </button>
+                          </div>
+                        )}
+                        {r.misHint.map((l) => (
+                          <div key={l.key} className="mt-1 w-28 text-right text-[11px] leading-tight text-amber-700" title={`${l.name} — 색상·사이즈가 달라서 안 뺐어요`}>
+                            같은 상품 미송 {l.left}장{misongOpt(l.name) ? ` (${misongOpt(l.name)})` : ""}
+                            <button type="button" onClick={() => patchRow(r.id, { misongOff: false, misongForce: [...(r.misongForce || []), l.key] })} className="ml-1 text-emerald-700 underline decoration-dotted">
+                              빼기
+                            </button>
+                          </div>
+                        ))}
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -607,6 +673,12 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 <div className="font-semibold text-stone-900">
                   SO+ 에 붙여넣기 · {lines.length}줄 · 총 {pieces}장
                 </div>
+                {misTaken.length > 0 && (
+                  <div className="text-emerald-700">
+                    남은 미송을 뺐어요 — {misTaken.map((r) => `${r.store} ${r.name} ${r.misUsed}장`).join(" · ")}
+                    {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 SO+ 에 안 넣어요)`}
+                  </div>
+                )}
                 {noMiss.length > 0 && <div className="text-amber-700">미송을 아직 안 고른 줄 {noMiss.length}개 — 표 머리 '전부 가능 / 전부 X' 또는 줄마다 골라 주세요.</div>}
                 {noPrice.length > 0 && <div className="text-amber-700">단가가 빈 줄 {noPrice.length}개 — 비운 채 복사하면 SO+ 에서 따로 넣어야 해요.</div>}
                 {differ.length > 0 && <div className="text-stone-500">장끼 단가와 판매가 목록 공급가가 다른 상품 {differ.length}개 — 장끼(실제로 낸 값)로 넣었어요.</div>}

@@ -71,7 +71,10 @@ function Detail({ item, online, onClose, onLoad, onDelete, copyText }) {
                         {r.memo && <div className="text-[11px] text-stone-500">메모 {r.memo}</div>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-stone-700">{r.option}</td>
-                      <td className="px-3 py-2 text-right text-stone-900 tabular-nums">{r.qty}</td>
+                      <td className="px-3 py-2 text-right text-stone-900 tabular-nums">
+                        {r.qty}
+                        {r.misUsed > 0 && <div className="text-[11px] whitespace-nowrap text-emerald-700">요청 {r.want} · 미송 −{r.misUsed}</div>}
+                      </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap text-stone-900 tabular-nums">{r.price ? won(r.price) : <span className="text-amber-700">없음</span>}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap text-stone-500 tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>
                       <td className="px-3 py-2 text-xs whitespace-nowrap">{r.miss === "no" ? <span className="text-rose-700">미송 X</span> : r.miss === "yes" ? "미송 가능" : <span className="text-stone-400">안 고름</span>}</td>

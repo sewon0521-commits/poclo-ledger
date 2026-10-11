@@ -186,3 +186,48 @@ export function soLines(rows, type) {
     return cells.map((c) => String(c).replace(/[\t\r\n]+/g, " ")).join("\t");
   });
 }
+
+// ---------------------------------------------------------------- 미송 빼기 (10/11)
+//
+// 세원: "미송·매입금 칸에 미송 잡혀 있잖아? 저절로 수량 빼 줄 수 있나? 내가 계산하면서 빼고 있어.
+// 오늘 마인디 모글루즈핏부클니트 발주가 7장인데 미송 3개 빼서 4개 추가로 넣어야 하는 상황."
+// 매입 장부 남은 미송(pending.flowBoard — 거래처 × 장끼 품목 '이름/ 색상/ 사이즈')을 발주 줄(매장 · 도매 상품명 · 옵션 [색상-사이즈])에 맞춘다.
+//   exact = 같은 거래처 · 같은 상품 · 미송 품목의 색상·사이즈 낱말이 발주 옵션에 다 들어 있음 → 저절로 뺀다
+//   loose = 같은 상품인데 옵션이 없거나 다름(연두 vs 파스텔그린 같은) → 안 빼고 알려만 준다('빼기'로 직접)
+
+/** 옵션 글 → 낱말 ([진청-M] → 진청, m) */
+const optTokens = (s) =>
+  String(s || "")
+    .replace(/[[\]()]/g, " ")
+    .split(/[-/,\s]+/)
+    .map(squash)
+    .filter(Boolean);
+
+/** 남은 미송 줄 중 이 발주 줄과 같은 상품 → {exact, loose} */
+export function misongFor(row, lines) {
+  const w = wholesaleKey(row.name);
+  const out = { exact: [], loose: [] };
+  if (!w) return out;
+  const want = optTokens(row.option);
+  for (const l of lines || []) {
+    if (!(l.left > 0)) continue;
+    if (!sameVendor(l.vendor, row.store || row.vendor) && !sameVendor(l.vendor, row.vendor)) continue;
+    const [base, ...opt] = String(l.name || "").split("/");
+    const b = squash(base);
+    const hit = b && (b === w || (w.length >= 3 && b.startsWith(w)) || (b.length >= 3 && w.startsWith(b)));
+    if (!hit) continue;
+    const got = opt.flatMap(optTokens);
+    if (got.length && got.every((t) => want.includes(t))) out.exact.push(l);
+    else out.loose.push(l);
+  }
+  return out;
+}
+
+/** 미송 품목의 옵션 부분 (모글루즈핏부클니트/ 아이보리 → 아이보리) */
+export const misongOpt = (name) =>
+  String(name || "")
+    .split("/")
+    .slice(1)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join("/");
