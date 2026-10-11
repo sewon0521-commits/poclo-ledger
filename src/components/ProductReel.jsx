@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Pencil, Send, Undo2, MessageSquare, Play, ChevronDown, ExternalLink } from "lucide-react";
+import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Pencil, Send, Undo2, MessageSquare, Play, ChevronDown, ExternalLink, CircleCheck, Film, Megaphone, Link2 } from "lucide-react";
+import { dayKey, shortDay } from "../lib/journal";
 import { productReel, reviseReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS, readCloseness, saveCloseness, reelAngles, angleOf, chosenOf } from "../lib/reels";
 import { extractFrames } from "../lib/video";
 import { newId } from "../lib/id";
@@ -632,10 +633,29 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
             {item.mix ? "틀: 섞어서 만듦" : ref ? `틀: ${hookKind(ref.reference?.structure?.hookType).name || item.refTitle}${item.auto ? " (알아서 고름)" : ""}` : item.refTitle ? `틀: ${item.refTitle}` : "레퍼런스 없이 기본 판매형 구조"}
           </div>
         </div>
-        <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
-          <X size={20} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onSave(item.postedOn ? { ...item, postedOn: null } : { ...item, postedOn: dayKey() })}
+            title={item.postedOn ? "진행 중으로 되돌리기" : "올렸어요 — '올린 릴스'로 옮기고 내 영상 링크를 넣어요"}
+            className={
+              "flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-semibold " +
+              (item.postedOn ? "border-rose-200 bg-rose-50 text-rose-700" : "border-stone-200 text-stone-600 hover:border-rose-300 hover:text-rose-700")
+            }
+          >
+            <CircleCheck size={14} /> {item.postedOn ? `${shortDay(item.postedOn)} 올림` : "올렸어요"}
+          </button>
+          <button type="button" onClick={onClose} aria-label="닫기" className="p-1 text-stone-400 hover:text-stone-700">
+            <X size={20} />
+          </button>
+        </div>
       </header>
+      {(item.postedOn || item.links?.length > 0) && (
+        <div className="shrink-0 border-b border-stone-200 bg-stone-50/60 px-4 py-2.5">
+          <div className="mb-1.5 text-xs font-semibold text-stone-500">올린 영상 — 링크를 누르면 바로 열려요</div>
+          <PostedLinks item={item} onSave={onSave} />
+        </div>
+      )}
       {clips.length > 0 && !wide && (
         <RefPlayer key={item.id} clips={clips} cur={cur} onPick={setCur} fileUrl={fileUrl} seek={seek} wide={false} fold={fold} onFold={setFold} onOpenRef={onOpenRef} />
       )}
@@ -801,6 +821,170 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
   );
 }
 
+// ---------------------------------------------------------------- 올린 릴스 (10/11)
+//
+// 세원: "우리 상품으로 기획에서 진행한 거 체크하면 다른 버튼(칸)으로 옮겨졌으면. 거기에는 내 영상을 담을 수 있게.
+// 그 영상이 인스타 링크, 메타 광고 링크로 넣어야 되니까 링크로 통하는 게 있었으면."
+// 기획에 postedOn(올린 날) + links [{id, url, kind(insta·meta·link), at}]. 체크를 풀어도 링크는 남는다.
+// 영상 파일은 보관하지 않는다(저장소가 거의 참) — 링크를 누르면 인스타·광고 관리자로 바로 간다.
+
+const linkKind = (url) =>
+  /instagram\.com|instagr\.am/i.test(url) ? "insta" : /facebook\.com|fb\.me|fb\.com|meta\.com/i.test(url) ? "meta" : "link";
+const LINK_KIND = {
+  insta: { label: "인스타", Icon: Film, tone: "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100" },
+  meta: { label: "메타 광고", Icon: Megaphone, tone: "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100" },
+  link: { label: "링크", Icon: Link2, tone: "border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100" },
+};
+
+/** 링크 칩 — 누르면 새 탭으로 */
+function LinkChip({ l, onRemove }) {
+  const k = LINK_KIND[l.kind] || LINK_KIND.link;
+  return (
+    <span className={"inline-flex items-center overflow-hidden rounded-full border text-xs font-medium " + k.tone}>
+      <a href={l.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={l.url} className="flex items-center gap-1 py-0.5 pr-1.5 pl-2">
+        <k.Icon size={12} /> {l.label || k.label}
+        <ExternalLink size={10} className="opacity-60" />
+      </a>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label="링크 빼기"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="border-l border-current/20 px-1.5 py-0.5 opacity-60 hover:opacity-100"
+        >
+          <X size={10} />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** 올린 영상 링크 넣기·보기 — 링크를 붙여넣으면 바로 들어간다 */
+function PostedLinks({ item, onSave, edit = true }) {
+  const [v, setV] = useState("");
+  const [msg, setMsg] = useState("");
+  const links = item.links || [];
+  const add = (raw) => {
+    const url = String(raw || "").trim();
+    if (!url) return;
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      setMsg("https:// 로 시작하는 링크를 넣어 주세요.");
+      return;
+    }
+    if (links.some((l) => l.url === url)) {
+      setMsg("이미 넣은 링크예요.");
+      return;
+    }
+    setMsg("");
+    setV("");
+    onSave({ ...item, links: [...links, { id: newId("ln"), url, kind: linkKind(url), at: new Date().toISOString() }] });
+  };
+  const counts = { insta: 0, meta: 0, link: 0 };
+  return (
+    <div className="space-y-1.5" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      {links.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {links.map((l) => {
+            counts[l.kind] = (counts[l.kind] || 0) + 1;
+            const n = links.filter((x) => x.kind === l.kind).length > 1 ? ` ${counts[l.kind]}` : "";
+            return (
+              <LinkChip
+                key={l.id}
+                l={{ ...l, label: (LINK_KIND[l.kind] || LINK_KIND.link).label + n }}
+                onRemove={edit ? () => onSave({ ...item, links: links.filter((x) => x.id !== l.id) }) : null}
+              />
+            );
+          })}
+        </div>
+      )}
+      {edit && (
+        <div className="flex gap-1.5">
+          <input
+            value={v}
+            onChange={(e) => setV(e.target.value)}
+            onPaste={(e) => {
+              const t = e.clipboardData.getData("text").trim();
+              if (/^https?:\/\/\S+$/i.test(t)) {
+                e.preventDefault();
+                add(t);
+              }
+            }}
+            onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && add(v)}
+            placeholder="인스타 · 메타 광고 링크 붙여넣기"
+            className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-rose-400"
+          />
+          <button type="button" onClick={() => add(v)} disabled={!v.trim()} className="shrink-0 rounded-lg bg-stone-800 px-2.5 py-1.5 text-xs font-semibold text-white disabled:bg-stone-300">
+            넣기
+          </button>
+        </div>
+      )}
+      {msg && <p className="text-[11px] text-rose-700">{msg}</p>}
+    </div>
+  );
+}
+
+/** 기획 카드 — 오른쪽 위 ✓ = 올렸어요(올린 릴스로) / 다시 누르면 진행 중으로 */
+function PlanCard({ p, library, onOpen, onSave }) {
+  const posted = !!p.postedOn;
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className="relative flex cursor-pointer gap-3 rounded-xl border border-stone-200 bg-white p-3 text-left hover:border-rose-300 hover:shadow-sm"
+    >
+      {p.product?.image ? (
+        <img src={p.product.image} alt="" className="h-24 w-20 shrink-0 rounded-lg object-cover" />
+      ) : (
+        <span className="flex h-24 w-20 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-stone-300">
+          <Clapperboard size={20} />
+        </span>
+      )}
+      <span className="min-w-0 flex-1 pr-6">
+        <span className="line-clamp-2 text-sm font-medium text-stone-900">{p.title || short(p.product?.name)}</span>
+        <span className="mt-1 line-clamp-2 block text-xs font-semibold text-rose-700">{p.plan?.hook}</span>
+        <span className="mt-1 block truncate text-[11px] text-stone-400">
+          {posted
+            ? `${shortDay(p.postedOn)} 올림 · 링크 ${(p.links || []).length}개`
+            : `${hookKind(library.find((i) => i.id === p.refId)?.reference?.structure?.hookType).name || p.refTitle || "기본 구조"} · ${new Date(p.createdAt).toLocaleDateString("ko-KR")}`}
+        </span>
+        {posted && (
+          <span className="mt-2 block">
+            <PostedLinks item={p} onSave={onSave} />
+          </span>
+        )}
+      </span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSave(posted ? { ...p, postedOn: null } : { ...p, postedOn: dayKey() });
+        }}
+        title={posted ? "진행 중으로 되돌리기" : "올렸어요 — '올린 릴스'로 옮기고 내 영상 링크를 넣어요"}
+        aria-label={posted ? "진행 중으로 되돌리기" : "올렸어요"}
+        className={
+          "absolute top-2 right-2 rounded-full p-1 " +
+          (posted ? "text-rose-700 hover:bg-rose-50" : "text-stone-300 hover:bg-stone-100 hover:text-rose-700")
+        }
+      >
+        <CircleCheck size={20} strokeWidth={posted ? 2.4 : 1.8} />
+      </button>
+    </div>
+  );
+}
+
+const PLAN_TAB = "poclo_plan_tab";
+
 export default function ProductReelTab({ stats, library, plans, fileUrl, folders, onSavePlan, onRemovePlan, onOpenRef }) {
   // draft = {looks, memo, prev?, id?, title?} — 새로 만들거나, 기존 기획을 갈아엎을 때
   const [draft, setDraftState] = useState(() => {
@@ -813,6 +997,31 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
     writeDraft(d);
   };
   const [view, setView] = useState(null);
+  // 진행 중 / 올린 릴스 (10/11) — 기기마다 기억
+  const [tab, setTabState] = useState(() => {
+    try {
+      return localStorage.getItem(PLAN_TAB) === "posted" ? "posted" : "doing";
+    } catch {
+      return "doing";
+    }
+  });
+  const setTab = (t) => {
+    setTabState(t);
+    try {
+      localStorage.setItem(PLAN_TAB, t);
+    } catch {
+      /* 이번 화면만 */
+    }
+  };
+  const [moved, setMoved] = useState(null); // 방금 올린 릴스로 옮긴 기획 제목
+  const doing = plans.filter((p) => !p.postedOn);
+  const posted = plans.filter((p) => p.postedOn).sort((a, b) => String(b.postedOn).localeCompare(String(a.postedOn)));
+  const shown = tab === "posted" ? posted : doing;
+  const savePlan = async (next) => {
+    const was = plans.find((x) => x.id === next.id);
+    if (next.postedOn && !was?.postedOn) setMoved(next.title || short(next.product?.name));
+    await onSavePlan(next);
+  };
   // 떠나 있는 동안 맡긴 기획이 끝났으면(목록에 새로 들어왔으면) 만들던 칸을 닫는다
   const runningSince = draft?.running;
   const landed = runningSince && plans.some((x) => x.createdAt && new Date(x.createdAt).getTime() >= runningSince - 1000);
@@ -846,28 +1055,53 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
         <FirstPick stats={stats} onPick={(p) => setDraft({ looks: [emptyLook([p])], memo: "" })} />
       )}
 
+      {plans.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+            {[
+              ["doing", `진행 중 ${doing.length}`],
+              ["posted", `올린 릴스 ${posted.length}`],
+            ].map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTab(k)}
+                className={"rounded-lg px-3.5 py-1.5 font-medium " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {moved && tab === "doing" && (
+            <span className="flex items-center gap-1.5 text-xs text-stone-500">
+              ‘{moved}’ 을 올린 릴스로 옮겼어요
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("posted");
+                  setMoved(null);
+                }}
+                className="rounded-md px-1.5 py-0.5 font-semibold text-rose-700 hover:bg-rose-50"
+              >
+                링크 넣으러 가기
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+
       {plans.length === 0 ? (
         <Empty title="아직 만든 상품 릴스 기획이 없어요." hint="위에서 상품을 고르면 라이브러리의 잘 된 릴스 구조로 기획해요." />
+      ) : shown.length === 0 ? (
+        tab === "posted" ? (
+          <Empty title="아직 올린 릴스가 없어요." hint="'진행 중' 카드 오른쪽 위 ✓ 를 누르면 여기로 옮겨지고, 내 영상 링크(인스타 · 메타 광고)를 넣을 수 있어요." />
+        ) : (
+          <Empty title="진행 중인 기획이 없어요." hint="위에서 상품을 고르면 새 기획을 만들어요." />
+        )
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {plans.map((p) => (
-            <button key={p.id} type="button" onClick={() => setView(p)} className="flex gap-3 rounded-xl border border-stone-200 bg-white p-3 text-left hover:border-rose-300 hover:shadow-sm">
-              {p.product?.image ? (
-                <img src={p.product.image} alt="" className="h-24 w-20 shrink-0 rounded-lg object-cover" />
-              ) : (
-                <span className="flex h-24 w-20 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-stone-300">
-                  <Clapperboard size={20} />
-                </span>
-              )}
-              <span className="min-w-0">
-                <span className="line-clamp-2 text-sm font-medium text-stone-900">{p.title || short(p.product?.name)}</span>
-                <span className="mt-1 line-clamp-2 block text-xs font-semibold text-rose-700">{p.plan?.hook}</span>
-                <span className="mt-1 block truncate text-[11px] text-stone-400">
-                  {hookKind(library.find((i) => i.id === p.refId)?.reference?.structure?.hookType).name || p.refTitle || "기본 구조"} ·{" "}
-                  {new Date(p.createdAt).toLocaleDateString("ko-KR")}
-                </span>
-              </span>
-            </button>
+          {shown.map((p) => (
+            <PlanCard key={p.id} p={p} library={library} onOpen={() => setView(p)} onSave={savePlan} />
           ))}
         </div>
       )}
@@ -887,7 +1121,7 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
               library={library}
               fileUrl={fileUrl}
               onRemove={onRemovePlan}
-              onSave={onSavePlan}
+              onSave={savePlan}
               onAgain={(item) => {
                 setView(null);
                 setDraft({
