@@ -87,6 +87,10 @@ function MissChip({ value, onChange }) {
   );
 }
 
+const squashKey = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+const storeKey = (r) => squashKey(r.store || r.vendor);
+const nameKey = (r) => storeKey(r) + "|" + squashKey(String(r.name || "").replace(/\s*\([^)]*\)\s*$/, ""));
+
 export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const [draft, setDraft] = useState(readDraft);
   const [memory, setMemory] = useState({});
@@ -171,15 +175,24 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     return Object.fromEntries(withStore.map((r) => [r.id, findPrice(r, src)]));
   }, [withStore, tx, vendors, pricing, memory]);
 
-  const rows = useMemo(
-    () =>
-      withStore.map((r) => {
-        const f = found[r.id] || {};
-        const price = r.manual != null ? r.manual : f.price;
-        return { ...r, price: price > 0 ? price : null, auto: f };
-      }),
-    [withStore, found],
-  );
+  const rows = useMemo(() => {
+    const list = withStore.map((r) => {
+      const f = found[r.id] || {};
+      const price = r.manual != null ? r.manual : f.price;
+      return { ...r, price: price > 0 ? price : null, auto: f };
+    });
+    // 같은 매장끼리 붙여서 (10/11 세원: "같은 거래처에서 같은 상품 다른 옵션이든 그냥 같은 거래처이면 바로 아래 보여주게")
+    // 매장은 처음 나온 순서, 매장 안에서는 같은 상품끼리(처음 나온 순서), 나머지는 원래 순서. 복사 글도 이 순서
+    const first = new Map();
+    list.forEach((r, i) => {
+      if (!first.has(storeKey(r))) first.set(storeKey(r), i);
+      if (!first.has(nameKey(r))) first.set(nameKey(r), i);
+    });
+    return list
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => first.get(storeKey(a.r)) - first.get(storeKey(b.r)) || first.get(nameKey(a.r)) - first.get(nameKey(b.r)) || a.i - b.i)
+      .map((x) => x.r);
+  }, [withStore, found]);
 
   const read = async (f) => {
     if (!f) return;
@@ -462,12 +475,18 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {rows.map((r) => {
+                {rows.map((r, i) => {
                   const f = r.auto || {};
                   const edited = r.manual != null;
+                  const top = i === 0 || storeKey(rows[i - 1]) !== storeKey(r);
+                  let end = i;
+                  while (top && end + 1 < rows.length && storeKey(rows[end + 1]) === storeKey(r)) end++;
+                  const group = top ? rows.slice(i, end + 1) : null;
+                  const sameItem = !top && nameKey(rows[i - 1]) === nameKey(r);
                   return (
-                    <tr key={r.id} className="align-top">
-                      <td className="px-3 py-2">
+                    <tr key={r.id} className={"align-top " + (top && i > 0 ? "border-t-2 border-t-stone-300" : "")}>
+                      {top && (
+                      <td rowSpan={group.length} className="bg-stone-50/70 px-3 py-2">
                         <input
                           key={r.store}
                           defaultValue={r.store}
@@ -483,10 +502,18 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         <div className="mt-0.5 max-w-[8.5rem] space-y-px text-[11px] leading-tight text-stone-400">
                           {r.addr ? <div className="text-stone-600">{r.addr}</div> : <div className="text-amber-700">위치 모름</div>}
                           {r.store !== r.vendor && <div className="truncate">제조사 {r.vendor}</div>}
+                          {group.length > 1 && (
+                            <div className="pt-0.5 font-medium text-stone-500">
+                              {group.length}줄 · {group.reduce((n, x) => n + x.qty, 0)}장
+                            </div>
+                          )}
                         </div>
                       </td>
+                      )}
                       <td className="max-w-[15rem] px-3 py-2">
-                        <div className="font-medium text-stone-900">{r.name}</div>
+                        <div className={"font-medium " + (sameItem ? "text-stone-400" : "text-stone-900")} title={sameItem ? "바로 위와 같은 상품 · 다른 옵션" : undefined}>
+                          {r.name}
+                        </div>
                         {r.shopName && <div className="truncate text-xs text-stone-400">{r.shopName}</div>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-stone-700">{r.option}</td>
