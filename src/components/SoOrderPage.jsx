@@ -7,7 +7,7 @@ import { Tab } from "./ui";
 import SoSaved from "./SoSaved";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
-import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt } from "../lib/soOrder";
+import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder } from "../lib/soOrder";
 import { flowBoard } from "../lib/pending";
 
 /**
@@ -179,10 +179,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   // 남은 미송 (돈 › 미송·매입금 과 같은 계산)
   const misong = useMemo(() => {
     const vname = Object.fromEntries((vendors || []).map((v) => [v.id, v.name]));
+    // 같은 날 앞 차수 발주가 이미 쓴 미송은 빼고 (draft.misBefore — 2차·3차 발주)
+    const before = draft?.misBefore || {};
     return flowBoard(tx || [], (id) => vname[id] || "", "pending")
       .groups.flatMap((g) => g.lines)
+      .map((l) => ({ ...l, left: l.left - (before[l.key] || 0) }))
       .filter((l) => l.left > 0);
-  }, [tx, vendors]);
+  }, [tx, vendors, draft?.misBefore]);
 
   const rows = useMemo(() => {
     const list = withStore.map((r) => {
@@ -226,15 +229,68 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     return out.map((r) => ({ ...r, misHint: r.misLoose.filter((l) => !usedBy.has(l.key) && (left.get(l.key) || 0) > 0 && !(r.misongForce || []).includes(l.key)) }));
   }, [withStore, found, misong]);
 
-  const read = async (f) => {
-    if (!f) return;
+  /**
+   * 파일 읽기 — 여러 개를 한 번에 넣으면 파일명 끝 시각이 늦은 것이 이번 발주, 바로 앞 것이 앞 차수.
+   * 하나만 넣으면 저장한 발주 중 같은 요청일 · 더 이른 시각의 것을 찾아 앞 차수로 본다(diffOrder).
+   */
+  const read = async (input) => {
+    const files = (Array.isArray(input) ? input : [input]).filter(Boolean);
+    if (!files.length) return;
     setBusy(true);
     setMsg("");
     try {
-      const order = parseOrder(await fileToCsv(f));
-      if (!order) throw new Error("이지어드민 발주 파일 모양이 아니에요 — '제조사 · 공급처상품명' 머리 줄을 못 찾았어요.");
+      const parsed = [];
+      for (const f of files) {
+        const order = parseOrder(await fileToCsv(f));
+        if (!order) throw new Error(`${f.name || "파일"} — 이지어드민 발주 파일 모양이 아니에요('제조사 · 공급처상품명' 머리 줄을 못 찾았어요).`);
+        parsed.push({ f, order, stamp: orderStamp(f.name, order.title) });
+      }
+      parsed.sort((a, b) => a.stamp.localeCompare(b.stamp));
+      const cur = parsed[parsed.length - 1];
+      const { order, f } = cur;
       if (!order.rows.length) throw new Error("발주 줄이 하나도 없어요. 파일을 확인해 주세요.");
-      setDraft({ ...order, file: f.name || "붙여넣은 표", at: new Date().toISOString(), type: "주문", rows: order.rows.map((r) => ({ ...r, miss: null, manual: null })) });
+      const all = order.rows.map((r) => ({ ...r, miss: null, manual: null }));
+
+      // 앞 차수 찾기
+      let base = null;
+      const misBefore = {};
+      if (parsed.length > 1) {
+        const p = parsed[parsed.length - 2];
+        base = { label: stampLabel(p.f.name, p.order.title), rows: p.order.rows.map((r) => ({ k: orderKey(r), q: r.qty })) };
+      } else if (cur.stamp) {
+        const recs = (await Promise.all(saved.map((x) => loadKey(`so_order_${x.id}`, online, null).catch(() => null)))).filter(Boolean);
+        const earlier = recs
+          .filter((x) => (x.reqOn || x.on) === order.on && (x.stamp || orderStamp(x.file, x.title)) && (x.stamp || orderStamp(x.file, x.title)) < cur.stamp)
+          .sort((a, b) => (a.stamp || orderStamp(a.file, a.title)).localeCompare(b.stamp || orderStamp(b.file, b.title)));
+        const last = earlier[earlier.length - 1];
+        if (last) {
+          base = {
+            label: stampLabel(last.file, last.title),
+            // 저장할 때 남긴 파일 줄 그대로(fileRows) — 예전 저장은 줄마다 처음 요청 수량
+            rows: last.fileRows || (last.rows || []).map((r) => ({ k: orderKey(r), q: r.qtyFrom ?? r.want ?? r.qty })),
+          };
+          // 앞 차수들이 쓴 미송은 이미 쓴 것
+          for (const x of earlier) for (const r of x.rows || []) for (const m of r.misFrom || []) misBefore[m.key] = (misBefore[m.key] || 0) + m.qty;
+        }
+      }
+      let rows = all;
+      let diff = null;
+      if (base) {
+        const d = diffOrder(all, base.rows);
+        rows = d.rows;
+        diff = { label: base.label, dropped: d.dropped.length, less: d.less, kept: d.rows, all };
+      }
+      setDraft({
+        ...order,
+        file: f.name || "붙여넣은 표",
+        at: new Date().toISOString(),
+        type: "주문",
+        rows,
+        diff,
+        misBefore,
+        stamp: cur.stamp,
+        fileRows: all.map((r) => ({ k: orderKey(r), q: r.qty })),
+      });
       setCopied("");
     } catch (e) {
       setMsg(e.message || "파일을 읽지 못했어요.");
@@ -271,6 +327,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       ),
     }));
   };
+  const diffOff = () => setDraft((d) => ({ ...d, rows: d.diff.all, diff: { ...d.diff, off: true } }));
+  const diffOn = () => setDraft((d) => ({ ...d, rows: d.diff.kept, diff: { ...d.diff, off: false } }));
   const allMiss = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, miss: v })) }));
 
   const type = draft?.type || "주문";
@@ -298,7 +356,23 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       // 저장하는 qty = SO+ 에 넣은 수량(미송 뺀 것), want = 요청 수량
       const pick = ({ auto, misExact: _e, misLoose: _l, misHint: _h, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
       const stores = [...new Set(rows.map((r) => r.store || r.vendor))];
-      const rec = { id, on: saveOn, reqOn: draft.on || "", title: draft.title || draft.file || "발주", file: draft.file || "", type, savedAt, lines: lines.length, pieces, total, text, rows: rows.map(pick) };
+      const rec = {
+        id,
+        on: saveOn,
+        reqOn: draft.on || "",
+        title: draft.title || draft.file || "발주",
+        file: draft.file || "",
+        stamp: draft.stamp || orderStamp(draft.file, draft.title),
+        fileRows: draft.fileRows || null,
+        misBefore: draft.misBefore || {},
+        type,
+        savedAt,
+        lines: lines.length,
+        pieces,
+        total,
+        text,
+        rows: rows.map(pick),
+      };
       await changeKey(`so_order_${id}`, online, () => rec, {});
       const next = await changeKey(INDEX, online, upsert({ id, on: saveOn, title: rec.title, lines: rec.lines, pieces, total, stores, savedAt }));
       setSaved(next.items || []);
@@ -326,6 +400,9 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       at: rec.savedAt,
       type: rec.type || "주문",
       rows: rec.rows.map(strip),
+      stamp: rec.stamp,
+      fileRows: rec.fileRows,
+      misBefore: rec.misBefore || {},
       savedId: rec.id,
       saveOn: rec.on,
       savedSig: `${rec.on}|${rec.text}`,
@@ -395,7 +472,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       onDrop={(e) => {
         e.preventDefault();
         setDrag(false);
-        read(fileFromDrop(e.dataTransfer));
+        const fs = [...(e.dataTransfer?.files || [])];
+        read(fs.length > 1 ? fs : fileFromDrop(e.dataTransfer));
       }}
     >
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
@@ -485,6 +563,33 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
             </div>
           </div>
 
+          {/* 앞 차수와 겹치는 줄 뺌 (10/11) */}
+          {draft.diff && (
+            <div className={"rounded-xl border px-4 py-3 text-sm " + (draft.diff.off ? "border-stone-200 bg-stone-50 text-stone-600" : "border-emerald-200 bg-emerald-50/70 text-emerald-900")}>
+              {draft.diff.off ? (
+                <span>
+                  {draft.diff.label} 발주와 겹치는 줄도 전부 보여요.
+                  <button type="button" onClick={diffOn} className="ml-2 font-semibold text-emerald-700 underline decoration-dotted">
+                    다시 빼기
+                  </button>
+                </span>
+              ) : (
+                <>
+                  <span className="font-semibold">{draft.diff.label} 발주와 겹치는 {draft.diff.dropped}줄을 뺐어요</span> — 새로 넣을 {draft.diff.kept.length}줄만 남겼어요.
+                  <button type="button" onClick={diffOff} className="ml-2 text-xs text-stone-500 underline decoration-dotted">
+                    빼기 취소
+                  </button>
+                  {draft.diff.less.length > 0 && (
+                    <div className="mt-1 text-xs text-amber-800">
+                      {draft.diff.label}보다 줄어든 줄 {draft.diff.less.length}개(안 넣음):{" "}
+                      {draft.diff.less.map((x) => `${x.vendor} ${x.name} ${x.option} ${x.before}→${x.now}`).join(" · ")}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* 줄 */}
           <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white">
             <table className="w-full min-w-[860px] text-sm">
@@ -508,7 +613,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                     </div>
                   </th>
                   <th className="px-3 py-2 font-medium">메모</th>
-                  <th className="w-8" />
+                  <th className="sticky right-0 w-9 bg-stone-50" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
@@ -580,10 +685,15 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             원래 {r.qtyFrom}
                           </button>
                         )}
+                        {r.prevQty > 0 && !draft.diff?.off && (
+                          <div className="mt-1 text-right text-[11px] leading-tight text-stone-500" title="이지어드민 파일 수량 − 앞 차수 수량">
+                            파일 {r.qtyFile} · 앞 차수 −{r.prevQty}
+                          </div>
+                        )}
                         {/* 남은 미송 (10/11) — 뺀 것 / 옵션이 달라 안 뺀 것 */}
                         {r.misUsed > 0 && (
                           <div
-                            className="mt-1 w-28 text-right text-[11px] leading-tight text-emerald-700"
+                            className="mt-1 max-w-[7rem] text-right text-[11px] leading-tight text-emerald-700"
                             title={r.misFrom.map((x) => `${x.name} ${x.qty}장 (${x.date} 잡음)`).join("\n")}
                           >
                             요청 {r.want} · 미송 −{r.misUsed}
@@ -594,7 +704,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           </div>
                         )}
                         {r.misongOff && r.misExact.length > 0 && (
-                          <div className="mt-1 w-28 text-right text-[11px] leading-tight text-stone-500">
+                          <div className="mt-1 max-w-[7rem] text-right text-[11px] leading-tight text-stone-500">
                             미송 {r.misExact.reduce((n, l) => n + l.left, 0)}장 있음
                             <button type="button" onClick={() => patchRow(r.id, { misongOff: false })} className="ml-1 text-emerald-700 underline decoration-dotted">
                               빼기
@@ -602,7 +712,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           </div>
                         )}
                         {r.misHint.map((l) => (
-                          <div key={l.key} className="mt-1 w-28 text-right text-[11px] leading-tight text-amber-700" title={`${l.name} — 색상·사이즈가 달라서 안 뺐어요`}>
+                          <div key={l.key} className="mt-1 max-w-[7rem] text-right text-[11px] leading-tight text-amber-700" title={`${l.name} — 색상·사이즈가 달라서 안 뺐어요`}>
                             같은 상품 미송 {l.left}장{misongOpt(l.name) ? ` (${misongOpt(l.name)})` : ""}
                             <button type="button" onClick={() => patchRow(r.id, { misongOff: false, misongForce: [...(r.misongForce || []), l.key] })} className="ml-1 text-emerald-700 underline decoration-dotted">
                               빼기
@@ -648,10 +758,10 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         <MissChip value={r.miss} onChange={(v) => patchRow(r.id, { miss: v })} />
                       </td>
                       <td className="px-3 py-2">
-                        <input value={r.memo || ""} onChange={(e) => patchRow(r.id, { memo: e.target.value })} className="w-32 rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:border-rose-600" />
+                        <input value={r.memo || ""} onChange={(e) => patchRow(r.id, { memo: e.target.value })} className="w-28 rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:border-rose-600" />
                       </td>
-                      <td className="py-2 pr-2">
-                        <button type="button" onClick={() => setDraft((d) => ({ ...d, rows: d.rows.filter((x) => x.id !== r.id) }))} aria-label="이 줄 빼기" className="p-1 text-stone-300 hover:text-rose-700">
+                      <td className="sticky right-0 bg-white py-2 pr-1.5 pl-1 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]">
+                        <button type="button" onClick={() => setDraft((d) => ({ ...d, rows: d.rows.filter((x) => x.id !== r.id) }))} aria-label="이 줄 빼기" title="이 줄 빼기" className="rounded-md p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-700">
                           <X size={15} />
                         </button>
                       </td>
@@ -740,10 +850,11 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
         type="file"
         accept=".xls,.xlsx,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
+        multiple
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const fs = [...(e.target.files || [])];
           e.target.value = "";
-          read(f);
+          read(fs.length > 1 ? fs : fs[0]);
         }}
       />
       {draft && view === "make" && (

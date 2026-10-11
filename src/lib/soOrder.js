@@ -231,3 +231,47 @@ export const misongOpt = (name) =>
     .map((x) => x.trim())
     .filter(Boolean)
     .join("/");
+
+// ---------------------------------------------------------------- 2차 · 3차 발주 (10/11)
+//
+// 세원: "1차·2차·3차 쭉 발주를 넣을 때 이지어드민에서 엑셀을 받으면 다 긁어와져서, 2차를 넣으려고 하면 1차에서 진행했던 주문 건을
+// 자동으로 없애 주고 넣어 주는 게 가능한가? 시간이 빠른 파일이 1차, 느린 파일이 2차 — 시간은 파일명 맨 끝. 두 개의 차이를 보고 딱 두 개만 남게."
+// 이지어드민 발주 파일은 그날 아직 안 들어온 것 전부(누적)라서, **바로 앞 차수 파일과의 차이**만 새로 넣는다.
+// 줄 열쇠 = 상품코드 + 옵션(없으면 거래처 + 도매 상품명 + 옵션). 차이 ≤ 0 이면 뺀다(줄어든 줄은 따로 알려 줌).
+
+/** 발주 줄 열쇠 */
+export const orderKey = (r) =>
+  r.code ? `${squash(r.code)}|${squash(r.option)}` : `${squash(r.vendor)}|${wholesaleKey(r.name)}|${squash(r.option)}`;
+
+/** 파일 시각 — request_stock_20261011_211622 → '20261011211622'. 없으면 전표명 '261011_2차' → '261011~0002' */
+export function orderStamp(file, title) {
+  const m = String(file || "").match(/(\d{8})_(\d{6})/);
+  if (m) return m[1] + m[2];
+  const t = String(title || "").match(/(\d{6})_(\d+)\s*차/);
+  return t ? `20${t[1]}~${t[2].padStart(4, "0")}` : "";
+}
+/** '20:57' · '2차' 같은 짧은 이름 */
+export function stampLabel(file, title) {
+  const n = String(title || "").match(/_(\d+)\s*차/)?.[1];
+  const m = String(file || "").match(/_(\d{2})(\d{2})\d{2}(?:\D|$)/);
+  return [n ? `${n}차` : "", m ? `${m[1]}:${m[2]}` : ""].filter(Boolean).join(" ") || "앞 발주";
+}
+
+/** 앞 차수 파일 줄({k, q}) 기준으로 지금 파일 줄 나누기 → {rows(새로 넣을 것 — 수량은 차이), dropped, less} */
+export function diffOrder(rows, prevRows) {
+  const prev = new Map();
+  for (const x of prevRows || []) prev.set(x.k, (prev.get(x.k) || 0) + (Number(x.q) || 0));
+  const out = [];
+  const dropped = [];
+  const less = [];
+  for (const r of rows) {
+    const p = prev.get(orderKey(r)) || 0;
+    const d = r.qty - p;
+    if (d > 0) out.push(p ? { ...r, qty: d, qtyFile: r.qty, prevQty: p } : r);
+    else {
+      dropped.push(r);
+      if (d < 0) less.push({ vendor: r.vendor, name: r.name, option: r.option, before: p, now: r.qty });
+    }
+  }
+  return { rows: out, dropped, less };
+}
