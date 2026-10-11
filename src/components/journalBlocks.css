@@ -8,9 +8,9 @@
 .poclo-bn.compact .bn-editor {
   padding-inline: 40px 10px;
 }
-/* 할 일 칸: 글자 조금 작게, 위아래 여백 적게 */
+/* 할 일 칸: 글자 조금 작게, 위아래 여백 적게. 왼쪽은 ✓ · ⋮⋮ 두 단추 자리 */
 .poclo-bn.todo .bn-editor {
-  padding-inline: 40px 8px;
+  padding-inline: 52px 8px;
   font-size: 14px;
   min-height: 2.5rem;
 }
@@ -65,4 +65,18 @@
 .poclo-bn [data-content-type="image"] img {
   max-height: 22rem;
   border-radius: 10px;
+}
+
+/* 안쪽 줄 왼쪽에 그어지던 세로선(작대기) 없애기 (10/11 저녁 세원: "이런 작대기나 버그가 너무 많아서") */
+.poclo-bn .bn-block-group .bn-block-group > .bn-block-outer::before {
+  border-left: none !important;
+  display: none !important;
+}
+/* 할 일 줄 왼쪽 ✓(끝냄) — 올리면 로즈 */
+.poclo-done {
+  color: #a8a29e !important;
+}
+.poclo-done:hover {
+  color: #be123c !important;
+  background: #fff1f2 !important;
 }

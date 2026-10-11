@@ -8,7 +8,8 @@
 //   ■ 글 → 소제목(제목 3) · # 제목 1 · ## 제목 2   --- → 구분선                  [사진:키] → 사진
 //   글자 꾸미기는 폭 0 표시 글자(U+2060~2064) — 굵게·밑줄·형광펜·취소선·기울임, `코드`
 //
-// 할 일은 한 줄 = 할 일 하나(todos 목록)라서 따로: 블록 id = 할 일 id, 블록 종류 = kind(check·bullet·number·toggle·heading·text).
+// 할 일은 한 줄 = 할 일 하나(todos 목록)라서 따로: 블록 id = 할 일 id, 블록 종류 = kind(bullet·number·heading·text).
+// 10/11 저녁 세원: "작대기나 버그가 너무 많아서 오늘 할 일·내일 할 일에 체크박스 없애고 점으로 통일하자" — 체크박스(check)·토글은 점으로 읽는다.
 
 const MK = { b: "⁡", u: "⁢", h: "⁣", s: "⁤", i: "⁠" };
 const MK_ALL = /[⁠-⁤]/g;
@@ -221,20 +222,22 @@ export function blocksToText(blocks) {
 
 // ---------------------------------------------------------------- 할 일
 
-const TYPE_OF = { check: "checkListItem", bullet: "bulletListItem", number: "numberedListItem", toggle: "toggleListItem", heading: "heading", text: "paragraph" };
-const KIND_OF = Object.fromEntries(Object.entries(TYPE_OF).map(([k, v]) => [v, k]));
-/** 예전 할 일(kind 없음)은 전부 체크박스였다 */
-export const kindOf = (t) => (TYPE_OF[t?.kind] ? t.kind : "check");
+const TYPE_OF = { bullet: "bulletListItem", number: "numberedListItem", heading: "heading", text: "paragraph" };
+const KIND_OF = { ...Object.fromEntries(Object.entries(TYPE_OF).map(([k, v]) => [v, k])), checkListItem: "bullet", toggleListItem: "bullet" };
+/** 예전 할 일(kind 없음 · check · toggle)은 점 */
+export const kindOf = (t) => (TYPE_OF[t?.kind] ? t.kind : "bullet");
+/** 끝낼 수 있는 할 일인가 (글 줄·제목은 메모라서 안 셈) */
+export const isTask = (t) => ["bullet", "number"].includes(kindOf(t));
 
-/** 할 일 목록(순서·depth) → 블록 나무. 비면 빈 체크박스 하나 */
+/** 할 일 목록(순서·depth) → 블록 나무. 비면 빈 점 하나 */
 export function todosToBlocks(items) {
   const rows = (items || []).map((t) => {
     const type = TYPE_OF[kindOf(t)];
-    const props = type === "checkListItem" ? { checked: !!t.done } : type === "heading" ? { level: 3 } : {};
+    const props = type === "heading" ? { level: 3 } : {};
     return { depth: t.depth || 0, block: { id: t.id, type, props, content: inlineFromText(t.text) } };
   });
   const tree = nest(rows);
-  return tree.length ? tree : [{ type: "checkListItem", props: { checked: false } }];
+  return tree.length ? tree : [{ type: "bulletListItem" }];
 }
 
 /** 블록 나무 → 줄마다 {id, kind, text, depth, done, kids} (글이 빈 줄도 포함 — 저장할 때 거른다) */
@@ -243,7 +246,7 @@ export function blocksToRows(blocks) {
   const walk = (list, d) => {
     for (const b of list || []) {
       const kind = KIND_OF[b.type];
-      if (kind) out.push({ id: b.id, kind, text: inlineToText(b.content).trim(), plain: plainOf(b.content).trim(), depth: d, done: kind === "check" && !!b.props?.checked, kids: (b.children || []).length });
+      if (kind) out.push({ id: b.id, kind, text: inlineToText(b.content).trim(), plain: plainOf(b.content).trim(), depth: d });
       if (b.children?.length) walk(b.children, d + 1);
     }
   };

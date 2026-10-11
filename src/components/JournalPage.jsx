@@ -26,7 +26,7 @@ import { Viewer } from "./ShootBits";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
 import { newId } from "../lib/id";
-import { kindOf } from "../lib/journalBlocks";
+import { kindOf, isTask } from "../lib/journalBlocks";
 
 // 노션식 편집기 (10/11) — 업무일지를 쓸 때만 받는다. 받기에 실패하면(인터넷 끊김 등) 예전 편집기로
 const NoteEditor = lazy(() =>
@@ -1884,7 +1884,7 @@ function Todos({ todos, date, today, editable, onChange, onShowDone }) {
             today={today}
             startOn={today}
             hideDone
-            placeholder="할 일 — 엔터로 다음 줄 · 탭 들여쓰기 · '- ' 점 목록 · ⋮⋮ 끌어서 옮기기"
+            placeholder="할 일 — 엔터로 다음 줄 · 탭 들여쓰기 · 끝내면 줄 왼쪽 ✓ 또는 Ctrl+엔터"
             onCommit={commit}
           />
         </Suspense>
@@ -2507,7 +2507,7 @@ export function JournalQuick({ online, onOpenPage }) {
     setMe(k);
   };
 
-  const left = data ? data.todos.filter((t) => !t.done && kindOf(t) === "check" && startOf(t) <= today).length : 0;
+  const left = data ? data.todos.filter((t) => !t.done && isTask(t) && startOf(t) <= today).length : 0;
 
   return (
     <JournalOnline.Provider value={online}>

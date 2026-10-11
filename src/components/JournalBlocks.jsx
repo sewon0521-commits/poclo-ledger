@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { ko } from "@blocknote/core/locales";
+import { SideMenuExtension } from "@blocknote/core/extensions";
 import {
   useCreateBlockNote,
   useBlockNoteEditor,
@@ -14,16 +15,18 @@ import {
   UnnestBlockButton,
   SideMenuController,
   SideMenu,
+  DragHandleButton,
   DragHandleMenu,
   RemoveBlockItem,
+  useExtensionState,
 } from "@blocknote/react";
 import { BlockNoteView, lightDefaultTheme } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import "./journalBlocks.css";
 import { Extension, textInputRule } from "@tiptap/core";
-import { Highlighter, Loader2, Undo2, Clock, ImagePlus, Sparkles, CornerDownRight } from "lucide-react";
+import { Highlighter, Loader2, Undo2, Clock, ImagePlus, Sparkles, CornerDownRight, CircleCheck } from "lucide-react";
 import { shortDay } from "../lib/journal";
-import { textToBlocks, blocksToText, todosToBlocks, blocksToRows, findBlock, flatBlocks, kindOf, inlineToText } from "../lib/journalBlocks";
+import { textToBlocks, blocksToText, todosToBlocks, blocksToRows, findBlock, flatBlocks, kindOf, isTask, inlineToText } from "../lib/journalBlocks";
 
 /**
  * 업무일지 노션식 편집기 (10/11 세원: "우리 업무일지 노션 완전 손민수 할 수 있나? 너무 불편하게 많아.
@@ -48,15 +51,13 @@ const NOTE_SCHEMA = BlockNoteSchema.create({
     image: S.image,
   },
 });
-// 할 일 칸은 한 줄 = 할 일 하나라 글 블록만
+// 할 일 칸은 한 줄 = 할 일 하나 — 점 · 번호 · 글 줄 · 제목만 (10/11 저녁 세원: "체크박스 없애고 점으로 통일하자")
 const TODO_SCHEMA = BlockNoteSchema.create({
   blockSpecs: {
     paragraph: S.paragraph,
     heading: S.heading,
     bulletListItem: S.bulletListItem,
     numberedListItem: S.numberedListItem,
-    checkListItem: S.checkListItem,
-    toggleListItem: S.toggleListItem,
   },
 });
 
@@ -124,8 +125,26 @@ function HighlightButton() {
   );
 }
 
+// 할 일 칸의 '끝냄' — 줄 왼쪽 ✓ 단추·Ctrl+엔터가 부른다
+const DoneCtx = createContext(null);
+
+/** 줄에 마우스를 올리면 ⋮⋮ 앞에 뜨는 ✓ — 누르면 그 줄(안쪽 줄까지)을 끝냄 */
+function DoneButton() {
+  const Components = useComponentsContext();
+  const done = useContext(DoneCtx);
+  const block = useExtensionState(SideMenuExtension, { selector: (st) => st?.block });
+  if (!block || !done || !["bulletListItem", "numberedListItem"].includes(block.type)) return null;
+  return <Components.SideMenu.Button className="bn-button poclo-done" label="끝냄 (Ctrl+엔터)" icon={<CircleCheck size={17} />} onClick={() => done(block.id)} />;
+}
+
+const dragMenu = () => (
+  <DragHandleMenu>
+    <RemoveBlockItem>지우기</RemoveBlockItem>
+  </DragHandleMenu>
+);
+
 /** 글을 고르면 뜨는 꾸미기 막대 — 색·링크·정렬은 저장할 수 없어서 뺐다 */
-function Bars() {
+function Bars({ todo }) {
   return (
     <>
       <FormattingToolbarController
@@ -144,22 +163,23 @@ function Bars() {
         )}
       />
       <SideMenuController
-        sideMenu={() => (
-          <SideMenu
-            dragHandleMenu={() => (
-              <DragHandleMenu>
-                <RemoveBlockItem>지우기</RemoveBlockItem>
-              </DragHandleMenu>
-            )}
-          />
-        )}
+        sideMenu={() =>
+          todo ? (
+            <SideMenu>
+              <DoneButton />
+              <DragHandleButton dragHandleMenu={dragMenu} />
+            </SideMenu>
+          ) : (
+            <SideMenu dragHandleMenu={dragMenu} />
+          )
+        }
       />
     </>
   );
 }
 
-/** Ctrl+Shift+H 형광펜 · Ctrl+엔터 체크박스 켜고 끄기 (노션과 같게) */
-function useKeys(editor) {
+/** Ctrl+Shift+H 형광펜 · Ctrl+엔터 체크박스 켜고 끄기 (노션과 같게) · 할 일 칸은 Ctrl+엔터 = 끝냄 */
+function useKeys(editor, onDone) {
   return (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.shiftKey && e.code === "KeyH") {
@@ -168,7 +188,11 @@ function useKeys(editor) {
       editor.toggleStyles({ backgroundColor: "yellow" });
     } else if (mod && !e.shiftKey && e.key === "Enter") {
       const b = editor.getTextCursorPosition().block;
-      if (b?.type === "checkListItem") {
+      if (onDone && (b?.type === "bulletListItem" || b?.type === "numberedListItem") && inlineToText(b.content).trim()) {
+        e.preventDefault();
+        e.stopPropagation();
+        onDone(b.id);
+      } else if (b?.type === "checkListItem") {
         e.preventDefault();
         e.stopPropagation();
         editor.updateBlock(b, { props: { checked: !b.props.checked } });
@@ -346,15 +370,16 @@ export function NoteEditor({ initial, onSave, upload, resolve, compact }) {
 const sigOf = (items) => items.map((t) => `${t.id}|${t.text}|${t.depth || 0}|${kindOf(t)}|${t.done ? 1 : 0}`).join("\n");
 
 /**
- * 할 일 한 칸 — 블록 하나 = 할 일 하나(블록 id = 할 일 id). 체크박스만 있는 줄(점 없음), '- ' 면 점 목록(그룹 제목처럼).
- * 체크하면 0.7초 뒤 '끝낸 일'로 빠진다(안쪽에 안 끝낸 줄이 있으면 남겨 둠). Ctrl+Z 또는 '되돌리기'로 돌아오면 같은 할 일(적은 날 그대로).
+ * 할 일 한 칸 — 블록 하나 = 할 일 하나(블록 id = 할 일 id). **점으로 통일**(10/11 저녁 세원: "작대기나 버그가 너무 많아서 체크박스 없애고 점으로").
+ * 끝냄 = 줄에 마우스를 올리면 ⋮⋮ 앞에 뜨는 ✓ · Ctrl+엔터 → 그 줄(안쪽 줄까지 묶음째)이 바로 '끝낸 일'로 빠진다.
+ * '되돌리기'·Ctrl+Z 로 돌아오면 같은 할 일(적은 날 그대로) — 묶음이면 안쪽 줄까지 같이 돌아온다.
  */
 export function TodoEditor({ items, date, today, startOn, hideDone, placeholder, onCommit }) {
   const [start] = useState(() => todosToBlocks(items));
   const editor = useCreateBlockNote(
     {
       schema: TODO_SCHEMA,
-      dictionary: dict({ default: placeholder, emptyDocument: placeholder, checkListItem: "할 일" }),
+      dictionary: dict({ default: placeholder, emptyDocument: placeholder, bulletListItem: "할 일" }),
       initialContent: start,
       trailingBlock: false,
       _tiptapOptions: TIPTAP,
@@ -369,7 +394,9 @@ export function TodoEditor({ items, date, today, startOn, hideDone, placeholder,
   useEffect(() => {
     if (import.meta.env.DEV && startOn === today) window.__todoEditor = editor;
   }, [editor, startOn, today]);
-  const hidden = useRef(new Map()); // 끝내서 뺀 것: id → {todo, snap, prevId, nextId, parentId}
+  const hidden = useRef(new Map()); // 끝내서 뺀 할 일: id → 할 일
+  const groups = useRef(new Map()); // 끝내서 뺀 묶음: 맨 위 id → {snap(안쪽 줄까지), prevId, nextId, parentId}
+  const pending = useRef(new Set()); // 이번에 끝낼 묶음의 맨 위 id
   const gone = useRef(new Map()); // 지운 것: id → 할 일
   const lastSig = useRef(sigOf(items));
   const inflight = useRef(0);
@@ -387,28 +414,35 @@ export function TodoEditor({ items, date, today, startOn, hideDone, placeholder,
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     const { items: before, onCommit: commit } = latest.current;
-    // 1) Ctrl+Z·되돌리기로 돌아온 끝낸 할 일 → 체크 풀고 다시 할 일로
+    // 1) Ctrl+Z·되돌리기로 돌아온 끝낸 할 일 → 다시 할 일로
     const back = new Map();
     for (const b of flatBlocks(editor.document)) {
-      const h = hidden.current.get(b.id);
-      if (!h) continue;
+      const t = hidden.current.get(b.id);
+      if (!t) continue;
       hidden.current.delete(b.id);
-      back.set(b.id, { ...h.todo, done: false, doneOn: null });
-      if (b.type === "checkListItem" && b.props.checked) editor.updateBlock(b.id, { props: { checked: false } });
+      groups.current.delete(b.id);
+      back.set(b.id, { ...t, done: false, doneOn: null });
+    }
+    // 2) 이번에 끝낼 묶음 — 맨 위 줄과 안쪽 줄 전부
+    const doneIds = new Set();
+    for (const id of pending.current) {
+      const at = findBlock(editor.document, id);
+      if (at) for (const b of flatBlocks([at.block])) doneIds.add(b.id);
     }
     const rows = blocksToRows(editor.document).filter((r) => r.plain);
     const pool = new Map([...before, ...gone.current.values(), ...back.values()].map((x) => [x.id, x]));
     const next = rows.map((r) => {
       const old = pool.get(r.id);
       gone.current.delete(r.id);
+      const done = doneIds.has(r.id);
       return {
         ...(old || { id: r.id, createdOn: today, ...(startOn !== today ? { startOn } : {}) }),
         text: r.text,
         depth: r.depth,
         kind: r.kind,
-        box: r.kind === "check",
-        done: r.done,
-        doneOn: r.done ? old?.doneOn || today : null,
+        box: false,
+        done,
+        doneOn: done ? today : null,
       };
     });
     const ids = new Set(next.map((x) => x.id));
@@ -424,115 +458,126 @@ export function TodoEditor({ items, date, today, startOn, hideDone, placeholder,
       });
     }
 
-    // 2) 끝낸 할 일은 칸에서 빼서 '끝낸 일'로 (10/3 세원: "다 한 일은 체크하면 사라지고 어디 따로 모아지게")
-    if (hideDone) {
-      const doc = editor.document;
-      const doneNow = rows.filter((r) => r.done && !flatBlocks(findBlock(doc, r.id)?.block.children || []).some((c) => c.type === "checkListItem" ? !c.props.checked : inlineToText(c.content).trim()));
-      if (doneNow.length) {
-        for (const r of doneNow) {
-          const at = findBlock(editor.document, r.id);
-          if (!at) continue;
-          hidden.current.set(r.id, {
-            todo: next.find((x) => x.id === r.id),
-            snap: { id: at.block.id, type: at.block.type, props: at.block.props, content: at.block.content },
-            prevId: at.prev?.id,
-            nextId: at.next?.id,
-            parentId: at.parent?.id,
-          });
-          editor.removeBlocks([r.id]);
+    // 3) 끝낸 묶음은 칸에서 빼서 '끝낸 일'로 (10/3 세원: "다 한 일은 사라지고 어디 따로 모아지게")
+    const roots = [...pending.current].filter((id) => findBlock(editor.document, id));
+    pending.current.clear();
+    if (roots.length) {
+      for (const id of roots) {
+        const at = findBlock(editor.document, id);
+        if (!at) continue;
+        for (const b of flatBlocks([at.block])) {
+          const t = next.find((x) => x.id === b.id);
+          if (t) hidden.current.set(b.id, t);
         }
-        // 비면 빈 체크박스 하나 (빈 문단이면 체크가 아니라 글 줄이 돼서)
-        const left = editor.document;
-        if (left.length === 1 && left[0].type === "paragraph" && !inlineToText(left[0].content).trim() && !left[0].children?.length)
-          editor.replaceBlocks([left[0]], [{ type: "checkListItem", props: { checked: false } }]);
-        say(`끝낸 일로 옮겼어요${doneNow.length > 1 ? ` (${doneNow.length}개)` : ""}`, doneNow.map((r) => r.id));
-      } else if (removed.length) say(`할 일 ${removed.length}개를 지웠어요`);
-    }
+        groups.current.set(id, { snap: at.block, prevId: at.prev?.id, nextId: at.next?.id, parentId: at.parent?.id });
+        editor.removeBlocks([id]);
+      }
+      // 비면 빈 점 하나 (빈 문단이면 점이 아니라 글 줄이 돼서)
+      const left = editor.document;
+      if (left.length === 1 && left[0].type === "paragraph" && !inlineToText(left[0].content).trim() && !left[0].children?.length)
+        editor.replaceBlocks([left[0]], [{ type: "bulletListItem" }]);
+      const n = [...doneIds].filter((x) => ids.has(x)).length;
+      say(`끝낸 일로 옮겼어요${n > 1 ? ` (${n}개)` : ""}`, roots);
+    } else if (removed.length) say(`할 일 ${removed.length}개를 지웠어요`);
   }, [editor, today, startOn, hideDone]);
   useEffect(() => () => flush(), [flush]);
+
+  /** 끝냄 — 바로 저장하고 칸에서 뺀다 */
+  const markDone = useCallback(
+    (id) => {
+      pending.current.add(id);
+      flush();
+    },
+    [flush],
+  );
 
   // 다른 데서 바뀐 할 일(끝낸 일 되돌리기·다른 기기) — 쓰는 중이 아니고 보낸 게 없을 때만 칸을 새로
   const sig = sigOf(items);
   useEffect(() => {
-    for (const x of items) hidden.current.delete(x.id);
+    for (const x of items) {
+      hidden.current.delete(x.id);
+      groups.current.delete(x.id);
+    }
     if (focused.current || inflight.current > 0 || sig === lastSig.current) return;
     lastSig.current = sig;
     editor.replaceBlocks(editor.document, todosToBlocks(items));
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
-  const restore = (ids) => {
-    for (const id of ids) {
-      const h = hidden.current.get(id);
-      if (!h) continue;
-      const blk = { ...h.snap, props: { ...h.snap.props, checked: false } };
+  /** 되돌리기 — 끝낸 묶음을 원래 자리에(안쪽 줄까지) */
+  const restore = (rootIds) => {
+    for (const id of rootIds) {
+      const g = groups.current.get(id);
+      if (!g) continue;
       const doc = editor.document;
-      if (h.prevId && findBlock(doc, h.prevId)) editor.insertBlocks([blk], h.prevId, "after");
-      else if (h.nextId && findBlock(doc, h.nextId)) editor.insertBlocks([blk], h.nextId, "before");
-      else if (h.parentId && findBlock(doc, h.parentId)) {
-        const p = findBlock(doc, h.parentId).block;
-        editor.updateBlock(p.id, { children: [...(p.children || []), blk] });
-      } else if (doc[0]) editor.insertBlocks([blk], doc[0].id, "before");
+      if (g.prevId && findBlock(doc, g.prevId)) editor.insertBlocks([g.snap], g.prevId, "after");
+      else if (g.nextId && findBlock(doc, g.nextId)) editor.insertBlocks([g.snap], g.nextId, "before");
+      else if (g.parentId && findBlock(doc, g.parentId)) {
+        const p = findBlock(doc, g.parentId).block;
+        editor.updateBlock(p.id, { children: [...(p.children || []), g.snap] });
+      } else if (doc[0]) editor.insertBlocks([g.snap], doc[0].id, "before");
     }
     setNote(null);
     flush();
   };
 
-  const onKey = useKeys(editor);
-  const carried = items.filter((r) => !r.done && kindOf(r) === "check" && (r.startOn || r.createdOn) < date);
+  const onKey = useKeys(editor, markDone);
+  const carried = items.filter((r) => !r.done && isTask(r) && (r.startOn || r.createdOn) < date);
 
   return (
-    <div
-      className="poclo-bn todo"
-      onKeyDownCapture={onKey}
-      onFocus={() => {
-        focused.current = true;
-      }}
-      onBlur={(e) => {
-        if (e.currentTarget.contains(e.relatedTarget)) return;
-        focused.current = false;
-        flush();
-      }}
-    >
-      <BlockNoteView
-        editor={editor}
-        theme={THEME}
-        onChange={() => {
-          clearTimeout(timer.current);
-          timer.current = setTimeout(flush, 700);
+    <DoneCtx.Provider value={markDone}>
+      <div
+        className="poclo-bn todo"
+        onKeyDownCapture={onKey}
+        onFocus={() => {
+          focused.current = true;
         }}
-        formattingToolbar={false}
-        sideMenu={false}
-        emojiPicker={false}
+        onBlur={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget)) return;
+          focused.current = false;
+          flush();
+        }}
       >
-        <Bars />
-      </BlockNoteView>
-      {note && (
-        <p className="mt-1 flex items-center gap-2 px-1 text-[11px] text-stone-500">
-          {note.text}
-          {note.ids.length > 0 && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => restore(note.ids)}
-              className="flex items-center gap-0.5 rounded px-1 py-0.5 font-medium text-rose-700 hover:bg-rose-50"
-            >
-              <Undo2 size={11} /> 되돌리기 <span className="font-normal text-stone-400">Ctrl+Z</span>
-            </button>
-          )}
-        </p>
-      )}
-      {carried.length > 0 && (
-        <p className="mt-1 flex flex-wrap items-center gap-x-2 px-1 text-[11px] text-amber-700">
-          <CornerDownRight size={10} /> 넘어온 일:{" "}
-          {carried.map((r, i) => (
-            <span key={r.id}>
-              {i > 0 && " · "}
-              {r.text.replace(/[⁠-⁤]/g, "")} ({shortDay(r.startOn || r.createdOn)}부터)
-            </span>
-          ))}
-        </p>
-      )}
-    </div>
+        <BlockNoteView
+          editor={editor}
+          theme={THEME}
+          onChange={() => {
+            clearTimeout(timer.current);
+            timer.current = setTimeout(flush, 700);
+          }}
+          formattingToolbar={false}
+          sideMenu={false}
+          emojiPicker={false}
+        >
+          <Bars todo />
+        </BlockNoteView>
+        {note && (
+          <p className="mt-1 flex items-center gap-2 px-1 text-[11px] text-stone-500">
+            {note.text}
+            {note.ids.length > 0 && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => restore(note.ids)}
+                className="flex items-center gap-0.5 rounded px-1 py-0.5 font-medium text-rose-700 hover:bg-rose-50"
+              >
+                <Undo2 size={11} /> 되돌리기 <span className="font-normal text-stone-400">Ctrl+Z</span>
+              </button>
+            )}
+          </p>
+        )}
+        {carried.length > 0 && (
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 px-1 text-[11px] text-amber-700">
+            <CornerDownRight size={10} /> 넘어온 일:{" "}
+            {carried.map((r, i) => (
+              <span key={r.id}>
+                {i > 0 && " · "}
+                {r.text.replace(/[\u2060-\u2064]/g, "")} ({shortDay(r.startOn || r.createdOn)}부터)
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+    </DoneCtx.Provider>
   );
 }
