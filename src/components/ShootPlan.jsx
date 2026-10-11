@@ -24,7 +24,7 @@ import {
   Shirt,
   Images,
 } from "lucide-react";
-import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut } from "../lib/shoot";
+import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, codiName } from "../lib/shoot";
 import { CutFilter } from "./CutBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
@@ -800,7 +800,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
               <ul className="space-y-1 text-sm">
                 {dayCodis.map((c) => (
                   <li key={c.id}>
-                    <b className="font-medium text-stone-900">{c.name}</b>
+                    <b className="font-medium text-stone-900">{codiName(c, items)}</b>
                     <span className="text-stone-500"> — {(c.itemIds || []).map(nameOf).filter(Boolean).join(" + ") || "상품 없음"}</span>
                   </li>
                 ))}

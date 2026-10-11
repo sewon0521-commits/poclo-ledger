@@ -112,3 +112,35 @@ export async function photoUrls(keys, online) {
   const { data } = await supabase.storage.from("reels").createSignedUrls(keys, 60 * 60 * 4);
   return Object.fromEntries((data || []).filter((d) => d.signedUrl).map((d) => [d.path, d.signedUrl]));
 }
+
+// ---------------------------------------------------------------- 코디 이름 (10/11)
+//
+// 세원: "코디 이름을 '이름 없는 코디' 말고 기모면모달보트넥언발긴팔티 + 로이 하이넥 집업 + 쭈리 라운드 팬츠 이런 식으로. 파일 만들 때도 이렇게 만드는데
+// 촬영을 다 진행하면 각 상품명 뒤에 어떤 색상 촬영했는지 쓰거든? 그것도 최적화." — 촬영본 폴더 이름이 '260828_나그랑Y(라이트블루) + 마카롱9031(블랙S)'.
+// codi.name = 직접 지은 이름(비면 상품 이름으로), codi.colors = {상품 id: [찍은 색상…]} — 한 상품을 두 색으로 찍으면 '소프트유넥(차콜) + 소프트유넥(레드)'.
+
+export const NONAME = "이름 없는 코디";
+/** 상품의 색상 글 → 낱낱 ('블랙, 아이보리' → [블랙, 아이보리]) */
+export const colorList = (x) =>
+  String(x?.colors || "")
+    .split(/[,/·\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+/** 코디 조각 — 상품명(색상) */
+export function codiParts(c, items) {
+  return (c?.itemIds || [])
+    .map((id) => (items || []).find((x) => x.id === id))
+    .filter(Boolean)
+    .flatMap((x) => {
+      const cs = (c.colors?.[x.id] || []).filter(Boolean);
+      return cs.length ? cs.map((col) => `${x.name}(${col})`) : [x.name];
+    });
+}
+export const codiAuto = (c, items) => codiParts(c, items).join(" + ");
+/** 보이는 코디 이름 — 직접 지은 이름이 없으면 상품 이름들로 */
+export const codiName = (c, items) => (c?.name && c.name !== NONAME ? c.name : codiAuto(c, items) || NONAME);
+/** 촬영본 폴더·파일 이름 — '261011_상품(색상) + 상품(색상)' */
+export function codiFileName(c, items) {
+  const on = String(c?.doneOn || c?.shootDate || "").replace(/-/g, "").slice(2);
+  return (on ? on + "_" : "") + codiParts(c, items).join(" + ");
+}

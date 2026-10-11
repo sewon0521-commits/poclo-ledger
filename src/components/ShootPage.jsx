@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP } from "../lib/shoot";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette } from "lucide-react";
+import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
 import Pipeline, { ItemCard } from "./ShootItems";
-import { normalize, moveTo, DEFAULT_MSGS } from "../lib/sinsang";
+import { normalize, moveTo, DEFAULT_MSGS, shootsOf, withShoots } from "../lib/sinsang";
 import { dayKey } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
@@ -965,7 +965,12 @@ function CodiEdit({ codi, d, onClose }) {
       <SheetHead title={codi.id ? "코디 고치기" : "코디 만들기"} onClose={onClose} />
       <div className="shrink-0 space-y-2 border-b border-stone-100 p-4">
         <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
-          <input value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} placeholder="코디 이름 — 예: 엘비 세트 + 카고" className={FIELD} />
+          <input
+            value={c.name === NONAME ? "" : c.name}
+            onChange={(e) => setC({ ...c, name: e.target.value })}
+            placeholder={codiAuto(c, d.items) ? `비우면 '${codiAuto(c, d.items)}'` : "코디 이름 — 비우면 상품 이름으로(상품 + 상품)"}
+            className={FIELD}
+          />
           <input type="date" value={c.shootDate} onChange={(e) => setC({ ...c, shootDate: e.target.value })} className={FIELD} />
         </div>
         <input value={c.memo} onChange={(e) => setC({ ...c, memo: e.target.value })} placeholder="메모 — 장소·소품·찍을 컷" className={FIELD} />
@@ -1055,7 +1060,9 @@ function CodiEdit({ codi, d, onClose }) {
           type="button"
           disabled={!c.itemIds.length}
           onClick={async () => {
-            const saved = { ...c, name: c.name.trim() || "이름 없는 코디", id: c.id || newId("c"), createdAt: c.createdAt || new Date().toISOString() };
+            // 이름을 비우면 상품 이름으로 (10/11 세원: "이름 없는 코디 말고 상품 + 상품 + 상품")
+            const nm = c.name.trim() === NONAME ? "" : c.name.trim();
+            const saved = { ...c, name: nm, id: c.id || newId("c"), createdAt: c.createdAt || new Date().toISOString() };
             await d.saveCodis(upsert(saved));
             // 코디에 넣은 상품은 '촬영' 단계로(픽), 촬영일도 같이
             await d.saveItems((v) => ({
@@ -1077,11 +1084,124 @@ function CodiEdit({ codi, d, onClose }) {
   );
 }
 
-function CodiCard({ c, d, onEdit, onShow, onDone }) {
+/** 복사 — 막히면 예전 방식 */
+async function copyPlain(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const t = document.createElement("textarea");
+    t.value = text;
+    document.body.appendChild(t);
+    t.select();
+    const ok = document.execCommand("copy");
+    t.remove();
+    return ok;
+  }
+}
+
+/**
+ * 촬영 색상 고르기 (10/11 세원: "촬영을 다 진행하면 각 상품명 뒤에 어떤 색상 촬영했는지 쓰거든? 그것도 최적화")
+ * 상품마다 그 상품 색상 칩(여러 개 — 두 색 찍으면 두 조각) + 직접 적기('블랙S'). 아래에 파일 이름 미리 보기·복사.
+ * done 이면 '촬영 완료로 옮기기', 아니면(이미 완료) '저장'.
+ */
+function ShotSheet({ c, d, finish, onSave, onClose }) {
+  const its = c.itemIds.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+  const [cols, setCols] = useState(() =>
+    Object.fromEntries(
+      its.map((x) => {
+        if (c.colors?.[x.id]?.length) return [x.id, c.colors[x.id]];
+        const list = colorList(x);
+        return [x.id, list.length === 1 ? list : []];
+      }),
+    ),
+  );
+  const [typed, setTyped] = useState({});
+  const [copied, setCopied] = useState(false);
+  const toggle = (id, col) => setCols((p) => ({ ...p, [id]: (p[id] || []).includes(col) ? p[id].filter((x) => x !== col) : [...(p[id] || []), col] }));
+  const add = (id) => {
+    const v = (typed[id] || "").trim();
+    if (!v) return;
+    setCols((p) => ({ ...p, [id]: (p[id] || []).includes(v) ? p[id] : [...(p[id] || []), v] }));
+    setTyped((p) => ({ ...p, [id]: "" }));
+  };
+  const today = dayKey();
+  const preview = { ...c, colors: cols, doneOn: c.doneOn || (finish ? today : c.doneOn) };
+  const file = codiFileName(preview, d.items);
+  return (
+    <Sheet onClose={onClose}>
+      <SheetHead title={finish ? "촬영 끝 — 어떤 색상 찍었나요?" : "찍은 색상"} onClose={onClose} />
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+        {its.map((x) => {
+          const mine = cols[x.id] || [];
+          const opts = [...new Set([...colorList(x), ...mine])];
+          return (
+            <div key={x.id} className="flex gap-3">
+              <Photo url={d.urls[x.photo] || x.photoUrl} className="aspect-[3/4] w-14 shrink-0 rounded-lg" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-stone-900">{x.name}</div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {opts.map((col) => (
+                    <button
+                      key={col}
+                      type="button"
+                      onClick={() => toggle(x.id, col)}
+                      aria-pressed={mine.includes(col)}
+                      className={
+                        "rounded-full border px-2.5 py-1 text-xs font-medium " +
+                        (mine.includes(col) ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 text-stone-600 hover:border-rose-300")
+                      }
+                    >
+                      {col}
+                    </button>
+                  ))}
+                  <input
+                    value={typed[x.id] || ""}
+                    onChange={(e) => setTyped((p) => ({ ...p, [x.id]: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && add(x.id)}
+                    onBlur={() => add(x.id)}
+                    placeholder="직접 (예: 블랙S)"
+                    className="w-28 rounded-full border border-dashed border-stone-300 px-2.5 py-1 text-xs outline-none focus:border-rose-400"
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div className="rounded-xl bg-stone-50 px-3 py-2.5">
+          <div className="text-[11px] font-semibold text-stone-500">촬영본 파일 이름</div>
+          <div className="mt-0.5 text-sm break-all text-stone-900">{file}</div>
+          <button
+            type="button"
+            onClick={async () => setCopied(await copyPlain(file))}
+            className="mt-1.5 flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:border-rose-300"
+          >
+            {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />} {copied ? "복사했어요" : "파일 이름 복사"}
+          </button>
+        </div>
+      </div>
+      <footer className="flex shrink-0 justify-end gap-2 border-t border-stone-200 p-3">
+        <button type="button" onClick={onClose} className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-medium text-stone-600">
+          그만두기
+        </button>
+        <button type="button" onClick={() => onSave(cols)} className="rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white">
+          {finish ? "촬영 완료로 옮기기" : "저장"}
+        </button>
+      </footer>
+    </Sheet>
+  );
+}
+
+function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
   const its = c.itemIds.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
   const rs = c.refIds.map((id) => d.refs.find((x) => x.id === id)).filter(Boolean);
+  const [editing, setEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const auto = codiAuto(c, d.items);
+  const title = codiName(c, d.items);
+  const custom = !!c.name && c.name !== NONAME;
   return (
-    <div className={"overflow-hidden rounded-2xl border bg-white " + (c.done ? "border-stone-200 opacity-60" : "border-stone-200")}>
+    <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
       <button type="button" onClick={onShow} className="flex w-full gap-1 overflow-x-auto p-2 [scrollbar-width:none]">
         {its.map((x) => (
           <Photo key={x.id} url={d.urls[x.photo] || x.photoUrl} className="aspect-[3/4] w-20 shrink-0 rounded-lg" />
@@ -1091,20 +1211,62 @@ function CodiCard({ c, d, onEdit, onShow, onDone }) {
           <Photo key={r.id} url={d.urls[r.photo]} className="aspect-[3/4] w-16 shrink-0 rounded-lg opacity-90" />
         ))}
       </button>
-      <div className="flex items-center justify-between gap-2 border-t border-stone-100 px-3 py-2">
-        <button type="button" onClick={onShow} className="min-w-0 text-left">
-          <span className="block truncate text-sm font-semibold text-stone-900">{c.name}</span>
+      <div className="flex items-start justify-between gap-2 border-t border-stone-100 px-3 py-2">
+        <div className="min-w-0 flex-1">
+          {/* 제목을 누르면 바로 고치기 (10/11 세원: "연필 눌러야 수정되던데 그냥 제목 누르면 변경") — 비우면 상품 이름으로 */}
+          {editing ? (
+            <input
+              autoFocus
+              defaultValue={custom ? c.name : ""}
+              placeholder={auto || "코디 이름"}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                setEditing(false);
+                if (v !== (custom ? c.name : "")) onRename(v === auto ? "" : v);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) e.currentTarget.blur();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              className="w-full rounded-lg border border-rose-400 px-2 py-1 text-sm font-semibold text-stone-900 outline-none"
+            />
+          ) : (
+            <button type="button" onClick={() => setEditing(true)} title="눌러서 이름 고치기 — 비우면 상품 이름으로" className="block w-full text-left">
+              <span className="line-clamp-2 text-sm font-semibold text-stone-900 hover:text-rose-800">{title}</span>
+            </button>
+          )}
+          {custom && auto && <span className="block truncate text-[11px] text-stone-400">{auto}</span>}
           <span className="block truncate text-[11px] text-stone-500">
             상품 {its.length} · 참고 사진 {rs.length}
             {c.shootDate && ` · ${md(c.shootDate)} 촬영`}
+            {c.done && c.doneOn && ` · ${md(c.doneOn)} 완료`}
             {c.memo && ` · ${c.memo}`}
           </span>
-        </button>
+        </div>
         <span className="flex shrink-0 items-center gap-1">
-          <button type="button" onClick={onDone} className={"rounded-lg border px-2 py-1 text-[11px] font-medium " + (c.done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-stone-200 text-stone-600 hover:border-emerald-300")}>
-            {c.done ? "촬영 완료" : "촬영 끝"}
-          </button>
-          <button type="button" onClick={onEdit} aria-label="코디 고치기" className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+          {c.done ? (
+            <>
+              <button type="button" onClick={onShot} title="찍은 색상 고치기" className="flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1 text-[11px] font-medium text-stone-600 hover:border-rose-300">
+                <Palette size={12} /> 색상
+              </button>
+              <button
+                type="button"
+                onClick={async () => setCopied(await copyPlain(codiFileName(c, d.items)))}
+                title={codiFileName(c, d.items)}
+                className="flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1 text-[11px] font-medium text-stone-600 hover:border-rose-300"
+              >
+                {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />} 파일 이름
+              </button>
+              <button type="button" onClick={onUndo} title="촬영 전으로 되돌리기" className="rounded-lg px-1.5 py-1 text-[11px] text-stone-400 hover:text-stone-700">
+                되돌리기
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={onShot} className="rounded-lg border border-stone-200 px-2 py-1 text-[11px] font-medium text-stone-600 hover:border-emerald-300">
+              촬영 끝
+            </button>
+          )}
+          <button type="button" onClick={onEdit} aria-label="코디 고치기" title="상품·참고 사진 고치기" className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
             <Pencil size={14} />
           </button>
         </span>
@@ -1117,17 +1279,45 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
   const [tab, setTab] = useState("items");
   const [codiEdit, setCodiEdit] = useState(null);
   const [show, setShow] = useState(null);
+  const [shot, setShot] = useState(null); // 촬영 색상 고르기 {c, finish}
+  // 촬영 전 / 촬영 완료 (10/11 세원: "촬영 완료 누른 건 촬영 완료 칸을 따로 — 너무 많아지면 복잡하니까")
+  const [codiTab, setCodiTab] = useState("todo");
   const today = dayKey();
 
-  // 코디 — 촬영 날짜가 가까운 것부터, 끝난 건 아래로
-  const codis = [...d.codis].sort((a, b) => Number(!!a.done) - Number(!!b.done) || (a.shootDate || "9").localeCompare(b.shootDate || "9"));
+  // 촬영 전은 촬영 날짜가 가까운 것부터, 촬영 완료는 최근에 끝낸 것부터
+  const todo = d.codis.filter((c) => !c.done).sort((a, b) => (a.shootDate || "9").localeCompare(b.shootDate || "9"));
+  const doneList = d.codis.filter((c) => c.done).sort((a, b) => String(b.doneOn || b.shootDate || "").localeCompare(String(a.doneOn || a.shootDate || "")));
+  const codis = codiTab === "done" ? doneList : todo;
+  /** 촬영 끝 — 색상 저장, 상품은 '등록' 단계로, 상품의 촬영 차수에도 찍은 색상 */
+  const finishShot = async (c, cols) => {
+    const doneOn = c.doneOn || today;
+    await d.saveCodis(upsert({ ...c, done: true, doneOn, colors: cols }));
+    const on = c.shootDate || doneOn;
+    await d.saveItems((v) => ({
+      ...v,
+      items: (v.items || []).map((raw) => {
+        if (!c.itemIds.includes(raw.id)) return raw;
+        const x = normalize(raw);
+        let next = ["request", "arrived", "pick"].includes(x.stage) ? moveTo(x, "shot", today) : raw;
+        const got = (cols[x.id] || []).join(", ");
+        if (got) {
+          const rounds = shootsOf(next);
+          const i = rounds.findIndex((r) => r.on === on);
+          const blank = rounds.length === 1 && !rounds[0].on && !rounds[0].opts;
+          const nr = i >= 0 ? rounds.map((r, k) => (k === i && !r.opts ? { ...r, opts: got } : r)) : blank ? [{ on, opts: got }] : [...rounds, { on, opts: got }];
+          next = { ...next, ...withShoots(nr) };
+        }
+        return next;
+      }),
+    }));
+  };
   const days = [...new Set(d.codis.filter((c) => c.shootDate && !c.done).map((c) => c.shootDate))].sort();
   const src = (x) => d.urls[x.photo] || x.photoUrl;
 
   const showCodi = (c) => {
     const its = c.itemIds.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
     const rs = c.refIds.map((id) => d.refs.find((x) => x.id === id)).filter(Boolean);
-    setShow({ slides: [...its.map((x) => ({ url: src(x) })), ...rs.map((r) => ({ url: d.urls[r.photo] }))], footer: `${c.name} — 상품 ${its.length}장 다음에 참고 사진 ${rs.length}장${c.memo ? ` · ${c.memo}` : ""}` });
+    setShow({ slides: [...its.map((x) => ({ url: src(x) })), ...rs.map((r) => ({ url: d.urls[r.photo] }))], footer: `${codiName(c, d.items)} — 상품 ${its.length}장 다음에 참고 사진 ${rs.length}장${c.memo ? ` · ${c.memo}` : ""}` });
   };
 
   return (
@@ -1169,9 +1359,26 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
               ))}
             </div>
           )}
+          <div className="mb-3 flex gap-1 self-start rounded-xl bg-stone-100 p-1 text-sm">
+            {[
+              ["todo", `촬영 전 ${todo.length}`],
+              ["done", `촬영 완료 ${doneList.length}`],
+            ].map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setCodiTab(k)}
+                className={"rounded-lg px-3.5 py-1.5 font-medium " + (codiTab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {codis.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-              '코디 만들기'로 상의 + 하의 같은 상품 묶음에 참고 사진을 붙여 두면, 촬영 때 폰으로 한 장씩 넘겨 봐요.
+              {codiTab === "done"
+                ? "아직 촬영 완료한 코디가 없어요. '촬영 전' 코디의 '촬영 끝'을 누르면 찍은 색상을 고르고 여기로 옮겨져요."
+                : "'코디 만들기'로 상의 + 하의 같은 상품 묶음에 참고 사진을 붙여 두면, 촬영 때 폰으로 한 장씩 넘겨 봐요."}
             </p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -1182,19 +1389,9 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
                   d={d}
                   onShow={() => showCodi(c)}
                   onEdit={() => setCodiEdit(c)}
-                  onDone={async () => {
-                    const done = !c.done;
-                    await d.saveCodis(upsert({ ...c, done }));
-                    // 코디 촬영이 끝나면 그 상품들은 '등록' 단계로
-                    if (done)
-                      await d.saveItems((v) => ({
-                        ...v,
-                        items: (v.items || []).map((raw) => {
-                          const x = normalize(raw);
-                          return c.itemIds.includes(x.id) && ["request", "arrived", "pick"].includes(x.stage) ? moveTo(x, "shot", today) : raw;
-                        }),
-                      }));
-                  }}
+                  onShot={() => setShot({ c, finish: !c.done })}
+                  onUndo={() => d.saveCodis(upsert({ ...c, done: false }))}
+                  onRename={(name) => d.saveCodis(upsert({ ...c, name }))}
                 />
               ))}
             </div>
@@ -1203,6 +1400,21 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
       )}
 
       {codiEdit && <CodiEdit codi={codiEdit} d={d} onClose={() => setCodiEdit(null)} />}
+      {shot && (
+        <ShotSheet
+          c={shot.c}
+          d={d}
+          finish={shot.finish}
+          onClose={() => setShot(null)}
+          onSave={async (cols) => {
+            if (shot.finish) {
+              await finishShot(shot.c, cols);
+              setCodiTab("done");
+            } else await d.saveCodis(upsert({ ...shot.c, colors: cols }));
+            setShot(null);
+          }}
+        />
+      )}
       {show && <Viewer slides={show.slides} footer={show.footer} onClose={() => setShow(null)} />}
     </div>
   );
