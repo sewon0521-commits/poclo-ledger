@@ -34,7 +34,7 @@ import CarouselPage from "./components/CarouselPage";
 import AccountsPage from "./components/AccountsPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
-import JournalPage from "./components/JournalPage";
+import JournalPage, { JournalQuick } from "./components/JournalPage";
 import SubsPage from "./components/SubsPage";
 import InvoiceRequestPage from "./components/InvoiceRequestPage";
 import ShootPage from "./components/ShootPage";
@@ -689,6 +689,8 @@ export default function App() {
             )}
           </footer>
         </main>
+        {/* 어디서나 여는 업무일지 (10/11) — 업무일지 화면에서는 안 그린다(같은 글을 두 곳에서 고치지 않게) */}
+        {page !== "journal" && <JournalQuick online={L.mode === "remote" && !!L.session} onOpenPage={() => setPage("journal")} />}
       </div>
     </div>
   );

@@ -2357,3 +2357,195 @@ export default function JournalPage({ online }) {
     </JournalOnline.Provider>
   );
 }
+
+// ---------------------------------------------------------------- 어디서나 여는 업무일지
+
+/**
+ * 오른쪽 아래 떠 있는 업무일지 단추 (10/11 세원: "콘텐츠나 그런 작업을 할 때 업무일지 칸에 왔다 갔다 하는 게 불편.
+ * 어느 란을 가도 누를 수 있는 업무일지 버튼 — 그림자 살짝 진 아이콘 하나, 귀엽게. 누르면 업무일지 칸이 딱 뜨게.")
+ *
+ * 내 일지(이 기기 사람)의 하루 페이지 + 오늘 할 일만. 업무일지 화면에서는 App 이 안 그린다(같은 글을 두 곳에서 고치지 않게).
+ * 닫아도 칸은 그대로 두고(치던 글·저장 타이머 유지) 숨기기만 한다. 열 때 30초 넘게 지났으면 새로 읽고 칸을 새로 만든다(gen) —
+ * 그사이 업무일지 화면이나 다른 기기에서 고친 글을 예전 글로 덮지 않으려고.
+ */
+export function JournalQuick({ online, onOpenPage }) {
+  const [open, setOpen] = useState(false);
+  const [me, setMe] = useState(readMe);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [today, setToday] = useState(dayKey);
+  const [date, setDate] = useState(dayKey);
+  const [gen, setGen] = useState(0);
+  const loadedAt = useRef(0);
+
+  const load = useCallback(
+    async (who) => {
+      if (!who) return;
+      try {
+        const v = await loadJournal(who, online);
+        setData(v);
+        setMsg("");
+        loadedAt.current = Date.now();
+      } catch {
+        setMsg("일지를 불러오지 못했어요. 인터넷을 확인해 주세요.");
+      }
+    },
+    [online],
+  );
+
+  // 단추의 '남은 할 일' 숫자 때문에 처음에 한 번 읽는다
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    load(me);
+  }, [load, me]);
+
+  const toggle = async () => {
+    if (open) return setOpen(false);
+    setOpen(true);
+    const t = dayKey();
+    if (t !== today) {
+      setToday(t);
+      setDate(t);
+    }
+    if (me && Date.now() - loadedAt.current > 30000) {
+      setLoading(true);
+      await load(me);
+      setGen((g) => g + 1);
+      setLoading(false);
+    }
+  };
+
+  const change = useCallback(
+    async (fn) => {
+      try {
+        const next = await changeJournal(me, online, fn);
+        setData(next);
+        loadedAt.current = Date.now();
+      } catch (e) {
+        setMsg("저장하지 못했어요. 인터넷을 확인해 주세요.");
+        throw e;
+      }
+    },
+    [me, online],
+  );
+  const savePage = useCallback(
+    (text) =>
+      change((v) => {
+        if (text.trim()) v.days[date] = { text, at: new Date().toISOString() };
+        else delete v.days[date];
+        return v;
+      }),
+    [change, date],
+  );
+  const setTodos = useCallback((fn) => change((v) => ({ ...v, todos: fn(v.todos) })).catch(() => {}), [change]);
+
+  const pickMe = (k) => {
+    try {
+      localStorage.setItem(ME_KEY, k);
+    } catch {
+      /* 이번 화면만 */
+    }
+    setMe(k);
+  };
+
+  const left = data ? data.todos.filter((t) => !t.done && startOf(t) <= today).length : 0;
+
+  return (
+    <JournalOnline.Provider value={online}>
+      <div
+        role="dialog"
+        aria-label="업무일지"
+        aria-hidden={!open}
+        className={
+          "fixed right-6 bottom-24 z-30 hidden max-h-[calc(100vh-8rem)] w-[26rem] origin-bottom-right flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl shadow-stone-900/15 md:flex " +
+          "motion-safe:transition-[opacity,transform,visibility] motion-safe:duration-200 motion-safe:ease-[var(--ease-out)] " +
+          (open ? "visible translate-y-0 scale-100 opacity-100" : "invisible translate-y-2 scale-95 opacity-0")
+        }
+      >
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-100 px-2 py-2">
+          <div className="flex items-center gap-0.5">
+            <button type="button" onClick={() => setDate(shiftDay(date, -1))} aria-label="전날" className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+              <ChevronLeft size={17} />
+            </button>
+            <span className="min-w-[7.5rem] text-center text-sm font-semibold text-stone-900">{dayTitle(date)}</span>
+            <button
+              type="button"
+              onClick={() => setDate(shiftDay(date, 1))}
+              disabled={date >= today}
+              aria-label="다음 날"
+              className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30"
+            >
+              <ChevronRight size={17} />
+            </button>
+            {date !== today && (
+              <button type="button" onClick={() => setDate(today)} className="ml-1 rounded-md border border-stone-200 px-2 py-0.5 text-[11px] font-medium text-stone-600 hover:bg-stone-50">
+                오늘로
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={onOpenPage} className="rounded-md px-2 py-1 text-[11px] font-medium text-stone-500 hover:bg-stone-100 hover:text-stone-800">
+              업무일지 전체 보기
+            </button>
+            <button type="button" onClick={() => setOpen(false)} aria-label="닫기" className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+              <X size={16} />
+            </button>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {msg && <p className="mx-3 mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{msg}</p>}
+          {!me ? (
+            <div className="space-y-2 px-5 py-6 text-sm">
+              <p className="font-medium text-stone-800">이 기기에서 쓰는 사람은?</p>
+              <div className="flex gap-2">
+                {PEOPLE.map(([k, n]) => (
+                  <button key={k} type="button" onClick={() => pickMe(k)} className="rounded-lg bg-rose-700 px-3 py-1.5 font-semibold text-white hover:bg-rose-800">
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-stone-400">고르면 내 일지를 여기서 바로 써요.</p>
+            </div>
+          ) : !data || loading ? (
+            <div className="flex h-48 items-center justify-center text-stone-300">
+              <Loader2 size={20} className="animate-spin" />
+            </div>
+          ) : (
+            <>
+              <Page key={`${gen}-${date}`} initial={data.days[date]?.text || ""} editable isToday={date === today} onSave={savePage} />
+              <Todos key={`t${gen}`} todos={data.todos} date={date} today={today} editable onChange={setTodos} onShowDone={onOpenPage} />
+            </>
+          )}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label={open ? "업무일지 닫기" : "업무일지 열기"}
+        aria-expanded={open}
+        title="업무일지"
+        className={
+          "group fixed right-6 bottom-6 z-30 hidden size-14 place-items-center rounded-full border border-stone-200/80 shadow-lg shadow-stone-900/10 md:grid " +
+          "motion-safe:transition-[transform,box-shadow,background-color] motion-safe:duration-200 motion-safe:ease-[var(--ease-out)] hover:-translate-y-0.5 hover:shadow-xl hover:shadow-stone-900/15 " +
+          (open ? "bg-rose-700 text-white" : "bg-white text-rose-700")
+        }
+      >
+        {open ? (
+          <X size={22} strokeWidth={2.2} />
+        ) : (
+          <span className="relative">
+            <NotebookPen size={23} strokeWidth={2} className="motion-safe:transition-transform motion-safe:duration-200 group-hover:-rotate-6" />
+          </span>
+        )}
+        {!open && left > 0 && (
+          <span className="absolute -top-1 -right-1 grid min-w-5 place-items-center rounded-full bg-rose-700 px-1 text-[11px] leading-5 font-bold text-white tabular-nums ring-2 ring-white">
+            {left > 99 ? "99+" : left}
+          </span>
+        )}
+      </button>
+    </JournalOnline.Provider>
+  );
+}
