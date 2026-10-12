@@ -66,6 +66,40 @@ function Toggle({ on, onClick, children, wide }) {
 }
 
 /** 상품 카드 — tab 에 따라 다음 단계로 넘기는 단추가 달라진다. onPatch(바뀐 칸) */
+/** 카드 아래 글 — 상품명 / 거래처 · 위치·가격·종류 · 한 줄 */
+function CardInfo({ x, line, copyName = false }) {
+  const [ok, setOk] = useState(false);
+  return (
+    <span className="block px-2.5 pt-2 pb-1.5">
+      <span className="flex items-center gap-0.5">
+        <span title={copyName ? x.name : undefined} className="block min-w-0 flex-1 truncate text-sm font-medium text-stone-900">
+          {x.name || "이름 없음"}
+          {x.vendor && <span className="font-normal text-stone-500"> / {x.vendor}</span>}
+        </span>
+        {copyName && x.name && (
+          <button
+            type="button"
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (await copy(x.name)) {
+                setOk(true);
+                setTimeout(() => setOk(false), 1500);
+              }
+            }}
+            title={ok ? "복사했어요" : `'${x.name}' 복사`}
+            aria-label="상품 이름 복사"
+            className={"-mr-1 shrink-0 rounded-md p-1 " + (ok ? "text-emerald-600" : "text-stone-400 hover:bg-stone-100 hover:text-rose-700")}
+          >
+            {ok ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+        )}
+      </span>
+      <span className="block truncate text-[11px] text-stone-400">{[x.place, won(x.price), x.kind].filter(Boolean).join(" · ") || "정보 없음"}</span>
+      <span className={"block truncate text-[11px] " + line.tone}>{line.text}</span>
+    </span>
+  );
+}
+
 export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, onMeasure, selectable, selected }) {
   const sample = x.type !== "buy";
   const act = (patch) => (e) => {
@@ -123,15 +157,14 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
           {x.memo && <span className="line-clamp-3 text-[11px] leading-snug font-medium whitespace-pre-line text-white [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">{x.memo}</span>}
           </span>
         </span>
-        <span className="block px-2.5 pt-2 pb-1.5">
-          <span className="block truncate text-sm font-medium text-stone-900">
-            {x.name || "이름 없음"}
-            {x.vendor && <span className="font-normal text-stone-500"> / {x.vendor}</span>}
-          </span>
-          <span className="block truncate text-[11px] text-stone-400">{[x.place, won(x.price), x.kind].filter(Boolean).join(" · ") || "정보 없음"}</span>
-          <span className={"block truncate text-[11px] " + line.tone}>{line.text}</span>
-        </span>
+        {!selectable && <CardInfo x={x} line={line} />}
       </button>
+      {/* 코디 만들기·고치기 — 글을 끌어 고를 수 있게 단추 밖에, 이름 옆 복사 (10/12 세원: "상품 제목을 복붙하고 싶은데 복사를 할 수 없게 돼 있네") */}
+      {selectable && (
+        <div onClick={() => !window.getSelection()?.toString() && onOpen()} className="cursor-pointer select-text">
+          <CardInfo x={x} line={line} copyName />
+        </div>
+      )}
 
       {!selectable && (
         <div className="space-y-1 px-2 pb-2">

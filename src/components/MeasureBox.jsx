@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { Ruler, Copy, Check, Pencil, Eraser, Wand2 } from "lucide-react";
-import { MEASURE_CATS, catOf, blankMeasure, sizeNames, filled, measureText, parseMeasure, WEAR, wearLines } from "../lib/measure";
+import { Ruler, Copy, Check, Pencil, Eraser, Wand2, X } from "lucide-react";
+import { MEASURE_CATS, catOf, partsOf, isSame, partName, spreadSame, blankMeasure, sizeNames, filled, measureText, parseMeasure, WEAR, wearLines } from "../lib/measure";
 import { dayKey } from "../lib/journal";
 import { Sheet, SheetHead, Photo } from "./ShootBits";
 
@@ -38,10 +38,25 @@ export function MeasureBox({ x, onChange, big = false }) {
   const m = x.measure || blankMeasure(x);
   const cat = catOf(m.cat);
   const sizes = m.sizes?.length ? m.sizes : ["FREE"];
+  const parts = partsOf(m);
+  // 모든 사이즈 같은 값(신발 굽높이처럼) — 한 줄만 재고 나머지 사이즈에도 같은 값
+  const same = sizes.length > 1 && isSame(m);
+  const rowSizes = same ? sizes.slice(0, 1) : sizes;
   const [editSizes, setEditSizes] = useState(false);
   const [copied, setCopied] = useState("");
   const box = useRef(null);
-  const update = (patch) => onChange({ ...m, ...patch, on: dayKey() });
+  const update = (patch) => onChange(spreadSame({ ...m, ...patch, on: dayKey() }));
+  const setParts = (list) => update({ partsBy: { ...(m.partsBy || {}), [cat.k]: list } });
+  const addPart = (raw) => {
+    const p = partName(raw);
+    if (p && !parts.includes(p)) setParts([...parts, p]);
+  };
+  // 같은 값으로 켤 때 — 사이즈마다 적어 둔 값을 모아 첫 사이즈로(앞 사이즈 값이 먼저)
+  const setSame = (on) => {
+    if (!on) return update({ same: false });
+    const first = Object.assign({}, ...sizes.slice().reverse().map((s) => m.v?.[s] || {}));
+    update({ same: true, v: { ...m.v, [sizes[0]]: first } });
+  };
   const setVal = (s, p, val) => update({ v: { ...m.v, [s]: { ...(m.v?.[s] || {}), [p]: clean(val) } } });
   const merge = (got) => {
     if (!got) return false;
@@ -55,7 +70,7 @@ export function MeasureBox({ x, onChange, big = false }) {
   const out = measureText({ ...m, sizes });
   const copyAll = [out.text, wearText].filter(Boolean).join("\n\n");
   // 엔터(폰 자판 '다음') → 다음 칸. 여러 사이즈면 한 벌(한 사이즈)씩 위에서 아래로
-  const order = sizes.flatMap((s) => cat.parts.map((p) => `${s}|${p}`));
+  const order = rowSizes.flatMap((s) => parts.map((p) => `${s}|${p}`));
   const next = (key) => {
     const i = order.indexOf(key);
     const el = box.current?.querySelector(`[data-mk="${CSS.escape(order[i + 1] || "")}"]`);
@@ -84,7 +99,7 @@ export function MeasureBox({ x, onChange, big = false }) {
         inputMode="decimal"
         enterKeyHint={order.indexOf(key) === order.length - 1 ? "done" : "next"}
         autoComplete="off"
-        aria-label={`${s === "FREE" ? "" : s + " "}${p}`}
+        aria-label={`${s === "FREE" || same ? "" : s + " "}${p}`}
         className={
           "w-full rounded-lg border bg-white text-center font-semibold text-stone-900 tabular-nums outline-none focus:border-rose-600 focus:ring-2 focus:ring-rose-100 " +
           (big ? "h-12 text-lg" : "h-10 text-base") +
@@ -110,6 +125,7 @@ export function MeasureBox({ x, onChange, big = false }) {
               type="button"
               title={c.hint}
               onClick={() => update({ cat: c.k })}
+              aria-pressed={cat.k === c.k}
               className={"rounded-full border px-2.5 py-1 text-xs font-medium " + (cat.k === c.k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}
             >
               {c.label}
@@ -129,7 +145,7 @@ export function MeasureBox({ x, onChange, big = false }) {
               setEditSizes(false);
             }}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-            placeholder="FREE 또는 S, M, L"
+            placeholder={cat.k === "shoes" ? "230, 235, 240, 245, 250" : "FREE 또는 S, M, L"}
             className="rounded-md border border-rose-400 px-2 py-0.5 text-xs text-stone-800 outline-none"
           />
         ) : (
@@ -144,17 +160,63 @@ export function MeasureBox({ x, onChange, big = false }) {
             </button>
           </>
         )}
+        {sizes.length > 1 && (
+          <label className="ml-1 flex cursor-pointer items-center gap-1 text-stone-600">
+            <input type="checkbox" checked={same} onChange={(e) => setSame(e.target.checked)} className="accent-rose-700" />
+            모든 사이즈 같은 값
+          </label>
+        )}
         <span className="ml-auto hidden text-[11px] text-stone-400 sm:inline">표·글을 칸에 붙여넣으면 한 번에 들어가요</span>
       </div>
 
-      {sizes.length === 1 ? (
+      {cat.custom && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+          잴 곳
+          {parts.map((p) => (
+            <span key={p} className="flex items-center gap-0.5 rounded-md bg-stone-100 py-0.5 pr-0.5 pl-1.5 font-semibold text-stone-700">
+              {p}
+              {parts.length > 1 && (
+                <button type="button" onClick={() => setParts(parts.filter((q) => q !== p))} aria-label={`${p} 빼기`} className="rounded p-0.5 text-stone-400 hover:text-rose-700">
+                  <X size={11} />
+                </button>
+              )}
+            </span>
+          ))}
+          {cat.more
+            .filter((p) => !parts.includes(p))
+            .map((p) => (
+              <button key={p} type="button" onClick={() => setParts([...parts, p])} className="rounded-md border border-dashed border-stone-300 px-1.5 py-0.5 text-stone-500 hover:border-rose-300 hover:text-rose-700">
+                + {p}
+              </button>
+            ))}
+          <input
+            placeholder="+ 직접 적기"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                addPart(e.currentTarget.value);
+                e.currentTarget.value = "";
+              }
+            }}
+            onBlur={(e) => {
+              addPart(e.currentTarget.value);
+              e.currentTarget.value = "";
+            }}
+            aria-label="잴 곳 직접 적기"
+            className="w-24 rounded-md border border-stone-200 px-1.5 py-0.5 text-xs text-stone-800 outline-none focus:border-rose-400"
+          />
+        </div>
+      )}
+
+      {rowSizes.length === 1 ? (
         <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 sm:grid-cols-6">
-          {cat.parts.map((p) => (
+          {parts.map((p) => (
             <label key={p} className="block text-center">
               <span className="mb-0.5 block text-xs font-medium text-stone-500">{p}</span>
               {cell(sizes[0], p)}
             </label>
           ))}
+          {same && <p className="col-span-full text-[11px] text-stone-400">{sizes.join(" · ")} 모두 이 값으로 들어가요</p>}
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -170,7 +232,7 @@ export function MeasureBox({ x, onChange, big = false }) {
               </tr>
             </thead>
             <tbody>
-              {cat.parts.map((p) => (
+              {parts.map((p) => (
                 <tr key={p}>
                   <td className="pr-2 text-xs font-medium whitespace-nowrap text-stone-500">{p}</td>
                   {sizes.map((s) => (
