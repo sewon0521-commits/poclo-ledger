@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
 import { makeAccount } from "../lib/store";
-import { engToKor } from "../lib/hangul";
+import HangulInput from "./HangulInput";
 
 const FIELD =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-rose-600";
@@ -102,14 +102,8 @@ export default function VendorEditor({ seed, onSubmit, onCancel, submitLabel = "
                 inputMode="numeric"
                 className={FIELD + " min-w-0 flex-1 text-sm tabular-nums"}
               />
-              <input
-                value={a.holder}
-                // 영문 자판으로 쳐도 한글로 (10/10 세원: "예금주 적을 때 처음에 한글로")
-                onChange={(e) => patch(a.id, "holder", engToKor(e.target.value))}
-                lang="ko"
-                placeholder="예금주"
-                className={FIELD + " w-24 text-sm"}
-              />
+              {/* 영문 자판으로 쳐도 한글로, 'A' 면 영어 그대로 (10/10 · 10/12) */}
+              <HangulInput value={a.holder} onChange={(v) => patch(a.id, "holder", v)} placeholder="예금주" className={FIELD + " w-24 text-sm"} />
               <button
                 type="button"
                 onClick={() => setAccounts(accounts.filter((x) => x.id !== a.id))}

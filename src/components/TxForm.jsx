@@ -6,7 +6,7 @@ import { won, VAT_RATE, itemsTotal, isPrepaid, MODES, KIND_TONE, kindOf, nextKin
 import { makeAccount, makeItem } from "../lib/store";
 import { pendingOf, defectOf, balanceBefore, balanceBasis, balanceText } from "../lib/pending";
 import VendorPicker from "./VendorPicker";
-import { engToKor } from "../lib/hangul";
+import HangulInput from "./HangulInput";
 
 const digits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
 const comma = (s) => {
@@ -833,12 +833,9 @@ export default function TxForm({ seed, vendors, allTx = [], onSubmit, onCancel }
                   inputMode="numeric"
                   className={FIELD + " min-w-0 flex-1 text-sm tabular-nums"}
                 />
-                <input
+                <HangulInput
                   value={a.holder}
-                  onChange={(e) =>
-                    setAccounts(accounts.map((x) => (x.id === a.id ? { ...x, holder: engToKor(e.target.value) } : x)))
-                  }
-                  lang="ko"
+                  onChange={(v) => setAccounts(accounts.map((x) => (x.id === a.id ? { ...x, holder: v } : x)))}
                   placeholder="예금주"
                   className={FIELD + " w-24 text-sm"}
                 />
