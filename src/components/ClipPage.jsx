@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, md, won, loadKey, changeKey, upsert, putPhoto } from "../lib/shoot";
-import { parseClip, normalize, stageName, findVendor, vendorFill, contactLines, refusalsOf, refusalText } from "../lib/sinsang";
-import { newId } from "../lib/id";
-import { hasWear, wearSummary } from "../lib/measure";
+import { DEFAULT_TAGS, FIELD, md, won, changeKey, upsert } from "../lib/shoot";
+import { saveClip, OLD_BUTTON } from "../lib/clipSave";
+import { stageName, refusalText } from "../lib/sinsang";
 import { Chips, Photo } from "./ShootBits";
 
 /**
@@ -13,8 +12,6 @@ import { Chips, Photo } from "./ShootBits";
  * 제품 설명에 거래처가 적어 둔 전화·카톡·인스타는 돈 › 거래처에 같이 넣는다(있는 거래처는 빈 칸만 채운다).
  */
 
-// 예전 단추(9/30~10/1 첫 판)는 읽는 코드가 단추 안에 박혀 있어서 고친 게 안 닿는다 — 새 단추는 v 를 같이 보낸다
-const OLD_BUTTON = "예전 '포클로에 담기' 단추예요. 즐겨찾기에서 그 단추를 지우고, 포클로ERP › 촬영 › 신상 관리 › '신마에서 담기'에서 새 단추를 다시 끌어다 놓아 주세요.";
 export default function ClipPage({ payload, online, vendors = [], onVendor, ready = true }) {
   const [item, setItem] = useState(null);
   const [state, setState] = useState("saving"); // saving | saved | dup | error
@@ -37,104 +34,17 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
     (async () => {
       setState("saving");
       setMsg("");
-      const p = parseClip(payload);
-      setPhoto(p.photoData || p.photoUrl);
+      setPhoto("");
       try {
-        const cur = (await loadKey("shoot_items", online)).items || [];
-        // 상품 화면을 못 읽었으면 담지 않는다 — 옆 칸(필터)을 상품으로 잘못 담은 적이 있다. 읽은 글은 남겨서 고칠 때 본다
-        if (!p.ok) {
-          const seenAs = { at: new Date().toISOString(), u: payload.u, v: payload.v || 1, g: payload.g, a: payload.a, hd: payload.hd, ds: payload.ds, t: payload.t };
-          await changeKey("clip_debug", online, (v) => ({ items: [seenAs, ...(v.items || [])].slice(0, 5) })).catch(() => {});
-          if (!alive()) return;
-          setItem(null);
-          setMsg(payload.v ? "상품 화면을 못 읽었어요. 신마에서 상품을 눌러 상세 화면(가격·상세정보)이 보이는 상태에서 다시 눌러 주세요." : OLD_BUTTON);
-          setState("error");
-          return;
-        }
-        // 옷감정보를 어떻게 봤는지 — 신마 화면을 직접 못 봐서, 어긋나면 이걸 보고 고친다 (최근 5개)
-        if (p.fabricProbe) changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, fabric: p.fabricProbe, wear: p.wear }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
-        const same = cur.map(normalize).find((x) => (p.goodsId ? x.goodsId === p.goodsId : p.url && x.url === p.url));
-        const past = ((await loadKey("sample_refusals", online).catch(() => ({}))).items || []);
-        const warn = (vid, name) => alive() && setRefused(refusalsOf(past, vid, name));
-        if (same) {
-          // 이미 담긴 상품 — 실측·디테일컷이 비어 있으면 이번에 읽은 것으로 채운다(예전에 담은 상품을 다시 눌러 사이즈표 받기)
-          const fill = {};
-          if (!same.sizeText && p.sizeText) fill.sizeText = p.sizeText;
-          if (same.hasDetailCut == null && p.hasDetailCut != null) fill.hasDetailCut = p.hasDetailCut;
-          if (!hasWear(same.wear) && hasWear(p.wear)) Object.assign(fill, { wear: p.wear, wearFrom: "신마" });
-          if (Object.keys(fill).length) await changeKey("shoot_items", online, upsert({ id: same.id, ...fill }));
-          if (!alive()) return;
-          warn(same.vendorId, same.vendor);
-          setItem({ ...same, ...fill });
-          if (fill.hasDetailCut != null || fill.sizeText || fill.wear)
-            setVendorNote([fill.hasDetailCut != null && `디테일컷 ${fill.hasDetailCut ? "있음" : "없음"}`, fill.sizeText && "실측", fill.wear && `착용정보(${wearSummary(fill.wear)})`].filter(Boolean).join(" · ") + "을(를) 더 담았어요");
-          setState("dup");
-          return;
-        }
-        // 사진 — 담기 단추가 떠 온 게 있으면 우리 보관함에, 없으면 신상마켓 주소 그대로
-        let key = "";
-        if (p.photoData) {
-          try {
-            key = await putPhoto(await (await fetch(p.photoData)).blob(), online);
-          } catch {
-            key = "";
-          }
-        }
-        // 돈 › 거래처와 잇기 — 같은 곳이 있으면 그 이름으로, 없으면 새로 등록 (한글 이름 먼저).
-        // 제품 설명의 전화·카톡·인스타도 같이 — 새 거래처는 다 넣고, 있는 거래처는 빈 칸만 채운다
-        const found = findVendor(p.vendor, p.place, vendors, p.contact);
-        const told = contactLines(p.contact);
-        let v = found;
-        let filled = false;
-        if (v && onVendor) {
-          const fill = vendorFill(v, p.contact);
-          if (fill) {
-            v = onVendor({ id: v.id, ...fill });
-            filled = true;
-          }
-        } else if (p.vendor && onVendor) {
-          const fill = vendorFill({ phone: "", memo: "" }, p.contact) || { phone: "", memo: "" };
-          v = onVendor({ name: p.vendor, address: p.place || "", phone: fill.phone, memo: [fill.memo, "신상 관리에서 등록"].filter(Boolean).join(" / ") });
-        }
-        setVendorNote(
-          !v
-            ? ""
-            : (found ? `거래처 '${v.name}' 와 이었어요` : `거래처 '${v.name}' 을(를) 새로 등록했어요`) +
-                (told.length ? (found && !filled ? " (연락처는 이미 있어요)" : ` · 연락처도 넣었어요: ${told.join(", ")}`) : " · 제품 설명에서 연락처는 못 찾았어요"),
-        );
-        const made = {
-          id: newId("i"),
-          type: "sample",
-          stage: "request",
-          name: p.name,
-          fullName: p.fullName,
-          vendor: v?.name || p.vendor,
-          vendorId: v?.id || "",
-          place: p.place,
-          kind: p.kind,
-          price: p.price || "",
-          url: p.url,
-          goodsId: p.goodsId,
-          colors: p.colors,
-          sizes: p.sizes,
-          fabric: p.fabric,
-          origin: p.origin,
-          contact: p.contact,
-          desc: p.desc,
-          sizeText: p.sizeText,
-          hasDetailCut: p.hasDetailCut,
-          ...(hasWear(p.wear) ? { wear: p.wear, wearFrom: "신마" } : {}),
-          photo: key || "",
-          photoUrl: key ? "" : p.photoUrl,
-          memo: "",
-          createdAt: new Date().toISOString(),
-        };
-        await changeKey("shoot_items", online, upsert(made));
+        const r = await saveClip(payload, { online, vendors, onVendor });
         if (!alive()) return;
-        warn(made.vendorId, made.vendor);
-        setItem(made);
-        setState("saved");
-        setRecent((r) => [made, ...r].slice(0, 8));
+        setPhoto(r.photo);
+        setItem(r.item || null);
+        setRefused(r.refused || []);
+        setVendorNote(r.note || "");
+        if (r.msg) setMsg(r.msg);
+        setState(r.state);
+        if (r.state === "saved") setRecent((x) => [r.item, ...x].slice(0, 8));
       } catch (e) {
         if (!alive()) return;
         setMsg(e.message || "담지 못했어요. 인터넷을 확인해 주세요.");

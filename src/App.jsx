@@ -40,6 +40,7 @@ import InvoiceRequestPage from "./components/InvoiceRequestPage";
 import ShootPage from "./components/ShootPage";
 import PasswordBox from "./components/PasswordBox";
 import ClipPage from "./components/ClipPage";
+import ClipBatch from "./components/ClipBatch";
 import { readClipHash } from "./lib/sinsang";
 import { PricingCtx } from "./lib/priceKit";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
@@ -66,8 +67,13 @@ export default function App() {
   const [pwOpen, setPwOpen] = useState(false);
   // 신상마켓 '포클로에 담기' 단추가 연 작은 창 — 주소 뒤 #clip=… (lib/sinsang.js). 같은 창에 다음 상품이 이어서 온다
   const [clip, setClip] = useState(() => readClipHash(window.location.hash));
+  // 여러 개 담기 창 — #clip-batch (10/13)
+  const [clipBatch, setClipBatch] = useState(() => window.location.hash === "#clip-batch");
   useEffect(() => {
-    const onHash = () => setClip(readClipHash(window.location.hash));
+    const onHash = () => {
+      setClip(readClipHash(window.location.hash));
+      setClipBatch(window.location.hash === "#clip-batch");
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -349,6 +355,7 @@ export default function App() {
   }
 
   if (L.mode === "remote" && !L.session) return <Login />;
+  if (clipBatch) return <ClipBatch online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
   if (clip) return <ClipPage payload={clip} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
 
   return (

@@ -7,7 +7,7 @@
 // 예전 판은 '가격 + 제조국이 든 가장 작은 칸'을 찾다가 뒤에 깔린 **필터 칸**을 상품으로 읽었다('남성의류 / 필터').
 //
 // 제품 설명: 거래처가 전화·카톡·인스타를 적어 두는 칸인데 접혀 있을 때가 있다 → 접혀 있으면 한 번 눌러 펼쳐서 읽는다(세원이 누르는 것과 같다).
-window.__pocloClip = async function (w, origin) {
+window.__pocloRead = async function () {
   var vw = innerWidth,
     vh = innerHeight;
   var P = /[₩￦]\s?[\d,]{3,}|[\d,]{4,}\s?원/,
@@ -288,6 +288,11 @@ window.__pocloClip = async function (w, origin) {
     void e;
     /* 사진을 못 떠도 주소는 같이 간다 */
   }
+  return d;
+};
+
+// 읽은 것 하나를 담기 창(#clip=…)으로
+window.__pocloSend = function (w, origin, d) {
   var url = origin + "/#clip=" + encodeURIComponent(JSON.stringify(d));
   if (w && !w.closed) {
     w.location.href = url;
@@ -295,5 +300,326 @@ window.__pocloClip = async function (w, origin) {
   } else {
     window.open(url, "poclo-clip", "width=470,height=760");
   }
+};
+
+// 지금 상품 창이 떠 있나 — 주소의 상품번호가 화면에 적혀 있거나, 상세정보 표의 '상품등록정보'가 보이면
+window.__pocloOpen = function () {
+  var vh = innerHeight,
+    vw = innerWidth;
+  var g = (location.href.match(/(?:modalGid|gid|goodsId)=(\d{6,11})/i) || location.pathname.match(/\/goods\/(\d{6,11})/) || [])[1] || "";
+  var own = function (e) {
+    var s = "";
+    for (var n = e.firstChild; n; n = n.nextSibling) if (n.nodeType === 3) s += n.nodeValue;
+    return s.replace(/\s+/g, " ").trim();
+  };
+  return [].slice.call(document.querySelectorAll("body *")).some(function (e) {
+    var t = own(e);
+    if (!t || (t !== "상품등록정보" && (!g || t !== g))) return false;
+    var r = e.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+  });
+};
+
+// 여러 상품 담기 (10/13 세원: "신상마켓에서 여러 상품을 같이 포클로에 담기 — 하나씩 하니까 불편해서")
+// 상품 창이 안 떠 있을 때(목록 화면) 단추를 누르면 '고르기'가 켜진다: 상품 사진을 누르면 골라지고(창은 안 열림), 'N개 담기'를 누르면
+// 고른 상품을 하나씩 열어(세원이 누르는 것처럼) 위의 읽기로 읽고 닫은 뒤 다음 상품으로. 읽은 것은 담기 창(#clip-batch)에 postMessage 로 차례로 보낸다.
+// 신마 목록 구조를 직접 못 봐서 — 열고 닫은 방법을 bx 로 같이 보낸다(어긋나면 그걸 보고 고친다).
+window.__pocloBatch = function (w, origin) {
+  // 단추가 연 빈 창은 닫아 둔다 — 'N개 담기'를 누를 때 다시 연다(그때도 누른 순간이라 열 수 있다)
+  try {
+    if (w && !w.closed) w.close();
+  } catch (e) {
+    void e;
+  }
+  var sleep = function (ms) {
+    return new Promise(function (r) {
+      setTimeout(r, ms);
+    });
+  };
+  var picked = [];
+  var bar = document.createElement("div");
+  bar.setAttribute("data-poclo", "1");
+  bar.style.cssText =
+    "position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2147483647;background:#fff;color:#1c1917;border:1px solid #e7e5e4;border-radius:16px;" +
+    "box-shadow:0 10px 30px rgba(0,0,0,.18);padding:12px 14px;font:14px/1.4 Pretendard,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:92vw";
+  var msg = document.createElement("span");
+  var go = document.createElement("button");
+  var one = document.createElement("button");
+  var stop = document.createElement("button");
+  var btn = function (b, main) {
+    b.type = "button";
+    b.style.cssText =
+      "border-radius:10px;padding:8px 12px;font:600 13px/1 inherit;cursor:pointer;" + (main ? "background:#be123c;color:#fff;border:0" : "background:#fff;color:#57534e;border:1px solid #d6d3d1");
+  };
+  btn(go, true);
+  btn(one, false);
+  btn(stop, false);
+  one.textContent = "이 화면 상품 하나만";
+  stop.textContent = "그만";
+  bar.appendChild(msg);
+  bar.appendChild(go);
+  bar.appendChild(one);
+  bar.appendChild(stop);
+  document.body.appendChild(bar);
+  window.__pocloBar = bar;
+
+  var draw = function () {
+    msg.innerHTML = "<b>포클로에 여러 개 담기</b> · 담을 상품 사진을 누르세요 <span style='color:#be123c;font-weight:700'>" + picked.length + "개</span>";
+    go.textContent = picked.length + "개 담기";
+    go.disabled = !picked.length;
+    go.style.opacity = picked.length ? "1" : ".4";
+  };
+  // 누른 곳의 상품 사진 — 사진이거나, 사진 하나(셋까지)가 든 작은 칸(카드)
+  var cardImg = function (t) {
+    var ok = function (g) {
+      var r = g.getBoundingClientRect();
+      return r.width >= 60 && r.height >= 60 && r.width <= innerWidth * 0.45;
+    };
+    if (t && t.tagName === "IMG" && ok(t)) return t;
+    for (var e = t, k = 0; e && e !== document.body && k < 6; e = e.parentElement, k++) {
+      var r = e.getBoundingClientRect();
+      if (r.width > innerWidth * 0.5) break;
+      var gs = [].slice.call(e.querySelectorAll("img")).filter(ok);
+      if (gs.length >= 1 && gs.length <= 3) return gs[0];
+    }
+    return null;
+  };
+  var badges = [];
+  var mark = function () {
+    badges.forEach(function (b) {
+      b.remove();
+    });
+    badges = [];
+    picked.forEach(function (p, i) {
+      p.el.style.outline = "4px solid #be123c";
+      p.el.style.outlineOffset = "-4px";
+      var r = p.el.getBoundingClientRect();
+      var b = document.createElement("div");
+      b.setAttribute("data-poclo", "1");
+      b.textContent = String(i + 1);
+      b.style.cssText =
+        "position:absolute;z-index:2147483646;width:26px;height:26px;border-radius:13px;background:#be123c;color:#fff;font:700 13px/26px sans-serif;text-align:center;pointer-events:none;" +
+        "left:" + (r.left + scrollX + 6) + "px;top:" + (r.top + scrollY + 6) + "px";
+      document.body.appendChild(b);
+      badges.push(b);
+    });
+  };
+  var unmark = function (el) {
+    el.style.outline = "";
+    el.style.outlineOffset = "";
+  };
+  // 고르는 동안은 상품 창이 안 열리게 — 누르기 관련 일을 전부 먼저 받아서 막는다
+  var EV = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
+  var block = function (e) {
+    if (e.target.closest && e.target.closest("[data-poclo]")) return;
+    var g = cardImg(e.target);
+    if (!g) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    if (e.type !== "click") return;
+    var i = picked.findIndex(function (p) {
+      return p.el === g;
+    });
+    if (i >= 0) {
+      unmark(g);
+      picked.splice(i, 1);
+    } else picked.push({ el: g, src: g.currentSrc || g.src });
+    mark();
+    draw();
+  };
+  var on = function () {
+    EV.forEach(function (t) {
+      document.addEventListener(t, block, true);
+    });
+  };
+  var off = function () {
+    EV.forEach(function (t) {
+      document.removeEventListener(t, block, true);
+    });
+  };
+  var end = function () {
+    off();
+    picked.forEach(function (p) {
+      unmark(p.el);
+    });
+    badges.forEach(function (b) {
+      b.remove();
+    });
+    bar.remove();
+    window.__pocloBar = null;
+    window.__pocloBatchStop = null;
+  };
+  window.__pocloBatchStop = end;
+  stop.onclick = end;
+  one.onclick = async function () {
+    var win = window.open("about:blank", "poclo-clip", "width=470,height=760");
+    end();
+    window.__pocloSend(win, origin, await window.__pocloRead());
+  };
+  on();
+  draw();
+
+  // 진짜로 누르기 (세원이 누르는 것과 같은 순서)
+  var press = function (el) {
+    var r = el.getBoundingClientRect();
+    var o = { bubbles: true, cancelable: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+    ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(function (t) {
+      el.dispatchEvent(t.indexOf("pointer") === 0 && window.PointerEvent ? new PointerEvent(t, o) : new MouseEvent(t, o));
+    });
+  };
+  var until = async function (f, ms) {
+    for (var k = 0; k < ms / 100; k++) {
+      if (f()) return true;
+      await sleep(100);
+    }
+    return !!f();
+  };
+  // 상품 창 닫기 — 닫기 단추 → Esc → 그래도 열려 있고 주소가 바뀌었으면 뒤로
+  // (뒤로를 먼저 하면, 신마가 주소를 덮어쓰는 식이면 목록 앞 화면으로 나가 버릴 수 있어서 마지막에)
+  var shut = function () {
+    return !window.__pocloOpen();
+  };
+  var close = async function (before) {
+    var how = "";
+    var x = [].slice
+      .call(document.querySelectorAll("button,[role=button],a,span,div"))
+      .filter(function (e) {
+        var t = (e.getAttribute("aria-label") || "") + " " + (e.childElementCount === 0 ? e.textContent : "");
+        var r = e.getBoundingClientRect();
+        return /닫기|close|^\s*[✕×xX]\s*$/i.test(t.trim()) && r.width > 0 && r.width < 80 && r.height > 0 && !e.closest("[data-poclo]");
+      })
+      .pop();
+    if (x) {
+      x.click();
+      how = "button";
+      if (await until(shut, 2500)) return how;
+    }
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+    how = (how ? how + "+" : "") + "esc";
+    if (await until(shut, 1500)) return how;
+    if (location.href !== before) {
+      history.back();
+      how += "+back";
+      if (await until(shut, 3000)) return how;
+    }
+    return how + "+fail";
+  };
+
+  go.onclick = async function () {
+    if (!picked.length) return;
+    off();
+    var list = picked.slice();
+    picked.forEach(function (p) {
+      unmark(p.el);
+    });
+    badges.forEach(function (b) {
+      b.remove();
+    });
+    badges = [];
+    go.style.display = one.style.display = "none";
+    stop.textContent = "멈추기";
+    var halt = false;
+    stop.onclick = function () {
+      halt = true;
+    };
+    var win = window.open(origin + "/#clip-batch", "poclo-clip", "width=470,height=760");
+    var ready = false;
+    var hear = function (e) {
+      if (e.origin === origin && e.data && e.data.poclo === "ready") ready = true;
+    };
+    window.addEventListener("message", hear);
+    var post = function (m) {
+      try {
+        win.postMessage(m, origin);
+      } catch (e) {
+        void e;
+      }
+    };
+    msg.innerHTML = "<b>담기 창을 여는 중…</b>";
+    if (
+      !(await until(function () {
+        return ready;
+      }, 15000))
+    ) {
+      msg.innerHTML = "<b>담기 창이 준비되지 않았어요</b> — 포클로ERP 에 로그인돼 있는지 확인하고 다시 눌러 주세요";
+      stop.textContent = "닫기";
+      stop.onclick = end;
+      window.removeEventListener("message", hear);
+      return;
+    }
+    post({ poclo: "start", n: list.length });
+    var last = "",
+      done = 0,
+      fail = 0;
+    for (var i = 0; i < list.length && !halt; i++) {
+      msg.innerHTML = "<b>" + (i + 1) + " / " + list.length + "</b> 읽는 중… <span style='color:#78716c'>창은 저절로 열리고 닫혀요</span>";
+      // 목록이 다시 그려졌을 수 있다 — 같은 사진을 다시 찾는다
+      var el = list[i].el;
+      if (!el.isConnected)
+        el =
+          [].slice.call(document.images).filter(function (g) {
+            return (g.currentSrc || g.src) === list[i].src;
+          })[0] || el;
+      if (!el.isConnected) {
+        post({ poclo: "fail", i: i, n: list.length, why: "목록에서 사진을 다시 못 찾았어요" });
+        fail++;
+        continue;
+      }
+      el.scrollIntoView({ block: "center" });
+      await sleep(250);
+      var before = location.href;
+      press(el);
+      var opened = await until(function () {
+        return window.__pocloOpen();
+      }, 7000);
+      if (!opened) {
+        post({ poclo: "fail", i: i, n: list.length, why: "상품 창이 안 열렸어요", u: location.href });
+        fail++;
+        continue;
+      }
+      await sleep(600);
+      var d = await window.__pocloRead();
+      var byUrl = location.href !== before;
+      var how = await close(before);
+      d.bx = { i: i, open: byUrl ? "url" : "dom", close: how };
+      // 앞 상품과 같은 글이면 창이 안 바뀐 것 — 담지 않는다
+      var sig = (d.g || "") + (d.t || "").slice(0, 300);
+      if (sig === last) {
+        post({ poclo: "fail", i: i, n: list.length, why: "앞 상품과 같은 화면이 읽혔어요" });
+        fail++;
+      } else {
+        post({ poclo: "clip", i: i, n: list.length, d: d });
+        done++;
+      }
+      last = sig;
+      if (/fail/.test(how)) {
+        post({ poclo: "fail", i: i + 1, n: list.length, why: "상품 창이 안 닫혀서 멈췄어요" });
+        break;
+      }
+      await sleep(400);
+    }
+    post({ poclo: "end", n: list.length, sent: done, fail: fail, halted: halt });
+    window.removeEventListener("message", hear);
+    msg.innerHTML = "<b>" + done + "개 보냈어요</b>" + (fail ? " · 못 읽은 것 " + fail + "개" : "") + " — 담기 창에서 확인하세요";
+    stop.textContent = "닫기";
+    stop.onclick = end;
+    setTimeout(end, 6000);
+  };
+};
+
+window.__pocloClip = async function (w, origin) {
+  // 고르는 중에 단추를 또 누르면 그만
+  if (window.__pocloBar && window.__pocloBatchStop) {
+    window.__pocloBatchStop();
+    try {
+      if (w && !w.closed) w.close();
+    } catch (e) {
+      void e;
+    }
+    return;
+  }
+  if (window.__pocloOpen()) window.__pocloSend(w, origin, await window.__pocloRead());
+  else window.__pocloBatch(w, origin);
 };
 window.__pocloClip(window.__pocloW, window.__pocloO);

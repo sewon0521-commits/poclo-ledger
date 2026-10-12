@@ -1721,6 +1721,13 @@ function ClipGuide({ onClose }) {
               누르세요.
             </p>
           </li>
+          <li className="rounded-xl border border-rose-200 bg-rose-50/40 p-3">
+            <b className="text-stone-900">③ 여러 개 한 번에 — 목록 화면에서 누르기</b>
+            <p className="mt-1 text-xs text-stone-500">
+              상품을 열지 않은 목록(매장 상품·찜 목록)에서 즐겨찾기를 누르면 아래에 '여러 개 담기' 막대가 떠요. 담을 상품 사진을 눌러 고르고(번호가 붙어요, 다시 누르면 빠져요) 'N개 담기'를 누르면, 단추가 상품을 하나씩
+              열어 읽고 닫아요 — 그동안 화면은 건드리지 말고 기다려 주세요. 작은 창에 차례로 담겨요. 그만두려면 '그만'·'멈추기' 또는 즐겨찾기를 한 번 더.
+            </p>
+          </li>
         </ol>
         <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">폰에서는 이 단추를 쓸 수 없어요. 폰에서는 '직접 넣기'에 링크를 붙이고 캡처를 넣어 주세요.</p>
       </div>
