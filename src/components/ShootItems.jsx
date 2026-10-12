@@ -318,6 +318,9 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
 
 const EMPTY = { type: "sample", stage: "request", name: "", vendor: "", place: "", kind: "", price: "", url: "", photo: "", colors: "", sizes: "", fabric: "", origin: "", memo: "" };
 
+/** 소싱한 날 — 직접 고친 날(sourcedOn) → 없으면 신마에서 담은 날(createdAt, 이 기기 시각) (10/12) */
+const sourcedOf = (x) => x.sourcedOn || (x.createdAt ? dayKey(new Date(x.createdAt)) : "");
+
 function Label({ children, title }) {
   return (
     <label className="block space-y-1">
@@ -437,6 +440,7 @@ const flowSummary = (x) => {
     stageName(x.stage),
     x.asked && "요청함",
     x.pickup && "픽업 요청",
+    sourcedOf(x) && `소싱 ${md(sourcedOf(x))}`,
     x.retryOn && `재요청 ${md(x.retryOn)}`,
     x.arrivedOn && `입고 ${md(x.arrivedOn)}`,
     shot.length > 0 && `촬영 ${shot.length > 1 ? `${shot.length}차 ` : ""}${md(shot.at(-1).on)}`,
@@ -793,6 +797,9 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                 </Toggle>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
+                <Label title="소싱한 날 (요청 탭 날짜별 보기)">
+                  <input type="date" value={sourcedOf(x)} onChange={(e) => set({ sourcedOn: e.target.value })} className={FIELD} />
+                </Label>
                 <Label title="샘플 재요청 날짜">
                   <input type="date" value={x.retryOn || ""} onChange={(e) => set({ retryOn: e.target.value })} className={FIELD} />
                 </Label>
@@ -1745,6 +1752,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   // 소싱한 날 (10/12 세원: "소싱은 보통 일주일에 한 번(가끔 두 번) 거래처에 연락을 쫙 돌리는데, 요청란에서 날짜별로도 —
   // 보통은 지금처럼, 소싱한 날짜를 누르면 그날 신마에서 담기를 누른 상품만") — 담은 날(createdAt, 이 기기 시각)
   const [srcDay, setSrcDay] = useState("");
+  const [dayTo, setDayTo] = useState(""); // 고른 날 상품을 옮길 날
   const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
@@ -1793,7 +1801,14 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const soon = dues.filter((n) => n >= 0 && n <= 3).length;
   const retry = items.filter((x) => x.stage === "request" && x.retryOn && x.retryOn <= today).length;
 
-  const madeOn = (x) => (x.createdAt ? dayKey(new Date(x.createdAt)) : "");
+  const madeOn = sourcedOf;
+  // 고른 날 상품을 통째로 다른 날로 (10/12 세원: "소싱한 날도 변경할 수 있게") — 요청 단계 상품만
+  const moveDay = async (from, to) => {
+    if (!to || to === from) return;
+    await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (normalize(it).stage === "request" && sourcedOf(it) === from ? { ...it, sourcedOn: to } : it)) }));
+    setSrcDay(to);
+    setDayTo("");
+  };
   const srcDays = useMemo(() => {
     const m = new Map();
     for (const x of items) if (x.stage === "request" && madeOn(x)) m.set(madeOn(x), (m.get(madeOn(x)) || 0) + 1);
@@ -1973,7 +1988,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
             <button
               key={k || "all"}
               type="button"
-              onClick={() => setSrcDay(k)}
+              onClick={() => {
+                setSrcDay(k);
+                setDayTo("");
+              }}
               aria-pressed={day === k}
               title={k ? `${dayTitle(k)}에 담은 상품만` : "요청 단계 상품 전부"}
               className={"shrink-0 rounded-full border px-3 py-1 font-medium whitespace-nowrap " + (day === k ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
@@ -1982,6 +2000,19 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
             </button>
           ))}
         </div>
+      )}
+      {tab === "request" && day && (
+        <label className="mb-2 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+          {shortTitle(day)} 상품 {srcDays.find(([k]) => k === day)?.[1] || 0}개의 소싱한 날 바꾸기
+          {/* 날짜 칸은 연도를 치는 중에도 값이 바뀌어서(0002-…) 바로 옮기지 않고 단추로 */}
+          <input type="date" value={dayTo || day} onChange={(e) => setDayTo(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-800" />
+          {dayTo && dayTo !== day && /^20\d\d-/.test(dayTo) && (
+            <button type="button" onClick={() => moveDay(day, dayTo)} className="rounded-lg bg-stone-800 px-2.5 py-1 font-semibold text-white">
+              {shortTitle(dayTo)}로 옮기기
+            </button>
+          )}
+          <span className="text-stone-400">하나만 바꾸려면 상품을 눌러 '진행' 칸에서</span>
+        </label>
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
