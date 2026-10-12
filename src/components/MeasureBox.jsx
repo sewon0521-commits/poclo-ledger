@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Ruler, Copy, Check, Pencil, Eraser, Wand2, X } from "lucide-react";
-import { MEASURE_CATS, catOf, partsOf, isSame, partName, spreadSame, blankMeasure, sizeNames, filled, measureText, parseMeasure, WEAR, wearLines } from "../lib/measure";
+import { MEASURE_CATS, fixMeasure, catOf, partsOf, isSame, partName, spreadSame, blankMeasure, sizeNames, filled, measureText, parseMeasure, WEAR, wearLines } from "../lib/measure";
 import { dayKey } from "../lib/journal";
 import { Sheet, SheetHead, Photo } from "./ShootBits";
 
@@ -35,7 +35,7 @@ const clean = (s) => String(s || "").replace(/[^\d.~\-/]/g, "");
 export function MeasureBox({ x, onChange, big = false }) {
   // 복사 글에는 착용정보(계절감…)도 같이 — 상품등록 메모에 한 번에 붙이게
   const wearText = wearLines(x.wear);
-  const m = x.measure || blankMeasure(x);
+  const m = fixMeasure(x.measure || blankMeasure(x));
   const cat = catOf(m.cat);
   const sizes = m.sizes?.length ? m.sizes : ["FREE"];
   const parts = partsOf(m);

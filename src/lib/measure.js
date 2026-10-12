@@ -8,7 +8,7 @@
 // 항목은 세원이 정한 그대로(상의·하의는 상품등록 메모 항목과 같다).
 
 export const MEASURE_CATS = [
-  { k: "top", label: "상의", hint: "반팔·긴팔·아우터·셔츠·티셔츠", parts: ["어깨", "가슴", "소매", "암홀", "밑단", "총장"] },
+  { k: "top", label: "상의", hint: "반팔·긴팔·아우터·셔츠·티셔츠", parts: ["어깨", "가슴", "팔길이", "암홀", "밑단", "총장"] },
   { k: "bottom", label: "하의", hint: "반바지·바지", parts: ["허리", "엉덩이", "허벅지", "밑위", "밑단", "총장"] },
   { k: "sleeveless", label: "나시", hint: "나시·민소매·슬리브리스", parts: ["어깨", "가슴", "암홀", "밑단", "총장"] },
   { k: "skirt", label: "치마", hint: "치마·스커트", parts: ["허리", "엉덩이", "밑단", "총장"] },
@@ -17,6 +17,16 @@ export const MEASURE_CATS = [
   { k: "shoes", label: "신발", hint: "구두·로퍼·운동화·부츠·샌들", parts: ["굽높이", "앞굽"], more: ["발목 높이", "발목 둘레", "통 둘레", "총 높이"], custom: true, same: true },
   { k: "etc", label: "기타", hint: "스카프·가방·모자·벨트 등 — 잴 곳을 정해요", parts: ["가로", "세로"], more: ["폭", "길이", "둘레", "끈 길이", "깊이", "챙"], custom: true },
 ];
+// 10/12 세원: "실측에서 소매 → 팔길이로" — 예전에 '소매'로 저장된 값은 읽을 때 '팔길이'로 옮긴다(고쳐 저장하면 새 이름으로 남음)
+export function fixMeasure(m) {
+  if (!m?.v || !Object.values(m.v).some((pv) => pv && "소매" in pv)) return m;
+  const v = {};
+  for (const [s, pv] of Object.entries(m.v)) {
+    const { 소매: old, ...rest } = pv || {};
+    v[s] = old != null && !String(rest.팔길이 ?? "").trim() ? { ...rest, 팔길이: old } : rest;
+  }
+  return { ...m, v };
+}
 export const catOf = (k) => MEASURE_CATS.find((c) => c.k === k) || MEASURE_CATS[0];
 /** 이 실측표의 잴 곳 — 신발·기타는 고친 것(partsBy) */
 export const partsOf = (m) => {
@@ -68,6 +78,7 @@ export function blankMeasure(x) {
 /** 몇 칸 채웠나 (모든 사이즈 같은 값이면 한 줄만 센다) */
 export function filled(m) {
   if (!m) return { n: 0, of: 0 };
+  m = fixMeasure(m);
   const parts = partsOf(m);
   const all = m.sizes?.length ? m.sizes : ["FREE"];
   const sizes = isSame(m) ? all.slice(0, 1) : all;
@@ -82,6 +93,7 @@ export function filled(m) {
  */
 export function measureText(m) {
   if (!m) return { text: "", missing: [] };
+  m = fixMeasure(m);
   const parts = partsOf(m);
   const sizes = m.sizes?.length ? m.sizes : ["FREE"];
   const same = isSame(m);
@@ -107,11 +119,11 @@ export function spreadSame(m) {
   return { ...m, v: Object.fromEntries(sizes.map((s) => [s, { ...first }])) };
 }
 
-// 붙여넣은 글 읽기 — 다른 이름으로 적힌 부위도 받는다(가슴단면·가슴품 → 가슴, 힙 → 엉덩이, 소매기장·팔길이 → 소매 …)
+// 붙여넣은 글 읽기 — 다른 이름으로 적힌 부위도 받는다(가슴단면·가슴품 → 가슴, 힙 → 엉덩이, 소매기장·소매 → 팔길이 …)
 const SYN = [
   ["어깨", "어깨\\s*너비|어깨"],
   ["가슴", "가슴\\s*단면|가슴\\s*품|가슴|(?<![가-힣])품(?![가-힣])"],
-  ["소매", "소매\\s*(?:기장|길이)|팔\\s*(?:기장|길이)|소매(?!\\s*통)"],
+  ["팔길이", "팔\\s*(?:기장|길이)|소매\\s*(?:기장|길이)|소매(?!\\s*통)"],
   ["암홀", "암홀"],
   ["허리", "허리\\s*단면|허리"],
   ["엉덩이", "엉덩이|힙"],
