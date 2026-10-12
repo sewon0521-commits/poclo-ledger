@@ -91,7 +91,8 @@ export const SECTIONS = [
           { key: "shoot", label: "신상 관리", icon: Camera },
           { key: "shootRefs", label: "촬영 레퍼런스", icon: Images },
           // 10/4 세원: "코디 촬영 관리란 — 찍을 컷·영상, 쇼핑몰별 베스트컷, 날씨, 쇼만마 코디"
-          { key: "shootPlan", label: "코디 촬영 관리", icon: ClipboardList },
+          // 10/12 세원: "스튜디오가 생겨 수시로 촬영하니까 코디 촬영 관리 → 소싱 관리"
+          { key: "shootPlan", label: "소싱 관리", icon: ClipboardList },
         ],
       },
     ],

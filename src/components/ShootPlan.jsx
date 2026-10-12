@@ -33,7 +33,8 @@ import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
 
 /**
- * 촬영 › 코디 촬영 관리 (10/4 세원 — 노션 '쇼핑몰 별 BEST 컷 모음' 화면을 보여 주며):
+ * 촬영 › 소싱 관리 — 10/12 '코디 촬영 관리'에서 이름 바꿈(세원: "사무실에 스튜디오가 생겨 수시로 촬영하니까 소싱 관리로, 촬영 → 소싱")
+ * 예전 이름: 코디 촬영 관리 (10/4 세원 — 노션 '쇼핑몰 별 BEST 컷 모음' 화면을 보여 주며):
  *   "코디 촬영 관리란을 만들어 줘. 이번 촬영 때 어떤 컷·어떤 영상을 찍어야 하는지, 쇼핑몰별 베스트컷 모음집,
  *    이번 촬영 날씨 — 언제 올라가고 사람들이 이날 보니 이 날씨에 어떤 제품을 사겠구나, 쇼만마에서 어떤 코디를 찍어라·
  *    지금 어떤 코디가 뜬다는 걸 내가 정리해 넣는 칸."
@@ -614,7 +615,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot }) {
                 type="button"
                 onClick={() => onChange(ids.filter((k) => k !== r.id))}
                 aria-label="빼기"
-                title="이 촬영에서만 빼요 (촬영 레퍼런스에는 남아요)"
+                title="이 소싱에서만 빼요 (촬영 레퍼런스에는 남아요)"
                 className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 max-sm:opacity-80"
               >
                 <X size={13} />
@@ -686,7 +687,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             <input
               value={s.title || ""}
               onChange={(e) => set({ title: e.target.value })}
-              placeholder="촬영 이름 — 예: 10월 2주 가을 코디 촬영"
+              placeholder="소싱 날짜 — 예: 10월 13일 소싱"
               className="w-full bg-transparent text-lg font-semibold text-stone-900 outline-none placeholder:text-stone-300"
             />
             <p className="text-xs text-stone-400">고치는 대로 저장돼요</p>
@@ -698,7 +699,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium text-stone-500">
-              촬영일
+              소싱일
               <input type="date" value={s.on || ""} onChange={(e) => set({ on: e.target.value })} className={FIELD + " mt-1"} />
             </label>
             <label className="block text-xs font-medium text-stone-500">
@@ -725,10 +726,10 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             </div>
           </div>
 
-          {/* 날씨 — 촬영일과 올라가는 날 */}
+          {/* 날씨 — 소싱일과 올라가는 날 */}
           <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-1">
             <div className="divide-y divide-sky-100">
-              <WeatherRow label="촬영일" date={s.on} w={w[s.on]} />
+              <WeatherRow label="소싱일" date={s.on} w={w[s.on]} />
               {uploads.map((u, i) => (
                 <WeatherRow key={i} label={uploads.length > 1 ? `업로드 ${i + 1}` : "업로드"} date={u} w={u ? w[u] : undefined} />
               ))}
@@ -761,7 +762,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
                 }}
                 className="rounded-lg bg-rose-700 px-2.5 py-1 font-semibold text-white"
               >
-                이 촬영으로 가져오기
+                이 소싱으로 가져오기
               </button>
             </div>
           )}
@@ -840,7 +841,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
           <button
             type="button"
             onClick={() => {
-              if (window.confirm("이 촬영을 지울까요?")) {
+              if (window.confirm("이 소싱을 지울까요?")) {
                 saved.current = JSON.stringify(latest.current);
                 onRemove(s.id);
                 onClose();
@@ -877,8 +878,8 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
       <button key={s.id} type="button" onClick={() => setOpen(s)} className="rounded-2xl border border-stone-200 bg-white p-4 text-left transition hover:border-rose-300 hover:shadow-sm">
         <div className="flex items-start justify-between gap-2">
           <span>
-            <span className="block text-lg font-bold text-stone-900 tabular-nums">{s.on ? `${md(s.on)} 촬영` : "날짜 미정"}</span>
-            <span className="block text-sm text-stone-600">{s.title || "이름 없는 촬영"}</span>
+            <span className="block text-lg font-bold text-stone-900 tabular-nums">{s.on ? `${md(s.on)} 소싱` : "날짜 미정"}</span>
+            <span className="block text-sm text-stone-600">{s.title || "이름 없는 소싱"}</span>
           </span>
           {s.on && <span className={"shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold " + (s.on === today ? "bg-rose-700 text-white" : s.on > today ? "bg-rose-50 text-rose-800" : "bg-stone-100 text-stone-500")}>{dday(s.on)}</span>}
         </div>
@@ -910,19 +911,19 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
           }}
           className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
         >
-          <Plus size={16} /> 새 촬영
+          <Plus size={16} /> 새 소싱
         </button>
       </div>
       {!sessions.items.length ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-          '새 촬영'을 눌러 촬영일·올라가는 날·찍을 컷과 영상을 정리해 보세요. 날씨는 날짜만 넣으면 떠요.
+          '새 소싱'을 눌러 소싱일·올라가는 날·찍을 컷과 영상을 정리해 보세요. 날씨는 날짜만 넣으면 떠요.
         </p>
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{list.up.map(card)}</div>
           {list.past.length > 0 && (
             <>
-              <div className="mt-5 mb-2 text-xs font-semibold text-stone-400">지난 촬영</div>
+              <div className="mt-5 mb-2 text-xs font-semibold text-stone-400">지난 소싱</div>
               <div className="grid gap-3 opacity-80 sm:grid-cols-2 lg:grid-cols-3">{list.past.map(card)}</div>
             </>
           )}
@@ -1039,7 +1040,7 @@ function ShopBoard({ list, change, online, onMsg, hot = true, onHot }) {
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="min-w-0">
           <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-            <Store size={15} className="text-rose-700" /> 쇼핑몰 BEST 컷 <span className="font-normal text-stone-400">이번 촬영에서 따라갈 코디 사진</span>
+            <Store size={15} className="text-rose-700" /> 쇼핑몰 BEST 컷 <span className="font-normal text-stone-400">이번 소싱에서 따라갈 코디 사진</span>
           </span>
           <span className="block text-[11px] text-stone-400">사진을 복사해서 Ctrl+V 하면 마우스를 올려 둔 칸에 바로 들어가요 · 끌어다 놓기도 돼요</span>
         </span>
@@ -1078,7 +1079,7 @@ function ShopBoard({ list, change, online, onMsg, hot = true, onHot }) {
         </div>
       )}
       {!list.length && !adding ? (
-        <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">'쇼핑몰 추가'로 이번 촬영에서 참고할 쇼핑몰 칸(페트리코어 · 윈느 …)을 만들어 보세요.</p>
+        <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">'쇼핑몰 추가'로 이번 소싱에서 참고할 쇼핑몰 칸(페트리코어 · 윈느 …)을 만들어 보세요.</p>
       ) : (
         <div className="space-y-2">
           {list.map((s) => {
@@ -1327,7 +1328,7 @@ function NotesTab({ notes, online }) {
 
 // 쇼핑몰 BEST 컷은 10/4 부터 촬영 회차 안에 (세원: "목록에서는 지우고 촬영 회차 폴더 안으로")
 const TABS = [
-  ["sessions", "촬영 회차"],
+  ["sessions", "소싱 회차"],
   ["notes", "쇼만마 코디 노트"],
 ];
 const TAB_KEY = "poclo_shoot_plan_tab";
@@ -1359,8 +1360,8 @@ export default function ShootPlan({ d, online }) {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-xl font-bold text-stone-900">코디 촬영 관리</h2>
-        <p className="mt-0.5 text-sm text-stone-500">촬영마다 찍을 컷·영상, 촬영일·올라가는 날 날씨, 따라갈 쇼핑몰 BEST 컷을 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
+        <h2 className="text-xl font-bold text-stone-900">소싱 관리</h2>
+        <p className="mt-0.5 text-sm text-stone-500">소싱마다 찍을 컷·영상, 소싱일·올라가는 날 날씨, 따라갈 쇼핑몰 BEST 컷을 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
       </div>
       {msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
