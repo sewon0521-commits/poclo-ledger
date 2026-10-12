@@ -1905,3 +1905,9 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - 확인(가짜 목록 `perf/fake/list.html` — 주소에 modalGid 붙는 창 / 주소 안 바뀌는 창 두 가지, `perf/batchclip.mjs`): 5개 중 4개 고르기(하나 뺐다 다시) → 창 0번 열림 → 4개 담기 →
   4번 열고 4번 닫음, 새로 3 · 이미 있던 1(코이셔링PT) · 거래처 '래래 RAERAE' 하나만 · 순서 그대로. 상품 창이 떠 있을 때는 예전처럼 하나 담기(`perf/singleclip.mjs`).
   단추를 다시 끌어다 놓을 필요 없음(단추가 늘 새 clip.js 를 불러옴).
+
+### 배포 확인하는 법 (10/13)
+
+- 10/12 밤 Vercel 장애('빌드·배포 실패 증가', vercel-status.com)로 21:21 · 21:29 배포가 실패하고, 그 뒤 올린 것은 GitHub 배포 기록 없이 나중에 한꺼번에 반영됐다(최신 000a02c 까지 확인).
+- curl 로 사이트를 자주 두드리면 **Vercel Security Checkpoint(403)** 가 막는다. 확인은 **진짜 크롬(puppeteer, webdriver 숨김)으로 체크포인트를 기다린 뒤** 페이지의 `assets/index-*.js` 가
+  이 PC `dist/assets` 의 것과 같은지 본다(scratchpad `perf/deploycheck2.mjs`, /clip.js 도 같이). GitHub 배포 기록(api.github.com …/deployments)은 장애 때 빠질 수 있다.
