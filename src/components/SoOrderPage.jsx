@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileSpreadsheet, Copy, Check, X, Loader2, RotateCcw, Info, Save } from "lucide-react";
+import { FileSpreadsheet, Copy, Check, X, Loader2, RotateCcw, Info, Save, Undo2, Trash2 } from "lucide-react";
 import { won } from "../lib/sales";
 import { loadKey, changeKey, upsert, remove, FIELD } from "../lib/shoot";
 import { newId } from "../lib/id";
@@ -187,12 +187,20 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       .filter((l) => l.left > 0);
   }, [tx, vendors, draft?.misBefore]);
 
+  const priced = useMemo(
+    () =>
+      withStore.map((r) => {
+        const f = found[r.id] || {};
+        const price = r.manual != null ? r.manual : f.price;
+        return { ...r, price: price > 0 ? price : null, auto: f };
+      }),
+    [withStore, found],
+  );
+  // × 로 뺀 줄 (10/12 세원: "x 누르면 바로 없어지지 말고 맨 밑으로 내려갔다가 다시 살릴 수 있게, 최종적으로 확인할 때 지울 수 있게")
+  // — 표 맨 아래 '뺀 줄'로 내려가고 복사·합계·미송·저장에서 빠진다. 되살리기 / 지우기(진짜로)
+  const offRows = useMemo(() => priced.filter((r) => r.off), [priced]);
   const rows = useMemo(() => {
-    const list = withStore.map((r) => {
-      const f = found[r.id] || {};
-      const price = r.manual != null ? r.manual : f.price;
-      return { ...r, price: price > 0 ? price : null, auto: f };
-    });
+    const list = priced.filter((r) => !r.off);
     // 같은 매장끼리 붙여서 (10/11 세원: "같은 거래처에서 같은 상품 다른 옵션이든 그냥 같은 거래처이면 바로 아래 보여주게")
     // 매장은 처음 나온 순서, 매장 안에서는 같은 상품끼리(처음 나온 순서), 나머지는 원래 순서. 복사 글도 이 순서
     const first = new Map();
@@ -227,7 +235,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     });
     // 옵션이 다른 미송은 아직 남았고 다른 줄이 안 쓴 것만 알려 준다
     return out.map((r) => ({ ...r, misHint: r.misLoose.filter((l) => !usedBy.has(l.key) && (left.get(l.key) || 0) > 0 && !(r.misongForce || []).includes(l.key)) }));
-  }, [withStore, found, misong]);
+  }, [priced, misong]);
+  const dropRows = (ids) => setDraft((d) => ({ ...d, rows: d.rows.filter((x) => !ids.includes(x.id)) }));
 
   /**
    * 파일 읽기 — 여러 개를 한 번에 넣으면 파일명 끝 시각이 늦은 것이 이번 발주, 바로 앞 것이 앞 차수.
@@ -761,13 +770,59 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         <input value={r.memo || ""} onChange={(e) => patchRow(r.id, { memo: e.target.value })} className="w-28 rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:border-rose-600" />
                       </td>
                       <td className="sticky right-0 bg-white py-2 pr-1.5 pl-1 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]">
-                        <button type="button" onClick={() => setDraft((d) => ({ ...d, rows: d.rows.filter((x) => x.id !== r.id) }))} aria-label="이 줄 빼기" title="이 줄 빼기" className="rounded-md p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-700">
+                        <button type="button" onClick={() => patchRow(r.id, { off: true })} aria-label="이 줄 빼기" title="이 줄 빼기 — 맨 아래 '뺀 줄'로 내려가요(되살릴 수 있어요)" className="rounded-md p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-700">
                           <X size={15} />
                         </button>
                       </td>
                     </tr>
                   );
                 })}
+                {offRows.length > 0 && (
+                  <tr className="border-t-2 border-t-stone-300 bg-stone-100/70">
+                    <td colSpan={9} className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-semibold text-stone-600">뺀 줄 {offRows.length}개</span>
+                        {/* 표가 넓어 오른쪽 끝은 잘려 보일 수 있어서 글 바로 옆에 */}
+                        <button
+                          type="button"
+                          onClick={() => window.confirm(`뺀 줄 ${offRows.length}개를 지울까요? 지우면 되살릴 수 없어요.`) && dropRows(offRows.map((r) => r.id))}
+                          className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 font-medium text-stone-600 hover:border-rose-300 hover:text-rose-700"
+                        >
+                          <Trash2 size={12} /> 전부 지우기
+                        </button>
+                        <span className="text-stone-500">SO+ 에 안 넣어요 · 다시 넣으려면 '되살리기', 마지막에 확인하고 지워요</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {offRows.map((r) => (
+                  <tr key={r.id} className="bg-stone-50/80 align-top text-stone-400">
+                    <td className="px-3 py-2">
+                      <div className="w-32 truncate font-medium">{r.store}</div>
+                    </td>
+                    <td className="max-w-[15rem] px-3 py-2">
+                      <div className="font-medium line-through decoration-stone-300">{r.name}</div>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.option}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{r.qty}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{r.price ? won(r.price) : ""}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>
+                    <td colSpan={2} className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => patchRow(r.id, { off: false })}
+                        className="flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                      >
+                        <Undo2 size={12} /> 되살리기
+                      </button>
+                    </td>
+                    <td className="sticky right-0 bg-stone-50 py-2 pr-1.5 pl-1 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]">
+                      <button type="button" onClick={() => dropRows([r.id])} aria-label="이 줄 지우기" title="이 줄 지우기 — 되살릴 수 없어요" className="rounded-md p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-700">
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -789,6 +844,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                     {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 SO+ 에 안 넣어요)`}
                   </div>
                 )}
+                {offRows.length > 0 && <div className="text-stone-500">뺀 줄 {offRows.length}개는 안 넣어요 — 표 맨 아래에서 되살리거나 지워요.</div>}
                 {noMiss.length > 0 && <div className="text-amber-700">미송을 아직 안 고른 줄 {noMiss.length}개 — 표 머리 '전부 가능 / 전부 X' 또는 줄마다 골라 주세요.</div>}
                 {noPrice.length > 0 && <div className="text-amber-700">단가가 빈 줄 {noPrice.length}개 — 비운 채 복사하면 SO+ 에서 따로 넣어야 해요.</div>}
                 {differ.length > 0 && <div className="text-stone-500">장끼 단가와 판매가 목록 공급가가 다른 상품 {differ.length}개 — 장끼(실제로 낸 값)로 넣었어요.</div>}
