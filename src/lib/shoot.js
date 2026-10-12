@@ -14,6 +14,7 @@
 
 import { isRemote, supabase } from "./supabase";
 import { newId } from "./id";
+import { guessMeasureCat } from "./measure";
 
 export const DEFAULT_TAGS = {
   clothes: ["상의", "하의", "원피스·세트", "아우터", "신발·잡화"],
@@ -126,11 +127,38 @@ export const colorList = (x) =>
     .split(/[,/·\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
-/** 코디 조각 — 상품명(색상) */
-export function codiParts(c, items) {
+// 코디 안 상품 순서 (10/12 세원: "이름을 이너, 상의, 아우터, 하의, 신발, 가방, 기타 이 순서대로")
+// 원피스·세트는 상의 다음(위에 아우터를 걸치니까). 같은 자리끼리는 코디에 넣은 순서 그대로
+export const WEAR_ORDER = ["이너", "상의", "원피스·세트", "아우터", "하의", "신발", "가방", "기타"];
+const INNER = /나시|캐미|민소매|슬리브리스|뷔스티에|(?<!자)이너|탱크|브라렛/;
+const BAG = /가방|백$|백\s|크로스백|숄더백|토트|에코백|파우치|클러치/;
+const OUTER = /자켓|재킷|코트|점퍼|야상|패딩|바람막이|트렌치|블레이저|무스탕/;
+/** 상품이 코디에서 어느 자리인지 — 종류(kind)를 먼저, 없으면 이름으로 짐작 */
+export function wearPart(x) {
+  const k = x?.kind || "";
+  const t = `${x?.name || ""} ${x?.fullName || ""}`.toLowerCase();
+  if (WEAR_ORDER.includes(k) && k !== "상의") return k;
+  if (k === "상의") return INNER.test(t) ? "이너" : "상의";
+  if (k === "하의") return "하의";
+  const g = guessMeasureCat(x);
+  if (g === "shoes") return "신발";
+  if (g === "etc" || k === "신발·잡화") return BAG.test(t) ? "가방" : "기타";
+  if (g === "sleeveless") return "이너";
+  if (g === "bottom" || g === "skirt") return "하의";
+  return OUTER.test(t) ? "아우터" : "상의";
+}
+/** 코디 상품 — 입는 순서로 */
+export function codiItems(c, items) {
   return (c?.itemIds || [])
     .map((id) => (items || []).find((x) => x.id === id))
     .filter(Boolean)
+    .map((x, i) => ({ x, i, r: WEAR_ORDER.indexOf(wearPart(x)) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((o) => o.x);
+}
+/** 코디 조각 — 상품명(색상), 입는 순서로 */
+export function codiParts(c, items) {
+  return codiItems(c, items)
     .flatMap((x) => {
       const cs = (c.colors?.[x.id] || []).filter(Boolean);
       return cs.length ? cs.map((col) => `${x.name}(${col})`) : [x.name];

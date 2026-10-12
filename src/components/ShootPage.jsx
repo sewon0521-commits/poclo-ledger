@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName } from "../lib/shoot";
+import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName, codiItems } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
@@ -1118,7 +1118,7 @@ async function copyPlain(text) {
  * done 이면 '촬영 완료로 옮기기', 아니면(이미 완료) '저장'.
  */
 function ShotSheet({ c, d, finish, onSave, onClose }) {
-  const its = c.itemIds.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+  const its = codiItems(c, d.items);
   const [cols, setCols] = useState(() =>
     Object.fromEntries(
       its.map((x) => {
@@ -1205,7 +1205,7 @@ function ShotSheet({ c, d, finish, onSave, onClose }) {
 }
 
 function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
-  const its = c.itemIds.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+  const its = codiItems(c, d.items);
   const rs = c.refIds.map((id) => d.refs.find((x) => x.id === id)).filter(Boolean);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1327,7 +1327,7 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
   const src = (x) => d.urls[x.photo] || x.photoUrl;
 
   const showCodi = (c) => {
-    const its = c.itemIds.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+    const its = codiItems(c, d.items);
     const rs = c.refIds.map((id) => d.refs.find((x) => x.id === id)).filter(Boolean);
     setShow({ slides: [...its.map((x) => ({ url: src(x) })), ...rs.map((r) => ({ url: d.urls[r.photo] }))], footer: `${codiName(c, d.items)} — 상품 ${its.length}장 다음에 참고 사진 ${rs.length}장${c.memo ? ` · ${c.memo}` : ""}` });
   };
