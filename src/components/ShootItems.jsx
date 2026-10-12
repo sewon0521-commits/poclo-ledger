@@ -210,6 +210,12 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
               </button>
             </div>
           )}
+          {/* 디테일컷 — 사무실 스튜디오에서 한 번씩 쫙 찍는다 (10/12 세원: "했나 안 했나 확인하는 버튼") */}
+          {["arrived", "pick", "shot"].includes(tab) && (
+            <Toggle wide on={x.detailShot} onClick={act(x.detailShot ? { detailShot: false, detailShotOn: "" } : { detailShot: true, detailShotOn: today })}>
+              디테일컷 촬영{x.detailShot && x.detailShotOn ? ` · ${md(x.detailShotOn)}` : ""}
+            </Toggle>
+          )}
           {tab === "pick" && (
             <button type="button" onClick={go("shot")} className={MAIN + " w-full"}>
               촬영 완료
@@ -433,6 +439,7 @@ const flowSummary = (x) => {
     x.retryOn && `재요청 ${md(x.retryOn)}`,
     x.arrivedOn && `입고 ${md(x.arrivedOn)}`,
     shot.length > 0 && `촬영 ${shot.length > 1 ? `${shot.length}차 ` : ""}${md(shot.at(-1).on)}`,
+    x.detailShot && `디테일컷${x.detailShotOn ? ` ${md(x.detailShotOn)}` : ""}`,
     Object.values(x.channels || {}).some(Boolean) && "업로드함",
   ]
     .filter(Boolean)
@@ -816,6 +823,9 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               )}
               <ShootRounds shoots={shootsOf(x)} onChange={(r) => set(withShoots(r))} options={[...colorList, ...sizeList]} />
               <div className="flex flex-wrap gap-1.5">
+                <Toggle on={x.detailShot} onClick={() => set(x.detailShot ? { detailShot: false, detailShotOn: "" } : { detailShot: true, detailShotOn: today })}>
+                  디테일컷 촬영{x.detailShot && x.detailShotOn ? ` · ${md(x.detailShotOn)}` : ""}
+                </Toggle>
                 {CHANNELS.map(([k, label]) => (
                   <Toggle key={k} on={x.channels?.[k]} onClick={() => set({ channels: { ...(x.channels || {}), [k]: !x.channels?.[k] } })}>
                     {label} 업로드
@@ -1738,6 +1748,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
   const [backOnly, setBackOnly] = useState(false); // 반납·결제 예정 — 반납 등록한 것만
+  const [noDetail, setNoDetail] = useState(false); // 입고·픽·촬영·등록 — 디테일컷 아직 안 찍은 것만 (10/12)
+  const detailTab = ["arrived", "pick", "shot"].includes(tab);
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
@@ -1804,9 +1816,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!retryDay || reqOnly !== "retryOn" || x.retryOn === retryDay) &&
         (!dueDay || tab !== "returns" || dueOf(x) === dueDay) &&
         (!backOnly || tab !== "returns" || x.stage === "back") &&
+        (!noDetail || !detailTab || !x.detailShot) &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
@@ -2010,6 +2023,17 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
             className={"rounded-full border px-3 py-1 text-xs font-medium " + (backOnly ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}
           >
             반납 등록한 것만 <span className={backOnly ? "text-stone-300" : "text-stone-400"}>{items.filter((x) => x.stage === "back" && dueOf(x)).length}</span>
+          </button>
+        )}
+        {detailTab && (
+          <button
+            type="button"
+            onClick={() => setNoDetail(!noDetail)}
+            aria-pressed={noDetail}
+            title="사무실 스튜디오에서 디테일컷을 아직 안 찍은 상품만"
+            className={"rounded-full border px-3 py-1 text-xs font-medium " + (noDetail ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}
+          >
+            디테일컷 안 찍은 것 <span className={noDetail ? "text-stone-300" : "text-stone-400"}>{items.filter((x) => inTab(x, tab) && !x.detailShot).length}</span>
           </button>
         )}
         {tab === "pick" && (
