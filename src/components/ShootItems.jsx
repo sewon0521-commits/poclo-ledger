@@ -210,8 +210,9 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
               </button>
             </div>
           )}
-          {/* 디테일컷 — 사무실 스튜디오에서 한 번씩 쫙 찍는다 (10/12 세원: "했나 안 했나 확인하는 버튼") */}
-          {["arrived", "pick", "shot"].includes(tab) && (
+          {/* 디테일컷 — 사무실 스튜디오에서 한 번씩 쫙 찍는다 (10/12 세원: "했나 안 했나 확인하는 버튼" ·
+              "반납·결제 예정에 있는 게 제일 좋아 — 반납·결제에서 보면서 디테일컷을 보거든") */}
+          {["returns", "arrived", "pick", "shot"].includes(tab) && (
             <Toggle wide on={x.detailShot} onClick={act(x.detailShot ? { detailShot: false, detailShotOn: "" } : { detailShot: true, detailShotOn: today })}>
               디테일컷 촬영{x.detailShot && x.detailShotOn ? ` · ${md(x.detailShotOn)}` : ""}
             </Toggle>
@@ -1748,8 +1749,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
   const [backOnly, setBackOnly] = useState(false); // 반납·결제 예정 — 반납 등록한 것만
-  const [noDetail, setNoDetail] = useState(false); // 입고·픽·촬영·등록 — 디테일컷 아직 안 찍은 것만 (10/12)
-  const detailTab = ["arrived", "pick", "shot"].includes(tab);
+  const [noDetail, setNoDetail] = useState(false); // 반납·결제 예정·입고·픽·촬영·등록 — 디테일컷 아직 안 찍은 것만 (10/12)
+  const detailTab = ["returns", "arrived", "pick", "shot"].includes(tab);
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
   const [msgFor, setMsgFor] = useState(null);
