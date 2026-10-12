@@ -943,6 +943,7 @@ function CodiEdit({ codi, d, onClose }) {
   const [shop, setShop] = useState("");
   // 상품 찾기 (10/10 세원: "코디 만들기에서 상품을 검색하게") — 치면 입고·픽·촬영 말고 다른 단계(휴지통 빼고)까지 찾는다
   const [q, setQ] = useState("");
+  const qBox = useRef(null);
   const toggle = (k, id) => setC((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
   const today = dayKey();
   const bare = (t) => String(t || "").toLowerCase().replace(/\s+/g, "");
@@ -990,6 +991,7 @@ function CodiEdit({ codi, d, onClose }) {
           <div className="relative mb-3">
             <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-stone-400" />
             <input
+              ref={qBox}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && q && (e.stopPropagation(), setQ(""))}
@@ -997,7 +999,17 @@ function CodiEdit({ codi, d, onClose }) {
               className={FIELD + " pl-9 text-sm"}
             />
             {q && (
-              <button type="button" onClick={() => setQ("")} aria-label="지우기" className="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700">
+              // 칸에서 커서가 안 빠지게 — 빠지면 한글 입력이 영어로 돌아간다(10/12)
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setQ("");
+                  qBox.current?.focus();
+                }}
+                aria-label="지우기"
+                className="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700"
+              >
                 <X size={14} />
               </button>
             )}

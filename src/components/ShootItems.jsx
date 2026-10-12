@@ -1729,6 +1729,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [type, setType] = useState("");
   const [kind, setKind] = useState("");
   const [q, setQ] = useState("");
+  const qBox = useRef(null);
   const [weekOnly, setWeekOnly] = useState(false);
   const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
@@ -1983,9 +1984,27 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         </div>
         <span className="relative w-full sm:w-52">
           <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품·거래처 찾기" className="w-full rounded-lg border border-stone-200 bg-white py-1.5 pr-7 pl-8 text-sm" />
+          <input
+            ref={qBox}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && q && (e.stopPropagation(), setQ(""))}
+            placeholder="상품·거래처 찾기"
+            className="w-full rounded-lg border border-stone-200 bg-white py-1.5 pr-7 pl-8 text-sm"
+          />
           {q && (
-            <button type="button" onClick={() => setQ("")} aria-label="지우기" className="absolute top-1/2 right-2 -translate-y-1/2 text-stone-400">
+            // 10/12 세원: "한글로 찾고 지우고 다시 치면 영어로 나와" — × 를 누르면 칸에서 커서가 빠져(단추로 갔다가 단추가 사라짐)
+            // 윈도우 한글 입력기가 영어로 돌아갔다. 칸에서 커서가 안 빠지게(mousedown 막기) 하고 칸에 다시 둔다
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setQ("");
+                qBox.current?.focus();
+              }}
+              aria-label="지우기"
+              className="absolute top-1/2 right-2 -translate-y-1/2 text-stone-400"
+            >
               <X size={14} />
             </button>
           )}
