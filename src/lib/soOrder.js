@@ -174,6 +174,7 @@ export function soLines(rows, type) {
     const had = byKey.get(k);
     if (had) {
       had.qty += r.qty;
+      had.misUsed = (had.misUsed || 0) + (r.misUsed || 0);
       continue;
     }
     const line = { ...r, qty: r.qty };
@@ -181,7 +182,10 @@ export function soLines(rows, type) {
     out.push(line);
   }
   return out.map((r) => {
-    const memo = [r.miss === "no" ? "미송X" : r.miss === "yes" ? "미송가능" : "", r.memo].filter(Boolean).join(" ");
+    // 남은 미송으로 채운 장수 — 삼촌이 그 매장에 들러 받아 오게 메모로 (10/12 세원: "수량이 0이면 복사 내용에 없네? 있어야 삼촌이 매장을 들르거든.
+    // 미송 건은 이미 삼촌이 돈을 그 전에 줬고 우리가 매장을 들러라 얘기해야 삼촌이 가거든") — 0장 줄도 넣는다
+    const pick = r.misUsed > 0 ? `미송 ${r.misUsed}장 ${r.qty > 0 ? "같이 " : ""}받기(결제함)` : "";
+    const memo = [r.qty > 0 ? (r.miss === "no" ? "미송X" : r.miss === "yes" ? "미송가능" : "") : "", pick, r.memo].filter(Boolean).join(" ");
     const cells = [r.store || r.vendor, type || "주문", r.name, r.option, "", String(r.qty), r.price > 0 ? String(Math.round(r.price)) : "", memo, "", "", ""];
     return cells.map((c) => String(c).replace(/[\t\r\n]+/g, " ")).join("\t");
   });

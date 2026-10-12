@@ -341,9 +341,10 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const allMiss = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, miss: v })) }));
 
   const type = draft?.type || "주문";
-  // 미송으로 다 채운 줄(주문 0장)은 SO+ 에 안 넣는다
+  // 미송으로 다 채운 줄(주문 0장)도 SO+ 에 넣는다 — 수량 0 + 메모 '미송 N장 받기(결제함)'. 삼촌이 그 매장에 들르게 (10/12 세원)
+  // 단가·미송 가능/X 고르기는 새로 사는 줄(live)만
   const live = useMemo(() => rows.filter((r) => r.qty > 0), [rows]);
-  const lines = useMemo(() => soLines(live, type), [live, type]);
+  const lines = useMemo(() => soLines(rows, type), [rows, type]);
   const text = lines.join("\n");
   const pieces = live.reduce((s, r) => s + r.qty, 0);
   const total = live.reduce((s, r) => s + r.qty * (r.price || 0), 0);
@@ -706,7 +707,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             title={r.misFrom.map((x) => `${x.name} ${x.qty}장 (${x.date} 잡음)`).join("\n")}
                           >
                             요청 {r.want} · 미송 −{r.misUsed}
-                            {r.qty <= 0 && <div className="font-semibold">미송으로 다 채워져요 — SO+ 에 안 넣어요</div>}
+                            {r.qty <= 0 && <div className="font-semibold">미송으로 다 채워져요 — 수량 0 · '미송 받기' 메모로 넣어요(삼촌이 들르게)</div>}
                             <button type="button" onClick={() => patchRow(r.id, { misongOff: true, misongForce: null })} className="ml-1 text-stone-400 underline decoration-dotted">
                               안 빼기
                             </button>
@@ -841,7 +842,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 {misTaken.length > 0 && (
                   <div className="text-emerald-700">
                     남은 미송을 뺐어요 — {misTaken.map((r) => `${r.store} ${r.name} ${r.misUsed}장`).join(" · ")}
-                    {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 SO+ 에 안 넣어요)`}
+                    {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 수량 0 · 메모 '미송 N장 받기(결제함)'로 넣어요 — 삼촌이 매장에 들르게)`}
                   </div>
                 )}
                 {offRows.length > 0 && <div className="text-stone-500">뺀 줄 {offRows.length}개는 안 넣어요 — 표 맨 아래에서 되살리거나 지워요.</div>}
