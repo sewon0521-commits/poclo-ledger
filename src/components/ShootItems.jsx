@@ -1486,7 +1486,7 @@ function RefuseSheet({ x, others, onSave, onClose }) {
 // 세원: "오늘 소싱에 얼만큼의 비율을 넣어놨는지가 관건이라 그냥 요청만 보여주면 될 것 같아." 코디는 상의 한 벌에 하의 한 벌이라 **상의:하의 = 1:1** 을 기준으로,
 // 한쪽이 60%를 넘으면 몇 개 더 요청하면 맞는지 알려 준다. 원피스·세트는 혼자서 한 벌, 아우터·신발·잡화는 걸치는 것이라 기준에서 뺀다.
 const MIX_TONE = { 상의: "bg-rose-600", 하의: "bg-stone-700", "원피스·세트": "bg-rose-300", 아우터: "bg-stone-400", "신발·잡화": "bg-amber-300" };
-function KindMix({ items, kinds, kind, onKind }) {
+function KindMix({ items, kinds, kind, onKind, label = "" }) {
   const pool = items.filter((x) => x.stage === "request" && !x.refused);
   const count = (k) => pool.filter((x) => (k ? x.kind === k : !kinds.includes(x.kind))).length;
   const rows = [...kinds.map((k) => ({ k, label: k, n: count(k) })), { k: "", label: "종류 없음", n: count("") }].filter((r) => r.n);
@@ -1506,7 +1506,7 @@ function KindMix({ items, kinds, kind, onKind }) {
     <div className="mb-3 rounded-xl border border-stone-200 bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-semibold text-stone-800">
-          요청한 옷 종류 비율 <span className="font-normal text-stone-400">{pool.length}개</span>
+          요청한 옷 종류 비율 {label && <span className="font-medium text-rose-700">· {label}</span>} <span className="font-normal text-stone-400">{pool.length}개</span>
         </span>
       </div>
       {pool.length ? (
@@ -1731,6 +1731,9 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [q, setQ] = useState("");
   const qBox = useRef(null);
   const [weekOnly, setWeekOnly] = useState(false);
+  // 소싱한 날 (10/12 세원: "소싱은 보통 일주일에 한 번(가끔 두 번) 거래처에 연락을 쫙 돌리는데, 요청란에서 날짜별로도 —
+  // 보통은 지금처럼, 소싱한 날짜를 누르면 그날 신마에서 담기를 누른 상품만") — 담은 날(createdAt, 이 기기 시각)
+  const [srcDay, setSrcDay] = useState("");
   const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
@@ -1777,6 +1780,16 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const soon = dues.filter((n) => n >= 0 && n <= 3).length;
   const retry = items.filter((x) => x.stage === "request" && x.retryOn && x.retryOn <= today).length;
 
+  const madeOn = (x) => (x.createdAt ? dayKey(new Date(x.createdAt)) : "");
+  const srcDays = useMemo(() => {
+    const m = new Map();
+    for (const x of items) if (x.stage === "request" && madeOn(x)) m.set(madeOn(x), (m.get(madeOn(x)) || 0) + 1);
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 고른 날의 요청 상품이 다 넘어가 버렸으면 전체로
+  const day = srcDays.some(([k]) => k === srcDay) ? srcDay : "";
+  const shortTitle = (k) => dayTitle(k).replace(/^(\d+)월 (\d+)일/, "$1/$2");
+
   const weekAgo = shiftDay(today, -6);
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -1787,12 +1800,13 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!kind || x.kind === kind) &&
         (!weekOnly || tab !== "pick" || (x.pickedOn || "") >= weekAgo) &&
         (!reqOnly || tab !== "request" || !!x[reqOnly]) &&
+        (!day || tab !== "request" || madeOn(x) === day) &&
         (!retryDay || reqOnly !== "retryOn" || x.retryOn === retryDay) &&
         (!dueDay || tab !== "returns" || dueOf(x) === dueDay) &&
         (!backOnly || tab !== "returns" || x.stage === "back") &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
@@ -1904,7 +1918,13 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         )}
       </div>
 
-      <KindMix items={items} kinds={d.tags.clothes} kind={kind} onKind={setKind} />
+      <KindMix
+        items={tab === "request" && day ? items.filter((x) => madeOn(x) === day) : items}
+        label={tab === "request" && day ? `${shortTitle(day)} 소싱` : ""}
+        kinds={d.tags.clothes}
+        kind={kind}
+        onKind={setKind}
+      />
 
       <div className="mb-2 flex gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 text-sm [scrollbar-width:none]">
         {TABS.map(([k, label], i) => (
@@ -1931,6 +1951,24 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               ? "버린 상품이에요. 신마에서 같은 상품을 다시 담으려고 하면 '휴지통에 버린 상품'이라고 막아요."
               : STAGES.find(([k]) => k === tab)?.[2]}
       </p>
+
+      {tab === "request" && srcDays.length > 0 && (
+        <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs [scrollbar-width:none]">
+          <span className="shrink-0 font-medium text-stone-500">소싱한 날</span>
+          {[["", "전체", items.filter((x) => x.stage === "request").length], ...srcDays.map(([k, n]) => [k, shortTitle(k), n])].map(([k, label, n]) => (
+            <button
+              key={k || "all"}
+              type="button"
+              onClick={() => setSrcDay(k)}
+              aria-pressed={day === k}
+              title={k ? `${dayTitle(k)}에 담은 상품만` : "요청 단계 상품 전부"}
+              className={"shrink-0 rounded-full border px-3 py-1 font-medium whitespace-nowrap " + (day === k ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
+            >
+              {label} <span className={day === k ? "text-stone-300" : "text-stone-400"}>{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         <div className="flex gap-1 rounded-lg bg-stone-100 p-0.5 text-xs">
