@@ -20,11 +20,14 @@ import {
   ChevronDown,
   ImagePlus,
   X,
+  ListChecks,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { putPhoto, photoUrls } from "../lib/shoot";
 import { Viewer } from "./ShootBits";
 import { clipImages, filesOf } from "../lib/pasteImages";
-import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal } from "../lib/journal";
+import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal, routinesOn, weekdayOf, WEEKDAYS } from "../lib/journal";
 import { newId } from "../lib/id";
 import { kindOf, isTask } from "../lib/journalBlocks";
 
@@ -2158,6 +2161,243 @@ function Results({ all, q, onOpen }) {
 
 // ---------------------------------------------------------------- 화면
 
+// ---------------------------------------------------------------- 루틴 (10/12)
+//
+// 세원: "업무일지에 루틴화된 곳을 체크하는 곳을 만들었으면 좋겠어."
+// 매일(또는 정한 요일마다) 하는 일을 한 번 적어 두면 날마다 새로 체크하는 칸이 뜬다. 할 일과 달리 넘어오지 않는다(그날 했나 안 했나만).
+// 저장: journal_<사람>.routines [{id, text, days}] · routineDone {날짜: [id…]}. 지난 7일 표로 되돌아본다.
+
+const dayLabel = (days) => (!days?.length || days.length === 7 ? "매일" : days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d)) ? "평일" : [...days].sort().map((d) => WEEKDAYS[d]).join("·"));
+
+/** 루틴 고치기 — 적고 요일 고르기. '다 됐어요'를 누를 때 한 번에 저장 */
+function RoutineEditor({ routines, onSave, onClose }) {
+  const [list, setList] = useState(() => routines.map((r) => ({ ...r, days: r.days || [] })));
+  const [text, setText] = useState("");
+  const add = () => {
+    const t = text.trim();
+    if (!t) return;
+    setList((l) => [...l, { id: newId("rt"), text: t, days: [] }]);
+    setText("");
+  };
+  const patch = (id, p) => setList((l) => l.map((r) => (r.id === id ? { ...r, ...p } : r)));
+  const move = (i, d) =>
+    setList((l) => {
+      const j = i + d;
+      if (j < 0 || j >= l.length) return l;
+      const n = [...l];
+      [n[i], n[j]] = [n[j], n[i]];
+      return n;
+    });
+  return (
+    <div className="space-y-2 rounded-xl border border-stone-200 bg-white p-3">
+      <div className="text-xs font-semibold text-stone-500">루틴 고치기 — 요일을 안 고르면 매일</div>
+      <ul className="space-y-1.5">
+        {list.map((r, i) => (
+          <li key={r.id} className="flex flex-wrap items-center gap-1.5">
+            <span className="flex flex-col">
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label="위로" className="px-1 text-[10px] leading-none text-stone-400 hover:text-stone-700 disabled:opacity-30">
+                ▲
+              </button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1} aria-label="아래로" className="px-1 text-[10px] leading-none text-stone-400 hover:text-stone-700 disabled:opacity-30">
+                ▼
+              </button>
+            </span>
+            <input value={r.text} onChange={(e) => patch(r.id, { text: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm outline-none focus:border-rose-400" />
+            <span className="flex gap-0.5">
+              {WEEKDAYS.map((w, d) => {
+                const on = r.days.includes(d);
+                return (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => setList((l) => l.map((x) => (x.id === r.id ? { ...x, days: x.days.includes(d) ? x.days.filter((y) => y !== d) : [...x.days, d] } : x)))}
+                    aria-pressed={on}
+                    className={"h-7 w-7 rounded-md text-xs font-medium " + (on ? "bg-rose-700 text-white" : "bg-stone-100 text-stone-500 hover:bg-stone-200")}
+                  >
+                    {w}
+                  </button>
+                );
+              })}
+            </span>
+            <span className="w-10 text-[11px] text-stone-400">{dayLabel(r.days)}</span>
+            <button type="button" onClick={() => setList((l) => l.filter((x) => x.id !== r.id))} aria-label="루틴 지우기" className="p-1 text-stone-300 hover:text-rose-600">
+              <Trash2 size={14} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="flex gap-1.5">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && add()}
+          placeholder="루틴 더하기 — 예: 장끼 넣기, 광고비 넣기, 인스타 DM 답장"
+          className="min-w-0 flex-1 rounded-lg border border-dashed border-stone-300 px-2.5 py-1.5 text-sm outline-none focus:border-rose-400"
+        />
+        <button type="button" onClick={add} disabled={!text.trim()} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 text-xs font-medium text-stone-600 disabled:opacity-40">
+          <Plus size={13} /> 더하기
+        </button>
+      </div>
+      <div className="flex justify-end gap-1.5">
+        <button type="button" onClick={onClose} className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600">
+          그만두기
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const extra = text.trim() ? [{ id: newId("rt"), text: text.trim(), days: [] }] : [];
+            onSave([...list, ...extra].map((r) => ({ ...r, text: r.text.trim() })).filter((r) => r.text));
+          }}
+          className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white"
+        >
+          다 됐어요
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** 그날 루틴 체크 칸 — 누르면 바로 체크(저장은 뒤에서) */
+function Routines({ data, date, today, editable, onChange, compact }) {
+  const [edit, setEdit] = useState(false);
+  const [week, setWeek] = useState(false);
+  const [opt, setOpt] = useState(null); // 누른 즉시 보이게 — {date, ids}
+  const all = data.routines || [];
+  const list = routinesOn(all, date);
+  const saved = data.routineDone?.[date] || [];
+  const sig = saved.join(",");
+  useEffect(() => {
+    // 서버 답이 오면 그 값으로
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    setOpt(null);
+  }, [sig, date]);
+  const done = new Set(opt && opt.date === date ? opt.ids : saved);
+  const can = editable && date <= today;
+  const n = list.filter((r) => done.has(r.id)).length;
+
+  const toggle = (id) => {
+    const next = done.has(id) ? [...done].filter((x) => x !== id) : [...done, id];
+    setOpt({ date, ids: next });
+    onChange((v) => {
+      const cur = new Set(v.routineDone?.[date] || []);
+      if (cur.has(id)) cur.delete(id);
+      else cur.add(id);
+      return { ...v, routineDone: { ...(v.routineDone || {}), [date]: [...cur] } };
+    });
+  };
+
+  if (!all.length && !editable) return null;
+  if (edit)
+    return (
+      <div className={compact ? "border-b border-stone-100 px-3 py-3" : "border-b border-stone-100 px-5 py-3"}>
+        <RoutineEditor
+          routines={all}
+          onClose={() => setEdit(false)}
+          onSave={(next) => {
+            onChange((v) => ({ ...v, routines: next }));
+            setEdit(false);
+          }}
+        />
+      </div>
+    );
+
+  // 지난 7일 (오늘 또는 보고 있는 날까지)
+  const days7 = Array.from({ length: 7 }, (_, i) => shiftDay(date, i - 6));
+
+  return (
+    <div className={(compact ? "px-3" : "px-5") + " border-b border-stone-100 py-2.5"}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-stone-500">
+          <ListChecks size={13} /> 루틴
+          {list.length > 0 && (
+            <span className={"rounded-full px-1.5 py-px text-[11px] tabular-nums " + (n === list.length ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-500")}>
+              {n}/{list.length}
+            </span>
+          )}
+        </span>
+        <span className="flex items-center gap-2 text-[11px]">
+          {all.length > 0 && (
+            <button type="button" onClick={() => setWeek(!week)} className={week ? "font-semibold text-rose-700" : "text-stone-400 hover:text-stone-700"}>
+              지난 7일
+            </button>
+          )}
+          {editable && all.length > 0 && (
+            <button type="button" onClick={() => setEdit(true)} className="text-stone-400 hover:text-stone-700">
+              고치기
+            </button>
+          )}
+        </span>
+      </div>
+      {!all.length ? (
+        <button type="button" onClick={() => setEdit(true)} className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg border border-dashed border-stone-300 px-3 py-2 text-left text-xs text-stone-500 hover:border-rose-300 hover:text-rose-800">
+          <Plus size={13} /> 매일(또는 정한 요일마다) 하는 일을 루틴으로 — 장끼 넣기 · 광고비 넣기 · DM 답장 …
+        </button>
+      ) : !list.length ? (
+        <p className="mt-1 text-xs text-stone-400">이날({WEEKDAYS[weekdayOf(date)]}요일)은 루틴이 없어요.</p>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {list.map((r) => {
+            const on = done.has(r.id);
+            return (
+              <button
+                key={r.id}
+                type="button"
+                disabled={!can}
+                onClick={() => toggle(r.id)}
+                aria-pressed={on}
+                title={can ? (on ? "체크 풀기" : "했어요") : ""}
+                className={
+                  "flex items-center gap-1.5 rounded-full border py-1 pr-3 pl-1.5 text-xs font-medium transition-colors " +
+                  (on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-700 " + (can ? "hover:border-rose-300" : "")) +
+                  (can ? "" : " cursor-default")
+                }
+              >
+                <span className={"flex h-4 w-4 items-center justify-center rounded-full border " + (on ? "border-emerald-600 bg-emerald-600 text-white" : "border-stone-300")}>
+                  {on && <Check size={10} strokeWidth={3} />}
+                </span>
+                {r.text}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {week && all.length > 0 && (
+        <div className="mt-2 overflow-x-auto">
+          <table className="text-[11px]">
+            <thead>
+              <tr className="text-stone-400">
+                <th />
+                {days7.map((d) => (
+                  <th key={d} className={"px-1.5 font-normal tabular-nums " + (d === date ? "font-semibold text-stone-700" : "")}>
+                    {shortDay(d)}
+                    <div>{WEEKDAYS[weekdayOf(d)]}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {all.map((r) => (
+                <tr key={r.id}>
+                  <td className="max-w-[9rem] truncate pr-2 text-stone-600">{r.text}</td>
+                  {days7.map((d) => {
+                    const due = routinesOn([r], d).length > 0;
+                    const ok = (d === date ? done : new Set(data.routineDone?.[d] || [])).has(r.id);
+                    return (
+                      <td key={d} className="px-1.5 text-center">
+                        {!due ? <span className="text-stone-200">·</span> : ok ? <Check size={12} strokeWidth={3} className="mx-auto text-emerald-600" /> : <span className="text-stone-300">○</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function JournalPage({ online }) {
   const [me, setMe] = useState(readMe);
   const [who, setWho] = useState(() => readMe() || "sewon");
@@ -2385,6 +2625,7 @@ export default function JournalPage({ online }) {
             </header>
             {loaded ? (
               <>
+                <Routines key={`r-${who}`} data={data} date={date} today={today} editable={editable} onChange={(fn) => change(fn).catch(() => {})} />
                 <Page
                   key={`${who}-${date}-${editable}`}
                   initial={data.days[date]?.text || ""}
@@ -2572,6 +2813,7 @@ export function JournalQuick({ online, onOpenPage }) {
             </div>
           ) : (
             <>
+              <Routines data={data} date={date} today={today} editable onChange={(fn) => change(fn).catch(() => {})} compact />
               <Page key={`${gen}-${date}`} initial={data.days[date]?.text || ""} editable isToday={date === today} onSave={savePage} compact />
               <Todos key={`t${gen}`} todos={data.todos} date={date} today={today} editable onChange={setTodos} onShowDone={onOpenPage} />
             </>

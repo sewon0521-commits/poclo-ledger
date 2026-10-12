@@ -6,6 +6,8 @@
 // 저장: settings 'journal_<사람>' = {
 //   days:  { "2026-09-24": { text, at } },           하루 한 페이지 (빈 글이면 지운다)
 //   todos: [{ id, text, done, doneOn, createdOn }]    날짜에 묶지 않는다 — 안 끝난 건 오늘 페이지에 계속 보인다(=넘어옴)
+//   routines:    [{ id, text, days: [0~6] }]         루틴 (10/12) — 매일(빈 days) 또는 정한 요일마다 하는 일
+//   routineDone: { "2026-10-12": [루틴 id…] }        그날 체크한 루틴
 // }
 // 사람마다 키가 달라 둘이 동시에 써도 서로 덮지 않는다. 쓸 때마다 서버 최신을 읽어 그 부분만 바꿔 쓴다.
 
@@ -16,7 +18,7 @@ export const PEOPLE = [
   ["jiwon", "지원"],
 ];
 
-const EMPTY = { days: {}, todos: [] };
+const EMPTY = { days: {}, todos: [], routines: [], routineDone: {} };
 const keyOf = (who) => `journal_${who}`;
 const localKey = (who) => `poclo_${keyOf(who)}`;
 
@@ -65,7 +67,8 @@ export async function loadJournal(who, online) {
 /** 서버 최신을 읽어 change(v) 로 바꿔 쓴다. 바뀐 값을 돌려준다 */
 export async function changeJournal(who, online, change) {
   const base = isRemote && online ? await loadJournal(who, online) : readLocal(who);
-  const next = change({ days: { ...base.days }, todos: [...base.todos] });
+  // 다른 칸(루틴 등)도 그대로 넘긴다 — 예전엔 글·할 일만 넘겨서 새 칸이 다음 저장 때 지워질 뻔했다
+  const next = change({ ...base, days: { ...base.days }, todos: [...base.todos], routines: [...(base.routines || [])], routineDone: { ...(base.routineDone || {}) } });
   writeLocal(who, next);
   if (isRemote && online) {
     const { error } = await supabase.from("settings").upsert({ key: keyOf(who), value: next });
@@ -73,3 +76,12 @@ export async function changeJournal(who, online, change) {
   }
   return next;
 }
+
+/** 그날 요일(0 일 ~ 6 토) */
+export const weekdayOf = (key) => {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+};
+export const WEEKDAYS = WEEK;
+/** 그날 할 루틴 — days 가 비면 매일 */
+export const routinesOn = (routines, key) => (routines || []).filter((r) => !r.days?.length || r.days.includes(weekdayOf(key)));
