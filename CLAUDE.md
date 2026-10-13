@@ -1969,3 +1969,18 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - 저장: settings `cs_inbox`(처리 끝난 지 7일 넘은 것은 화면 열 때 `cs_done_YYYYMM` 으로) · `cs_templates` · `cs_queue` · `cs_worker` · `cs_state`.
 - 확인(이 기기 저장 모드 + 가짜 초안, `perf/cspage.mjs`): 권한 안내 · 카톡 붙여넣기 → API 에 틀·규정 같이 감 → 초안 · 빈칸 비면 막힘 → 채우고 체크 → '복사하고 처리 완료'(빈칸 값 들어간 글 복사, done) /
   카페24 문의 → 빈칸·체크 → '카페24에 답변 보내기' → approved + cs_queue send / 답변 틀 창 / 폰 넘침 없음. PC 쪽 `python cs_worker.py --once` → '게시판 권한이 없어요' 기록.
+
+### 10/14 — 릴스 음원(제목·가수) · 가져온 날
+
+- 세원: "릴스 기획 인스타 링크 붙일 때 음원도 가져와 줘. 음원에 제목이 있으면 그것도 같이" + "가져온 날짜도 가져와 줘."
+- **음원 정보는 로그인 없이 온다**(10/13 확인): instaloader 게시물 정보 `clips_metadata` — 등록 음원(`licensed_music`)은 `music_info.music_asset_info {title, display_artist, audio_cluster_id}`,
+  원본 오디오(`original_sounds`)는 `original_sound_info {original_audio_title, ig_artist.username, audio_asset_id}`. yt-dlp 는 음원 정보를 안 준다.
+  분석기 `reels_worker.insta_music(post)` → `meta.music {kind: music|original, title, artist, audioId, url(https://www.instagram.com/reels/audio/<id>/), trending}` (`insta_meta` 에 같이, 보관만·분석 둘 다).
+  고치기 전 `poclo-cafe24/_reels_worker_백업_261013b.py`. PocloReels 다시 켬.
+- **이미 모아 둔 인스타 링크 릴스 131개**는 음원 정보만 채웠다(scratchpad `music_backfill.py`, 4초 간격 · `patch_item` 으로 meta.music 만).
+- 화면(`ReelMusic.jsx`, 상세 왼쪽 '음원' 칸): 곡명 · 가수(원본 오디오면 '원본 오디오 · @계정') · '인기 음원'(trending) · **제목 복사** · **인스타 음원**(같은 음원으로 올릴 때) ·
+  **음원 받기**(보관된 영상에서 소리를 뽑아 m4a — `music.prepareAudio`, 파일 이름 '곡명 - 가수') · **음악 보관함에 담기**(콘텐츠 › 음악 보관함, 출처에 음원·릴스 링크, 릴스에 `musicSaved`).
+  소리 파일은 **미리 보관하지 않는다**(저장소가 거의 참 — 51장) — 누를 때 영상에서 뽑는다. 영상 속 소리 그대로라 목소리가 섞일 수 있다(화면에 적음).
+- **가져온 날**: 새로 넣는 릴스에 `addedAt`. 예전 것은 id 에 든 시각(`newId` = 머리 글자 + Date.now 36진수 — `reels.addedOn`). 상세 숫자 칸 '가져온 날', 카드 아래 '10/13 가져옴 · ♪ 곡명 — 가수'.
+- 확인(이 기기 저장 모드, `perf/reelmusic.mjs`): 카드 3개(등록 음원 · 원본 오디오 · 파일) 가져온 날·음원 줄 / 상세 음원 칸·인스타 음원 링크 / 실제 보관 릴스 영상 6.1MB → m4a 480KB(23.7초, 0.5초 걸림).
+

@@ -41,8 +41,9 @@ import { Empty } from "./ui";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ProductReelTab from "./ProductReel";
 import TrimVideo from "./TrimVideo";
+import ReelMusic from "./ReelMusic";
 import { CopyButton, WorkerStatus, EditableTitle, TrendBox } from "./ContentBits";
-import { workerAlive } from "../lib/reels";
+import { workerAlive, addedOn, musicOf } from "../lib/reels";
 
 /**
  * 릴스 기획 — 레퍼런스를 모으고(라이브러리), 그 구조로 우리 상품 대본을 만든다.
@@ -345,6 +346,9 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
             {item.shop?.name ? ` · ${item.shop.name}` : item.meta?.uploader ? ` · @${item.meta.uploader}` : ""}
             {item.plan?.product?.name && ` · ${item.plan.product.name}`}
           </span>
+          <span className="mt-0.5 block truncate text-[11px] text-stone-400">
+            {[addedOn(item) && `${mdLabel(addedOn(item))} 가져옴`, musicOf(item.meta) && `♪ ${musicOf(item.meta).label}`].filter(Boolean).join(" · ")}
+          </span>
         </button>
         <BestToggle on={!!item.best} onChange={onBest} />
         <FolderPicker item={item} folders={folders} onMove={onMove} />
@@ -406,20 +410,24 @@ function ShopBox({ item, onSave }) {
   );
 }
 
-function Meta({ meta }) {
-  if (!meta) return null;
+const mdLabel = (d) => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : "");
+
+function Meta({ meta, added }) {
+  if (!meta && !added) return null;
+  meta = meta || {};
   const cells = [
     ["좋아요", num(meta.likes)],
     ["댓글", num(meta.comments)],
     ["조회수", meta.views != null ? num(meta.views) : "못 가져옴"],
     ["게시일", meta.postedAt || "—"],
+    ["가져온 날", added || "—"],
   ];
   return (
     <div className="mt-2 rounded-lg bg-stone-800 p-2 text-[11px] text-stone-300">
       {meta.uploader && <div className="mb-1 truncate font-medium text-white">@{meta.uploader}</div>}
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-        {cells.map(([k, v]) => (
-          <span key={k} className="flex justify-between gap-1">
+        {cells.map(([k, v], i) => (
+          <span key={k} className={"flex justify-between gap-1" + (i === cells.length - 1 && cells.length % 2 ? " col-span-2" : "")}>
             <span className="text-stone-400">{k}</span>
             <span className="tabular-nums">{v}</span>
           </span>
@@ -592,7 +600,7 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
   );
 }
 
-function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract }) {
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract, online }) {
   const r = item.reference || {};
   const status = statusOf(item, queue);
   const [seek, setSeek] = useState(null);
@@ -739,7 +747,8 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               )}
             </div>
           )}
-          <Meta meta={item.meta} />
+          <Meta meta={item.meta} added={addedOn(item)} />
+          <ReelMusic item={item} videoUrl={urls.video} online={online} onSave={onSave} />
           <ShopBox key={item.id} item={item} onSave={onSave} />
         </div>
 
@@ -1482,6 +1491,7 @@ export default function ReelsPage({
     const id = newId("r");
     await onSave({
       id,
+      addedAt: new Date().toISOString(),
       title: (analyze ? "분석 대기 — " : "보관 대기 — ") + url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40),
       source: { type: "link", url },
       meta: { url },
@@ -1520,6 +1530,7 @@ export default function ReelsPage({
     }
     await onSave({
       id,
+      addedAt: new Date().toISOString(),
       title: file.name.replace(/\.[^.]+$/, ""),
       source: { type: "file", name: file.name },
       memo,
@@ -1551,6 +1562,7 @@ export default function ReelsPage({
       const hasVideo = file.size <= MAX_VIDEO ? await putFile(id, file, file.type || "video/mp4") : false;
       const item = {
         id,
+        addedAt: new Date().toISOString(),
         title: r.data.title || "릴스",
         kind: r.data.kind || "",
         source: { type: "file", name: file.name },
@@ -1591,6 +1603,7 @@ export default function ReelsPage({
     }
     await onSave({
       id,
+      addedAt: new Date().toISOString(),
       title: file.name.replace(/\.[^.]+$/, ""),
       source: { type: "file", name: file.name },
       keepOnly: true,
@@ -1754,6 +1767,7 @@ export default function ReelsPage({
               stats={stats}
               onAnalyze={analyzeLater}
               onReExtract={reExtract}
+              online={online}
             />
           </div>
         </div>

@@ -262,3 +262,37 @@ export function flowSteps(f) {
     .map((x) => x.replace(/\s*\([^)]*\)\s*/g, "").trim())
     .filter(Boolean);
 }
+
+// ---------------------------------------------------------------- 가져온 날 · 음원 (10/13)
+// 세원: "릴스 기획 인스타 링크 붙일 때 음원도 가져와 줘. 음원에 제목이 있으면 그것도 같이" + "가져온 날짜도".
+
+/** 가져온 날 'YYYY-MM-DD' — addedAt(10/13부터) 또는 id 에 든 시각(newId = 머리 글자 + Date.now 36진수) */
+export function addedOn(item) {
+  const day = (ms) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  if (item?.addedAt) return day(Date.parse(item.addedAt));
+  const id = String(item?.id || "");
+  for (let k = 0; k <= 3; k++) {
+    const ms = parseInt(id.slice(k, k + 8), 36);
+    if (ms > Date.UTC(2025, 0, 1) && ms < Date.now() + 864e5) return day(ms);
+  }
+  return "";
+}
+
+/** 분석기가 인스타에서 받아 둔 음원 정보(meta.music) → 화면용. 없으면 null
+ *  kind music = 등록된 음원(곡명·가수) / original = 원본 오디오(만든 계정) */
+export function musicOf(meta) {
+  const m = meta?.music;
+  if (!m || (!m.title && !m.artist)) return null;
+  const original = m.kind === "original";
+  const title = original && (!m.title || /^original audio$/i.test(m.title)) ? "원본 오디오" : m.title || "";
+  return {
+    ...m,
+    original,
+    title,
+    label: original ? `${title}${m.artist ? ` · @${m.artist}` : ""}` : [m.title, m.artist].filter(Boolean).join(" — "),
+    fileName: (original ? `${title}_${m.artist || ""}` : [m.title, m.artist].filter(Boolean).join(" - ")).replace(/[\\/:*?"<>|]+/g, " ").trim(),
+  };
+}
