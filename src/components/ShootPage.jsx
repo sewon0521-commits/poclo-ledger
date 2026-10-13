@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette, MessageCircle } from "lucide-react";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName, codiItems } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
@@ -9,7 +9,6 @@ import { normalize, moveTo, DEFAULT_MSGS, shootsOf, withShoots } from "../lib/si
 import { dayKey } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
-import { RefNotes, NoteCount, RefViewer } from "./RefNotes";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
@@ -365,7 +364,7 @@ function RefUpload({ tags, shops = [], folders, online, initialFiles, initialFol
   );
 }
 
-function RefEdit({ refItem, tags, shops = [], folders, url, onSave, onRemove, onClose, onAddTag, onNotes }) {
+function RefEdit({ refItem, tags, shops = [], folders, url, onSave, onRemove, onClose, onAddTag }) {
   const [r, setR] = useState({ ...refItem, folderId: folderIdOf(refItem, folders) });
   return (
     <Sheet onClose={onClose}>
@@ -399,16 +398,6 @@ function RefEdit({ refItem, tags, shops = [], folders, url, onSave, onRemove, on
         <div className="text-xs font-semibold text-stone-500">장소</div>
         <Chips list={tags.places} value={r.place} onChange={(v) => setR({ ...r, place: v })} onAdd={(t) => onAddTag("places", t)} />
         <input value={r.memo || ""} onChange={(e) => setR({ ...r, memo: e.target.value })} placeholder="메모" className={FIELD} />
-        <div className="rounded-xl bg-stone-50 p-3">
-          <div className="mb-1.5 text-xs font-semibold text-stone-500">댓글{(r.notes || []).length > 0 && ` ${r.notes.length}`} · 달면 바로 저장돼요</div>
-          <RefNotes
-            notes={r.notes || []}
-            onChange={(notes) => {
-              setR((x) => ({ ...x, notes }));
-              onNotes(notes);
-            }}
-          />
-        </div>
       </div>
       <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-stone-200 p-3">
         <button type="button" onClick={() => window.confirm("이 사진을 지울까요?") && onRemove(r.id)} className="flex items-center gap-1 text-xs text-stone-400 hover:text-rose-600">
@@ -510,7 +499,7 @@ function RefsView({ d, online }) {
       if (sel === "none" && f) return false;
       if (ids && !ids.has(f)) return false;
       if (!hasCut(r, cut)) return false;
-      return !n || `${r.memo || ""} ${(r.cuts || []).join(" ")} ${r.place || ""} ${r.shop || ""} ${(r.notes || []).map((x) => x.text).join(" ")}`.toLowerCase().includes(n);
+      return !n || `${r.memo || ""} ${(r.cuts || []).join(" ")} ${r.place || ""} ${r.shop || ""}`.toLowerCase().includes(n);
     });
   }, [refs, folders, sel, cut, q]);
   const shopCount = useMemo(() => {
@@ -581,7 +570,7 @@ function RefsView({ d, online }) {
     else if (e.ctrlKey || e.metaKey || picked.size) {
       toggle(r.id);
       anchor.current = r.id;
-    } else setView({ i });
+    } else setView(i);
     if (!e.shiftKey) anchor.current = r.id;
   };
   // 폰 — 꾹 누르면 고르기 시작
@@ -708,7 +697,7 @@ function RefsView({ d, online }) {
         </button>
       </div>
 
-      <FolderBar items={refs} folders={folders} sel={sel} onSel={setSel} onEdit={() => setEditCats(true)} q={q} setQ={setQ} searchPlaceholder="메모·댓글·컷·쇼핑몰 검색">
+      <FolderBar items={refs} folders={folders} sel={sel} onSel={setSel} onEdit={() => setEditCats(true)} q={q} setQ={setQ} searchPlaceholder="메모·컷·쇼핑몰 검색">
         <div className="mt-2 border-t border-stone-100 pt-2">
           <CutFilter tags={d.tags} value={cut} onChange={setCut} onEdit={() => setEditCuts(true)} />
         </div>
@@ -772,17 +761,11 @@ function RefsView({ d, online }) {
                     {cutLabel(t)}
                   </span>
                 ))}
-                <span className="ml-auto">
-                  <NoteCount n={(r.notes || []).length} />
-                </span>
               </span>
               <span className="absolute top-1.5 right-1.5 flex gap-1">
                 <span className="rounded-md bg-white/90 shadow-sm">
                   <FolderPicker item={r} folders={folders} onMove={(id) => d.saveRefs(upsert({ id: r.id, folderId: id, folder: "" }))} />
                 </span>
-                <button type="button" onClick={() => setView({ i, focus: true })} aria-label="댓글 달기" title="댓글 달기" className="flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-stone-600 shadow-sm">
-                  <MessageCircle size={13} />
-                </button>
                 <button type="button" onClick={() => setEdit(r)} aria-label="고치기" className="flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-stone-600 shadow-sm">
                   <Pencil size={13} />
                 </button>
@@ -906,10 +889,6 @@ function RefsView({ d, online }) {
           folders={folders}
           url={d.urls[edit.photo]}
           onAddTag={addTag}
-          onNotes={(notes) => {
-            setEdit((e) => (e ? { ...e, notes } : e));
-            d.saveRefs(upsert({ id: edit.id, notes }));
-          }}
           onClose={() => setEdit(null)}
           onSave={async (r) => {
             await d.saveRefs(upsert(r));
@@ -949,9 +928,7 @@ function RefsView({ d, online }) {
           </div>
         </div>
       )}
-      {view != null && (
-        <RefViewer refs={shown} urls={d.urls} start={view.i} focusNote={!!view.focus} onClose={() => setView(null)} onNotes={(id, notes) => d.saveRefs(upsert({ id, notes }))} />
-      )}
+      {view != null && <Viewer slides={shown.map((r) => ({ url: d.urls[r.photo] }))} start={view} onClose={() => setView(null)} />}
     </div>
   );
 }

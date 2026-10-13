@@ -28,6 +28,7 @@ import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, sho
 import { CutFilter } from "./CutBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
+import { stageName } from "../lib/sinsang";
 import { BigSlides } from "./ContentBits";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
@@ -477,9 +478,152 @@ const REF_FOLDER_KEY = "poclo_plan_ref_folder"; // 붙인 사진이 들어갈 �
  * 10/6 세원: "레퍼런스 사진 넣을 때도 복붙으로" → 복사한 사진 Ctrl+V(마우스를 올린 칸) · 끌어다 놓기 · '사진' 고르기.
  * 붙인 사진은 촬영 레퍼런스(shoot_refs)에도 새 사진으로 담기고(고른 목록으로), 이 회차에 바로 들어간다.
  */
-function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot }) {
+/**
+ * 이 소싱에서만 쓰는 레퍼런스 메모 (10/14 세원: "소싱 관리 안 촬영 레퍼런스에서만 보이는 댓글 — 사진 밑에
+ * '울코트 + 짧은치마 + 울양말 + 어그' 처럼 적으면 바로 보이게. 어떤 룩을 찍어야 하는지 보여 주는 용도.
+ * 그리고 이 사진에 내가 소싱한 어떤 제품을 쓰면 좋겠다를 신상 관리에서 고를 수 있게 — 간단하게")
+ * 회차의 refLooks {레퍼런스 id: {text, itemIds}} — 촬영 레퍼런스 원본에는 안 붙는다(다른 소싱에선 다른 룩).
+ */
+function LookNote({ value = "", onSave, className = "" }) {
+  const [v, setV] = useState(value);
+  const [was, setWas] = useState(value);
+  if (value !== was) {
+    // 다른 곳(룩 창)에서 바뀌면 따라간다
+    setWas(value);
+    setV(value);
+  }
+  return (
+    <textarea
+      value={v}
+      rows={1}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => v.trim() !== value && onSave(v.trim())}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      placeholder="+ 룩 적기"
+      style={{ fieldSizing: "content" }}
+      className={
+        "block w-full resize-none rounded-md border px-1.5 py-1 text-[12px] leading-snug outline-none placeholder:text-stone-300 focus:border-rose-400 focus:bg-white " +
+        (v ? "border-transparent bg-stone-50 font-medium text-stone-800 hover:border-stone-200" : "border-dashed border-stone-200 text-stone-700 hover:border-rose-300") +
+        " " +
+        className
+      }
+    />
+  );
+}
+
+const LOOK_STAGES = ["arrived", "pick", "shot", "back", "request"]; // 고르기 창 기본 — 지금 손에 있는 것부터
+const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
+
+function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
+  const [q, setQ] = useState("");
+  const [more, setMore] = useState(false);
+  const chosen = look.itemIds || [];
+  const toggle = (id) => onSave({ itemIds: chosen.includes(id) ? chosen.filter((k) => k !== id) : [...chosen, id] });
+  const list = useMemo(() => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const all = d.items.filter((x) => x.stage !== "trash");
+    if (words.length) return all.filter((x) => words.every((w) => [x.name, x.fullName, x.vendor, x.kind, x.colors].join(" ").toLowerCase().includes(w)));
+    const rank = (x) => {
+      const k = LOOK_STAGES.indexOf(x.stage);
+      return k < 0 ? 99 : k;
+    };
+    return all.filter((x) => rank(x) < 99).sort((a, b) => rank(a) - rank(b));
+  }, [d.items, q]);
+  const picked = chosen.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+  const rest = list.filter((x) => !chosen.includes(x.id));
+  const shown = more ? rest : rest.slice(0, 40);
+  useEffect(() => {
+    const k = (e) => e.key === "Escape" && !e.target.closest?.("input, textarea") && onClose();
+    document.addEventListener("keydown", k);
+    return () => document.removeEventListener("keydown", k);
+  }, [onClose]);
+
+  const item = (x, on) => (
+    <button
+      key={x.id}
+      type="button"
+      onClick={() => toggle(x.id)}
+      className={"relative overflow-hidden rounded-lg border text-left transition " + (on ? "border-rose-600 ring-2 ring-rose-600" : "border-stone-200 hover:border-rose-300")}
+    >
+      <span className="block aspect-[3/4] bg-stone-100">{itemSrc(x, d.urls) && <img src={itemSrc(x, d.urls)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}</span>
+      <span className="block truncate px-1.5 pt-1 text-[11px] font-medium text-stone-800">{x.name || "이름 없음"}</span>
+      <span className="block truncate px-1.5 pb-1 text-[10px] text-stone-400">
+        {stageName(x.stage)}
+        {x.kind ? ` · ${x.kind}` : ""}
+      </span>
+      {on && (
+        <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-600 text-white">
+          <Check size={12} strokeWidth={3} />
+        </span>
+      )}
+    </button>
+  );
+
+  return (
+    <div className="backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-stone-900/50 p-2 sm:p-4">
+      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
+      <div className="sheet relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
+          <span className="text-sm font-semibold text-stone-900">이 사진으로 찍을 룩 · 이 소싱에서만 보여요</span>
+          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+            <X size={20} />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="flex gap-3">
+            <button type="button" onClick={onBig} title="크게 보기" className="block aspect-[3/4] w-28 shrink-0 overflow-hidden rounded-lg bg-stone-100 sm:w-36">
+              {src && <img src={src} alt="" decoding="async" className="h-full w-full object-cover" />}
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 text-xs font-medium text-stone-500">어떤 룩 — 사진 밑에 바로 보여요</div>
+              <LookNote value={look.text || ""} onSave={(text) => onSave({ text })} className="min-h-16 py-2 text-sm" />
+              {(r.shop || r.memo) && <p className="mt-2 text-[11px] text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ")}</p>}
+              {picked.length > 0 && (
+                <div className="mt-3">
+                  <div className="mb-1 text-xs font-medium text-stone-500">고른 우리 상품 {picked.length}</div>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                    {picked.map((x) => item(x, true))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="mt-4 mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-medium text-stone-500">이 사진에 쓸 우리 상품 — 신상 관리에서 눌러 고르기</span>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품·거래처 찾기" className={FIELD + " w-48 py-1.5 text-sm"} />
+          </div>
+          {shown.length ? (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {shown.map((x) => item(x, false))}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">{q ? "맞는 상품이 없어요." : "신상 관리에 상품이 없어요."}</p>
+          )}
+          {!more && rest.length > shown.length && (
+            <button type="button" onClick={() => setMore(true)} className="mt-2 w-full rounded-lg border border-stone-200 py-2 text-xs text-stone-600 hover:border-rose-300">
+              {rest.length - shown.length}개 더 보기
+            </button>
+          )}
+        </div>
+        <footer className="flex shrink-0 justify-end border-t border-stone-200 p-3">
+          <button type="button" onClick={onClose} className="rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white">
+            다 됐어요
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook }) {
   const [pick, setPick] = useState(false);
   const [view, setView] = useState(null);
+  const [open, setOpen] = useState(null); // 룩 창 — 레퍼런스 id
   const [busy, setBusy] = useState("");
   const [pending, setPending] = useState([]); // 올리는 중인 사진 미리 보기
   const [shown, setShown] = useState({}); // 방금 붙인 사진 — 서명 주소가 오기 전에도 그 사진으로
@@ -493,7 +637,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot }) {
   const file = useRef(null);
   const folderId = d.folders.some((f) => f.id === folder) ? folder : "";
   const refs = ids.map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
-  const src = (r) => d.urls[r.photo] || shown[r.id] || "";
+  const src = (r) => d.urls[r.photo] || shown[r.id] || r.photoUrl || "";
   const chooseFolder = (v) => {
     setFolder(v);
     try {
@@ -534,7 +678,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot }) {
   // 붙여넣기 — 이 칸에 마우스를 올렸거나 마지막에 누른 칸이면. 쇼핑몰 BEST 칸보다 먼저 받는다(capture).
   useEffect(() => {
     const onPaste = (e) => {
-      if (!hot || pick || view != null) return;
+      if (!hot || pick || open || view != null) return;
       if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
       const clip = clipImages(e.clipboardData);
       if (!clip.files.length && !clip.urls.length) return;
@@ -605,12 +749,33 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot }) {
         </p>
       )}
       {refs.length || pending.length ? (
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-          {refs.map((r, i) => (
-            <span key={r.id} className="group relative">
-              <button type="button" onClick={() => setView(i)} className="block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
-                {src(r) && <img src={src(r)} alt="" loading="lazy" className="h-full w-full object-cover" />}
+        <div className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-5">
+          {refs.map((r) => (
+            <span key={r.id} className="group relative block min-w-0">
+              <button type="button" onClick={() => setOpen(r.id)} title="눌러서 룩 적기 · 우리 상품 고르기" className="relative block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
+                {src(r) && <img src={src(r)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
+                {(looks[r.id]?.itemIds || []).length > 0 && (
+                  <span className="absolute bottom-1 left-1 flex -space-x-1.5">
+                    {looks[r.id].itemIds.slice(0, 4).map((id) => {
+                      const x = d.items.find((y) => y.id === id);
+                      return x ? (
+                        <span key={id} className="block h-7 w-7 overflow-hidden rounded-full border-2 border-white bg-stone-200 shadow-sm">
+                          {itemSrc(x, d.urls) && <img src={itemSrc(x, d.urls)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
+                        </span>
+                      ) : null;
+                    })}
+                  </span>
+                )}
               </button>
+              <LookNote value={looks[r.id]?.text || ""} onSave={(text) => onLook(r.id, { text })} className="mt-1" />
+              {(looks[r.id]?.itemIds || []).length > 0 && (
+                <button type="button" onClick={() => setOpen(r.id)} className="mt-0.5 line-clamp-2 block w-full px-1.5 text-left text-[11px] leading-snug text-rose-800 hover:underline">
+                  {looks[r.id].itemIds
+                    .map((id) => d.items.find((y) => y.id === id)?.name)
+                    .filter(Boolean)
+                    .join(" + ")}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onChange(ids.filter((k) => k !== r.id))}
@@ -643,6 +808,17 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot }) {
             onChange(next);
             setPick(false);
           }}
+        />
+      )}
+      {open && refs.some((r) => r.id === open) && (
+        <LookSheet
+          d={d}
+          r={refs.find((r) => r.id === open)}
+          src={src(refs.find((r) => r.id === open))}
+          look={looks[open] || {}}
+          onSave={(p) => onLook(open, p)}
+          onBig={() => setView(refs.findIndex((r) => r.id === open))}
+          onClose={() => setOpen(null)}
         />
       )}
       {view != null && <BigSlides urls={refs.map(src)} start={view} onClose={() => setView(null)} />}
@@ -769,8 +945,19 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
           <PickedRefs
             d={d}
             ids={s.refIds || []}
-            onChange={(v) => set({ refIds: v })}
+            onChange={(v) => {
+              // 이 소싱에서 뺀 사진의 룩 메모도 같이 뺀다
+              const looks = Object.fromEntries(Object.entries(latest.current.refLooks || {}).filter(([k]) => v.includes(k)));
+              set({ refIds: v, refLooks: looks });
+            }}
             onAdd={(more) => set({ refIds: [...(latest.current.refIds || []), ...more] })}
+            looks={s.refLooks || {}}
+            onLook={(id, p) => {
+              const all = latest.current.refLooks || {};
+              const next = { ...(all[id] || {}), ...p };
+              const rest = Object.fromEntries(Object.entries(all).filter(([k]) => k !== id));
+              set({ refLooks: next.text || (next.itemIds || []).length ? { ...rest, [id]: next } : rest });
+            }}
             online={online}
             onMsg={setMsg}
             hot={pasteTo === "refs" || (!pasteTo && !(s.shops || []).length)}
