@@ -2018,3 +2018,16 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
   **그 신마 브라우저에서 처음 한 번은** 목록이 없어 들어간다. clip.js `__pocloParts` 와 sinsang `nameParts` 는 같은 규칙이어야 한다.
   확인(가짜 신마, `perf/knownclip.mjs`): 라라(거래처에 있음) 첫 번째 3.4초(들어감) → 다른 상품 1.5초 건너뜀 · 미미(요청함 켠 적 있음) 1.5초 · 리자드 처음 2.3초 → 다음 1.5초.
 
+### 10/14 — 둘이 같이 쓰기 (신상 관리 바로 보이기 · 동시에 눌러도 안 지워짐)
+
+- 세원: "지원이랑 샘플 포장하는데 연동이 안 되는지 느린지 안 돼. 포장 완료나 거래처 반납을 한 명이 누르면 다른 쪽이 바로 보이게."
+- 원인: settings 키(shoot_items 등)는 실시간 알림이 없어서 **화면이 떠 있는 동안 다시 안 읽었다**(탭을 다시 볼 때만). 또 `changeKey` 가 읽기 → 쓰기라 둘이 거의 같이 누르면 한쪽 것이 지워질 수 있었다.
+- `lib/shoot.js` '둘이 같이 쓰기':
+  - **changeKey = 조건부 쓰기**: 읽을 때 `updated_at` 도 읽고, 쓸 때 `updated_at = 지금` + `.eq("updated_at", 읽은 값)` — 그새 누가 썼으면 0줄이 바뀌므로 다시 읽어 다시 적용(최대 6번).
+    → **change 함수는 여러 번 불릴 수 있다 — 순수하게(밖의 값을 바꾸지 않게) 둘 것.** settings 를 쓰는 다른 곳(useSales·파이썬)은 updated_at 을 안 바꾸니 그쪽과는 예전과 같다.
+  - 쓰면 **실시간 방송**(supabase broadcast 채널 `poclo-settings`, 표 설정 필요 없음) `{key, at, from}` → `onSettingsChange(cb)`.
+  - 방송을 놓쳐도 `watchKeys(keys, cb)` 가 화면이 보일 때 4초마다 updated_at 만 본다(아주 작은 요청).
+- `ShootPage.useData`: shoot_items · shoot_codis · shoot_refs · sample_refusals 를 듣고 바뀐 키만 다시 읽는다. `save` 는 **누르면 내 화면 먼저 바꾸고**(서버를 안 기다림) 저장이 끝나면 서버 최신으로 맞춘다. 실패하면 서버 것으로 되돌림.
+- 확인(서버의 시험용 키 `zz_sync_test` 만 쓰고 지움, `scratchpad/sync/run.mjs`): 세 곳이 동시에 12번씩 → **36개 다 남음 · 겹침 0**, 듣는 쪽 방송 36번. 이 기기 저장 모드 저장도 그대로.
+- 열려 있는 화면은 새로고침해야 새 코드를 받는다(둘 다).
+

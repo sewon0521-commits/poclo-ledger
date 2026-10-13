@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette } from "lucide-react";
-import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName, codiItems } from "../lib/shoot";
+import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, onSettingsChange, watchKeys, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName, codiItems } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
@@ -73,6 +73,25 @@ function useData(online) {
     return () => document.removeEventListener("visibilitychange", v);
   }, [load]);
 
+  // 둘이 같이 쓰기 (10/14 세원: "지원이랑 샘플 포장하는데 포장 완료나 거래처 반납을 한 명이 누르면 다른 쪽이 바로 보이게")
+  // 상대가 저장하면 방송으로 바로, 방송을 놓쳐도 4초 안에 — 바뀐 키만 다시 읽는다 (lib/shoot '둘이 같이 쓰기')
+  useEffect(() => {
+    if (!online) return;
+    const sets = { shoot_items: setItems, shoot_codis: setCodis, shoot_refs: setRefs, sample_refusals: setRefusals };
+    const again = (key) => {
+      if (!sets[key]) return;
+      loadKey(key, online)
+        .then((v) => sets[key](v.items || []))
+        .catch(() => {});
+    };
+    const off = onSettingsChange(again);
+    const stop = watchKeys(Object.keys(sets), again);
+    return () => {
+      off();
+      stop();
+    };
+  }, [online]);
+
   // 사진 주소 — 없는 것만 한 번에
   const keys = useMemo(
     () => [...new Set([...items.map((x) => x.photo), ...refs.map((x) => x.photo)].filter(Boolean))],
@@ -88,12 +107,23 @@ function useData(online) {
     };
   }, [keys, urls, online]);
 
+  // 누르면 내 화면은 바로 바뀌고(서버를 기다리지 않는다), 저장이 끝나면 서버 최신(상대가 그새 고친 것 포함)으로 맞춘다
   const save = (key, set) => async (fn) => {
+    set((cur) => {
+      try {
+        return fn({ items: cur }).items || cur;
+      } catch {
+        return cur;
+      }
+    });
     try {
       const next = await changeKey(key, online, fn);
       set(next.items || []);
     } catch (e) {
       setMsg(e.message || "저장하지 못했어요.");
+      loadKey(key, online)
+        .then((v) => set(v.items || []))
+        .catch(() => {});
     }
   };
   const saveTags = async (fn) => {

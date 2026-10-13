@@ -39,6 +39,62 @@ export const won = (n) => (Number(n) ? Number(n).toLocaleString("ko-KR") + "원"
 
 const local = (key) => `poclo_${key}`;
 
+// ---------------------------------------------------------------- 둘이 같이 쓰기 (10/14)
+// 세원: "지원이랑 샘플 포장하는데 연동이 안 되는지 느린지 안 돼. 포장 완료나 거래처 반납을 한 명이 누르면 다른 쪽이 바로 보이게"
+// 예전엔 ① 화면이 떠 있는 동안 서버를 다시 안 읽었고(탭을 다시 볼 때만) ② 둘이 거의 같이 누르면 읽기→쓰기 사이에 끼어 한쪽 것이 지워질 수 있었다.
+//   · 쓸 때 updated_at 을 같이 쓰고, 읽은 뒤 그새 누가 썼으면(updated_at 이 다르면) 다시 읽어 다시 적용한다(최대 6번) — 동시에 눌러도 안 지워진다
+//   · 쓰면 실시간 방송(broadcast — 표 설정이 필요 없다)으로 '이 키 바뀜'을 알린다 → 같은 화면을 보는 쪽이 그 키만 다시 읽는다
+//   · 방송을 놓쳐도 화면이 떠 있는 동안 몇 초마다 updated_at 만(아주 작다) 보고 바뀌었으면 다시 읽는다(watchKeys)
+const seen = {}; // key → 마지막으로 읽거나 쓴 updated_at
+const me = newId("c");
+let live = null;
+const hearers = new Set();
+function liveChannel() {
+  if (live || !isRemote) return live;
+  live = supabase
+    .channel("poclo-settings", { config: { broadcast: { self: false } } })
+    .on("broadcast", { event: "changed" }, ({ payload }) => {
+      if (!payload || payload.from === me) return;
+      hearers.forEach((f) => f(payload.key, payload.at));
+    })
+    .subscribe();
+  return live;
+}
+function announce(key, at) {
+  try {
+    liveChannel()?.send({ type: "broadcast", event: "changed", payload: { key, at, from: me } });
+  } catch {
+    /* 방송이 안 돼도 상대 화면이 몇 초 안에 알아서 다시 읽는다(watchKeys) */
+  }
+}
+/** 다른 사람이 settings 키를 고치면 cb(key) — 끄는 함수를 돌려준다 */
+export function onSettingsChange(cb) {
+  liveChannel();
+  hearers.add(cb);
+  return () => hearers.delete(cb);
+}
+/** 화면이 떠 있는 동안 every ms 마다 keys 의 updated_at 만 본다 — 바뀌었으면 cb(key) */
+export function watchKeys(keys, cb, every = 4000) {
+  if (!isRemote) return () => {};
+  let stop = false;
+  const tick = async () => {
+    if (stop || document.visibilityState !== "visible") return;
+    const { data } = await supabase.from("settings").select("key, updated_at").in("key", keys);
+    for (const r of data || []) {
+      if (seen[r.key] && r.updated_at && !same(r.updated_at, seen[r.key])) {
+        seen[r.key] = r.updated_at;
+        cb(r.key);
+      } else if (!seen[r.key]) seen[r.key] = r.updated_at;
+    }
+  };
+  const t = setInterval(() => tick().catch(() => {}), every);
+  return () => {
+    stop = true;
+    clearInterval(t);
+  };
+}
+const same = (a, b) => a && b && Date.parse(a) === Date.parse(b);
+
 export async function loadKey(key, online, fallback = { items: [] }) {
   if (!(isRemote && online)) {
     try {
@@ -47,8 +103,9 @@ export async function loadKey(key, online, fallback = { items: [] }) {
       return fallback;
     }
   }
-  const { data, error } = await supabase.from("settings").select("value").eq("key", key).maybeSingle();
+  const { data, error } = await supabase.from("settings").select("value, updated_at").eq("key", key).maybeSingle();
   if (error) throw error;
+  if (data?.updated_at) seen[key] = data.updated_at;
   const v = data?.value || fallback;
   try {
     localStorage.setItem(local(key), JSON.stringify(v));
@@ -58,20 +115,45 @@ export async function loadKey(key, online, fallback = { items: [] }) {
   return v;
 }
 
-/** 서버 최신을 읽어 change(value) 로 바꿔 쓴다 (둘이 동시에 고쳐도 서로 안 지워지게) */
+/** 서버 최신을 읽어 change(value) 로 바꿔 쓴다 (둘이 동시에 고쳐도 서로 안 지워지게 — 위 '둘이 같이 쓰기') */
 export async function changeKey(key, online, change, fallback = { items: [] }) {
-  const base = await loadKey(key, online, fallback);
-  const next = change(base);
-  try {
-    localStorage.setItem(local(key), JSON.stringify(next));
-  } catch {
-    /* 무시 */
+  const keep = (next) => {
+    try {
+      localStorage.setItem(local(key), JSON.stringify(next));
+    } catch {
+      /* 무시 */
+    }
+  };
+  if (!(isRemote && online)) {
+    const next = change(await loadKey(key, online, fallback));
+    keep(next);
+    return next;
   }
-  if (isRemote && online) {
-    const { error } = await supabase.from("settings").upsert({ key, value: next });
+  for (let round = 0; round < 6; round++) {
+    const { data, error } = await supabase.from("settings").select("value, updated_at").eq("key", key).maybeSingle();
     if (error) throw error;
+    const next = change(data?.value || fallback);
+    const at = new Date().toISOString();
+    let ok = false;
+    if (!data) {
+      const { error: e } = await supabase.from("settings").insert({ key, value: next, updated_at: at });
+      if (e && e.code !== "23505") throw e; // 23505 = 그새 누가 먼저 만듦 → 다시
+      ok = !e;
+    } else {
+      // 읽은 뒤로 아무도 안 썼을 때만 쓴다
+      const { data: rows, error: e } = await supabase.from("settings").update({ value: next, updated_at: at }).eq("key", key).eq("updated_at", data.updated_at).select("key");
+      if (e) throw e;
+      ok = (rows || []).length > 0;
+    }
+    if (ok) {
+      seen[key] = at;
+      keep(next);
+      announce(key, at);
+      return next;
+    }
+    await new Promise((r) => setTimeout(r, 60 + Math.random() * 200));
   }
-  return next;
+  throw new Error("둘이 동시에 고치는 중이라 저장이 밀렸어요. 한 번 더 눌러 주세요.");
 }
 
 /** 목록 한 줄 넣기/고치기 · 지우기 */
