@@ -253,7 +253,8 @@ const fmtPhone = (raw) => {
 export function contactOf(text) {
   const s = String(text || "");
   const c = { mobile: "", tel: "", kakao: "", insta: "", site: "" };
-  for (const m of s.matchAll(/(?:^|[^\d])(0\d{1,2}[-.\s)]{0,2}\d{3,4}[-.\s]{0,2}\d{4})(?!\d)/g)) {
+  // '010 - 1234 - 5678' · '010.1234.5678' · '010ㅡ1234ㅡ5678' 도 (담기 단추의 '전화 있음' 판단과 같은 규칙 — 10/14)
+  for (const m of s.matchAll(/(?:^|[^\d])(0\d{1,2}[ \t]*[-.)ㅡ~]?[ \t]*\d{3,4}[ \t]*[-.ㅡ~]?[ \t]*\d{4})(?!\d)/g)) {
     const n = digits(m[1]);
     if (n.length < 9 || n.length > 11) continue;
     const mobile = /^01[016789]/.test(n);

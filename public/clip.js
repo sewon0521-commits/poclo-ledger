@@ -259,13 +259,15 @@ window.__pocloRead = async function () {
   } catch (e) {
     ok = { w: {}, probe: { err: String(e).slice(0, 200) } };
   }
-  // 매장 연락처 (10/14) — 제품 설명에 휴대폰이나 카톡이 없으면 매장 화면·'매장 정보'에서 (위 __pocloStore)
+  // 매장 연락처 (10/14) — 제품 설명에 전화도 카톡도 **둘 다 없을 때만** 매장 화면·'매장 정보'에서 (위 __pocloStore).
+  // 10/14 세원: "제품 설명에 전화번호 있어도 안에 들어가서 찾는 버그 — 오래 걸려서" → 처음엔 둘 중 하나만 없어도 들어갔다.
+  // 전화는 제품 설명 + 상품 칸 글 어디에든 있으면 있는 것으로 ('010 - 1234 - 5678' · '010.1234.5678' · '01012345678' 도)
   var sc = null;
   try {
     var dsText = ds.join("\n");
-    var hasTel = /0\d{1,2}[-.\s)]{0,2}\d{3,4}[-.\s]{0,2}\d{4}/.test(dsText),
-      hasKakao = /카톡|카카오|kakao|katalk/i.test(dsText);
-    if ((!hasTel || !hasKakao) && window.__pocloStore) {
+    var hasTel = /(?<!\d)0\d{1,2}[ \t]*[-.)ㅡ~]?[ \t]*\d{3,4}[ \t]*[-.ㅡ~]?[ \t]*\d{4}(?!\d)/.test(dsText + "\n" + t),
+      hasKakao = /카톡|카카오|kakao|katalk|open\.kakao|pf\.kakao/i.test(dsText);
+    if (!hasTel && !hasKakao && window.__pocloStore) {
       var ls0 = linesOf(t),
         li = -1;
       for (var z = 0; z < ls0.length; z++)
@@ -442,7 +444,7 @@ window.__pocloStore = async function (o) {
       await sleep(600);
     }
     var txt = "";
-    for (var w3 = 0; w3 < 60 && !txt; w3++) {
+    for (var w3 = 0; w3 < 40 && !txt; w3++) {
       txt = storeReady();
       if (!txt) await sleep(200);
     }
