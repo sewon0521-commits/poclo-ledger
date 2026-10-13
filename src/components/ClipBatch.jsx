@@ -113,6 +113,14 @@ export default function ClipBatch({ online, vendors = [], onVendor, ready = true
               ? `여러 개 담는 중 · ${rows.filter((r) => !["wait", "saving"].includes(r.state)).length} / ${info.n}`
               : `다 담았어요 · 새로 ${saved}개${dup ? ` · 이미 있던 ${dup}개` : ""}${bad ? ` · 못 담은 ${bad}개` : ""}`}
         </div>
+        {info.n > 0 && (
+          <div className="h-1.5 overflow-hidden rounded-full bg-stone-200" role="progressbar" aria-valuemin={0} aria-valuemax={info.n} aria-valuenow={rows.filter((r) => !["wait", "saving"].includes(r.state)).length}>
+            <div
+              className={"h-full rounded-full transition-[width] duration-300 ease-out " + (going ? "bg-rose-700" : bad ? "bg-amber-500" : "bg-emerald-600")}
+              style={{ width: `${Math.round((rows.filter((r) => !["wait", "saving"].includes(r.state)).length / info.n) * 100)}%` }}
+            />
+          </div>
+        )}
         {info.end?.halted && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">신마에서 '멈추기'를 눌러 중간에 멈췄어요.</p>}
         {!ready && <p className="px-1 text-xs text-stone-500">포클로ERP 거래처 목록을 읽는 중이에요 — 다 읽으면 바로 담아요.</p>}
 

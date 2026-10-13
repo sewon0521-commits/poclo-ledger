@@ -324,6 +324,8 @@ window.__pocloOpen = function () {
 // 상품 창이 안 떠 있을 때(목록 화면) 단추를 누르면 '고르기'가 켜진다: 상품 사진을 누르면 골라지고(창은 안 열림), 'N개 담기'를 누르면
 // 고른 상품을 하나씩 열어(세원이 누르는 것처럼) 위의 읽기로 읽고 닫은 뒤 다음 상품으로. 읽은 것은 담기 창(#clip-batch)에 postMessage 로 차례로 보낸다.
 // 신마 목록 구조를 직접 못 봐서 — 열고 닫은 방법을 bx 로 같이 보낸다(어긋나면 그걸 보고 고친다).
+// 10/13 디자인 다시(세원: "여러 개 담기 체크 표시로 해 주고 디자인 디벨롭"): 사진마다 체크 동그라미(빈 동그라미 → 고르면 로즈 + ✓, 사진 테두리) ·
+// 아래에 떠 있는 막대(로고 · 고른 개수 · 다 지우기 · 상품 하나만 · N개 담기 · ×) · 담는 동안 진행 막대 · 다 보내면 초록.
 window.__pocloBatch = function (w, origin) {
   // 단추가 연 빈 창은 닫아 둔다 — 'N개 담기'를 누를 때 다시 연다(그때도 누른 순간이라 열 수 있다)
   try {
@@ -336,46 +338,102 @@ window.__pocloBatch = function (w, origin) {
       setTimeout(r, ms);
     });
   };
-  var picked = [];
-  var bar = document.createElement("div");
-  bar.setAttribute("data-poclo", "1");
-  bar.style.cssText =
-    "position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2147483647;background:#fff;color:#1c1917;border:1px solid #e7e5e4;border-radius:16px;" +
-    "box-shadow:0 10px 30px rgba(0,0,0,.18);padding:12px 14px;font:14px/1.4 Pretendard,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:92vw";
-  var msg = document.createElement("span");
-  var go = document.createElement("button");
-  var one = document.createElement("button");
-  var stop = document.createElement("button");
-  var btn = function (b, main) {
-    b.type = "button";
-    b.style.cssText =
-      "border-radius:10px;padding:8px 12px;font:600 13px/1 inherit;cursor:pointer;" + (main ? "background:#be123c;color:#fff;border:0" : "background:#fff;color:#57534e;border:1px solid #d6d3d1");
-  };
-  btn(go, true);
-  btn(one, false);
-  btn(stop, false);
-  one.textContent = "이 화면 상품 하나만";
-  stop.textContent = "그만";
-  bar.appendChild(msg);
-  bar.appendChild(go);
-  bar.appendChild(one);
-  bar.appendChild(stop);
-  document.body.appendChild(bar);
-  window.__pocloBar = bar;
+  var ROSE = "#be123c";
+  var CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  var css = document.createElement("style");
+  css.setAttribute("data-poclo", "1");
+  css.textContent = [
+    ".pk-layer{position:fixed;inset:0;pointer-events:none;z-index:2147483640}",
+    ".pk-ring{position:fixed;box-shadow:inset 0 0 0 3px " + ROSE + ";background:rgba(190,18,60,.07);opacity:0;transition:opacity .15s ease-out}",
+    ".pk-ring.on{opacity:1}",
+    ".pk-dot{position:fixed;width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.94);box-shadow:0 1px 4px rgba(0,0,0,.22),inset 0 0 0 1.5px rgba(28,25,23,.32);display:flex;align-items:center;justify-content:center;transition:transform .15s cubic-bezier(.2,.8,.2,1),background-color .15s,box-shadow .15s}",
+    ".pk-dot svg{opacity:0;transform:scale(.6);transition:opacity .12s,transform .15s cubic-bezier(.2,.8,.2,1)}",
+    ".pk-dot.hov{transform:scale(1.12);box-shadow:0 2px 8px rgba(0,0,0,.28),inset 0 0 0 2px " + ROSE + "}",
+    ".pk-dot.on{background:" + ROSE + ";box-shadow:0 2px 10px rgba(190,18,60,.45)}",
+    ".pk-dot.on svg{opacity:1;transform:scale(1)}",
+    ".pk-bar{position:fixed;left:50%;bottom:24px;z-index:2147483647;transform:translate(-50%,14px);opacity:0;transition:transform .22s cubic-bezier(.2,.8,.2,1),opacity .22s;" +
+      "display:flex;align-items:center;gap:8px;max-width:calc(100vw - 32px);padding:10px 10px 10px 12px;background:#fff;color:#1c1917;border:1px solid #e7e5e4;border-radius:18px;" +
+      "box-shadow:0 14px 40px rgba(28,25,23,.18),0 2px 6px rgba(28,25,23,.08);font:14px/1.35 Pretendard,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;letter-spacing:-.01em;overflow:hidden}",
+    ".pk-bar.in{transform:translate(-50%,0);opacity:1}",
+    ".pk-bar *{box-sizing:border-box;font:inherit;letter-spacing:inherit}",
+    ".pk-prog{position:absolute;left:0;right:0;top:0;height:3px;background:#f5f5f4;display:none}",
+    ".pk-prog i{display:block;height:100%;width:0;background:" + ROSE + ";transition:width .35s ease-out}",
+    ".pk-bar.run .pk-prog{display:block}",
+    ".pk-logo{flex:none;width:30px;height:30px;border-radius:9px;background:" + ROSE + ";color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px}",
+    ".pk-bar.done .pk-logo{background:#047857}",
+    ".pk-text{display:flex;flex-direction:column;min-width:0;margin-right:4px}",
+    ".pk-text b{font-weight:700;white-space:nowrap}",
+    ".pk-text small{font-size:12px;color:#78716c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}",
+    ".pk-count{flex:none;min-width:34px;text-align:center;padding:4px 9px;border-radius:999px;background:#f5f5f4;color:#78716c;font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;transition:background-color .15s,color .15s}",
+    ".pk-count.has{background:#fff1f2;color:" + ROSE + "}",
+    ".pk-btn{flex:none;border:0;cursor:pointer;border-radius:11px;padding:9px 13px;font-weight:600;font-size:13px;line-height:1;white-space:nowrap;transition:transform .15s ease-out,background-color .15s,color .15s,opacity .15s}",
+    ".pk-btn:active{transform:scale(.97)}",
+    ".pk-btn:focus-visible,.pk-x:focus-visible{outline:2px solid " + ROSE + ";outline-offset:2px}",
+    ".pk-main{background:" + ROSE + ";color:#fff;padding:10px 16px}",
+    ".pk-main:hover{background:#9f1239}",
+    ".pk-main[disabled]{background:#e7e5e4;color:#a8a29e;cursor:default;transform:none}",
+    ".pk-ghost{background:transparent;color:#57534e}",
+    ".pk-ghost:hover{background:#f5f5f4}",
+    ".pk-x{flex:none;width:30px;height:30px;border:0;border-radius:9px;background:transparent;color:#a8a29e;cursor:pointer;font-size:18px;line-height:30px;padding:0}",
+    ".pk-x:hover{background:#f5f5f4;color:#57534e}",
+    ".pk-x.wide{width:auto;padding:0 12px;font-size:13px;font-weight:600;color:#57534e}",
+    ".pk-hide{display:none!important}",
+    "@media (prefers-reduced-motion: reduce){.pk-bar,.pk-dot,.pk-dot svg,.pk-ring,.pk-prog i{transition:none}}",
+  ].join("\n");
+  document.head.appendChild(css);
 
-  var draw = function () {
-    msg.innerHTML = "<b>포클로에 여러 개 담기</b> · 담을 상품 사진을 누르세요 <span style='color:#be123c;font-weight:700'>" + picked.length + "개</span>";
-    go.textContent = picked.length + "개 담기";
-    go.disabled = !picked.length;
-    go.style.opacity = picked.length ? "1" : ".4";
+  var layer = document.createElement("div");
+  layer.className = "pk-layer";
+  layer.setAttribute("data-poclo", "1");
+  document.body.appendChild(layer);
+
+  var bar = document.createElement("div");
+  bar.className = "pk-bar";
+  bar.setAttribute("data-poclo", "1");
+  bar.setAttribute("role", "toolbar");
+  bar.innerHTML =
+    '<div class="pk-prog"><i></i></div><span class="pk-logo">P</span>' +
+    '<span class="pk-text"><b>포클로에 담기</b><small>담을 상품 사진을 눌러 골라요</small></span>' +
+    '<span class="pk-count">0개</span>' +
+    '<button type="button" class="pk-btn pk-ghost" data-a="clear">다 지우기</button>' +
+    '<button type="button" class="pk-btn pk-ghost" data-a="one" title="상품 창을 열어 둔 화면이면 그 상품 하나만 담아요">상품 하나만</button>' +
+    '<button type="button" class="pk-btn pk-main" data-a="go">담기</button>' +
+    '<button type="button" class="pk-x" data-a="close" aria-label="그만">×</button>';
+  document.body.appendChild(bar);
+  requestAnimationFrame(function () {
+    bar.classList.add("in");
+  });
+  window.__pocloBar = bar;
+  var $ = function (s) {
+    return bar.querySelector(s);
+  };
+  var title = $(".pk-text b"),
+    hint = $(".pk-text small"),
+    count = $(".pk-count"),
+    go = $('[data-a="go"]'),
+    clear = $('[data-a="clear"]'),
+    one = $('[data-a="one"]'),
+    x = $('[data-a="close"]'),
+    prog = $(".pk-prog i");
+
+  var picked = [];
+  var hover = null;
+  var running = false;
+  var isPicked = function (g) {
+    return picked.some(function (p) {
+      return p.el === g;
+    });
+  };
+  // 상품 사진처럼 보이는 것 — 카드 크기(너무 작은 로고·너무 큰 배너는 빼고)
+  var ok = function (g) {
+    if (!g || g.closest("[data-poclo]")) return false;
+    var r = g.getBoundingClientRect();
+    return r.width >= 60 && r.height >= 60 && r.width <= innerWidth * 0.45;
   };
   // 누른 곳의 상품 사진 — 사진이거나, 사진 하나(셋까지)가 든 작은 칸(카드)
   var cardImg = function (t) {
-    var ok = function (g) {
-      var r = g.getBoundingClientRect();
-      return r.width >= 60 && r.height >= 60 && r.width <= innerWidth * 0.45;
-    };
-    if (t && t.tagName === "IMG" && ok(t)) return t;
+    if (!t || !t.closest || t.closest("[data-poclo]")) return null;
+    if (t.tagName === "IMG" && ok(t)) return t;
     for (var e = t, k = 0; e && e !== document.body && k < 6; e = e.parentElement, k++) {
       var r = e.getBoundingClientRect();
       if (r.width > innerWidth * 0.5) break;
@@ -384,34 +442,71 @@ window.__pocloBatch = function (w, origin) {
     }
     return null;
   };
-  var badges = [];
-  var mark = function () {
-    badges.forEach(function (b) {
-      b.remove();
-    });
-    badges = [];
-    picked.forEach(function (p, i) {
-      p.el.style.outline = "4px solid #be123c";
-      p.el.style.outlineOffset = "-4px";
-      var r = p.el.getBoundingClientRect();
-      var b = document.createElement("div");
-      b.setAttribute("data-poclo", "1");
-      b.textContent = String(i + 1);
-      b.style.cssText =
-        "position:absolute;z-index:2147483646;width:26px;height:26px;border-radius:13px;background:#be123c;color:#fff;font:700 13px/26px sans-serif;text-align:center;pointer-events:none;" +
-        "left:" + (r.left + scrollX + 6) + "px;top:" + (r.top + scrollY + 6) + "px";
-      document.body.appendChild(b);
-      badges.push(b);
+
+  // 체크 동그라미 — 화면에 보이는 상품 사진마다(스크롤·크기 바뀜·새로 불러온 목록을 따라간다)
+  var dots = new Map();
+  var place = function () {
+    var keep = new Set();
+    if (!running)
+      [].slice.call(document.images).forEach(function (g) {
+        if (!ok(g)) return;
+        var r = g.getBoundingClientRect();
+        if (r.bottom < -40 || r.top > innerHeight + 40 || r.right < 0 || r.left > innerWidth) return;
+        var d = dots.get(g);
+        if (!d) {
+          d = { ring: document.createElement("div"), dot: document.createElement("div") };
+          d.ring.className = "pk-ring";
+          // 테두리 모서리는 사진 모서리를 따라 (네모 사진에 둥근 테두리가 겹치지 않게)
+          d.ring.style.borderRadius = getComputedStyle(g).borderRadius || "0px";
+          d.dot.className = "pk-dot";
+          d.dot.innerHTML = CHECK;
+          layer.appendChild(d.ring);
+          layer.appendChild(d.dot);
+          dots.set(g, d);
+        }
+        keep.add(g);
+        var on = isPicked(g);
+        d.dot.className = "pk-dot" + (on ? " on" : "") + (hover === g ? " hov" : "");
+        d.ring.className = "pk-ring" + (on ? " on" : "");
+        d.dot.style.left = Math.round(r.right - 34) + "px";
+        d.dot.style.top = Math.round(r.top + 8) + "px";
+        d.ring.style.left = Math.round(r.left) + "px";
+        d.ring.style.top = Math.round(r.top) + "px";
+        d.ring.style.width = Math.round(r.width) + "px";
+        d.ring.style.height = Math.round(r.height) + "px";
+      });
+    dots.forEach(function (d, g) {
+      if (keep.has(g)) return;
+      d.dot.remove();
+      d.ring.remove();
+      dots.delete(g);
     });
   };
-  var unmark = function (el) {
-    el.style.outline = "";
-    el.style.outlineOffset = "";
+  var raf = 0;
+  var req = function () {
+    if (!raf)
+      raf = requestAnimationFrame(function () {
+        raf = 0;
+        place();
+      });
   };
+  var timer = setInterval(req, 400); // 늦게 뜨는 사진·무한 스크롤
+
+  var draw = function () {
+    var n = picked.length;
+    count.textContent = n + "개";
+    count.classList.toggle("has", n > 0);
+    go.textContent = n ? n + "개 담기" : "담기";
+    go.disabled = !n;
+    clear.classList.toggle("pk-hide", !n);
+    hint.textContent = n ? "더 고르거나 '" + n + "개 담기'를 눌러요 · 다시 누르면 빠져요" : "담을 상품 사진을 눌러 골라요";
+    req();
+  };
+
   // 고르는 동안은 상품 창이 안 열리게 — 누르기 관련 일을 전부 먼저 받아서 막는다
   var EV = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
   var block = function (e) {
-    if (e.target.closest && e.target.closest("[data-poclo]")) return;
+    if (running) return;
     var g = cardImg(e.target);
     if (!g) return;
     e.preventDefault();
@@ -421,37 +516,57 @@ window.__pocloBatch = function (w, origin) {
     var i = picked.findIndex(function (p) {
       return p.el === g;
     });
-    if (i >= 0) {
-      unmark(g);
-      picked.splice(i, 1);
-    } else picked.push({ el: g, src: g.currentSrc || g.src });
-    mark();
+    if (i >= 0) picked.splice(i, 1);
+    else picked.push({ el: g, src: g.currentSrc || g.src });
     draw();
+  };
+  var over = function (e) {
+    if (running) return;
+    var g = cardImg(e.target);
+    if (g !== hover) {
+      hover = g;
+      req();
+    }
+  };
+  var key = function (e) {
+    if (e.key === "Escape" && !running) end();
   };
   var on = function () {
     EV.forEach(function (t) {
       document.addEventListener(t, block, true);
     });
+    document.addEventListener("pointerover", over, true);
+    document.addEventListener("keydown", key, true);
+    addEventListener("scroll", req, true);
+    addEventListener("resize", req);
   };
   var off = function () {
     EV.forEach(function (t) {
       document.removeEventListener(t, block, true);
     });
+    document.removeEventListener("pointerover", over, true);
+    document.removeEventListener("keydown", key, true);
   };
   var end = function () {
     off();
-    picked.forEach(function (p) {
-      unmark(p.el);
-    });
-    badges.forEach(function (b) {
-      b.remove();
-    });
-    bar.remove();
+    removeEventListener("scroll", req, true);
+    removeEventListener("resize", req);
+    clearInterval(timer);
+    bar.classList.remove("in");
+    layer.remove();
+    css.remove();
+    setTimeout(function () {
+      bar.remove();
+    }, 240);
     window.__pocloBar = null;
     window.__pocloBatchStop = null;
   };
   window.__pocloBatchStop = end;
-  stop.onclick = end;
+  x.onclick = end;
+  clear.onclick = function () {
+    picked = [];
+    draw();
+  };
   one.onclick = async function () {
     var win = window.open("about:blank", "poclo-clip", "width=470,height=760");
     end();
@@ -482,7 +597,7 @@ window.__pocloBatch = function (w, origin) {
   };
   var close = async function (before) {
     var how = "";
-    var x = [].slice
+    var btn = [].slice
       .call(document.querySelectorAll("button,[role=button],a,span,div"))
       .filter(function (e) {
         var t = (e.getAttribute("aria-label") || "") + " " + (e.childElementCount === 0 ? e.textContent : "");
@@ -490,8 +605,8 @@ window.__pocloBatch = function (w, origin) {
         return /닫기|close|^\s*[✕×xX]\s*$/i.test(t.trim()) && r.width > 0 && r.width < 80 && r.height > 0 && !e.closest("[data-poclo]");
       })
       .pop();
-    if (x) {
-      x.click();
+    if (btn) {
+      btn.click();
       how = "button";
       if (await until(shut, 2500)) return how;
     }
@@ -505,23 +620,33 @@ window.__pocloBatch = function (w, origin) {
     }
     return how + "+fail";
   };
+  // 막대 모양: 고르기 / 담는 중 / 끝
+  var stage = function (s, t, h) {
+    bar.classList.toggle("run", s === "run");
+    bar.classList.toggle("done", s === "done");
+    title.textContent = t;
+    hint.textContent = h || "";
+    [count, clear, one, go].forEach(function (b) {
+      b.classList.toggle("pk-hide", s !== "pick");
+    });
+    $(".pk-logo").innerHTML = s === "done" ? CHECK : "P";
+  };
 
   go.onclick = async function () {
     if (!picked.length) return;
+    running = true;
     off();
     var list = picked.slice();
-    picked.forEach(function (p) {
-      unmark(p.el);
-    });
-    badges.forEach(function (b) {
-      b.remove();
-    });
-    badges = [];
-    go.style.display = one.style.display = "none";
-    stop.textContent = "멈추기";
+    picked = [];
+    place(); // 동그라미·테두리 치우기
+    x.setAttribute("aria-label", "멈추기");
+    x.textContent = "멈추기";
+    x.classList.add("wide");
     var halt = false;
-    stop.onclick = function () {
+    stage("run", "담기 창을 여는 중…", "포클로ERP 작은 창이 열려요");
+    x.onclick = function () {
       halt = true;
+      hint.textContent = "지금 상품까지만 읽고 멈춰요";
     };
     var win = window.open(origin + "/#clip-batch", "poclo-clip", "width=470,height=760");
     var ready = false;
@@ -536,16 +661,23 @@ window.__pocloBatch = function (w, origin) {
         void e;
       }
     };
-    msg.innerHTML = "<b>담기 창을 여는 중…</b>";
+    var finish = function (t, h, ok2) {
+      window.removeEventListener("message", hear);
+      stage(ok2 ? "done" : "pick-off", t, h);
+      [count, clear, one, go].forEach(function (b) {
+        b.classList.add("pk-hide");
+      });
+      x.setAttribute("aria-label", "닫기");
+      x.textContent = "닫기";
+      x.onclick = end;
+      if (ok2) setTimeout(end, 6000);
+    };
     if (
       !(await until(function () {
         return ready;
       }, 15000))
     ) {
-      msg.innerHTML = "<b>담기 창이 준비되지 않았어요</b> — 포클로ERP 에 로그인돼 있는지 확인하고 다시 눌러 주세요";
-      stop.textContent = "닫기";
-      stop.onclick = end;
-      window.removeEventListener("message", hear);
+      finish("담기 창이 준비되지 않았어요", "포클로ERP 에 로그인돼 있는지 확인하고 다시 눌러 주세요", false);
       return;
     }
     post({ poclo: "start", n: list.length });
@@ -553,7 +685,8 @@ window.__pocloBatch = function (w, origin) {
       done = 0,
       fail = 0;
     for (var i = 0; i < list.length && !halt; i++) {
-      msg.innerHTML = "<b>" + (i + 1) + " / " + list.length + "</b> 읽는 중… <span style='color:#78716c'>창은 저절로 열리고 닫혀요</span>";
+      stage("run", i + 1 + " / " + list.length + " 읽는 중", "창이 저절로 열리고 닫혀요 — 화면은 그대로 두세요");
+      prog.style.width = Math.round((i / list.length) * 100) + "%";
       // 목록이 다시 그려졌을 수 있다 — 같은 사진을 다시 찾는다
       var el = list[i].el;
       if (!el.isConnected)
@@ -599,12 +732,9 @@ window.__pocloBatch = function (w, origin) {
       }
       await sleep(400);
     }
+    prog.style.width = "100%";
     post({ poclo: "end", n: list.length, sent: done, fail: fail, halted: halt });
-    window.removeEventListener("message", hear);
-    msg.innerHTML = "<b>" + done + "개 보냈어요</b>" + (fail ? " · 못 읽은 것 " + fail + "개" : "") + " — 담기 창에서 확인하세요";
-    stop.textContent = "닫기";
-    stop.onclick = end;
-    setTimeout(end, 6000);
+    finish(done + "개 보냈어요", (fail ? "못 읽은 것 " + fail + "개 · " : "") + (halt ? "중간에 멈췄어요 · " : "") + "담기 창에서 확인하세요", true);
   };
 };
 
