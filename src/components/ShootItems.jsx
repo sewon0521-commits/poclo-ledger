@@ -954,7 +954,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                       ) : (
                         <span className="min-w-0 flex-1 text-stone-700">{n.text}</span>
                       )}
-                      <span className="shrink-0 text-[11px] text-stone-400">{md(String(n.at).slice(0, 10))}</span>
+                      <span className="shrink-0 text-[11px] text-stone-400">{md(dayKey(new Date(n.at)))}</span>
                       <button type="button" onClick={() => setEditNote(i)} aria-label="댓글 고치기" className="shrink-0 p-0.5 text-stone-400 hover:text-stone-700">
                         <Pencil size={12} />
                       </button>
