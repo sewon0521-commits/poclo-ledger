@@ -882,7 +882,7 @@ function AddSheet({ init, D, products, onClose, onAdded }) {
       </div>
       <footer className="shrink-0 border-t border-stone-200 p-3">
         <button type="button" onClick={go} disabled={busy} className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 text-sm font-semibold text-white disabled:bg-stone-300">
-          {busy ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />} {busy ? "초안 쓰는 중… (10~30초)" : "초안 만들기 · 약 20~40원"}
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />} {busy ? "초안 쓰는 중… (10~30초)" : "초안 만들기 · 약 30~70원"}
         </button>
       </footer>
     </Sheet>
