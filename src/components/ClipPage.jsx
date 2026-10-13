@@ -114,7 +114,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
                 <input key={item.id + "v"} defaultValue={item.vendor} onBlur={(e) => e.target.value !== item.vendor && patch({ vendor: e.target.value.trim() })} placeholder="거래처" className={FIELD} />
                 <p className="text-xs text-stone-500">{[item.place, won(item.price)].filter(Boolean).join(" · ")}</p>
                 <p className="line-clamp-2 text-[11px] text-stone-400">{[item.colors, item.sizes, item.fabric].filter(Boolean).join(" · ")}</p>
-                {vendorNote && state === "saved" && <p className="text-[11px] text-emerald-700">{vendorNote}</p>}
+                {vendorNote && (state === "saved" || state === "dup") && <p className="text-[11px] text-emerald-700">{vendorNote}</p>}
               </div>
             </div>
             <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-sm">

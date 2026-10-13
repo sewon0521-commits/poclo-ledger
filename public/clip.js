@@ -11,7 +11,8 @@ window.__pocloRead = async function () {
   var vw = innerWidth,
     vh = innerHeight;
   var P = /[₩￦]\s?[\d,]{3,}|[\d,]{4,}\s?원/,
-    L = /(지하\s?)?\d+\s*층/,
+    // 위치 — '○층', 층이 없는 곳은 상가 이름·외곽·특N (10/14 라라 '테크노 외곽 특1')
+    L = /(지하\s?)?\d+\s*층|디오트|테크노|청평화|남평화|신평화|동평화|제일평화|광희|누죤|유어스|벨포스트|apM|APM|에이피엠|퀸즈|데님타운|NPH|외곽|(^|\s)특\s?\d/,
     STOP = /^(상세정보|세탁 및 상품 주의사항|제품 설명|재고문의|연관 추천 상품)$|^상품 문의\s*(\(\d+\))?$|^총 금액/;
   var gid = (location.href.match(/(?:modalGid|gid|goodsId)=(\d{6,11})/i) || location.pathname.match(/\/goods\/(\d{6,11})/) || [])[1] || "";
   var sleep = function (ms) {
@@ -258,7 +259,27 @@ window.__pocloRead = async function () {
   } catch (e) {
     ok = { w: {}, probe: { err: String(e).slice(0, 200) } };
   }
+  // 매장 연락처 (10/14) — 제품 설명에 휴대폰이나 카톡이 없으면 매장 화면·'매장 정보'에서 (위 __pocloStore)
+  var sc = null;
+  try {
+    var dsText = ds.join("\n");
+    var hasTel = /0\d{1,2}[-.\s)]{0,2}\d{3,4}[-.\s]{0,2}\d{4}/.test(dsText),
+      hasKakao = /카톡|카카오|kakao|katalk/i.test(dsText);
+    if ((!hasTel || !hasKakao) && window.__pocloStore) {
+      var ls0 = linesOf(t),
+        li = -1;
+      for (var z = 0; z < ls0.length; z++)
+        if (L.test(ls0[z])) {
+          li = z;
+          break;
+        }
+      sc = await window.__pocloStore({ vendor: li > 0 ? ls0[li - 1] : "", box: top || box });
+    }
+  } catch (e) {
+    sc = { probe: { err: String(e).slice(0, 200) } };
+  }
   var d = {
+    sc: sc,
     u: location.href,
     ti: document.title,
     t: t.slice(0, 6000),
@@ -289,6 +310,245 @@ window.__pocloRead = async function () {
     /* 사진을 못 떠도 주소는 같이 간다 */
   }
   return d;
+};
+
+// 매장 연락처 (10/14 세원: "포클로에 담기 눌렀는데 번호나 카톡 아이디가 없는 경우 — 상단 거래처명 클릭 → 매장 화면에 전화가 있거나,
+// '매장 정보'를 누르면 번호랑 카톡 아이디가 나와. 이것까지 자동화")
+// 세원이 보던 화면은 그대로 두고, 화면 밖 보이지 않는 틀(iframe, 같은 신마 주소)에 매장 화면을 띄워 읽는다:
+//   ① 상품 창 맨 위 거래처 이름의 링크(/store/…) → 그 주소. 링크가 없으면 지금 주소(같은 상품 창)를 띄워 그 안에서 거래처 이름을 누른다.
+//   ② 매장 화면 '전화 010-…' 줄 → 전화. ③ '매장 정보' 단추가 있으면 눌러 뜬 칸에서 전화·카톡·인스타·위챗(아이콘 모양으로 가른다).
+// 신마 화면을 직접 못 봐서(자동 접속은 막혀 있고 안 뚫는다) 무엇을 봤는지 probe 로 같이 보낸다 — 어긋나면 그걸 보고 고친다.
+// 같은 매장은 이 탭에서 1시간 기억한다(여러 개 담기에서 같은 거래처를 또 안 띄우게).
+window.__pocloStore = async function (o) {
+  o = o || {};
+  var PH = /(0\d{1,2})[-.\s]?(\d{3,4})[-.\s]?(\d{4})(?!\d)/;
+  var probe = { v: 1 };
+  var sleep = function (ms) {
+    return new Promise(function (r) {
+      setTimeout(r, ms);
+    });
+  };
+  var own = function (e) {
+    var s = "";
+    for (var n = e.firstChild; n; n = n.nextSibling) if (n.nodeType === 3) s += n.nodeValue;
+    return s.replace(/\s+/g, " ").trim();
+  };
+  var shown = function (e) {
+    var r = e.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  var leafIn = function (doc, texts, root) {
+    var hit = [].slice.call((root || doc.body).querySelectorAll("*")).filter(function (e) {
+      return texts.indexOf(own(e).replace(/\s/g, "").replace(/[›>〉❯»]+$/, "")) >= 0 && shown(e);
+    });
+    return hit;
+  };
+  // 알림 — 몇 초 걸리니까 무엇을 하는지 보이게
+  var toast = document.createElement("div");
+  toast.textContent = "포클로 · 제품 설명에 연락처가 없어서 매장 정보에서 찾는 중…";
+  toast.style.cssText =
+    "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;background:#1c1917;color:#fff;font:600 13px/1.4 Pretendard,system-ui,sans-serif;padding:10px 16px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.25)";
+  document.body.appendChild(toast);
+  var f = null;
+  try {
+    // ① 거래처 이름 → 매장 주소
+    // 이름 끝의 '›' '>' 화살표는 뗀다 (거래처 이름 옆 화살표가 글자일 때)
+    var vendor = String(o.vendor || "").replace(/\s+/g, "").replace(/[›>〉❯»]+$/, "");
+    probe.vendor = o.vendor || "";
+    if (!vendor) {
+      probe.fail = "거래처 이름을 못 찾음";
+      return { probe: probe };
+    }
+    var scope = o.box || document.body;
+    var nameEl = null;
+    if (vendor) {
+      var cands = leafIn(document, [vendor], scope);
+      if (!cands.length) cands = leafIn(document, [vendor]);
+      nameEl = cands[0] || null;
+    }
+    var a = nameEl && nameEl.closest("a[href]");
+    if (!a) {
+      // 이름 칸이 링크가 아니면 둘레의 매장 링크
+      var near = nameEl;
+      for (var k = 0; near && k < 4 && !a; k++) {
+        a = near.querySelector && near.querySelector('a[href*="/store"],a[href*="/shop"],a[href*="storeId"]');
+        near = near.parentElement;
+      }
+    }
+    var href = a ? a.href : "";
+    if (href && (/^javascript:|#$/.test(href) || href === location.href)) href = "";
+    probe.vendor = o.vendor || "";
+    probe.name = nameEl ? nameEl.tagName + "." + String(nameEl.className || "").slice(0, 60) : "";
+    probe.href = href;
+    var key = "poclo_store:" + (href || vendor);
+    try {
+      var hit = JSON.parse(sessionStorage.getItem(key) || "null");
+      if (hit && Date.now() - hit.at < 3600e3) {
+        hit.res.cached = true;
+        return hit.res;
+      }
+    } catch (e) {
+      void e;
+    }
+
+    // ② 보이지 않는 틀에 띄우기
+    f = document.createElement("iframe");
+    f.setAttribute("aria-hidden", "true");
+    f.style.cssText = "position:fixed;left:-30000px;top:0;width:1280px;height:900px;border:0;opacity:0;pointer-events:none";
+    f.src = href || location.href;
+    document.body.appendChild(f);
+    var doc = null;
+    var ready = function () {
+      try {
+        doc = f.contentDocument;
+        var t = (doc && doc.body && doc.body.innerText) || "";
+        return t.length > 50 ? t : "";
+      } catch (e) {
+        probe.frame = "막힘 " + String(e).slice(0, 80);
+        return "";
+      }
+    };
+    var storeReady = function () {
+      var t = ready();
+      return t && (/전화\s*[:：]?\s*0\d/.test(t) || /매장\s?정보/.test(t) || /매장\s?TOP/i.test(t)) ? t : "";
+    };
+    if (!href) {
+      // 링크가 없으면 같은 상품 창을 띄운 뒤 그 안에서 거래처 이름을 누른다
+      for (var w1 = 0; w1 < 50 && !ready(); w1++) await sleep(200);
+      var inner = null;
+      for (var w2 = 0; w2 < 25 && !inner && doc; w2++) {
+        inner = leafIn(doc, [vendor]).pop() || null;
+        if (!inner) await sleep(200);
+      }
+      probe.click = inner ? "거래처 이름 누름" : "틀 안에서 거래처 이름 못 찾음";
+      if (!inner) return { probe: probe };
+      var was = "";
+      try {
+        was = f.contentWindow.location.href;
+      } catch (e) {
+        void e;
+      }
+      (inner.closest("a,button,[role=button]") || inner).click();
+      // 매장 화면으로 넘어갈 때까지 (뒤에 깔린 목록이 이미 그 매장이면 창만 닫히고 주소는 그대로일 수 있다)
+      for (var w5 = 0; w5 < 20; w5++) {
+        await sleep(150);
+        try {
+          if (f.contentWindow.location.href !== was) break;
+        } catch (e) {
+          void e;
+          break;
+        }
+      }
+      await sleep(600);
+    }
+    var txt = "";
+    for (var w3 = 0; w3 < 60 && !txt; w3++) {
+      txt = storeReady();
+      if (!txt) await sleep(200);
+    }
+    if (!txt) {
+      probe.fail = "매장 화면이 안 떴어요";
+      probe.text = (ready() || "").slice(0, 400);
+      return { probe: probe };
+    }
+    try {
+      probe.at = f.contentWindow.location.href;
+    } catch (e) {
+      void e;
+    }
+    var res = { tel: "", kakao: "", insta: "", wechat: "", how: "" };
+    // ③ 매장 화면의 '전화 010-…'
+    var m = txt.match(/전화\s*[:：]?\s*(0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4})/);
+    if (m) {
+      res.tel = m[1];
+      res.how = "매장 화면";
+    }
+    // ④ '매장 정보' 단추 → 뜬 칸
+    var btn = leafIn(doc, ["매장정보"]).filter(function (e) {
+      return !!e.closest("button,a,[role=button]") || getComputedStyle(e).cursor === "pointer";
+    })[0];
+    probe.button = !!btn;
+    if (btn) {
+      var before = doc.body.innerText.length;
+      (btn.closest("button,a,[role=button]") || btn).click();
+      var modal = null;
+      for (var w4 = 0; w4 < 25 && !modal; w4++) {
+        await sleep(150);
+        // 제목 '매장 정보'(누른 단추 말고)에서 위로 — 전화나 링크·아이콘이 2개 넘게 들어오는 칸
+        var titles = leafIn(doc, ["매장정보"]).filter(function (e) {
+          return e !== btn && !btn.contains(e) && !e.contains(btn);
+        });
+        for (var ti = 0; ti < titles.length && !modal; ti++) {
+          var up = titles[ti];
+          for (var u = 0; up && u < 7; u++) {
+            var icons = up.querySelectorAll("img,svg").length;
+            if (PH.test(up.innerText || "") || icons >= 3) {
+              modal = up;
+              break;
+            }
+            up = up.parentElement;
+          }
+        }
+        if (!modal && doc.body.innerText.length > before + 30 && w4 > 10) break;
+      }
+      if (modal) {
+        res.how = res.how ? res.how + " + 매장 정보" : "매장 정보";
+        var sigOf = function (e) {
+          // 그 줄의 아이콘 모양 — 이미지 주소·이름, svg 안 글, 링크 주소, class
+          var row = e,
+            s = "";
+          for (var q = 0; row && q < 3; q++) {
+            var ic = row.querySelector("img,svg,i,[class*=icon],[class*=Icon]");
+            if (ic && !e.contains(ic)) {
+              s += " " + (ic.getAttribute("src") || "") + " " + (ic.getAttribute("alt") || "") + " " + String(ic.className && ic.className.baseVal != null ? ic.className.baseVal : ic.className || "") + " " + (ic.getAttribute("aria-label") || "");
+              if (ic.tagName.toLowerCase() === "svg") s += " " + ic.outerHTML.slice(0, 300);
+              break;
+            }
+            row = row.parentElement;
+          }
+          var link = e.closest("a[href]");
+          return (s + " " + (link ? link.getAttribute("href") : "") + " " + String(e.className || "")).slice(0, 600);
+        };
+        var items = [].slice.call(modal.querySelectorAll("*")).filter(function (e) {
+          var t = own(e);
+          return t && t.length <= 40 && shown(e) && !/매장\s?정보|외부\s?SNS|문의|거래처/.test(t) && (PH.test(t) || /^[@A-Za-z0-9_.-]{3,40}$/.test(t));
+        });
+        var unknown = [];
+        probe.items = items.slice(0, 8).map(function (e) {
+          var t = own(e),
+            sig = sigOf(e),
+            kind = "";
+          if (PH.test(t) || /tel:|phone|call|전화/i.test(sig)) kind = "tel";
+          else if (/insta/i.test(sig)) kind = "insta";
+          else if (/kakao|katalk|ka-?talk|카카오|카톡|\btalk\b/i.test(sig)) kind = "kakao";
+          else if (/wechat|weixin|wx|위챗/i.test(sig)) kind = "wechat";
+          if (kind === "tel" && !res.tel) res.tel = (t.match(PH) || [t])[0];
+          else if (kind && kind !== "tel" && !res[kind]) res[kind] = t.replace(/^@/, "");
+          else if (!kind) unknown.push(t);
+          return { t: t, k: kind, sig: sig.slice(0, 200) };
+        });
+        // 아이콘으로 못 가르면 — 세원 화면(라라)의 순서: 전화 · 카톡 / 위챗 · 인스타 → 모르는 첫 아이디를 카톡으로 짐작(표시해 둔다)
+        if (!res.kakao && unknown.length) {
+          res.kakao = unknown[0].replace(/^@/, "");
+          res.kakaoGuess = true;
+        }
+        probe.html = modal.outerHTML.slice(0, 2500);
+      } else probe.modal = "매장 정보 칸을 못 찾음";
+    }
+    res.probe = probe;
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), res: res }));
+    } catch (e) {
+      void e;
+    }
+    return res;
+  } catch (e) {
+    probe.err = String(e).slice(0, 200);
+    return { probe: probe };
+  } finally {
+    if (f) f.remove();
+    toast.remove();
+  }
 };
 
 // 읽은 것 하나를 담기 창(#clip=…)으로

@@ -22,8 +22,9 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     return { state: "error", photo, msg: payload.v ? "상품 화면을 못 읽었어요. 신마에서 상품을 눌러 상세 화면(가격·상세정보)이 보이는 상태에서 다시 눌러 주세요." : OLD_BUTTON };
   }
   // 옷감정보를 어떻게 봤는지 · 여러 개 담기에서 창을 어떻게 열고 닫았는지 — 신마 화면을 직접 못 봐서, 어긋나면 이걸 보고 고친다 (최근 5개)
-  if (p.fabricProbe || payload.bx)
-    changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, fabric: p.fabricProbe, wear: p.wear, bx: payload.bx }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
+  // 매장 연락처(10/14)를 어떻게 읽었는지도 — 매장 화면 주소·'매장 정보' 칸 html·아이콘 모양
+  if (p.fabricProbe || payload.bx || p.storeProbe)
+    changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, fabric: p.fabricProbe, wear: p.wear, bx: payload.bx, store: p.storeProbe }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
   const same = cur.map(normalize).find((x) => (p.goodsId ? x.goodsId === p.goodsId : p.url && x.url === p.url));
   const past = (await loadKey("sample_refusals", online).catch(() => ({}))).items || [];
   if (same) {
@@ -32,11 +33,26 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     if (!same.sizeText && p.sizeText) fill.sizeText = p.sizeText;
     if (same.hasDetailCut == null && p.hasDetailCut != null) fill.hasDetailCut = p.hasDetailCut;
     if (!hasWear(same.wear) && hasWear(p.wear)) Object.assign(fill, { wear: p.wear, wearFrom: "신마" });
+    // 매장 정보에서 읽은 연락처로 그 거래처의 빈 칸 채우기 (10/14 — 예전에 담은 상품을 다시 눌러도 연락처가 들어오게)
+    let vNote = "";
+    const linked = same.vendorId && vendors.find((x) => x.id === same.vendorId);
+    if (linked && onVendor && p.contact?.from) {
+      const vf = vendorFill(linked, p.contact);
+      if (vf) {
+        onVendor({ id: linked.id, ...vf });
+        vNote = `거래처 '${linked.name}' 연락처를 ${p.contact.from}에서 채웠어요: ${contactLines(p.contact).join(", ")}`;
+      }
+      if (!same.contact?.mobile && !same.contact?.kakao) fill.contact = { ...(same.contact || {}), ...p.contact };
+    }
     if (Object.keys(fill).length) await changeKey("shoot_items", online, upsert({ id: same.id, ...fill }));
-    const note =
+    const note = [
       fill.hasDetailCut != null || fill.sizeText || fill.wear
         ? [fill.hasDetailCut != null && `디테일컷 ${fill.hasDetailCut ? "있음" : "없음"}`, fill.sizeText && "실측", fill.wear && `착용정보(${wearSummary(fill.wear)})`].filter(Boolean).join(" · ") + "을(를) 더 담았어요"
-        : "";
+        : "",
+      vNote,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return { state: "dup", item: { ...same, ...fill }, photo, note, refused: refusalsOf(past, same.vendorId, same.vendor) };
   }
   // 사진 — 담기 단추가 떠 온 게 있으면 우리 보관함에, 없으면 신상마켓 주소 그대로
@@ -67,7 +83,11 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
   const note = !v
     ? ""
     : (found ? `거래처 '${v.name}' 와 이었어요` : `거래처 '${v.name}' 을(를) 새로 등록했어요`) +
-      (told.length ? (found && !filled ? " (연락처는 이미 있어요)" : ` · 연락처도 넣었어요: ${told.join(", ")}`) : " · 제품 설명에서 연락처는 못 찾았어요");
+      (told.length
+        ? found && !filled
+          ? " (연락처는 이미 있어요)"
+          : ` · 연락처도 넣었어요${p.contact.from ? ` (${p.contact.from}에서)` : ""}: ${told.join(", ")}`
+        : " · 제품 설명·매장 정보에서 연락처를 못 찾았어요");
   const made = {
     id: newId("i"),
     type: "sample",

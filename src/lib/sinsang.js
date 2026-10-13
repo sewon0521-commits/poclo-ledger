@@ -277,10 +277,51 @@ export function contactOf(text) {
   return c;
 }
 
+/**
+ * 매장 화면·'매장 정보'에서 읽은 연락처(담기 단추의 sc — 10/14)로 빈 칸만 채운다. 제품 설명에 적힌 게 먼저.
+ * sc = {tel, kakao, insta, wechat, how, kakaoGuess} — kakaoGuess 는 아이콘으로 못 가려 순서로 짐작한 카톡.
+ */
+export function withStoreContact(c, sc) {
+  if (!sc || !(sc.tel || sc.kakao || sc.insta || sc.wechat)) return c;
+  const out = { ...c };
+  const n = digits(sc.tel);
+  let used = false;
+  if (n.length >= 9 && n.length <= 11) {
+    const mobile = /^01[016789]/.test(n);
+    const k = mobile ? "mobile" : "tel";
+    if (!out[k]) {
+      out[k] = fmtPhone(n);
+      used = true;
+    }
+  }
+  if (!out.kakao && sc.kakao) {
+    out.kakao = String(sc.kakao).replace(/^@/, "");
+    if (sc.kakaoGuess) out.kakaoGuess = true;
+    used = true;
+  }
+  if (!out.insta && sc.insta) {
+    out.insta = String(sc.insta).replace(/^@/, "");
+    used = true;
+  }
+  if (!out.wechat && sc.wechat) {
+    out.wechat = sc.wechat;
+    used = true;
+  }
+  if (used) out.from = sc.how || "매장 정보";
+  return out;
+}
+
 /** 연락처를 읽기 좋게 — ['매장폰 010-…', '전화 02-…', '카톡 ozbridge2', '인스타 @…', '홈페이지 …'] */
 export function contactLines(c) {
   if (!c) return [];
-  return [c.mobile && `매장폰 ${c.mobile}`, c.tel && `전화 ${c.tel}`, c.kakao && `카톡 ${c.kakao}`, c.insta && `인스타 @${c.insta}`, c.site && `홈페이지 ${c.site}`].filter(Boolean);
+  return [
+    c.mobile && `매장폰 ${c.mobile}`,
+    c.tel && `전화 ${c.tel}`,
+    c.kakao && `카톡 ${c.kakao}${c.kakaoGuess ? " (짐작)" : ""}`,
+    c.insta && `인스타 @${c.insta}`,
+    c.wechat && `위챗 ${c.wechat}`,
+    c.site && `홈페이지 ${c.site}`,
+  ].filter(Boolean);
 }
 
 /**
@@ -297,8 +338,9 @@ export function vendorFill(v, c) {
   const add = [
     [c.mobile, `매장폰 ${c.mobile}`],
     [c.tel, `전화 ${c.tel}`],
-    [c.kakao, `카톡 ${c.kakao}`],
+    [c.kakao, `카톡 ${c.kakao}${c.kakaoGuess ? " (짐작)" : ""}`],
     [c.insta, `인스타 @${c.insta}`],
+    [c.wechat, `위챗 ${c.wechat}`],
     [c.site, `홈페이지 ${c.site}`],
   ]
     .filter(([val]) => val && !has(val))
@@ -364,6 +406,15 @@ export function friendName(vendor, place) {
 }
 
 /** 틀의 [상품명] 자리에 상품 이름들을 넣는다 — 세원 10/1: "[345,348] 이런 식으로 [] 괄호" */
+/**
+ * 카톡 요청 글에 넣을 상품 이름 (10/14 세원: "사이즈 있는 제품들은 [상품명 - S] 로. 보통 S 로 다 요청하거든")
+ * 사이즈에 S 가 있으면 '이름 - S', FREE·사이즈 없음·S 가 없는 것(230~250 등)은 이름만.
+ */
+export const hasSizeS = (sizes) => String(sizes || "").split(/[,/·\s~-]+/).some((t) => t.trim().toUpperCase() === "S");
+export const askName = (x) => {
+  const n = x.name || x.fullName || "";
+  return n && hasSizeS(x.sizes) ? `${n} - S` : n;
+};
 export const requestText = (tpl, names) => String(tpl || "").split(MSG_SLOT).join(`[${names.join(",")}]`);
 
 // ---------------------------------------------------------------- 신상마켓에서 담기
@@ -410,6 +461,8 @@ export function guessKind(title, cat = "") {
 
 const PRICE = /[₩￦]\s?([\d,]{3,})|([\d,]{4,})\s?원/;
 const FLOOR = /(지하\s?\d+\s*층|\d+\s*층|B\d)/;
+// 층이 없는 위치도 있다 (10/14 세원 화면: 라라 '테크노 외곽 특1') — 동대문 상가 이름·외곽·특N 으로도 위치 줄로 본다
+const BUILDING = /(디오트|테크노|청평화|남평화|신평화|동평화|제일평화|광희|누죤|유어스|벨포스트|apM|APM|에이피엠|퀸즈|스튜디오\s?W|데님타운|디자이너클럽|맥스타일|NPH)|외곽|(^|\s)특\s?\d/;
 // 상품 칸의 작은 제목들 — 여기서 앞 칸이 끝난다
 const SECTION = /^(상세정보|세탁 및 상품 주의사항|제품 설명|재고문의|연관 추천 상품)$|^상품 문의\s*(\(\d+\))?$|^총 금액/;
 // 10/4: '랭킹' 이 든 줄을 통째로 버렸더니 상품명 '[에이블리랭킹제품] 코아 하이넥 코트…' 까지 버려져 담기가 막혔다 → 짧은 배지('랭킹 3위')만
@@ -454,7 +507,7 @@ export function parseClip(d) {
   const di = lines.findIndex((l, i) => i > gi && l === "상세정보");
   const ref = gi >= 0 ? gi : di;
   // 위치 — 기준 줄 위에서 가장 가까운 '○층' 줄(기준이 없으면 맨 처음 것). 그 윗줄이 거래처
-  const isPlace = (l) => FLOOR.test(l) && l.length <= 30 && !PRICE.test(l);
+  const isPlace = (l) => (FLOOR.test(l) || BUILDING.test(l)) && l.length <= 30 && !PRICE.test(l);
   let li = ref >= 0 ? -1 : lines.findIndex(isPlace);
   for (let i = ref - 1; i >= 0 && li < 0; i--) if (isPlace(lines[i])) li = i;
   const place = li >= 0 ? lines[li] : "";
@@ -519,7 +572,8 @@ export function parseClip(d) {
     fabric: field("혼용률"),
     origin: field("제조국"),
     kind: guessKind(`${name} ${title}`, cat.join(" ")),
-    contact: contactOf(desc),
+    contact: withStoreContact(contactOf(desc), d.sc),
+    storeProbe: d.sc || null,
     desc: desc.slice(0, 800),
     sizeText: measuresOf(desc),
     // 신마 상품 사진에 '디테일컷' 단추가 있나 (10/8) — 사이즈표가 디테일컷에 있을 때가 많다. 예전 단추는 안 보내서 undefined

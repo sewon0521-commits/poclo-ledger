@@ -3,7 +3,7 @@ import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, P
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
-import { STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
+import { STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -26,6 +26,9 @@ const who = () => {
     return "";
   }
 };
+
+// 요청 탭 모아보기 — 'neither' 는 요청함·픽업 요청 둘 다 안 켠 것 (10/14)
+const reqHit = (x, k) => (k === "neither" ? !x.asked && !x.pickup : !!x[k]);
 
 const srcOf = (x, urls) => urls[x.photo] || x.photoUrl || "";
 const list = (s) =>
@@ -1203,7 +1206,7 @@ function MsgSheet({ m, msgs, onSaveMsgs, onAsked, onClose, refusals = [], onDrop
       alive = false;
     };
   }, [m.copied]);
-  const names = m.list.filter((x) => picks.includes(x.id)).map((x) => x.name || x.fullName).filter(Boolean);
+  const names = m.list.filter((x) => picks.includes(x.id)).map(askName).filter(Boolean);
   const text = custom ?? requestText(msgs[kind], names);
   const say = async (what, okText) => setNote((await copy(what)) ? okText : "복사하지 못했어요. 글을 끌어서 직접 복사해 주세요.");
   const TAB = "flex-1 rounded-md py-1.5 font-medium ";
@@ -1760,7 +1763,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   // 보통은 지금처럼, 소싱한 날짜를 누르면 그날 신마에서 담기를 누른 상품만") — 담은 날(createdAt, 이 기기 시각)
   const [srcDay, setSrcDay] = useState("");
   const [dayTo, setDayTo] = useState(""); // 고른 날 상품을 옮길 날
-  const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청)
+  const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청) | "neither"(둘 다 안 함)
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
   const [backOnly, setBackOnly] = useState(false); // 반납·결제 예정 — 반납 등록한 것만
@@ -1834,7 +1837,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!type || (x.type || "sample") === type) &&
         (!kind || x.kind === kind) &&
         (!weekOnly || tab !== "pick" || (x.pickedOn || "") >= weekAgo) &&
-        (!reqOnly || tab !== "request" || !!x[reqOnly]) &&
+        (!reqOnly || tab !== "request" || reqHit(x, reqOnly)) &&
         (!day || tab !== "request" || madeOn(x) === day) &&
         (!retryDay || reqOnly !== "retryOn" || x.retryOn === retryDay) &&
         (!dueDay || tab !== "returns" || dueOf(x) === dueDay) &&
@@ -1911,7 +1914,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const openMsg = (g) => {
     const fresh = g.list.filter((x) => !x.asked);
     const picks = (fresh.length ? fresh : g.list).map((x) => x.id);
-    const names = g.list.filter((x) => picks.includes(x.id)).map((x) => x.name || x.fullName).filter(Boolean);
+    const names = g.list.filter((x) => picks.includes(x.id)).map(askName).filter(Boolean);
     // 복사는 누른 이 순간에 시작하고(그래야 허락된다), 창은 기다리지 않고 바로 연다
     const copied = copy(requestText(d.msgs[g.req.kind], names));
     setMsgFor({ ...g.req, list: g.list, picks, copied });
@@ -2039,6 +2042,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
             ["asked", "요청함"],
             ["pickup", "픽업 요청"],
             ["retryOn", "재요청"], // 세원 10/1: "재요청 따로 모아볼 수 있는 칸" — 재요청 날짜를 적은 상품
+            // 10/14 세원: "소싱한 날 누르고 요청함·픽업 요청 둘 다 체크 안 돼 있는 거 확인할 수 있는 버튼" — 숫자는 고른 소싱한 날 안에서
+            ["neither", "요청함·픽업 둘 다 안 한 것"],
           ].map(([k, label]) => (
             <button
               key={k}
@@ -2050,7 +2055,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               aria-pressed={reqOnly === k}
               className={"rounded-full border px-3 py-1 text-xs font-medium " + (reqOnly === k ? "border-emerald-700 bg-emerald-700 text-white" : "border-stone-200 bg-white text-stone-600")}
             >
-              {label} 모아보기 <span className={reqOnly === k ? "text-emerald-100" : "text-stone-400"}>{items.filter((x) => x.stage === "request" && x[k]).length}</span>
+              {k === "neither" ? label : `${label} 모아보기`}{" "}
+              <span className={reqOnly === k ? "text-emerald-100" : "text-stone-400"}>
+                {items.filter((x) => x.stage === "request" && reqHit(x, k) && (k !== "neither" || !day || madeOn(x) === day)).length}
+              </span>
             </button>
           ))}
         {tab === "returns" && (
