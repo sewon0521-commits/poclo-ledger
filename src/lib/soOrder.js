@@ -212,7 +212,8 @@ export function misongFor(row, lines) {
   const w = wholesaleKey(row.name);
   const out = { exact: [], loose: [] };
   if (!w) return out;
-  const want = optTokens(row.option);
+  // 색상을 고친 줄(10/13)은 고친 색·원래 색 둘 다로 맞춰 본다
+  const want = [...optTokens(row.option), ...optTokens(row.optionFile)];
   for (const l of lines || []) {
     if (!(l.left > 0)) continue;
     if (!sameVendor(l.vendor, row.store || row.vendor) && !sameVendor(l.vendor, row.vendor)) continue;
@@ -225,6 +226,67 @@ export function misongFor(row, lines) {
     else out.loose.push(l);
   }
   return out;
+}
+
+// ---------------------------------------------------------------- 색상 고치기 (10/13)
+//
+// 세원: "SO+ 발주 변환에서 색상을 변경해야 될 것 같아. 상품등록할 때 거래처랑 다르게 적은 게 있거든."
+// 이지어드민 옵션은 우리가 상품등록 때 적은 색(예: 블랙)이라, 거래처가 부르는 색(예: 검정)으로 바꿔 SO+ 에 넣는다.
+// 옵션 '[블랙-L]' → 색 '블랙' + 나머지 '-L'. 고친 색은 settings so_prices.colors 에 '매장|도매 상품|원래 색' → 새 색으로 기억.
+
+/** '[블랙-L]' → {color:'블랙', rest:'-L', wrap:true} */
+export function splitOpt(option) {
+  const s = String(option || "").trim();
+  const wrap = /^\[.*\]$/.test(s);
+  const inner = wrap ? s.slice(1, -1) : s;
+  const i = inner.indexOf("-");
+  return { color: i < 0 ? inner : inner.slice(0, i), rest: i < 0 ? "" : inner.slice(i), wrap };
+}
+export const joinOpt = ({ color, rest, wrap }) => (wrap ? `[${color}${rest}]` : `${color}${rest}`);
+export const colorKey = (r, color) => `${squash(r.vendor)}|${wholesaleKey(r.name)}|${squash(color)}`;
+
+// 신상 관리 상품의 색상(신마에서 담은 거래처 옵션)과 맞춰 보기 (10/13)
+// 세원: "ERP 에 상품 정보를 등록할 때 거래처 옵션을 그대로 가져와 적은 색상이랑 엑셀 색상을 자동으로 비교해 주고, 안 맞으면 바꿀 수 있게."
+// 같은 거래처(이름 조각) + 같은 도매 상품명(앞부분 일치 · 4자 넘으면 들어 있음)인 신상 관리 상품을 찾아 그 colors 를 돌려준다.
+const SIZE_LIKE = /^(free|f|xs|s|m|l|xl|xxl|2xl|3xl|\d+(~\d+)?|기본|one)$/i;
+export const colorList = (s) =>
+  String(s || "")
+    .split(/[,/·、\n]+/)
+    .map((x) => x.replace(/^\s*\d+\s*[.)]\s*/, "").trim())
+    .filter((x) => x && !SIZE_LIKE.test(x));
+export function vendorColors(row, items, vname) {
+  const w = wholesaleKey(row.name);
+  if (!w) return null;
+  const like = (n) => {
+    const k = squash(n);
+    if (!k) return 0;
+    if (k === w) return 3;
+    if ((w.length >= 3 && k.startsWith(w)) || (k.length >= 3 && w.startsWith(k))) return 2;
+    if ((k.length >= 4 && w.includes(k)) || (w.length >= 4 && k.includes(w))) return 1;
+    return 0;
+  };
+  let best = 0;
+  let hits = [];
+  for (const x of items || []) {
+    if (x.stage === "trash") continue;
+    const vn = vname?.[x.vendorId] || x.vendor || "";
+    if (!sameVendor(vn, row.store || row.vendor) && !sameVendor(vn, row.vendor) && !sameVendor(vn, splitName(row.name).store)) continue;
+    const s = Math.max(like(x.name), like(x.fullName));
+    if (!s || !colorList(x.colors).length) continue;
+    if (s > best) {
+      best = s;
+      hits = [x];
+    } else if (s === best) hits.push(x);
+  }
+  if (!hits.length) return null;
+  const list = [...new Set(hits.flatMap((x) => colorList(x.colors)))];
+  return { list, item: hits[0].name || hits[0].fullName || "" };
+}
+/** 고른 색이 거래처 색상 목록에 있나 — 띄어쓰기·대소문자 무시. 색이 사이즈처럼 생겼으면 null(비교 안 함) */
+export function colorMatch(color, list) {
+  const c = squash(color);
+  if (!c || SIZE_LIKE.test(c) || !list?.length) return null;
+  return list.some((x) => squash(x) === c);
 }
 
 /** 미송 품목의 옵션 부분 (모글루즈핏부클니트/ 아이보리 → 아이보리) */

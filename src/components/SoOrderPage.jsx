@@ -7,7 +7,7 @@ import { Tab } from "./ui";
 import SoSaved from "./SoSaved";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
-import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder } from "../lib/soOrder";
+import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder, splitOpt, joinOpt, colorKey, vendorColors, colorMatch } from "../lib/soOrder";
 import { flowBoard } from "../lib/pending";
 
 /**
@@ -92,10 +92,15 @@ const squashKey = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
 const storeKey = (r) => squashKey(r.store || r.vendor);
 const nameKey = (r) => storeKey(r) + "|" + squashKey(String(r.name || "").replace(/\s*\([^)]*\)\s*$/, ""));
 
+// 색상 칸 폭 = 글자 폭(한글 1em · 그 밖 0.6em) — 칸이 글자보다 넓으면 '[ 아이보리 ]' 처럼 빈칸이 생긴다
+const optWidth = (s) => Math.max(2, [...String(s || "")].reduce((w, c) => w + (/[가-힣ㄱ-ㅎ]/.test(c) ? 1 : 0.6), 0));
+
 export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const [draft, setDraft] = useState(readDraft);
   const [memory, setMemory] = useState({});
   const [stores, setStores] = useState({}); // 제조사 → 지난번 적은 매장명
+  const [colors, setColors] = useState({}); // '제조사|도매 상품|원래 색' → 거래처가 부르는 색 (10/13)
+  const [shootItems, setShootItems] = useState([]); // 신상 관리 상품 — 거래처 색상과 맞춰 보기 (10/13)
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -135,8 +140,14 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       const m = await loadKey(MEMORY, online, { prices: {} });
       setMemory(m.prices || {});
       setStores(m.stores || {});
+      setColors(m.colors || {});
     } catch {
       /* 기억한 단가 없이도 된다 */
+    }
+    try {
+      setShootItems((await loadKey("shoot_items", online, { items: [] })).items || []);
+    } catch {
+      /* 신상 관리 없이도 된다 — 색상 비교만 빠진다 */
     }
   }, [online]);
   useEffect(() => {
@@ -161,13 +172,21 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const autoStore = useCallback((r) => (r.parsedStore ? stores["@" + r.parsedStore] || r.parsedStore : stores[r.vendor] || r.vendor), [stores]);
   // 매장 위치 (10/6 세원: "매장명 밑에 해당 거래처 매장 위치, 복사 내용엔 안 들어가게") — 돈 › 거래처 주소 → 없으면 이지어드민 괄호 위치. 화면에만.
   const addrOf = useCallback((store) => (vendors || []).find((v) => v.address && sameVendor(v.name, store))?.address || "", [vendors]);
+  const vname = useMemo(() => Object.fromEntries((vendors || []).map((v) => [v.id, v.name])), [vendors]);
   const withStore = useMemo(
     () =>
       (draft?.rows || []).map((r) => {
         const store = r.storeEdit || autoStore(r);
-        return { ...r, store, addr: addrOf(store) || r.place || "" };
+        // 색상: 직접 고친 색 → 지난번 그 상품·색에 고친 색 → 원래 색. 원래 옵션은 optionFile 로 남긴다(2차 발주 비교·미송 맞추기)
+        const o = splitOpt(r.option);
+        const remembered = colors[colorKey(r, o.color)];
+        const color = r.colorEdit ?? remembered ?? o.color;
+        // 신상 관리에 적힌 거래처 색상과 비교 — 없는 색이면 노랗게 + 거래처 색상 칩
+        const vc = vendorColors(r, shootItems, vname);
+        const colorOk = vc ? colorMatch(color, vc.list) : null;
+        return { ...r, store, addr: addrOf(store) || r.place || "", optionFile: r.option, option: joinOpt({ ...o, color }), colorFrom: color !== o.color ? o.color : "", colorAuto: r.colorEdit == null && !!remembered, vc, colorOk };
       }),
-    [draft?.rows, autoStore, addrOf],
+    [draft?.rows, autoStore, addrOf, colors, shootItems, vname],
   );
 
   // 줄마다 찾은 단가 — 장끼·판매가 목록이 바뀌면 다시 찾는다(직접 고친 값은 그대로)
@@ -178,14 +197,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
 
   // 남은 미송 (돈 › 미송·매입금 과 같은 계산)
   const misong = useMemo(() => {
-    const vname = Object.fromEntries((vendors || []).map((v) => [v.id, v.name]));
     // 같은 날 앞 차수 발주가 이미 쓴 미송은 빼고 (draft.misBefore — 2차·3차 발주)
     const before = draft?.misBefore || {};
     return flowBoard(tx || [], (id) => vname[id] || "", "pending")
       .groups.flatMap((g) => g.lines)
       .map((l) => ({ ...l, left: l.left - (before[l.key] || 0) }))
       .filter((l) => l.left > 0);
-  }, [tx, vendors, draft?.misBefore]);
+  }, [tx, vname, draft?.misBefore]);
 
   const priced = useMemo(
     () =>
@@ -276,7 +294,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
           base = {
             label: stampLabel(last.file, last.title),
             // 저장할 때 남긴 파일 줄 그대로(fileRows) — 예전 저장은 줄마다 처음 요청 수량
-            rows: last.fileRows || (last.rows || []).map((r) => ({ k: orderKey(r), q: r.qtyFrom ?? r.want ?? r.qty })),
+            rows: last.fileRows || (last.rows || []).map((r) => ({ k: orderKey({ ...r, option: r.optionFile || r.option }), q: r.qtyFrom ?? r.want ?? r.qty })),
           };
           // 앞 차수들이 쓴 미송은 이미 쓴 것
           for (const x of earlier) for (const r of x.rows || []) for (const m of r.misFrom || []) misBefore[m.key] = (misBefore[m.key] || 0) + m.qty;
@@ -336,6 +354,16 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       ),
     }));
   };
+  // 색 고치기 — 같은 제조사·같은 도매 상품·같은 원래 색 줄을 같이. 원래 색으로 돌리면 기억도 지운다(복사할 때)
+  const setColor = (row, value) => {
+    const v = value.trim();
+    const orig = splitOpt(row.optionFile || row.option).color;
+    if (!v) return;
+    setDraft((d) => ({
+      ...d,
+      rows: d.rows.map((x) => (x.vendor === row.vendor && x.name === row.name && splitOpt(x.option).color === orig ? { ...x, colorEdit: v === orig ? (colors[colorKey(x, orig)] ? orig : null) : v } : x)),
+    }));
+  };
   const diffOff = () => setDraft((d) => ({ ...d, rows: d.diff.all, diff: { ...d.diff, off: true } }));
   const diffOn = () => setDraft((d) => ({ ...d, rows: d.diff.kept, diff: { ...d.diff, off: false } }));
   const allMiss = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, miss: v })) }));
@@ -364,7 +392,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       const id = draft.savedId || newId("so");
       const savedAt = new Date().toISOString();
       // 저장하는 qty = SO+ 에 넣은 수량(미송 뺀 것), want = 요청 수량
-      const pick = ({ auto, misExact: _e, misLoose: _l, misHint: _h, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
+      const pick = ({ auto, misExact: _e, misLoose: _l, misHint: _h, vc: _vc, colorOk: _ok, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
       const stores = [...new Set(rows.map((r) => r.store || r.vendor))];
       const rec = {
         id,
@@ -399,8 +427,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     if (draft && !isSaved && !window.confirm("만들던 발주가 저장 안 된 채 바뀌어요. 저장한 발주를 불러올까요?")) return;
     const strip = (r) => {
       // 불러올 땐 요청 수량으로 — 미송은 지금 남은 걸로 다시 뺀다(두 번 빼지 않게)
-      const out = { ...r, qty: r.want ?? r.qty };
-      for (const k of ["store", "addr", "price", "note", "want", "misUsed", "misFrom", "misExact", "misLoose", "misHint"]) delete out[k];
+      const out = { ...r, qty: r.want ?? r.qty, option: r.optionFile || r.option };
+      for (const k of ["store", "addr", "price", "note", "want", "misUsed", "misFrom", "misExact", "misLoose", "misHint", "optionFile", "colorFrom", "colorAuto", "vc", "colorOk"]) delete out[k];
       return out;
     };
     setDraft({
@@ -451,8 +479,12 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       if (r.parsedStore && r.storeEdit) named["@" + r.parsedStore] = r.store;
       if (r.storeEdit || r.store !== r.vendor) named[r.vendor] = r.store;
     }
+    // 고친 색 기억 — 같은 상품·같은 색이면 다음 발주부터 저절로
+    const colorNew = {};
+    for (const r of rows) if (r.colorEdit != null) colorNew[colorKey(r, splitOpt(r.optionFile).color)] = r.colorEdit;
+    const newColors = Object.entries(colorNew).filter(([k, v]) => colors[k] !== v);
     const newNames = Object.entries(named).filter(([k, v]) => (stores[k] || (k.startsWith("@") ? k.slice(1) : k)) !== v);
-    if (mine.length || newNames.length) {
+    if (mine.length || newNames.length || newColors.length) {
       try {
         const next = await changeKey(
           MEMORY,
@@ -461,11 +493,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
             ...v,
             prices: { ...(v.prices || {}), ...Object.fromEntries(mine.map((r) => [memoryKey(r), { price: r.manual, on: dayKey(), name: r.name, vendor: r.store }])) },
             stores: { ...(v.stores || {}), ...named },
+            colors: { ...(v.colors || {}), ...colorNew },
           }),
           { prices: {} },
         );
         setMemory(next.prices || {});
         setStores(next.stores || {});
+        setColors(next.colors || {});
       } catch {
         /* 기억은 못 해도 복사는 됐다 */
       }
@@ -668,7 +702,42 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         </div>
                         {r.shopName && <div className="truncate text-xs text-stone-400">{r.shopName}</div>}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-stone-700">{r.option}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-stone-700">
+                        {/* 10/13 세원: "상품등록할 때 거래처랑 다르게 적은 색이 있어" — 색만 고친다(사이즈는 그대로). 고치면 같은 상품·같은 색 줄도 같이, 복사할 때 기억 */}
+                        <span className="inline-flex items-center gap-0.5">
+                          {splitOpt(r.option).wrap && <span className="text-stone-400">[</span>}
+                          <input
+                            key={r.option}
+                            defaultValue={splitOpt(r.option).color}
+                            onBlur={(e) => setColor(r, e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                            aria-label={`${r.name} 색상`}
+                            title="거래처가 부르는 색으로 고쳐요 — 같은 상품·같은 색 줄도 같이, 다음 발주부터 저절로"
+                            style={{ width: `calc(${optWidth(splitOpt(r.option).color)}em + 16px)` }}
+                            className={"rounded-md border px-1.5 py-0.5 text-sm outline-none focus:border-rose-600 " + (r.colorOk === false ? "border-amber-400 bg-amber-50" : r.colorFrom ? "border-rose-300 bg-rose-50/50" : "border-transparent hover:border-stone-200")}
+                          />
+                          <span>{splitOpt(r.option).rest}</span>
+                          {splitOpt(r.option).wrap && <span className="text-stone-400">]</span>}
+                          {r.colorOk && <Check size={13} className="ml-0.5 text-emerald-600" aria-label="거래처 색상과 같아요" title={`신상 관리 거래처 색상과 같아요 (${r.vc.list.join(", ")})`} />}
+                        </span>
+                        {r.colorOk === false && (
+                          <div className="mt-1 max-w-[16rem] whitespace-normal rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                            거래처 색상에 없어요 — 신상 관리 '{r.vc.item}'
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {r.vc.list.map((c) => (
+                                <button key={c} type="button" onClick={() => setColor(r, c)} className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] text-stone-700 hover:border-rose-400 hover:text-rose-700">
+                                  {c}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {r.colorFrom && (
+                          <button type="button" onClick={() => setColor(r, r.colorFrom)} title="원래 색으로" className="block text-[11px] text-stone-400 underline decoration-dotted">
+                            {r.colorAuto ? "기억한 색 · " : ""}원래 {r.colorFrom}
+                          </button>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right">
                         {/* 10/6 세원: "수량도 변경 가능하게" — 칸을 벗어나거나 엔터에 적용, 1 아래로는 안 내려간다(줄을 빼려면 ×) */}
                         <input
