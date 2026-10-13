@@ -7,6 +7,47 @@
 // 예전 판은 '가격 + 제조국이 든 가장 작은 칸'을 찾다가 뒤에 깔린 **필터 칸**을 상품으로 읽었다('남성의류 / 필터').
 //
 // 제품 설명: 거래처가 전화·카톡·인스타를 적어 두는 칸인데 접혀 있을 때가 있다 → 접혀 있으면 한 번 눌러 펼쳐서 읽는다(세원이 누르는 것과 같다).
+// 이미 아는 거래처 (10/14 세원: "전번 찾는 게 오래 걸려서 이미 거래처이거나 카톡을 보낸 적이 있는 곳이면 그냥 넘겨 줘")
+// ERP 담기 창이 담을 때마다 목록(이름 조각)을 보내 준다 → 이 신마 창의 저장소(poclo_known)에 두고, 그 거래처면 매장 정보를 찾으러 안 들어간다.
+// 이름 조각 규칙은 src/lib/sinsang.js nameParts 와 같아야 한다.
+if (!window.__pocloKnownOn) {
+  window.__pocloKnownOn = true;
+  window.addEventListener("message", function (e) {
+    var m = e.data;
+    if (!m || m.poclo !== "known" || !Array.isArray(m.keys) || e.origin !== window.__pocloO) return;
+    try {
+      localStorage.setItem("poclo_known", JSON.stringify({ at: Date.now(), keys: m.keys.slice(0, 8000) }));
+    } catch (x) {
+      void x;
+    }
+  });
+}
+window.__pocloParts = function (s) {
+  var low = String(s || "").toLowerCase();
+  var parts = (low.match(/[가-힣]+|[a-z0-9]+/g) || []).filter(function (p) {
+    return p.length >= 2 && !/^\d+$/.test(p);
+  });
+  var all = low.replace(/[^가-힣a-z0-9]/g, "");
+  if (all.length >= 2) parts.push(all);
+  return parts;
+};
+window.__pocloKnown = function (vendor) {
+  try {
+    var k = JSON.parse(localStorage.getItem("poclo_known") || "null");
+    if (!k || !k.keys) return false;
+    var set = {};
+    k.keys.forEach(function (x) {
+      set[x] = 1;
+    });
+    return window.__pocloParts(vendor).some(function (p) {
+      return set[p];
+    });
+  } catch (e) {
+    void e;
+    return false;
+  }
+};
+
 window.__pocloRead = async function () {
   var vw = innerWidth,
     vh = innerHeight;
@@ -275,7 +316,10 @@ window.__pocloRead = async function () {
           li = z;
           break;
         }
-      sc = await window.__pocloStore({ vendor: li > 0 ? ls0[li - 1] : "", box: top || box });
+      var vline = li > 0 ? ls0[li - 1] : "";
+      // 이미 아는 거래처(돈 › 거래처에 있거나 카톡을 보낸 적 있는 곳)면 안 들어간다
+      if (vline && window.__pocloKnown && window.__pocloKnown(vline)) sc = { known: true };
+      else sc = await window.__pocloStore({ vendor: vline, box: top || box });
     }
   } catch (e) {
     sc = { probe: { err: String(e).slice(0, 200) } };

@@ -1,11 +1,24 @@
 // 신마 '포클로에 담기'로 넘어온 것 하나를 신상 관리에 저장 — 한 개 담기 창(ClipPage)·여러 개 담기 창(ClipBatch)이 같이 쓴다.
 import { loadKey, changeKey, upsert, putPhoto } from "./shoot";
-import { parseClip, normalize, findVendor, vendorFill, contactLines, refusalsOf } from "./sinsang";
+import { parseClip, normalize, findVendor, vendorFill, contactLines, refusalsOf, knownKeys } from "./sinsang";
 import { newId } from "./id";
 import { hasWear, wearSummary } from "./measure";
 
 // 예전 단추(9/30~10/1 첫 판)는 읽는 코드가 단추 안에 박혀 있어서 고친 게 안 닿는다 — 새 단추는 v 를 같이 보낸다
 export const OLD_BUTTON = "예전 '포클로에 담기' 단추예요. 즐겨찾기에서 그 단추를 지우고, 포클로ERP › 촬영 › 신상 관리 › '신마에서 담기'에서 새 단추를 다시 끌어다 놓아 주세요.";
+
+/**
+ * 신마 창에 '이미 아는 거래처' 목록을 알려 준다 (10/14) — 담기 단추가 그 거래처면 매장 정보를 찾으러 안 들어간다(빠르게).
+ * 신마 창(이 창을 연 opener)의 주소로만 보낸다. 단추(public/clip.js)가 자기 쪽 저장소(poclo_known)에 둔다.
+ */
+function tellKnown(payload, vendors, items) {
+  try {
+    const origin = new URL(payload.u).origin;
+    window.opener?.postMessage({ poclo: "known", keys: knownKeys(vendors, items) }, origin);
+  } catch {
+    /* 못 알려도 담기는 된다 — 다음에 매장 정보를 한 번 더 찾을 뿐 */
+  }
+}
 
 /**
  * 넘어온 담기 하나를 저장 — 한 개 담기 창(ClipPage)·여러 개 담기 창(ClipBatch)이 같이 쓴다.
@@ -23,7 +36,7 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
   }
   // 옷감정보를 어떻게 봤는지 · 여러 개 담기에서 창을 어떻게 열고 닫았는지 — 신마 화면을 직접 못 봐서, 어긋나면 이걸 보고 고친다 (최근 5개)
   // 매장 연락처(10/14)를 어떻게 읽었는지도 — 매장 화면 주소·'매장 정보' 칸 html·아이콘 모양
-  if (p.fabricProbe || payload.bx || p.storeProbe)
+  if (p.fabricProbe || payload.bx || p.storeProbe?.probe)
     changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, fabric: p.fabricProbe, wear: p.wear, bx: payload.bx, store: p.storeProbe }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
   const same = cur.map(normalize).find((x) => (p.goodsId ? x.goodsId === p.goodsId : p.url && x.url === p.url));
   const past = (await loadKey("sample_refusals", online).catch(() => ({}))).items || [];
@@ -53,6 +66,7 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     ]
       .filter(Boolean)
       .join(" · ");
+    tellKnown(payload, vendors, cur);
     return { state: "dup", item: { ...same, ...fill }, photo, note, refused: refusalsOf(past, same.vendorId, same.vendor) };
   }
   // 사진 — 담기 단추가 떠 온 게 있으면 우리 보관함에, 없으면 신상마켓 주소 그대로
@@ -87,7 +101,9 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
         ? found && !filled
           ? " (연락처는 이미 있어요)"
           : ` · 연락처도 넣었어요${p.contact.from ? ` (${p.contact.from}에서)` : ""}: ${told.join(", ")}`
-        : " · 제품 설명·매장 정보에서 연락처를 못 찾았어요");
+        : payload.sc?.known
+          ? " · 이미 아는 거래처라 매장 정보는 건너뛰었어요"
+          : " · 제품 설명·매장 정보에서 연락처를 못 찾았어요");
   const made = {
     id: newId("i"),
     type: "sample",
@@ -116,6 +132,7 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     createdAt: new Date().toISOString(),
   };
   await changeKey("shoot_items", online, upsert(made));
+  tellKnown(payload, v && !vendors.some((x) => x.id === v.id) ? [...vendors, v] : vendors, cur);
   return { state: "saved", item: made, photo, note, refused: refusalsOf(past, made.vendorId, made.vendor), vendor: v || null };
 }
 

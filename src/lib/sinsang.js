@@ -418,6 +418,24 @@ export const askName = (x) => {
 };
 export const requestText = (tpl, names) => String(tpl || "").split(MSG_SLOT).join(`[${names.join(",")}]`);
 
+/**
+ * 이미 아는 거래처 — 신마 담기 단추가 매장 정보(전화·카톡)를 찾으러 들어가지 않아도 되는 곳 (10/14 세원:
+ * "전번 찾는 게 오래 걸려서 이미 거래처이거나 카톡을 보낸 적이 있는 곳이면 그냥 넘겨 줄 수 있니?")
+ * = 돈 › 거래처에 있는 곳 + 신상 관리에서 '요청함'(카톡 보냄)을 켠 적이 있는 거래처.
+ * 이름을 한글 조각·영문 조각으로 나눠 보낸다('래래 RAERAE' → 래래 · raerae) — 신마 이름과 조각 하나만 같아도 같은 곳(findVendor 와 같은 생각).
+ * public/clip.js 의 nameParts 와 같은 규칙이어야 한다.
+ */
+export const nameParts = (s) => {
+  const low = String(s || "").toLowerCase();
+  const parts = (low.match(/[가-힣]+|[a-z0-9]+/g) || []).filter((p) => p.length >= 2 && !/^\d+$/.test(p));
+  const all = low.replace(/[^가-힣a-z0-9]/g, "");
+  return [...new Set([...parts, ...(all.length >= 2 ? [all] : [])])];
+};
+export function knownKeys(vendors = [], items = []) {
+  const names = [...vendors.map((v) => v.name), ...items.filter((x) => x.asked || x.askedOn).map((x) => x.vendor)];
+  return [...new Set(names.flatMap(nameParts))];
+}
+
 // ---------------------------------------------------------------- 신상마켓에서 담기
 //
 // 신상마켓은 자동 접속을 보안 확인(Cloudflare)으로 막는다(10/1 확인) — 뚫지 않는다.
