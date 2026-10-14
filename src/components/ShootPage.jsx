@@ -22,19 +22,58 @@ import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders"
 
 // ---------------------------------------------------------------- 공통 조각
 
+// 촬영 세 화면(신상 관리·촬영 레퍼런스·소싱 관리)을 오갈 때마다 처음부터 다시 받지 않게 (10/15 세원: "촬영 목록 3개 전부 렉 걸려, 무한로딩") —
+// 예전엔 화면을 바꿀 때마다 상품 목록 전체(약 640KB)를 다시 받고 다 받을 때까지 '불러오는 중'이었다.
+// 이제 받은 것을 이 탭에 들고 있다가(없으면 이 기기 사본) 바로 보여 주고, 60초가 지났을 때만 뒤에서 새로 읽는다.
+// 그 사이 상대가 고친 건 방송·4초 확인(onSettingsChange·watchKeys)이 그 키만 받아 온다. 사진 주소도 들고 있는다.
+const MEM = { at: 0, d: null, urls: {} };
+const cachedKey = (k, fb) => {
+  try {
+    return JSON.parse(localStorage.getItem("poclo_" + k) || "null") || fb;
+  } catch {
+    return fb;
+  }
+};
+function firstData() {
+  if (MEM.d) return MEM.d;
+  const it = cachedKey("shoot_items", null);
+  if (!it) return null;
+  return {
+    items: it.items || [],
+    codis: cachedKey("shoot_codis", {}).items || [],
+    refs: cachedKey("shoot_refs", {}).items || [],
+    tags: { ...DEFAULT_TAGS, ...cachedKey("shoot_tags", {}) },
+    msgs: { ...DEFAULT_MSGS, ...cachedKey("shoot_msg", {}) },
+    refusals: cachedKey("sample_refusals", {}).items || [],
+    folders: cachedKey("shoot_folders", {}).items || [],
+  };
+}
+
 function useData(online) {
-  const [items, setItems] = useState([]);
-  const [codis, setCodis] = useState([]);
-  const [refs, setRefs] = useState([]);
-  const [tags, setTags] = useState(DEFAULT_TAGS);
-  const [msgs, setMsgs] = useState(DEFAULT_MSGS);
-  const [refusals, setRefusals] = useState([]);
-  const [folders, setFolders] = useState([]);
-  const [urls, setUrls] = useState({});
+  const [boot] = useState(firstData);
+  const [items, setItems] = useState(boot?.items || []);
+  const [codis, setCodis] = useState(boot?.codis || []);
+  const [refs, setRefs] = useState(boot?.refs || []);
+  const [tags, setTags] = useState(boot?.tags || DEFAULT_TAGS);
+  const [msgs, setMsgs] = useState(boot?.msgs || DEFAULT_MSGS);
+  const [refusals, setRefusals] = useState(boot?.refusals || []);
+  const [folders, setFolders] = useState(boot?.folders || []);
+  const [urls, setUrls] = useState(MEM.urls);
   const [msg, setMsg] = useState("");
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(!!boot);
+  // 들고 있는 것도 늘 최신으로
+  useEffect(() => {
+    if (loaded) MEM.d = { items, codis, refs, tags, msgs, refusals, folders };
+  }, [loaded, items, codis, refs, tags, msgs, refusals, folders]);
+  useEffect(() => {
+    MEM.urls = urls;
+  }, [urls]);
 
   const load = useCallback(async () => {
+    if (MEM.d && Date.now() - MEM.at < 60000) {
+      setLoaded(true);
+      return;
+    }
     try {
       const [a, b, c, t, f, m, r] = await Promise.all([
         loadKey("shoot_items", online),
@@ -58,6 +97,7 @@ function useData(online) {
       setCodis(b.items || []);
       setRefs(c.items || []);
       setTags({ ...DEFAULT_TAGS, ...t });
+      MEM.at = Date.now();
     } catch {
       setMsg("촬영 목록을 불러오지 못했어요. 인터넷을 확인해 주세요.");
     } finally {

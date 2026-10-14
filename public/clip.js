@@ -245,6 +245,37 @@ window.__pocloRead = async function () {
   } catch (e) {
     gp = { err: String(e).slice(0, 200) };
   }
+  // 이 상품 사진만 (10/15 세원: "유스 딥브이니트 썸네일이 이상해") — 상품 창 아래 '유사한 상품' 줄 사진·매장 로고까지 섞여 들어왔고,
+  // 대표 사진(썸네일)도 그 줄의 다른 상품(스웨이드 자켓)으로 잡혔다. 신마 사진 주소는 images/<매장>/<상품 폴더>/… —
+  // 상품번호와 같은 폴더가 있으면 그 폴더, 없으면(CNK 475 어그처럼 폴더가 다른 상품도 있다) 큰 사진 칸 첫 사진의 폴더만 남긴다.
+  try {
+    var fold = function (u) {
+      var m = decodeURIComponent(u).match(/images\/\d+\/(\d+)\//);
+      return m ? m[1] : "";
+    };
+    var ownFolder = gid && ga.some(function (u) {
+      return fold(u) === gid;
+    })
+      ? gid
+      : ga.length
+        ? fold(ga[0])
+        : "";
+    if (ownFolder)
+      ga = ga.filter(function (u) {
+        return fold(u) === ownFolder;
+      });
+    gp.own = ownFolder;
+    gp.n = ga.length;
+    // 대표 사진도 이 상품 첫 사진으로
+    if (ga.length)
+      imgs = [ga[0]].concat(
+        imgs.filter(function (u) {
+          return u !== ga[0];
+        }),
+      );
+  } catch (e) {
+    gp.err2 = String(e).slice(0, 200);
+  }
   ga = ga.slice(0, 30);
 
   // 디테일컷 (10/8 세원: "디테일컷 버튼이 있는지 없는지만 판단해 줘") — 누르지 않고, 상품 창에 '디테일컷' 글자 단추가 있는지만 본다.

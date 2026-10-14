@@ -54,9 +54,17 @@ const VIDEOS = ["착용 영상(상의)", "핏 영상 — 걷기(하의)", "디�
 
 // ---------------------------------------------------------------- 저장 (서버 최신을 읽어 한 줄만 바꿔 쓰기)
 
+// 이 기기에 남아 있는 사본이 있으면 바로 보여 주고 뒤에서 새로 읽는다 (10/15 '무한로딩' — 매번 '불러오는 중'으로 기다리던 것)
+const cachedList = (key) => {
+  try {
+    return JSON.parse(localStorage.getItem("poclo_" + key) || "null")?.items || null;
+  } catch {
+    return null;
+  }
+};
 function useList(key, online) {
-  const [items, setItems] = useState([]);
-  const [loaded, setLoaded] = useState(false);
+  const [items, setItems] = useState(() => cachedList(key) || []);
+  const [loaded, setLoaded] = useState(() => !!cachedList(key));
   const [msg, setMsg] = useState("");
   useEffect(() => {
     let alive = true;
