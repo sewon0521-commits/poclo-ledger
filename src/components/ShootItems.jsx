@@ -29,6 +29,8 @@ const who = () => {
 };
 
 // 요청 탭 모아보기 — 'neither' 는 요청함·픽업 요청 둘 다 안 켠 것 (10/14)
+// 같은 거래처 — 돈 › 거래처와 이어져 있으면 그 id, 아니면 이름(띄어쓰기·대소문자 무시) (10/15)
+const mateKey = (x) => x.vendorId || String(x.vendor || "").replace(/\s+/g, "").toLowerCase();
 const reqHit = (x, k) => (k === "neither" ? !x.asked && !x.pickup : !!x[k]);
 
 const srcOf = (x, urls) => urls[x.photo] || x.photoUrl || "";
@@ -104,7 +106,7 @@ function CardInfo({ x, line, copyName = false }) {
   );
 }
 
-export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, onMeasure, selectable, selected }) {
+export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, onMeasure, selectable, selected, mates }) {
   const sample = x.type !== "buy";
   const act = (patch) => (e) => {
     e.stopPropagation();
@@ -248,6 +250,20 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
               <Toggle wide on={x.packed} onClick={act(x.packed ? { packed: false, packedOn: "" } : { packed: true, packedOn: today })}>
                 <PackageCheck size={12} /> 포장 완료{x.packed && x.packedOn ? ` · ${md(x.packedOn)}` : ""}
               </Toggle>
+              {/* 같은 거래처에 같이 반납할 것 — 작게 한 줄, 누르면 그 거래처만 (10/15) */}
+              {mates && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    mates.onShow();
+                  }}
+                  title={`${mates.name} 상품만 보기`}
+                  className={"block w-full truncate rounded-md px-1 py-0.5 text-center text-[11px] hover:bg-stone-100 " + (mates.left ? "text-amber-700" : "text-stone-400")}
+                >
+                  {mates.name} {mates.n}개 더 · {mates.left ? `포장 전 ${mates.left}` : "다 포장함"}
+                </button>
+              )}
               {/* 포장하면서 실측 재기 (10/6 세원: "샘플을 거래처에 다시 보낼 때 포장하면서 사이즈를 재거든") */}
               {onMeasure && (
                 <button
@@ -1776,6 +1792,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
   const [backOnly, setBackOnly] = useState(false); // 반납·결제 예정 — 반납 등록한 것만
   const [noDetail, setNoDetail] = useState(false); // 반납·결제 예정·입고·픽·촬영·등록 — 디테일컷 아직 안 찍은 것만 (10/12)
+  const [mateOf, setMateOf] = useState(""); // 반납·결제 예정 — 이 거래처만 보기 (10/15)
   const detailTab = ["returns", "arrived", "pick", "shot"].includes(tab);
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
@@ -1851,9 +1868,28 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!dueDay || tab !== "returns" || dueOf(x) === dueDay) &&
         (!backOnly || tab !== "returns" || x.stage === "back") &&
         (!noDetail || !detailTab || !x.detailShot) &&
+        (!mateOf || tab !== "returns" || mateKey(x) === mateOf) &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 같은 거래처에 같이 반납할 것 (10/15 세원: "니트홀릭 1번 제품을 포장하는데 니트홀릭 상품을 2개 더 포장해야 되는데, 거래처 찾기에서 또 쳐서 확인해야 돼 —
+  // 1번 포장하면서 알 수 있게, 옆에 쪼그맣게 안 거슬리게") — 반납·결제 예정에 있는 같은 거래처 상품(다른 기한 묶음 것도). 누르면 그 거래처만.
+  const returnMates = useMemo(() => {
+    const m = new Map();
+    for (const x of items) {
+      if (!inTab(x, "returns") || x.returnedOn) continue;
+      const k = mateKey(x);
+      if (k) m.set(k, [...(m.get(k) || []), x]);
+    }
+    return m;
+  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+  const matesFor = (x) => {
+    if (tab !== "returns" || mateOf) return null;
+    const others = (returnMates.get(mateKey(x)) || []).filter((y) => y.id !== x.id);
+    if (!others.length) return null;
+    return { n: others.length, left: others.filter((y) => !y.packed).length, name: x.vendor, onShow: () => setMateOf(mateKey(x)) };
+  };
 
   // 묶음 — 요청은 거래처별(카톡을 거래처마다 보내니까), 반납·결제 예정은 기한 날짜별, 반납 완료는 반납한 날짜별
   const groups = useMemo(() => {
@@ -2129,6 +2165,14 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       </div>
 
       {tab === "request" && reqOnly === "pickup" && shown.length > 0 && <PickupList items={shown} vendors={vendors} />}
+      {tab === "returns" && mateOf && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <b>{returnMates.get(mateOf)?.[0]?.vendor || "이 거래처"}</b> 같이 반납할 것 {returnMates.get(mateOf)?.length || 0}개만 보는 중 · 포장 전 {(returnMates.get(mateOf) || []).filter((y) => !y.packed).length}
+          <button type="button" onClick={() => setMateOf("")} className="ml-auto flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-stone-700 ring-1 ring-amber-200 hover:bg-amber-100">
+            <X size={12} /> 전체 보기
+          </button>
+        </div>
+      )}
       {tab === "returns" && (
         <RetryCalendar items={items.filter((x) => inTab(x, "returns") && dueOf(x))} today={today} day={dueDay} onDay={setDueDay} dateOf={dueOf} label="반납 기한" />
       )}
@@ -2161,7 +2205,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} />
+                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} mates={matesFor(x)} />
                 ))}
               </div>
             </section>
