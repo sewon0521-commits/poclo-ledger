@@ -522,6 +522,10 @@ const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
   const [q, setQ] = useState("");
   const [more, setMore] = useState(false);
+  // 옷 종류로 나눠 고르기 (10/14 세원: "하의·상의·아우터·기타 등등 카테고리별로 나눠서 고를 수 있게") — "" 전체 · "__etc" 종류 없음/그 밖
+  const [kind, setKind] = useState("");
+  const kinds = d.tags?.clothes?.length ? d.tags.clothes : ["상의", "하의", "원피스·세트", "아우터", "신발·잡화"];
+  const kindOf = (x) => (kinds.includes(x.kind) ? x.kind : "__etc");
   const chosen = look.itemIds || [];
   const toggle = (id) => onSave({ itemIds: chosen.includes(id) ? chosen.filter((k) => k !== id) : [...chosen, id] });
   const list = useMemo(() => {
@@ -535,7 +539,9 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
     return all.filter((x) => rank(x) < 99).sort((a, b) => rank(a) - rank(b));
   }, [d.items, q]);
   const picked = chosen.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
-  const rest = list.filter((x) => !chosen.includes(x.id));
+  const pool = list.filter((x) => !chosen.includes(x.id));
+  const counts = pool.reduce((m, x) => ({ ...m, [kindOf(x)]: (m[kindOf(x)] || 0) + 1 }), {});
+  const rest = kind ? pool.filter((x) => kindOf(x) === kind) : pool;
   const shown = more ? rest : rest.slice(0, 40);
   useEffect(() => {
     const k = (e) => e.key === "Escape" && !e.target.closest?.("input, textarea") && onClose();
@@ -597,12 +603,32 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
             <span className="text-xs font-medium text-stone-500">이 사진에 쓸 우리 상품 — 신상 관리에서 눌러 고르기</span>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품·거래처 찾기" className={FIELD + " w-48 py-1.5 text-sm"} />
           </div>
+          <div className="mb-2.5 flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+            {[["", "전체", pool.length], ...kinds.map((k) => [k, k, counts[k] || 0]), ["__etc", "기타", counts.__etc || 0]]
+              .filter(([k, , n]) => !k || n > 0 || kind === k)
+              .map(([k, label, n]) => (
+                <button
+                  key={k || "all"}
+                  type="button"
+                  onClick={() => {
+                    setKind(k);
+                    setMore(false);
+                  }}
+                  className={
+                    "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium " +
+                    (kind === k ? (k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-800 bg-stone-800 text-white") : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")
+                  }
+                >
+                  {label} <span className={kind === k ? "opacity-70" : "text-stone-400"}>{n}</span>
+                </button>
+              ))}
+          </div>
           {shown.length ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
               {shown.map((x) => item(x, false))}
             </div>
           ) : (
-            <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">{q ? "맞는 상품이 없어요." : "신상 관리에 상품이 없어요."}</p>
+            <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">{q || kind ? "맞는 상품이 없어요." : "신상 관리에 상품이 없어요."}</p>
           )}
           {!more && rest.length > shown.length && (
             <button type="button" onClick={() => setMore(true)} className="mt-2 w-full rounded-lg border border-stone-200 py-2 text-xs text-stone-600 hover:border-rose-300">
