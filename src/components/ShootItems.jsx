@@ -53,16 +53,26 @@ const MAIN = BTN + "bg-rose-700 text-white hover:bg-rose-800";
 const SUB = BTN + "border border-stone-200 bg-white text-stone-600 hover:bg-stone-50";
 
 /** 켜고 끄는 단추 — 켜져도 크기가 안 바뀌게 체크 자리는 늘 잡아 둔다 */
-function Toggle({ on, onClick, children, wide }) {
+// 디테일컷 단추 (10/12 촬영 · 10/15 세원: "한 번 더 누르면 주황색으로 바뀌고 파일 업로드 날짜 적히게")
+// 안 함 → 촬영(초록 · 찍은 날) → 업로드(주황 · 올린 날) → 다시 누르면 처음으로
+const detailNext = (x, today) =>
+  !x.detailShot ? { detailShot: true, detailShotOn: today } : !x.detailUp ? { detailUp: true, detailUpOn: today } : { detailShot: false, detailShotOn: "", detailUp: false, detailUpOn: "" };
+const detailLabel = (x) =>
+  x.detailUp ? `디테일컷 업로드${x.detailUpOn ? ` · ${md(x.detailUpOn)}` : ""}` : `디테일컷 촬영${x.detailShot && x.detailShotOn ? ` · ${md(x.detailShotOn)}` : ""}`;
+const detailTitle = (x) =>
+  x.detailUp ? `촬영 ${md(x.detailShotOn) || "—"} · 파일 업로드 ${md(x.detailUpOn) || "—"} — 다시 누르면 처음으로` : x.detailShot ? "한 번 더 누르면 파일 업로드(주황)" : "디테일컷 찍었으면 누르기";
+
+function Toggle({ on, onClick, children, wide, tone, title }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       aria-pressed={!!on}
       className={
         "flex min-w-0 items-center justify-center gap-0.5 rounded-lg border px-1 py-1.5 text-[11px] font-medium whitespace-nowrap " +
         (wide ? "w-full " : "flex-1 ") +
-        (on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-500")
+        (on ? (tone === "amber" ? "border-orange-300 bg-orange-50 text-orange-800" : "border-emerald-300 bg-emerald-50 text-emerald-800") : "border-stone-200 bg-white text-stone-500")
       }
     >
       <Check size={10} className={"shrink-0 " + (on ? "" : "opacity-0")} />
@@ -219,8 +229,8 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
           {/* 디테일컷 — 사무실 스튜디오에서 한 번씩 쫙 찍는다 (10/12 세원: "했나 안 했나 확인하는 버튼" ·
               "반납·결제 예정에 있는 게 제일 좋아 — 반납·결제에서 보면서 디테일컷을 보거든") */}
           {["returns", "arrived", "pick", "shot"].includes(tab) && (
-            <Toggle wide on={x.detailShot} onClick={act(x.detailShot ? { detailShot: false, detailShotOn: "" } : { detailShot: true, detailShotOn: today })}>
-              디테일컷 촬영{x.detailShot && x.detailShotOn ? ` · ${md(x.detailShotOn)}` : ""}
+            <Toggle wide on={x.detailShot} tone={x.detailUp ? "amber" : ""} title={detailTitle(x)} onClick={act(detailNext(x, today))}>
+              {detailLabel(x)}
             </Toggle>
           )}
           {tab === "pick" && (
@@ -462,7 +472,7 @@ const flowSummary = (x) => {
     x.retryOn && `재요청 ${md(x.retryOn)}`,
     x.arrivedOn && `입고 ${md(x.arrivedOn)}`,
     shot.length > 0 && `촬영 ${shot.length > 1 ? `${shot.length}차 ` : ""}${md(shot.at(-1).on)}`,
-    x.detailShot && `디테일컷${x.detailShotOn ? ` ${md(x.detailShotOn)}` : ""}`,
+    x.detailShot && `디테일컷${x.detailShotOn ? ` ${md(x.detailShotOn)}` : ""}${x.detailUp ? ` · 업로드${x.detailUpOn ? ` ${md(x.detailUpOn)}` : ""}` : ""}`,
     Object.values(x.channels || {}).some(Boolean) && "업로드함",
   ]
     .filter(Boolean)
@@ -858,8 +868,8 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               )}
               <ShootRounds shoots={shootsOf(x)} onChange={(r) => set(withShoots(r))} options={[...colorList, ...sizeList]} />
               <div className="flex flex-wrap gap-1.5">
-                <Toggle on={x.detailShot} onClick={() => set(x.detailShot ? { detailShot: false, detailShotOn: "" } : { detailShot: true, detailShotOn: today })}>
-                  디테일컷 촬영{x.detailShot && x.detailShotOn ? ` · ${md(x.detailShotOn)}` : ""}
+                <Toggle on={x.detailShot} tone={x.detailUp ? "amber" : ""} title={detailTitle(x)} onClick={() => set(detailNext(x, today))}>
+                  {detailLabel(x)}
                 </Toggle>
                 {CHANNELS.map(([k, label]) => (
                   <Toggle key={k} on={x.channels?.[k]} onClick={() => set({ channels: { ...(x.channels || {}), [k]: !x.channels?.[k] } })}>
