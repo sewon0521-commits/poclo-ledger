@@ -36,8 +36,11 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
   }
   // 옷감정보를 어떻게 봤는지 · 여러 개 담기에서 창을 어떻게 열고 닫았는지 — 신마 화면을 직접 못 봐서, 어긋나면 이걸 보고 고친다 (최근 5개)
   // 매장 연락처(10/14)를 어떻게 읽었는지도 — 매장 화면 주소·'매장 정보' 칸 html·아이콘 모양
-  if (p.fabricProbe || payload.bx || p.storeProbe?.probe)
-    changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, fabric: p.fabricProbe, wear: p.wear, bx: payload.bx, store: p.storeProbe }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
+  // 사진을 다 못 모았으면(쪽수보다 적거나 오류) 그것도 — 10/14
+  const gp = p.galleryProbe;
+  const gallerySick = gp && (gp.err || (gp.of && gp.n < gp.of) || !gp.n);
+  if (p.fabricProbe || payload.bx || p.storeProbe?.probe || gallerySick)
+    changeKey("clip_probe", online, (v) => ({ items: [{ at: new Date().toISOString(), g: p.goodsId, fabric: p.fabricProbe, wear: p.wear, bx: payload.bx, store: p.storeProbe, gallery: gp }, ...(v.items || [])].slice(0, 5) })).catch(() => {});
   const same = cur.map(normalize).find((x) => (p.goodsId ? x.goodsId === p.goodsId : p.url && x.url === p.url));
   const past = (await loadKey("sample_refusals", online).catch(() => ({}))).items || [];
   if (same) {
@@ -46,6 +49,8 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     if (!same.sizeText && p.sizeText) fill.sizeText = p.sizeText;
     if (same.hasDetailCut == null && p.hasDetailCut != null) fill.hasDetailCut = p.hasDetailCut;
     if (!hasWear(same.wear) && hasWear(p.wear)) Object.assign(fill, { wear: p.wear, wearFrom: "신마" });
+    // 예전에 담은 상품을 다시 누르면 신마 사진 전부를 채운다(10/14)
+    if ((same.photos || []).length < 2 && p.photos.length > 1) fill.photos = p.photos;
     // 매장 정보에서 읽은 연락처로 그 거래처의 빈 칸 채우기 (10/14 — 예전에 담은 상품을 다시 눌러도 연락처가 들어오게)
     let vNote = "";
     const linked = same.vendorId && vendors.find((x) => x.id === same.vendorId);
@@ -59,8 +64,8 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     }
     if (Object.keys(fill).length) await changeKey("shoot_items", online, upsert({ id: same.id, ...fill }));
     const note = [
-      fill.hasDetailCut != null || fill.sizeText || fill.wear
-        ? [fill.hasDetailCut != null && `디테일컷 ${fill.hasDetailCut ? "있음" : "없음"}`, fill.sizeText && "실측", fill.wear && `착용정보(${wearSummary(fill.wear)})`].filter(Boolean).join(" · ") + "을(를) 더 담았어요"
+      fill.hasDetailCut != null || fill.sizeText || fill.wear || fill.photos
+        ? [fill.photos && `신마 사진 ${fill.photos.length}장`, fill.hasDetailCut != null && `디테일컷 ${fill.hasDetailCut ? "있음" : "없음"}`, fill.sizeText && "실측", fill.wear && `착용정보(${wearSummary(fill.wear)})`].filter(Boolean).join(" · ") + "을(를) 더 담았어요"
         : "",
       vNote,
     ]
@@ -125,6 +130,7 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     desc: p.desc,
     sizeText: p.sizeText,
     hasDetailCut: p.hasDetailCut,
+    ...(p.photos.length > 1 ? { photos: p.photos } : {}),
     ...(hasWear(p.wear) ? { wear: p.wear, wearFrom: "신마" } : {}),
     photo: key || "",
     photoUrl: key ? "" : p.photoUrl,

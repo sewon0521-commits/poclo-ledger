@@ -201,6 +201,52 @@ window.__pocloRead = async function () {
     .map(function (x) {
       return x.s;
     });
+  // 상품 사진 전부 (10/14 세원: "신상마켓 10개면 10개 전부 가져와서 옆으로 넘길 수 있게") —
+  // 상품 창 왼쪽(큰 사진 칸 + 아래 작은 사진 줄)의 사진을 화면 순서대로 모은다. 큰 사진 칸은 넘기는 사진이 전부 들어 있다(10/14 실제 신마 기록: 사진마다 워터마크 글이 12번).
+  // 신마 사진 주소는 v4.img.sinsang.market/?f=원본&w=696&h=928 꼴 — 원본(f=)으로 같은 사진을 하나로 치고, 작은 사진 줄 것도 큰 크기(w=900&h=1200)로 바꿔 받는다.
+  var ga = [],
+    gp = {};
+  try {
+    var mainImg = null,
+      mainA = 0;
+    [].slice.call((box || document.body).querySelectorAll("img")).forEach(function (g) {
+      var rc = g.getBoundingClientRect();
+      if (!seen(g)) return;
+      var a = rc.width * rc.height;
+      if (a > mainA) {
+        mainA = a;
+        mainImg = g;
+      }
+    });
+    // 왼쪽 칸 = 큰 사진에서 위로, 오른쪽 글 칸(r.node)을 품기 직전까지
+    var col = mainImg;
+    while (col && col.parentElement && col.parentElement !== document.body && !(r.node && col.parentElement.contains(r.node))) col = col.parentElement;
+    var seenKey = {};
+    var bigUrl = function (u) {
+      return /[?&]w=\d+/.test(u) ? u.replace(/([?&])w=\d+/, "$1w=900").replace(/([?&])h=\d+/, "$1h=1200") : u;
+    };
+    var keyOf = function (u) {
+      var m = u.match(/[?&]f=([^&]+)/);
+      return m ? decodeURIComponent(m[1]) : u.split("?")[0];
+    };
+    [].slice.call(col ? col.querySelectorAll("img") : []).forEach(function (g) {
+      var u = g.currentSrc || g.src || g.getAttribute("data-src") || "";
+      if (!u || /^data:/.test(u)) return;
+      var rc = g.getBoundingClientRect();
+      var product = /sinsang/i.test(u);
+      if (!product && Math.max(rc.width, g.naturalWidth || 0) < 120) return; // 아이콘·로고
+      var k = keyOf(u);
+      if (seenKey[k]) return;
+      seenKey[k] = 1;
+      ga.push(bigUrl(u));
+    });
+    var cnt = ((col && col.innerText) || "").match(/(?:^|\n)\s*\d+\s*\/\s*(\d+)\s*(?:\n|$)/);
+    gp = { n: ga.length, of: cnt ? +cnt[1] : null, col: col ? col.tagName + "." + String(col.className || "").slice(0, 60) : "" };
+  } catch (e) {
+    gp = { err: String(e).slice(0, 200) };
+  }
+  ga = ga.slice(0, 30);
+
   // 디테일컷 (10/8 세원: "디테일컷 버튼이 있는지 없는지만 판단해 줘") — 누르지 않고, 상품 창에 '디테일컷' 글자 단추가 있는지만 본다.
   // 상품 창(box) 안에서 찾고(뒤 목록에 같은 글자가 있어도 안 섞이게), 창을 못 찾았으면 화면에 보이는 것만.
   var hasDc = false;
@@ -319,13 +365,15 @@ window.__pocloRead = async function () {
       var vline = li > 0 ? ls0[li - 1] : "";
       // 이미 아는 거래처(돈 › 거래처에 있거나 카톡을 보낸 적 있는 곳)면 안 들어간다
       if (vline && window.__pocloKnown && window.__pocloKnown(vline)) sc = { known: true };
-      else sc = await window.__pocloStore({ vendor: vline, box: top || box });
+      else sc = await window.__pocloStore({ vendor: vline, place: ls0[li] || "", box: top || box });
     }
   } catch (e) {
     sc = { probe: { err: String(e).slice(0, 200) } };
   }
   var d = {
     sc: sc,
+    ga: ga,
+    gp: gp,
     u: location.href,
     ti: document.title,
     t: t.slice(0, 6000),
@@ -406,11 +454,41 @@ window.__pocloStore = async function (o) {
       return { probe: probe };
     }
     var scope = o.box || document.body;
+    // 거래처 이름 칸 고르기 (10/14 실제 신마 기록: 사진 위 워터마크 글 '스튜디오 [ppoclo]' 를 거래처 이름으로 잘못 집었다)
+    // → 바로 옆(위로 3칸 안)에 위치 줄이 있는 것, 큰 사진 위에 얹힌 글이 아닌 것, 링크 안에 있는 것을 먼저
+    var place = String(o.place || "").replace(/\s+/g, "");
+    var pickName = function (cs) {
+      var best = null,
+        bs = -1;
+      cs.forEach(function (c) {
+        var s = 0,
+          up = c;
+        for (var q = 0; up && q < 4; up = up.parentElement, q++) {
+          var t = (up.innerText || "").replace(/\s+/g, "");
+          if (place && t.length < 400 && t.indexOf(place) >= 0) {
+            s += 4;
+            break;
+          }
+        }
+        var onPhoto = false;
+        for (var w = c.parentElement, k2 = 0; w && k2 < 4 && !onPhoto; w = w.parentElement, k2++)
+          onPhoto = [].slice.call(w.querySelectorAll("img")).some(function (g) {
+            return g.getBoundingClientRect().width >= 200;
+          });
+        if (!onPhoto) s += 2;
+        if (c.closest("a[href]")) s += 1;
+        if (s > bs) {
+          bs = s;
+          best = c;
+        }
+      });
+      return best;
+    };
     var nameEl = null;
     if (vendor) {
       var cands = leafIn(document, [vendor], scope);
       if (!cands.length) cands = leafIn(document, [vendor]);
-      nameEl = cands[0] || null;
+      nameEl = pickName(cands);
     }
     var a = nameEl && nameEl.closest("a[href]");
     if (!a) {
@@ -463,7 +541,7 @@ window.__pocloStore = async function (o) {
       for (var w1 = 0; w1 < 50 && !ready(); w1++) await sleep(200);
       var inner = null;
       for (var w2 = 0; w2 < 25 && !inner && doc; w2++) {
-        inner = leafIn(doc, [vendor]).pop() || null;
+        inner = pickName(leafIn(doc, [vendor])) || null;
         if (!inner) await sleep(200);
       }
       probe.click = inner ? "거래처 이름 누름" : "틀 안에서 거래처 이름 못 찾음";
@@ -589,7 +667,7 @@ window.__pocloStore = async function (o) {
     }
     return res;
   } catch (e) {
-    probe.err = String(e).slice(0, 200);
+    probe.err = String(e).slice(0, 200) + " | " + String((e && e.stack) || "").slice(0, 400);
     return { probe: probe };
   } finally {
     if (f) f.remove();

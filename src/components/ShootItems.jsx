@@ -10,6 +10,7 @@ import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
 import VendorPicker from "./VendorPicker";
 import VendorEditor from "./VendorEditor";
 import PriceBox from "./PriceBox";
+import { SlideViewer } from "./ContentBits";
 import { PricingCtx, priceSummary, pricingRowOf, pricingChange, toNum } from "../lib/priceKit";
 
 /**
@@ -571,9 +572,12 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
   };
   const pay = (p) => set({ paid: { ...(x.paid || {}), ...p } });
   const info = [x.colors, x.sizes, x.fabric, x.origin].filter(Boolean).join(" · ");
+  // 사진 — 신마 사진을 여러 장 담아 왔으면 그걸 전부(첫 장이 대표 사진과 같은 사진), 아니면 대표 사진 하나 (10/14)
+  const mainSrc = preview || srcOf(x, d.urls);
+  const gallery = (x.photos || []).length > 1 ? x.photos : mainSrc ? [mainSrc] : [];
 
   return (
-    <Sheet onClose={onClose} wide>
+    <Sheet onClose={onClose} xwide>
       <SheetHead
         title={x.id ? `${x.name || "이름 없음"}${x.vendor ? ` / ${x.vendor}` : ""}` : "상품 직접 넣기"}
         onClose={onClose}
@@ -588,31 +592,37 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
       <div
         className="min-h-0 flex-1 overflow-y-auto p-4"
         onPaste={(e) => {
+          // 사진이 하나도 없을 때만 붙여넣기로 넣는다 — 있는 사진을 바꾸는 건 없앴다(10/14)
+          if (gallery.length) return;
           const f = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
           if (!f) return;
           e.preventDefault();
           upload(f);
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-[11rem_1fr]">
-          {/* 폰에서는 사진을 작게 왼쪽에, 샘플/사입·반납 기한을 그 옆에 — 사진이 화면을 다 먹지 않게 */}
-          <div className="flex gap-3 sm:block sm:space-y-2">
-            <label className="relative block aspect-[3/4] w-28 shrink-0 cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 hover:border-rose-300 sm:w-full">
-              {preview || srcOf(x, d.urls) ? (
-                <img src={preview || srcOf(x, d.urls)} alt="" className="h-full w-full object-cover" />
-              ) : (
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,25rem)_1fr]">
+          {/* 사진 크게 · 신마 사진 전부 옆으로 넘겨 보기 (10/14 세원: "썸네일 눌러서 바꾸는 거 없애고 신마 10개면 10개 전부, 옆으로 넘길 수 있게, 사진 좀 키워 줘")
+              누르면 화면 가득(확대). 사진이 없을 때만 고르기·붙여넣기 칸 */}
+          <div className="space-y-2">
+            {gallery.length ? (
+              <div className="relative">
+                <SlideViewer urls={gallery} expandable className="aspect-[3/4] max-h-[62vh] w-full overflow-hidden rounded-xl bg-stone-100" />
+                {gallery.length > 1 && <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">신마 사진 {gallery.length}장</span>}
+              </div>
+            ) : (
+              <label className="relative mx-auto block aspect-[3/4] w-40 cursor-pointer overflow-hidden rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 hover:border-rose-300 sm:w-full">
                 <span className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-[11px] text-stone-400">
                   <ImagePlus size={18} /> 사진 고르기 · 캡처 붙여넣기(Ctrl+V)
                 </span>
-              )}
-              {busy && (
-                <span className="absolute inset-0 flex items-center justify-center bg-white/60">
-                  <Loader2 size={18} className="animate-spin" />
-                </span>
-              )}
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
-            </label>
-            <div className="min-w-0 flex-1 space-y-2">
+                {busy && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-white/60">
+                    <Loader2 size={18} className="animate-spin" />
+                  </span>
+                )}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
+              </label>
+            )}
+            <div className="min-w-0 space-y-2">
               <div className="flex gap-1 rounded-lg bg-stone-100 p-1 text-xs">
                 {[
                   ["sample", "샘플"],

@@ -602,6 +602,9 @@ export function parseClip(d) {
     fabricProbe: d.ok?.probe || null,
     photoUrl: (d.im || [])[0] || "",
     photoData: d.ph || "",
+    // 신마 상품 사진 전부 (10/14) — 상품 창에서 옆으로 넘겨 본다. 신마 주소 그대로(우리 보관함엔 대표 사진 하나만)
+    photos: (d.ga || []).filter((u) => /^https?:\/\//.test(u)).slice(0, 30),
+    galleryProbe: d.gp || null,
   };
 }
 
