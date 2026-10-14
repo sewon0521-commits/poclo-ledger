@@ -5,8 +5,8 @@ import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo, Viewer } from "./ShootBits";
 import Pipeline, { ItemCard } from "./ShootItems";
-import { normalize, moveTo, DEFAULT_MSGS, shootsOf, withShoots } from "../lib/sinsang";
-import { dayKey } from "../lib/journal";
+import { normalize, moveTo, DEFAULT_MSGS, shootsOf, withShoots, stageName, sourcedOf } from "../lib/sinsang";
+import { dayKey, dayTitle } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -965,27 +965,61 @@ function RefsView({ d, online }) {
 
 // ---------------------------------------------------------------- 촬영 목록 — 코디
 
+/** 코디한 날 — 직접 정한 날(codiOn) → 없으면 코디를 만든 날(createdAt, 이 기기 시각) (10/14) */
+const codiDay = (c) => c?.codiOn || (c?.createdAt ? dayKey(new Date(c.createdAt)) : "");
+const CODI_STAGES = [
+  ["pickup", "픽업 요청"],
+  ["arrived", "입고·픽"],
+  ["pick", "촬영"],
+  ["shot", "등록"],
+];
+const chip = (on) => "shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap " + (on ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300");
+
 function CodiEdit({ codi, d, onClose }) {
-  const [c, setC] = useState({ name: "", itemIds: [], refIds: [], shootDate: "", memo: "", ...codi });
+  const [c, setC] = useState({ name: "", itemIds: [], refIds: [], shootDate: "", memo: "", codiOn: codiDay(codi) || dayKey(), ...codi });
   const [tab, setTab] = useState("items");
   const [folder, setFolder] = useState(null);
   const [cut, setCut] = useState("");
   const [shop, setShop] = useState("");
-  // 상품 찾기 (10/10 세원: "코디 만들기에서 상품을 검색하게") — 치면 입고·픽·촬영 말고 다른 단계(휴지통 빼고)까지 찾는다
+  // 상품 고르기 (10/14 세원: "코디 만들기 누르면 요청·보류·드랍 상품까지 전부 들어가서 찾기가 너무 어려워 · 상품이 거래처명을 넣어야 겨우 나와")
+  // 예전엔 찾기 칸에 치면 모든 단계(요청·보류·드랍까지)를 뒤졌다 → 이제 단계 칩(기본 입고·픽 + 촬영) 안에서만 찾고,
+  // 옷 종류 · 소싱한 날 칩으로 좁힌다. 고른 상품은 늘 맨 앞. 요청 단계는 '픽업 요청'을 켠 것만(아직 안 온 상품은 코디에 못 넣으니까).
   const [q, setQ] = useState("");
   const qBox = useRef(null);
+  const [stages, setStages] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("poclo_codi_stages") || "null");
+      return Array.isArray(v) && v.length ? v : ["arrived", "pick"];
+    } catch {
+      return ["arrived", "pick"];
+    }
+  });
+  const flipStage = (k) => {
+    const next = stages.includes(k) ? stages.filter((x) => x !== k) : [...stages, k];
+    if (!next.length) return;
+    setStages(next);
+    try {
+      localStorage.setItem("poclo_codi_stages", JSON.stringify(next));
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
+  const [kindF, setKindF] = useState("");
+  const [dayF, setDayF] = useState("");
   const toggle = (k, id) => setC((p) => ({ ...p, [k]: p[k].includes(id) ? p[k].filter((x) => x !== id) : [...p[k], id] }));
   const today = dayKey();
   const bare = (t) => String(t || "").toLowerCase().replace(/\s+/g, "");
   const words = q.trim().split(/\s+/).filter(Boolean).map(bare);
-  const items = d.items
-    .map(normalize)
-    .filter((x) =>
-      words.length
-        ? x.stage !== "trash" &&
-          words.every((w) => bare([x.name, x.fullName, x.vendor, x.place, x.kind, x.colors, x.sizes, x.fabric, x.memo].join(" ")).includes(w))
-        : ["arrived", "pick"].includes(x.stage) || c.itemIds.includes(x.id),
-    );
+  const all = d.items.map(normalize);
+  const stageOf = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "") : x.stage);
+  const pool = all.filter((x) => stages.includes(stageOf(x)));
+  const hit = (x) => !words.length || words.every((w) => bare([x.name, x.fullName, x.vendor, x.place, x.kind, x.colors, x.sizes, x.fabric, x.memo].join(" ")).includes(w));
+  const kindCount = (k) => pool.filter((x) => (!k || x.kind === k) && (!dayF || sourcedOf(x) === dayF)).length;
+  const poolDays = [...new Set(pool.map(sourcedOf).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  const chosen = c.itemIds.map((id) => all.find((x) => x.id === id)).filter(Boolean);
+  const items = [...chosen, ...pool.filter((x) => !c.itemIds.includes(x.id) && (!kindF || x.kind === kindF) && (!dayF || sourcedOf(x) === dayF) && hit(x))];
+  // 찾는 말이 다른 단계에만 있으면 알려 준다
+  const elsewhere = words.length ? all.filter((x) => x.stage !== "trash" && !stages.includes(stageOf(x)) && hit(x)) : [];
   const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
   const refs = d.refs
     .map(withFolder)
@@ -995,14 +1029,22 @@ function CodiEdit({ codi, d, onClose }) {
     <Sheet onClose={onClose} wide>
       <SheetHead title={codi.id ? "코디 고치기" : "코디 만들기"} onClose={onClose} />
       <div className="shrink-0 space-y-2 border-b border-stone-100 p-4">
-        <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
-          <input
-            value={c.name === NONAME ? "" : c.name}
-            onChange={(e) => setC({ ...c, name: e.target.value })}
-            placeholder={codiAuto(c, d.items) ? `비우면 '${codiAuto(c, d.items)}'` : "코디 이름 — 비우면 상품 이름으로(상품 + 상품)"}
-            className={FIELD}
-          />
-          <input type="date" value={c.shootDate} onChange={(e) => setC({ ...c, shootDate: e.target.value })} className={FIELD} />
+        <input
+          value={c.name === NONAME ? "" : c.name}
+          onChange={(e) => setC({ ...c, name: e.target.value })}
+          placeholder={codiAuto(c, d.items) ? `비우면 '${codiAuto(c, d.items)}'` : "코디 이름 — 비우면 상품 이름으로(상품 + 상품)"}
+          className={FIELD}
+        />
+        {/* 코디한 날(10/14 세원: "소싱한 날처럼 코디에도 날짜") — 코디 탭에서 날짜별로 본다 · 촬영일은 소싱 관리 '이날 코디'에 뜬다 */}
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-[11px] font-medium text-stone-500">
+            코디한 날
+            <input type="date" value={c.codiOn || ""} onChange={(e) => setC({ ...c, codiOn: e.target.value })} className={FIELD + " mt-0.5 py-1.5"} />
+          </label>
+          <label className="block text-[11px] font-medium text-stone-500">
+            촬영일 (선택)
+            <input type="date" value={c.shootDate} onChange={(e) => setC({ ...c, shootDate: e.target.value })} className={FIELD + " mt-0.5 py-1.5"} />
+          </label>
         </div>
         <input value={c.memo} onChange={(e) => setC({ ...c, memo: e.target.value })} placeholder="메모 — 장소·소품·찍을 컷" className={FIELD} />
         <div className="flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
@@ -1025,7 +1067,7 @@ function CodiEdit({ codi, d, onClose }) {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && q && (e.stopPropagation(), setQ(""))}
-              placeholder="상품 찾기 — 상품명 · 거래처 · 색상 (모든 단계에서)"
+              placeholder="상품 찾기 — 상품명 · 신마 상품명 · 거래처 · 색상"
               className={FIELD + " pl-9 text-sm"}
             />
             {q && (
@@ -1045,6 +1087,39 @@ function CodiEdit({ codi, d, onClose }) {
             )}
           </div>
         )}
+        {tab === "items" && (
+          <div className="mb-3 space-y-1.5">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              <span className="shrink-0 text-xs font-medium text-stone-500">단계</span>
+              {CODI_STAGES.map(([k, label]) => (
+                <button key={k} type="button" onClick={() => flipStage(k)} aria-pressed={stages.includes(k)} className={chip(stages.includes(k))}>
+                  {stages.includes(k) && <Check size={11} className="mr-0.5 inline" />}
+                  {label} <span className={stages.includes(k) ? "text-stone-300" : "text-stone-400"}>{all.filter((x) => stageOf(x) === k).length}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              <span className="shrink-0 text-xs font-medium text-stone-500">종류</span>
+              {["", ...DEFAULT_TAGS.clothes].map((k) => (
+                <button key={k || "all"} type="button" onClick={() => setKindF(k)} className={chip(kindF === k)}>
+                  {k || "전체"} <span className={kindF === k ? "text-stone-300" : "text-stone-400"}>{kindCount(k)}</span>
+                </button>
+              ))}
+            </div>
+            {poolDays.length > 1 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+                <span className="shrink-0 text-xs font-medium text-stone-500">소싱한 날</span>
+                {["", ...poolDays].map((k) => (
+                  <button key={k || "all"} type="button" onClick={() => setDayF(k)} className={chip(dayF === k)}>
+                    {k ? dayTitle(k).replace(/^(\d+)월 (\d+)일/, "$1/$2") : "전체"}{" "}
+                    <span className={dayF === k ? "text-stone-300" : "text-stone-400"}>{pool.filter((x) => (!k || sourcedOf(x) === k) && (!kindF || x.kind === kindF)).length}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {chosen.length > 0 && <p className="text-[11px] text-rose-700">고른 상품 {chosen.length}개는 맨 앞에 있어요</p>}
+          </div>
+        )}
         {tab === "items" ? (
           items.length ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
@@ -1054,7 +1129,12 @@ function CodiEdit({ codi, d, onClose }) {
             </div>
           ) : (
             <p className="py-8 text-center text-sm text-stone-400">
-              {q ? `'${q}'에 맞는 상품이 없어요.` : "'입고·픽'이나 '촬영' 단계에 있는 상품이 여기 나와요. 다른 단계 상품은 위에서 찾아요."}
+              {q ? `'${q}'에 맞는 상품이 고른 단계에 없어요.` : "고른 단계·종류에 상품이 없어요. 위 칩을 바꿔 보세요."}
+              {elsewhere.length > 0 && (
+                <span className="mt-1 block text-xs text-amber-700">
+                  다른 단계에 {elsewhere.length}개 있어요 ({[...new Set(elsewhere.map((x) => (x.stage === "request" ? "요청(픽업 전)" : stageName(x.stage))))].join(" · ")}) — 코디에 넣으려면 그 상품을 먼저 입고·픽으로
+                </span>
+              )}
             </p>
           )
         ) : (
@@ -1279,7 +1359,7 @@ function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
           )}
           {custom && auto && <span className="block truncate text-[11px] text-stone-400">{auto}</span>}
           <span className="block truncate text-[11px] text-stone-500">
-            상품 {its.length} · 참고 사진 {rs.length}
+            {codiDay(c) && `${md(codiDay(c))} 코디 · `}상품 {its.length} · 참고 사진 {rs.length}
             {c.shootDate && ` · ${md(c.shootDate)} 촬영`}
             {c.done && c.doneOn && ` · ${md(c.doneOn)} 완료`}
             {c.memo && ` · ${c.memo}`}
@@ -1329,7 +1409,25 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
   // 촬영 전은 촬영 날짜가 가까운 것부터, 촬영 완료는 최근에 끝낸 것부터
   const todo = d.codis.filter((c) => !c.done).sort((a, b) => (a.shootDate || "9").localeCompare(b.shootDate || "9"));
   const doneList = d.codis.filter((c) => c.done).sort((a, b) => String(b.doneOn || b.shootDate || "").localeCompare(String(a.doneOn || a.shootDate || "")));
-  const codis = codiTab === "done" ? doneList : todo;
+  // 코디한 날 (10/14 세원: "소싱한 날처럼 코디란에도 날짜를") — 날짜를 누르면 그날 코디만, 고른 날 코디를 통째로 다른 날로
+  const [cDay, setCDay] = useState("");
+  const [cDayTo, setCDayTo] = useState("");
+  const base = codiTab === "done" ? doneList : todo;
+  const cDays = useMemo(() => {
+    const m = new Map();
+    for (const c of base) if (codiDay(c)) m.set(codiDay(c), (m.get(codiDay(c)) || 0) + 1);
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [base]);
+  const cday = cDays.some(([k]) => k === cDay) ? cDay : "";
+  const codis = cday ? base.filter((c) => codiDay(c) === cday) : base;
+  const moveCodiDay = async (from, to) => {
+    if (!to || to === from) return;
+    const ids = base.filter((c) => codiDay(c) === from).map((c) => c.id);
+    await d.saveCodis((v) => ({ ...v, items: (v.items || []).map((c) => (ids.includes(c.id) ? { ...c, codiOn: to } : c)) }));
+    setCDay(to);
+    setCDayTo("");
+  };
+  const short = (k) => dayTitle(k).replace(/^(\d+)월 (\d+)일/, "$1/$2");
   /** 촬영 끝 — 색상 저장, 상품은 '등록' 단계로, 상품의 촬영 차수에도 찍은 색상 */
   const finishShot = async (c, cols) => {
     const doneOn = c.doneOn || today;
@@ -1416,6 +1514,38 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
               </button>
             ))}
           </div>
+          {cDays.length > 0 && (
+            <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              <span className="shrink-0 text-xs font-medium text-stone-500">코디한 날</span>
+              {[["", "전체", base.length], ...cDays.map(([k, n]) => [k, short(k), n])].map(([k, label, n]) => (
+                <button
+                  key={k || "all"}
+                  type="button"
+                  onClick={() => {
+                    setCDay(k);
+                    setCDayTo("");
+                  }}
+                  aria-pressed={cday === k}
+                  title={k ? `${dayTitle(k)}에 만든 코디만` : "코디 전부"}
+                  className={chip(cday === k)}
+                >
+                  {label} <span className={cday === k ? "text-stone-300" : "text-stone-400"}>{n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {cday && (
+            <label className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+              {short(cday)} 코디 {codis.length}개의 날짜 바꾸기
+              <input type="date" value={cDayTo || cday} onChange={(e) => setCDayTo(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-800" />
+              {cDayTo && cDayTo !== cday && /^20\d\d-/.test(cDayTo) && (
+                <button type="button" onClick={() => moveCodiDay(cday, cDayTo)} className="rounded-lg bg-stone-800 px-2.5 py-1 font-semibold text-white">
+                  {short(cDayTo)}로 옮기기
+                </button>
+              )}
+              <span className="text-stone-400">하나만 바꾸려면 코디의 연필 → '코디한 날'</span>
+            </label>
+          )}
           {codis.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
               {codiTab === "done"

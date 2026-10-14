@@ -28,6 +28,9 @@
 import { dayKey, shiftDay } from "./journal";
 import { WEAR, normWear } from "./measure";
 
+/** 소싱한 날 — 직접 고친 날(sourcedOn) → 없으면 신마에서 담은 날(createdAt, 이 기기 시각) (10/12) */
+export const sourcedOf = (x) => x.sourcedOn || (x.createdAt ? dayKey(new Date(x.createdAt)) : "");
+
 export const STAGES = [
   ["request", "요청", "요청할 상품을 담아 두고, 거래처 이름 옆 '카톡 글 복사'로 요청하세요. 안 된다는 상품은 '안 됨'."],
   ["arrived", "입고·픽", "들어온 상품 — 입어 보고 픽할지 정해요"],

@@ -3,7 +3,7 @@ import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, P
 import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
-import { STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
+import { sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -322,8 +322,6 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
 
 const EMPTY = { type: "sample", stage: "request", name: "", vendor: "", place: "", kind: "", price: "", url: "", photo: "", colors: "", sizes: "", fabric: "", origin: "", memo: "" };
 
-/** 소싱한 날 — 직접 고친 날(sourcedOn) → 없으면 신마에서 담은 날(createdAt, 이 기기 시각) (10/12) */
-const sourcedOf = (x) => x.sourcedOn || (x.createdAt ? dayKey(new Date(x.createdAt)) : "");
 
 function Label({ children, title }) {
   return (

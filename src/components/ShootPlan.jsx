@@ -516,7 +516,10 @@ function LookNote({ value = "", onSave, className = "" }) {
   );
 }
 
-const LOOK_STAGES = ["arrived", "pick", "shot", "back", "request"]; // 고르기 창 기본 — 지금 손에 있는 것부터
+// 고를 수 있는 상품 (10/14 세원: "촬영 레퍼런스에 모든 제품이 다 뜨는데 — 요청에서는 픽업 요청을 누른 제품만, 입고·픽이랑 촬영까지 뜨는 건 괜찮아")
+// = 입고·픽 → 촬영 → 요청 중 '픽업 요청' 켠 것. 찾기도 이 안에서만.
+const LOOK_STAGES = ["arrived", "pick", "pickup"];
+const lookStage = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "") : x.stage);
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
 function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
@@ -530,13 +533,13 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
   const toggle = (id) => onSave({ itemIds: chosen.includes(id) ? chosen.filter((k) => k !== id) : [...chosen, id] });
   const list = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const all = d.items.filter((x) => x.stage !== "trash");
-    if (words.length) return all.filter((x) => words.every((w) => [x.name, x.fullName, x.vendor, x.kind, x.colors].join(" ").toLowerCase().includes(w)));
     const rank = (x) => {
-      const k = LOOK_STAGES.indexOf(x.stage);
+      const k = LOOK_STAGES.indexOf(lookStage(x));
       return k < 0 ? 99 : k;
     };
-    return all.filter((x) => rank(x) < 99).sort((a, b) => rank(a) - rank(b));
+    const all = d.items.filter((x) => rank(x) < 99).sort((a, b) => rank(a) - rank(b));
+    if (words.length) return all.filter((x) => words.every((w) => [x.name, x.fullName, x.vendor, x.kind, x.colors].join(" ").toLowerCase().includes(w)));
+    return all;
   }, [d.items, q]);
   const picked = chosen.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
   const pool = list.filter((x) => !chosen.includes(x.id));
@@ -559,7 +562,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
       <span className="block aspect-[3/4] bg-stone-100">{itemSrc(x, d.urls) && <img src={itemSrc(x, d.urls)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}</span>
       <span className="block truncate px-1.5 pt-1 text-[11px] font-medium text-stone-800">{x.name || "이름 없음"}</span>
       <span className="block truncate px-1.5 pb-1 text-[10px] text-stone-400">
-        {stageName(x.stage)}
+        {x.stage === "request" ? "픽업 요청" : stageName(x.stage)}
         {x.kind ? ` · ${x.kind}` : ""}
       </span>
       {on && (
