@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, ExternalLink, ChevronDown, Repeat, AlertTriangle, ArrowUpRight, ImagePlus, X } from "lucide-react";
+import { Plus, Trash2, ExternalLink, ChevronDown, ChevronUp, Repeat, AlertTriangle, ArrowUpRight, ImagePlus, X, Tags } from "lucide-react";
 import { loadKey, changeKey, upsert, remove, FIELD, md } from "../lib/shoot";
 import { won } from "../lib/sales";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
-import { CYCLES, STATUSES, KINDS, QUICK, nextPay, daysUntil, monthly, summary, tileColor, brandOf, nameFit, makeLogo } from "../lib/subs";
+import { CYCLES, STATUSES, QUICK, ETC, nextPay, daysUntil, monthly, summary, tileColor, brandOf, nameFit, makeLogo, withKinds, kindOf, kindColor, addKind, renameKind, removeKind, setKindOrder } from "../lib/subs";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { Sheet, SheetHead, Chips } from "./ShootBits";
 
@@ -81,7 +81,7 @@ const STATUS_CHIP = {
   ended: ["해지", "bg-stone-100 text-stone-500", "bg-stone-400"],
 };
 
-function Card({ s, today, onOpen }) {
+function Card({ s, today, kinds, onOpen }) {
   const at = nextPay(s, today);
   const n = at ? daysUntil(at, today) : null;
   const [label, tone, dotTone] = STATUS_CHIP[s.status] || STATUS_CHIP.active;
@@ -136,12 +136,10 @@ function Card({ s, today, onOpen }) {
           <span className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[11px] font-medium text-stone-600">
             {s.cycle === "year" ? `연간 · 월 ${won(monthly({ ...s, status: "active" }))}원꼴` : "월간"}
           </span>
-          {s.kind && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-stone-50 px-1.5 py-0.5 text-[11px] text-stone-500">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: KIND_COLOR[kindOf(s)] }} />
-              {s.kind}
-            </span>
-          )}
+          <span className="inline-flex items-center gap-1 rounded-md bg-stone-50 px-1.5 py-0.5 text-[11px] text-stone-500">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: kindColor(kindOf(s, kinds), kinds) }} />
+            {kindOf(s, kinds)}
+          </span>
         </div>
       </div>
     </div>
@@ -227,17 +225,15 @@ function LogoField({ x, set }) {
 // ---------------------------------------------------------------- 어디에 얼마 쓰나 (세원 10/1: "그래프로 얼마를 어디서 쓰는지 가독성 좋고 예쁘게")
 //
 // 한 달 기준(연간은 12로 나눔). ① 분류별 한 줄 막대(부분 → 전체) + 아래 표처럼 읽히는 범례(색 · 분류 · 금액 · %)
-// ② 구독별 막대 — 가장 많이 나가는 것부터, 한 색(크기만 보는 것이라). 색은 분류 고정 순서(KINDS) — 금액 순위가 바뀌어도 색은 안 바뀐다.
-// 범주 색 6개는 dataviz 검사기 통과(색약 구분 OK). 노랑·초록·분홍이 바탕과 대비가 낮아 숫자는 늘 글자로 옆에 둔다.
-const KIND_COLOR = { "쇼핑몰·운영": "#2a78d6", "디자인·영상": "#eb6834", "AI·업무툴": "#1baf7a", "광고·마케팅": "#eda100", 고정비: "#e87ba4", 기타: "#008300" };
-const kindOf = (s) => (KIND_COLOR[s.kind] ? s.kind : "기타");
+// ② 구독별 막대 — 가장 많이 나가는 것부터, 막대 색은 그 구독의 분류 색. 색은 분류 목록 순서로 정해진다(kindColor) — 금액 순위가 바뀌어도 색은 안 바뀐다.
+// 노랑·초록·분홍이 바탕과 대비가 낮아 숫자는 늘 글자로 옆에 둔다. 범례를 누르면 그 분류만 본다(onKind).
 
-function SpendChart({ list }) {
+function SpendChart({ list, kinds, onKind }) {
   const [hover, setHover] = useState("");
   const live = list.filter((s) => s.status !== "ended" && monthly(s) > 0);
   const total = live.reduce((a, s) => a + monthly(s), 0);
   if (!total) return null;
-  const kinds = KINDS.map((k) => ({ k, v: live.filter((s) => kindOf(s) === k).reduce((a, s) => a + monthly(s), 0) })).filter((x) => x.v > 0);
+  const parts = kinds.map((k) => ({ k, v: live.filter((s) => kindOf(s, kinds) === k).reduce((a, s) => a + monthly(s), 0) })).filter((x) => x.v > 0);
   const rows = [...live].sort((a, b) => monthly(b) - monthly(a));
   const top = rows.slice(0, 8);
   const rest = rows.slice(8);
@@ -252,25 +248,34 @@ function SpendChart({ list }) {
       </div>
 
       {/* 분류별 — 한 줄로 나눈 막대 */}
-      <div className="flex h-4 w-full gap-[2px] overflow-hidden rounded-md" role="img" aria-label={kinds.map((x) => `${x.k} ${won(x.v)}원`).join(", ")}>
-        {kinds.map((x) => (
+      <div className="flex h-4 w-full gap-[2px] overflow-hidden rounded-md" role="img" aria-label={parts.map((x) => `${x.k} ${won(x.v)}원`).join(", ")}>
+        {parts.map((x) => (
           <span
             key={x.k}
             title={`${x.k} · 월 ${won(x.v)}원 · ${pct(x.v)}%`}
             onMouseEnter={() => setHover(x.k)}
             onMouseLeave={() => setHover("")}
-            style={{ width: `${(x.v / total) * 100}%`, background: KIND_COLOR[x.k], opacity: hover && hover !== x.k ? 0.35 : 1 }}
+            style={{ width: `${(x.v / total) * 100}%`, background: kindColor(x.k, kinds), opacity: hover && hover !== x.k ? 0.35 : 1 }}
             className="h-full transition-opacity first:rounded-l-md last:rounded-r-md"
           />
         ))}
       </div>
       <ul className="mt-2.5 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-        {kinds.map((x) => (
-          <li key={x.k} onMouseEnter={() => setHover(x.k)} onMouseLeave={() => setHover("")} className={"flex items-center gap-2 rounded-md px-1 " + (hover === x.k ? "bg-stone-50" : "")}>
-            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: KIND_COLOR[x.k] }} />
-            <span className="flex-1 text-stone-700">{x.k}</span>
-            <span className="font-semibold text-stone-900 tabular-nums">{won(x.v)}원</span>
-            <span className="w-9 text-right text-xs text-stone-400 tabular-nums">{pct(x.v)}%</span>
+        {parts.map((x) => (
+          <li key={x.k}>
+            <button
+              type="button"
+              onClick={() => onKind(x.k)}
+              onMouseEnter={() => setHover(x.k)}
+              onMouseLeave={() => setHover("")}
+              title={`${x.k}만 보기`}
+              className={"flex w-full items-center gap-2 rounded-md px-1 text-left " + (hover === x.k ? "bg-stone-50" : "")}
+            >
+              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: kindColor(x.k, kinds) }} />
+              <span className="flex-1 text-stone-700">{x.k}</span>
+              <span className="font-semibold text-stone-900 tabular-nums">{won(x.v)}원</span>
+              <span className="w-9 text-right text-xs text-stone-400 tabular-nums">{pct(x.v)}%</span>
+            </button>
           </li>
         ))}
       </ul>
@@ -283,7 +288,7 @@ function SpendChart({ list }) {
             <div key={s.id} className="grid grid-cols-[6.5rem_1fr_auto] items-center gap-2.5 text-sm" title={`${s.name} · 월 ${won(v)}원 · 전체의 ${pct(v)}%`}>
               <span className="truncate text-stone-700">{s.name}</span>
               <span className="h-2.5 rounded-r bg-stone-100">
-                <span className="block h-full rounded-r" style={{ width: `${Math.max(2, (v / max) * 100)}%`, background: KIND_COLOR[kindOf(s)] }} />
+                <span className="block h-full rounded-r" style={{ width: `${Math.max(2, (v / max) * 100)}%`, background: kindColor(kindOf(s, kinds), kinds) }} />
               </span>
               <span className="w-24 text-right tabular-nums">
                 <b className="font-semibold text-stone-900">{won(v)}</b>
@@ -302,7 +307,7 @@ function SpendChart({ list }) {
   );
 }
 
-function Editor({ seed, onSave, onRemove, onClose }) {
+function Editor({ seed, kinds, onSave, onRemove, onClose }) {
   const [x, setX] = useState({ ...EMPTY, ...seed });
   const set = useCallback((p) => setX((v) => ({ ...v, ...p })), []);
   const ok = x.name.trim() && Number(x.price) > 0;
@@ -375,7 +380,14 @@ function Editor({ seed, onSave, onRemove, onClose }) {
         )}
         <div className="space-y-1">
           <span className="text-xs font-semibold text-stone-500">분류</span>
-          <Chips list={KINDS} value={x.kind} onChange={(v) => set({ kind: v })} />
+          <Chips
+            list={!x.kind || kinds.includes(x.kind) ? kinds : [...kinds, x.kind]}
+            value={x.kind}
+            onChange={(v) => set({ kind: v })}
+            onAdd={(n) => set({ kind: n.slice(0, 20) })}
+            addLabel="+ 분류"
+            addPrompt="새 분류 이름 (예: 쇼핑 멤버십)"
+          />
         </div>
         <label className="block space-y-1">
           <span className="text-xs font-semibold text-stone-500">해지·결제 관리 주소</span>
@@ -409,17 +421,126 @@ function Editor({ seed, onSave, onRemove, onClose }) {
   );
 }
 
+/** 분류 편집 — 더하기 · 이름 바꾸기(그 분류 구독도 같이) · 순서 · 지우기(구독은 기타로). 바꾸는 대로 바로 저장. */
+function KindEditor({ kinds, list, onChange, onClose }) {
+  const [draft, setDraft] = useState("");
+  const count = (k) => list.filter((s) => kindOf(s, kinds) === k).length;
+  const move = (i, d) => {
+    const order = [...kinds];
+    const j = i + d;
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    onChange(setKindOrder(order));
+  };
+  const add = () => {
+    const n = draft.trim();
+    if (!n) return;
+    if (kinds.includes(n)) return window.alert(`'${n}' 분류는 이미 있어요.`);
+    onChange(addKind(n));
+    setDraft("");
+  };
+  return (
+    <Sheet onClose={onClose}>
+      <SheetHead title="분류 편집" onClose={onClose} />
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+        <p className="text-xs text-stone-500">이름을 고치면 그 분류의 구독도 같이 바뀌어요. 분류를 지우면 안의 구독은 '기타'로 가요.</p>
+        <ul className="divide-y divide-stone-100 rounded-xl border border-stone-200">
+          {kinds.map((k, i) => (
+            <li key={k} className="flex items-center gap-2 px-2.5 py-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: kindColor(k, kinds) }} />
+              {k === ETC ? (
+                <span className="min-w-0 flex-1 px-2 py-1.5 text-stone-700">{k}</span>
+              ) : (
+                <input
+                  defaultValue={k}
+                  aria-label={`${k} 이름`}
+                  onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                  onBlur={(e) => {
+                    const n = e.currentTarget.value.trim();
+                    if (!n || n === k) return void (e.currentTarget.value = k);
+                    if (kinds.includes(n)) {
+                      window.alert(`'${n}' 분류는 이미 있어요.`);
+                      e.currentTarget.value = k;
+                      return;
+                    }
+                    onChange(renameKind(k, n));
+                  }}
+                  className="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1.5 text-stone-800 hover:border-stone-200 focus:border-stone-300 focus:outline-none"
+                />
+              )}
+              <span className="shrink-0 text-xs text-stone-400 tabular-nums">{count(k)}개</span>
+              <span className="flex shrink-0">
+                <button type="button" disabled={i === 0} onClick={() => move(i, -1)} aria-label="위로" className="rounded p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
+                  <ChevronUp size={15} />
+                </button>
+                <button type="button" disabled={i === kinds.length - 1} onClick={() => move(i, 1)} aria-label="아래로" className="rounded p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
+                  <ChevronDown size={15} />
+                </button>
+              </span>
+              {k === ETC ? (
+                <span className="w-7 shrink-0" />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => (!count(k) || window.confirm(`'${k}' 분류를 지울까요? 안의 구독 ${count(k)}개는 '기타'로 가요.`)) && onChange(removeKind(k))}
+                  aria-label={`${k} 지우기`}
+                  className="w-7 shrink-0 rounded p-1 text-stone-300 hover:bg-rose-50 hover:text-rose-600"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="flex gap-2">
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="새 분류 이름 (예: 쇼핑 멤버십)" className={FIELD} />
+          <button type="button" onClick={add} disabled={!draft.trim()} className="shrink-0 rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:bg-stone-300">
+            더하기
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+const TAB_KEY = "poclo_subs_tab";
+const readTab = () => {
+  try {
+    return localStorage.getItem(TAB_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+
 export default function SubsPage({ online }) {
   const [list, setList] = useState([]);
+  const [kinds, setKinds] = useState(withKinds({}).kinds);
   const [loaded, setLoaded] = useState(false);
   const [msg, setMsg] = useState("");
   const [edit, setEdit] = useState(null);
+  const [kindEdit, setKindEdit] = useState(false);
   const [showEnded, setShowEnded] = useState(false);
+  const [tab, setTabState] = useState(readTab); // "" = 전체
   const today = dayKey();
+  const setTab = (k) => {
+    setTabState(k);
+    try {
+      localStorage.setItem(TAB_KEY, k);
+    } catch {
+      /* 기억 못 해도 그만 */
+    }
+  };
 
+  const take = (v0) => {
+    const v = withKinds(v0);
+    setList(v.items || []);
+    setKinds(v.kinds);
+  };
   const load = useCallback(async () => {
     try {
-      setList((await loadKey(KEY, online)).items || []);
+      const v = withKinds(await loadKey(KEY, online));
+      setList(v.items || []);
+      setKinds(v.kinds);
     } catch {
       setMsg("구독 목록을 불러오지 못했어요. 인터넷을 확인해 주세요.");
     } finally {
@@ -433,7 +554,7 @@ export default function SubsPage({ online }) {
 
   const save = async (fn) => {
     try {
-      setList((await changeKey(KEY, online, fn)).items || []);
+      take(await changeKey(KEY, online, (v) => fn(withKinds(v))));
       setEdit(null);
     } catch (e) {
       setMsg(e.message || "저장하지 못했어요.");
@@ -447,6 +568,19 @@ export default function SubsPage({ online }) {
     [list, today],
   );
   const ended = list.filter((s) => s.status === "ended");
+  // 분류 탭 — 구독이 하나라도 있는 분류만(지금 고른 건 남김). 고른 분류가 없어졌으면 전체로.
+  const cur = tab && kinds.includes(tab) ? tab : "";
+  const kindTabs = kinds
+    .map((k) => {
+      const its = list.filter((s) => kindOf(s, kinds) === k);
+      return { k, n: its.filter((s) => s.status !== "ended").length, all: its.length, v: its.reduce((a, s) => a + monthly(s), 0) };
+    })
+    .filter((x) => x.all || x.k === cur);
+  const inTab = (s) => !cur || kindOf(s, kinds) === cur;
+  const liveShown = live.filter(inTab);
+  const endedShown = ended.filter(inTab);
+  const curInfo = kindTabs.find((x) => x.k === cur);
+  const groups = kinds.map((k) => ({ k, items: live.filter((s) => kindOf(s, kinds) === k) })).filter((g) => g.items.length);
   const trialSoon = live.filter((s) => s.status === "trial" && nextPay(s, today) && daysUntil(nextPay(s, today), today) <= 7);
 
   return (
@@ -485,7 +619,7 @@ export default function SubsPage({ online }) {
         </div>
       </section>
 
-      <SpendChart list={list} />
+      <SpendChart list={list} kinds={kinds} onKind={(k) => setTab(k)} />
 
       {trialSoon.length > 0 && (
         <p className="mb-3 flex items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -506,28 +640,81 @@ export default function SubsPage({ online }) {
         </div>
       ) : (
         <>
-          <div className="mb-1.5 flex items-baseline justify-between px-1">
-            <h3 className="text-sm font-semibold text-stone-700">다음 결제 순서</h3>
-            <span className="text-xs text-stone-400">누르면 고쳐요</span>
+          {/* 분류 탭 — ERP 공통 모양(회색 바탕 흰 알약) */}
+          <div className="mb-2 flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 [scrollbar-width:none]">
+              {[{ k: "", n: live.length }, ...kindTabs].map((x) => (
+                <button
+                  key={x.k || "all"}
+                  type="button"
+                  onClick={() => setTab(x.k)}
+                  className={"flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium " + (cur === x.k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800")}
+                >
+                  {x.k && <span className="h-2 w-2 rounded-full" style={{ background: kindColor(x.k, kinds) }} />}
+                  {x.k || "전체"}
+                  <span className="text-xs text-stone-400 tabular-nums">{x.n}</span>
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => setKindEdit(true)} className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-stone-500 hover:bg-stone-100 hover:text-stone-800">
+              <Tags size={14} /> 분류 편집
+            </button>
           </div>
-          {live.length ? (
-            <div className={GRID}>
-              {live.map((s) => (
-                <Card key={s.id} s={s} today={today} onOpen={() => setEdit(s)} />
+          {cur ? (
+            <>
+              <div className="mb-1.5 flex items-baseline justify-between px-1">
+                <h3 className="text-sm font-semibold text-stone-700">
+                  {cur} · 다음 결제 순서
+                  {curInfo && (
+                    <span className="ml-1.5 font-normal text-stone-500 tabular-nums">
+                      한 달 {won(curInfo.v)}원{sum.month ? ` · 전체의 ${Math.round((curInfo.v / sum.month) * 100)}%` : ""}
+                    </span>
+                  )}
+                </h3>
+                <span className="text-xs text-stone-400">누르면 고쳐요</span>
+              </div>
+              {liveShown.length ? (
+                <div className={GRID}>
+                  {liveShown.map((s) => (
+                    <Card key={s.id} s={s} today={today} kinds={kinds} onOpen={() => setEdit(s)} />
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-2xl border border-stone-200 bg-white px-4 py-6 text-center text-sm text-stone-400">{cur}에 지금 구독 중인 게 없어요.</p>
+              )}
+            </>
+          ) : live.length ? (
+            <div className="space-y-5">
+              {groups.map((g) => (
+                <section key={g.k}>
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2 px-1">
+                    <button type="button" onClick={() => setTab(g.k)} className="flex items-center gap-1.5 text-sm font-semibold text-stone-800 hover:text-rose-700">
+                      <span className="h-2.5 w-2.5 rounded-sm" style={{ background: kindColor(g.k, kinds) }} />
+                      {g.k}
+                      <span className="font-normal text-stone-400 tabular-nums">{g.items.length}개</span>
+                    </button>
+                    <span className="text-xs text-stone-500 tabular-nums">한 달 {won(g.items.reduce((a, s) => a + monthly(s), 0))}원</span>
+                  </div>
+                  <div className={GRID}>
+                    {g.items.map((s) => (
+                      <Card key={s.id} s={s} today={today} kinds={kinds} onOpen={() => setEdit(s)} />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           ) : (
             <p className="rounded-2xl border border-stone-200 bg-white px-4 py-6 text-center text-sm text-stone-400">지금 구독 중인 게 없어요.</p>
           )}
-          {ended.length > 0 && (
+          {endedShown.length > 0 && (
             <div className="mt-3">
               <button type="button" onClick={() => setShowEnded(!showEnded)} className="flex items-center gap-1 px-1 text-sm text-stone-500">
-                <ChevronDown size={14} className={showEnded ? "rotate-180" : ""} /> 해지한 것 {ended.length}
+                <ChevronDown size={14} className={showEnded ? "rotate-180" : ""} /> 해지한 것 {endedShown.length}
               </button>
               {showEnded && (
                 <div className={"mt-1.5 " + GRID}>
-                  {ended.map((s) => (
-                    <Card key={s.id} s={s} today={today} onOpen={() => setEdit(s)} />
+                  {endedShown.map((s) => (
+                    <Card key={s.id} s={s} today={today} kinds={kinds} onOpen={() => setEdit(s)} />
                   ))}
                 </div>
               )}
@@ -536,7 +723,17 @@ export default function SubsPage({ online }) {
         </>
       )}
 
-      {edit && <Editor key={edit.id || "new"} seed={edit} onClose={() => setEdit(null)} onSave={(s) => save(upsert(s))} onRemove={(id) => save(remove(id))} />}
+      {edit && (
+        <Editor
+          key={edit.id || "new"}
+          seed={edit.id ? edit : { ...edit, kind: edit.kind ?? cur }}
+          kinds={kinds}
+          onClose={() => setEdit(null)}
+          onSave={(s) => save((v) => upsert(s)(s.kind ? addKind(s.kind)(v) : v))}
+          onRemove={(id) => save(remove(id))}
+        />
+      )}
+      {kindEdit && <KindEditor kinds={kinds} list={list} onChange={(fn) => save(fn)} onClose={() => setKindEdit(false)} />}
     </div>
   );
 }

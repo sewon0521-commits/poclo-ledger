@@ -285,7 +285,7 @@ function statusOf(item, queue, target = "ref") {
   return { kind: "done" };
 }
 
-function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest }) {
+function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onShomanma }) {
   const r = item.reference || {};
   const pending = status.kind !== "done";
   return (
@@ -322,6 +322,7 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
               <Star size={10} className="fill-amber-950" /> BEST
             </span>
           )}
+          {item.shomanma && <span className="rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">쇼만마</span>}
           {item.ours && <span className="rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">우리 영상</span>}
         </span>
         {item.hasVideo && !pending && (
@@ -338,8 +339,9 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
         )}
       </span>
       </button>
-      <div className="flex items-center gap-1 px-3 py-2">
-        <button type="button" onClick={() => onOpen(item)} className="min-w-0 flex-1 text-left">
+      {/* 좁은 카드(폰 2칸)면 단추들이 제목 아래 줄로 내려간다 — 제목이 안 짓눌리게 */}
+      <div className="flex flex-wrap items-center gap-1 px-3 py-2">
+        <button type="button" onClick={() => onOpen(item)} className="min-w-[7rem] flex-1 text-left">
           <span className="block truncate text-sm font-medium text-stone-900">{item.title}</span>
           <span className="mt-0.5 block truncate text-[11px] text-stone-400">
             {folderName}
@@ -350,8 +352,11 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
             {[addedOn(item) && `${mdLabel(addedOn(item))} 가져옴`, musicOf(item.meta) && `♪ ${musicOf(item.meta).label}`].filter(Boolean).join(" · ")}
           </span>
         </button>
-        <BestToggle on={!!item.best} onChange={onBest} />
-        <FolderPicker item={item} folders={folders} onMove={onMove} />
+        <span className="ml-auto flex items-center gap-1">
+          <ShomanmaToggle on={!!item.shomanma} onChange={onShomanma} />
+          <BestToggle on={!!item.best} onChange={onBest} />
+          <FolderPicker item={item} folders={folders} onMove={onMove} />
+        </span>
       </div>
     </div>
   );
@@ -374,6 +379,29 @@ function BestToggle({ on, onChange, big }) {
     >
       <Star size={big ? 12 : 15} className={on ? "fill-amber-400 text-amber-500" : ""} />
       {big && (on ? "BEST" : "BEST로")}
+    </button>
+  );
+}
+
+/**
+ * 쇼만마 표시 — 쇼만마(광고 대행)에서 준 레퍼런스 (10/15 세원: "영상 각각 쇼만마 버튼, 누르면 쇼만마에서 준 레퍼런스라는 걸 바로 알 수 있게").
+ * 누르면 켜고 끈다. 켜진 건 썸네일 오른쪽 위 보라 '쇼만마' + 폴더 막대 '쇼만마만'으로 모아 본다.
+ */
+const shomanmaPatch = (on) => ({ shomanma: on, shomanmaAt: on ? new Date().toISOString() : null });
+function ShomanmaToggle({ on, onChange, big }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      aria-pressed={on}
+      title={on ? "쇼만마 표시 빼기" : "쇼만마에서 준 레퍼런스로 표시"}
+      className={
+        "flex shrink-0 items-center justify-center rounded-md border font-semibold " +
+        (big ? "px-2 py-0.5 text-[11px] " : "h-7 px-1.5 text-[10px] ") +
+        (on ? "border-violet-300 bg-violet-600 text-white" : "border-stone-200 text-stone-400 hover:border-violet-300 hover:text-violet-700")
+      }
+    >
+      쇼만마
     </button>
   );
 }
@@ -685,6 +713,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
           <div className="flex items-start gap-2">
             <EditableTitle value={item.title} onChange={(t) => onSave({ ...item, title: t })} />
             <BestToggle big on={!!item.best} onChange={(b) => onSave({ ...item, best: b, bestAt: b ? new Date().toISOString() : null })} />
+            <ShomanmaToggle big on={!!item.shomanma} onChange={(b) => onSave({ ...item, ...shomanmaPatch(b) })} />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
             {r.structure?.hookType && (
@@ -1393,6 +1422,7 @@ export default function ReelsPage({
   const [notice, setNotice] = useState("");
   const [q, setQ] = useState("");
   const [bestOnly, setBestOnly] = useState(false);
+  const [smOnly, setSmOnly] = useState(false);
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
@@ -1428,14 +1458,15 @@ export default function ReelsPage({
       (i) =>
         inSel(i) &&
         (!bestOnly || i.best) &&
+        (!smOnly || i.shomanma) &&
         (!needle ||
-          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name])
+          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name, i.shomanma && "쇼만마"])
             .toLowerCase()
             .includes(needle)),
     );
     // BEST 는 보고 있는 폴더 안에서 맨 앞 (나중에 올린 BEST 가 더 앞). 나머지는 원래 순서
     return [...list.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...list.filter((i) => !i.best)];
-  }, [items, q, sel, folders, bestOnly]);
+  }, [items, q, sel, folders, bestOnly, smOnly]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
@@ -1707,6 +1738,19 @@ export default function ReelsPage({
         bestOnly={bestOnly}
         setBestOnly={setBestOnly}
         bestCount={items.filter((i) => i.best).length}
+        extra={
+          <button
+            type="button"
+            onClick={() => setSmOnly(!smOnly)}
+            aria-pressed={smOnly}
+            className={
+              "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold " +
+              (smOnly ? "border-violet-600 bg-violet-600 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-violet-300")
+            }
+          >
+            쇼만마만 {items.filter((i) => i.shomanma).length}
+          </button>
+        }
       />
 
       {shown.length === 0 ? (
@@ -1741,6 +1785,7 @@ export default function ReelsPage({
                 onSave({ ...it, folderId: id, folder: f && !f.parent ? f.name : "" });
               }}
               onBest={(b) => onSave({ ...it, best: b, bestAt: b ? new Date().toISOString() : null })}
+              onShomanma={(b) => onSave({ ...it, ...shomanmaPatch(b) })}
             />
           ))}
         </div>

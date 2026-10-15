@@ -4,7 +4,7 @@
 //        노션(쇼필공 OS 구독관리)처럼 해도 되는데 좀 구려 보여서 세련되게. 돈 카테고리에 구독."
 // 노션은 월간·연간 카드 두 판이었다. 여기서는 **한 달에 얼마 나가는지**를 맨 위에 두고, **다음 결제일 순서**로 줄을 세운다.
 //
-// settings 'subscriptions' {items:[{id, name, cycle, price, status, start, card, kind, url, memo, endedOn, createdAt, logo?, logoBg?}]}
+// settings 'subscriptions' {kinds:[분류…], items:[{id, name, cycle, price, status, start, card, kind, url, memo, endedOn, createdAt, logo?, logoBg?}]}
 //   cycle  : "month" | "year"
 //   status : "active"(구독 중) | "trial"(무료체험 — start 가 첫 결제일) | "ended"(해지)
 //   start  : 결제 시작일(첫 결제일). 다음 결제일은 여기서 주기만큼 넘겨 계산한다(따로 적지 않는다 — 노션처럼 손으로 고칠 일이 없게).
@@ -20,17 +20,79 @@ export const STATUSES = [
   ["trial", "무료체험"],
   ["ended", "해지"],
 ];
-export const KINDS = ["쇼핑몰·운영", "디자인·영상", "AI·업무툴", "광고·마케팅", "고정비", "기타"];
+// ---------------------------------------------------------------- 분류 (10/15 세원: "구독, 고정지출에 카테고리 — AI, 프로그램, 플랫폼 구독 같이")
+//
+// 분류 목록은 같은 settings 값의 kinds 에 둔다(순서 = 화면 순서). 세원이 더하고 · 이름 바꾸고 · 지우고 · 순서를 바꾼다.
+// kinds 가 없는 예전 값은 읽을 때 기본 분류로 옮겨 본다(withKinds) — 이름으로 AI·플랫폼을 알아보고, 나머지는 예전 분류에서.
+// 저장할 때도 withKinds 를 거쳐서 한 번 저장하면 그대로 남는다. '기타'는 지울 수 없다(지운 분류의 구독이 가는 곳).
+export const DEFAULT_KINDS = ["AI", "프로그램", "플랫폼", "광고·마케팅", "고정비", "기타"];
+export const ETC = "기타";
+const AI_RE = /claude|클로드|chatgpt|gpt|openai|gemini|제미나이|perplexity|퍼플렉시티|midjourney|미드저니|copilot|코파일럿|wrtn|뤼튼|suno|수노/i;
+const PLATFORM_RE = /카페24|cafe24|신상마켓|신마|셀메이트|네이버|naver|쿠팡|coupang|스마트스토어|에이블리|지그재그|무신사|29cm/i;
+const OLD_KIND = { "쇼핑몰·운영": "플랫폼", "디자인·영상": "프로그램", "AI·업무툴": "프로그램" };
+
+/** 예전 분류 → 새 분류 (이름으로 먼저 알아봄) */
+export function guessKind(name, old) {
+  const n = String(name || "");
+  if (AI_RE.test(n)) return "AI";
+  if (PLATFORM_RE.test(n)) return "플랫폼";
+  if (OLD_KIND[old]) return OLD_KIND[old];
+  return old || "";
+}
+
+/** kinds 가 없으면 기본 분류 + 구독 분류 옮기기 (순수 — changeKey 에 넘겨도 됨) */
+export function withKinds(v) {
+  const val = v || {};
+  if (Array.isArray(val.kinds) && val.kinds.length) return val;
+  return { ...val, kinds: DEFAULT_KINDS, items: (val.items || []).map((s) => ({ ...s, kind: guessKind(s.name, s.kind) })) };
+}
+
+/** 구독의 분류 — 목록에 없거나 비었으면 기타 */
+export const kindOf = (s, kinds) => (s.kind && kinds.includes(s.kind) ? s.kind : ETC);
+
+const KIND_PALETTE = ["#1baf7a", "#2a78d6", "#eb6834", "#eda100", "#e87ba4", "#7c5cd6", "#14a3b8", "#b0763c"];
+/** 분류 색 — 목록 순서로 정해진다(금액 순위가 바뀌어도 색은 그대로). 기타는 회색. */
+export const kindColor = (k, kinds) => (k === ETC ? "#a8a29e" : KIND_PALETTE[Math.max(0, kinds.filter((x) => x !== ETC).indexOf(k)) % KIND_PALETTE.length]);
+
+// 분류 고치기 — 전부 (값 → 값) 순수 함수
+const cleanName = (n) => String(n || "").trim().slice(0, 20);
+export const addKind = (name) => (v0) => {
+  const v = withKinds(v0);
+  const n = cleanName(name);
+  if (!n || v.kinds.includes(n)) return v;
+  const at = v.kinds.indexOf(ETC);
+  const kinds = at < 0 ? [...v.kinds, n] : [...v.kinds.slice(0, at), n, ...v.kinds.slice(at)]; // 기타는 늘 맨 끝
+  return { ...v, kinds };
+};
+export const renameKind = (from, to) => (v0) => {
+  const v = withKinds(v0);
+  const n = cleanName(to);
+  if (!n || from === ETC || !v.kinds.includes(from) || v.kinds.includes(n)) return v;
+  return { ...v, kinds: v.kinds.map((k) => (k === from ? n : k)), items: (v.items || []).map((s) => (s.kind === from ? { ...s, kind: n } : s)) };
+};
+export const removeKind = (name) => (v0) => {
+  const v = withKinds(v0);
+  if (name === ETC) return v;
+  const kinds = v.kinds.filter((k) => k !== name);
+  return { ...v, kinds: kinds.includes(ETC) ? kinds : [...kinds, ETC], items: (v.items || []).map((s) => (s.kind === name ? { ...s, kind: ETC } : s)) };
+};
+export const setKindOrder = (order) => (v0) => {
+  const v = withKinds(v0);
+  const kept = order.filter((k) => v.kinds.includes(k));
+  return { ...v, kinds: [...kept, ...v.kinds.filter((k) => !kept.includes(k))] };
+};
+
 // 처음 넣을 때 바로 고르는 것 — 이름만 채워 준다(금액·날짜는 세원이 적는다)
 export const QUICK = [
-  ["카페24", "쇼핑몰·운영"],
-  ["Claude", "AI·업무툴"],
-  ["Adobe", "디자인·영상"],
-  ["Canva", "디자인·영상"],
-  ["VREW", "디자인·영상"],
-  ["Notion", "AI·업무툴"],
-  ["그랜터", "쇼핑몰·운영"],
-  ["CapCut", "디자인·영상"],
+  ["카페24", "플랫폼"],
+  ["Claude", "AI"],
+  ["ChatGPT", "AI"],
+  ["Adobe", "프로그램"],
+  ["Canva", "프로그램"],
+  ["VREW", "프로그램"],
+  ["Notion", "프로그램"],
+  ["그랜터", "프로그램"],
+  ["CapCut", "프로그램"],
 ];
 
 const parse = (k) => {

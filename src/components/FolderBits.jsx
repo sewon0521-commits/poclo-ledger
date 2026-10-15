@@ -24,7 +24,7 @@ export function Chip({ active, onClick, children, count }) {
   );
 }
 
-export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnly, setBestOnly, bestCount, searchPlaceholder = "대본·계정·상품 검색", children }) {
+export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnly, setBestOnly, bestCount, searchPlaceholder = "대본·계정·상품 검색", extra, children }) {
   const { total, none } = useMemo(() => folderCounts(items, folders), [items, folders]);
   const tops = folders.filter((f) => !f.parent);
   // 고른 폴더까지의 길 [상위, 하위, 세부] — 상위를 고르면 하위 줄, 하위를 고르면 세부 줄이 열린다
@@ -106,6 +106,7 @@ export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnl
           <Star size={12} className={bestOnly ? "fill-amber-950" : "fill-amber-400 text-amber-400"} /> BEST만 {bestCount}
         </button>
         )}
+        {extra}
       </div>
       {children}
     </div>
