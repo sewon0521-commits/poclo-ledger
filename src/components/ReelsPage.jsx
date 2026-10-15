@@ -413,11 +413,10 @@ function BestToggle({ on, onChange, big }) {
 /**
  * 표시 단추 둘 (켜고 끔, 켜진 건 썸네일 오른쪽 위 배지 + 폴더 막대 '…만'으로 모아 봄):
  * - 쇼만마 — 쇼만마(광고 대행)에서 준 레퍼런스 (10/15 세원: "영상 각각 쇼만마 버튼, 누르면 쇼만마에서 준 레퍼런스라는 걸 바로 알 수 있게").
- * - 내 상품 — 우리 상품이 나오는 영상 (10/16 세원: "쇼만마 버튼 옆에 내 상품 버튼").
+ * - (10/16 '내 상품'도 넣었다가 같은 날 뺌 — 세원 "버튼 너무 많아 헷갈려, 그냥 카테고리 만들어야겠다". 예전 표시(mine)는 데이터에만 남음)
  */
 const TAGS = [
   { key: "shomanma", label: "쇼만마", tip: "쇼만마에서 준 레퍼런스", on: "border-violet-300 bg-violet-600 text-white", off: "hover:border-violet-300 hover:text-violet-700", badge: "bg-violet-600", only: "border-violet-600 bg-violet-600 text-white", onlyOff: "hover:border-violet-300" },
-  { key: "mine", label: "내 상품", tip: "우리 상품이 나오는 영상", on: "border-emerald-300 bg-emerald-600 text-white", off: "hover:border-emerald-300 hover:text-emerald-700", badge: "bg-emerald-600", only: "border-emerald-600 bg-emerald-600 text-white", onlyOff: "hover:border-emerald-300" },
 ];
 const tagPatch = (key, on) => ({ [key]: on, [key + "At"]: on ? new Date().toISOString() : null });
 function TagToggle({ tag, on, onChange, big }) {
@@ -1456,7 +1455,7 @@ export default function ReelsPage({
   const [notice, setNotice] = useState("");
   const [q, setQ] = useState("");
   const [bestOnly, setBestOnly] = useState(false);
-  const [tagOnly, setTagOnly] = useState(""); // "" | "shomanma" | "mine"
+  const [tagOnly, setTagOnly] = useState(""); // "" | "shomanma"
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
@@ -1494,7 +1493,7 @@ export default function ReelsPage({
         (!bestOnly || i.best) &&
         (!tagOnly || i[tagOnly]) &&
         (!needle ||
-          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name, i.shomanma && "쇼만마", i.mine && "내 상품"])
+          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name, i.shomanma && "쇼만마"])
             .toLowerCase()
             .includes(needle)),
     );
