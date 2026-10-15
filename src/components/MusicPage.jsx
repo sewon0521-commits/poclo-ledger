@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Music, Play, Pause, Download, Star, Trash2, Loader2, X, ChevronDown, Upload } from "lucide-react";
+import { Music, Play, Pause, Download, Star, Trash2, Loader2, X, ChevronDown, Upload, AudioLines, AlertTriangle } from "lucide-react";
 import { loadKey, changeKey, upsert, remove, FIELD } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { folderIdOf, withChildren } from "../lib/reelFolders";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
-import { prepareAudio, putMusic, musicUrl, downloadMusic, removeMusic, isMediaFile, mb, mmss } from "../lib/music";
+import { prepareAudio, putMusic, musicUrl, downloadMusic, removeMusic, isMediaFile, mb, mmss, instaAudioUrl, queueInstaAudio } from "../lib/music";
 
 /**
  * 콘텐츠 › 음악 보관함 (lib/music.js 머리말).
@@ -20,21 +20,39 @@ function Track({ item, folders, now, onPlay, onSeek, onPatch, onMove, onDelete, 
   const [draft, setDraft] = useState(item);
   const on = now.id === item.id;
   const keep = (k) => () => draft[k] !== item[k] && onPatch({ id: item.id, [k]: draft[k] });
-  const sub = [mmss(item.seconds), item.source, item.memo].filter(Boolean).join(" · ");
+  // 인스타 음원 전곡을 사무실 PC 가 받는 중이거나 실패한 항목(10/15) — 파일(key)이 아직 없다
+  const waiting = !item.key && item.job?.status !== "error";
+  const failed = !item.key && item.job?.status === "error";
+  const sub = waiting
+    ? "인스타 음원 전곡 받는 중 — 사무실 PC 가 받아요(보통 10~20초)"
+    : failed
+      ? `전곡을 못 받았어요 — ${item.job?.message || "다시 해 보세요"}`
+      : [mmss(item.seconds), item.source, item.memo].filter(Boolean).join(" · ");
   return (
     <li className={"rounded-xl border bg-white " + (on ? "border-rose-300" : "border-stone-200")}>
       <div className="flex items-center gap-2.5 px-3 py-2.5">
         <button
           type="button"
+          disabled={!item.key}
           onClick={() => onPlay(item)}
           aria-label={on && now.playing ? "멈춤" : "듣기"}
           className={"flex h-9 w-9 shrink-0 items-center justify-center rounded-full " + (on ? "bg-rose-700 text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200")}
         >
-          {on && now.loading ? <Loader2 size={16} className="animate-spin" /> : on && now.playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
+          {waiting ? (
+            <Loader2 size={16} className="animate-spin text-rose-700" />
+          ) : failed ? (
+            <AlertTriangle size={16} className="text-amber-600" />
+          ) : on && now.loading ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : on && now.playing ? (
+            <Pause size={16} />
+          ) : (
+            <Play size={16} className="ml-0.5" />
+          )}
         </button>
         <button type="button" onClick={() => setOpen((o) => !o)} className="min-w-0 flex-1 text-left">
           <div className="truncate font-medium text-stone-900">{item.title || "이름 없는 음악"}</div>
-          {sub && <div className="truncate text-xs text-stone-400">{sub}</div>}
+          {sub && <div className={"truncate text-xs " + (failed ? "text-amber-700" : waiting ? "text-rose-700" : "text-stone-400")}>{sub}</div>}
         </button>
         <button
           type="button"
@@ -47,7 +65,7 @@ function Track({ item, folders, now, onPlay, onSeek, onPatch, onMove, onDelete, 
           <Star size={15} className={item.best ? "fill-amber-400 text-amber-400" : "text-stone-300"} />
         </button>
         <FolderPicker item={item} folders={folders} onMove={(id) => onMove(item.id, id)} />
-        <button type="button" onClick={() => onDownload(item)} aria-label="내려받기" title="내려받기" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-stone-500 hover:bg-stone-50 hover:text-stone-900">
+        <button type="button" disabled={!item.key} onClick={() => onDownload(item)} aria-label="내려받기" title="내려받기" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-stone-500 hover:bg-stone-50 hover:text-stone-900 disabled:opacity-30">
           <Download size={15} />
         </button>
         <button type="button" onClick={() => setOpen((o) => !o)} aria-label="자세히" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-stone-400 hover:bg-stone-50">
@@ -92,7 +110,7 @@ function Track({ item, folders, now, onPlay, onSeek, onPatch, onMove, onDelete, 
           </label>
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-stone-400">
             <span>
-              {[item.key.split(".").pop().toUpperCase(), mb(item.size), item.note, item.createdAt && `${item.createdAt.slice(5, 7) * 1}/${item.createdAt.slice(8, 10) * 1} 넣음`].filter(Boolean).join(" · ")}
+              {[item.key ? item.key.split(".").pop().toUpperCase() : "", item.key ? mb(item.size) : "", item.note, item.createdAt && `${item.createdAt.slice(5, 7) * 1}/${item.createdAt.slice(8, 10) * 1} 넣음`].filter(Boolean).join(" · ")}
             </span>
             <button type="button" onClick={() => onDelete(item)} className="flex items-center gap-1 text-stone-400 hover:text-rose-700">
               <Trash2 size={12} /> 지우기
@@ -142,6 +160,35 @@ export default function MusicPage({ online }) {
     document.addEventListener("visibilitychange", v);
     return () => document.removeEventListener("visibilitychange", v);
   }, [load]);
+
+  // 사무실 PC 가 받는 중인 전곡이 있으면 5초마다 목록만 다시 읽는다(다 받으면 저절로 들을 수 있게)
+  const waitingCount = list.filter((m) => !m.key && m.job?.status === "queued").length;
+  useEffect(() => {
+    if (!waitingCount) return undefined;
+    const t = setInterval(async () => {
+      if (document.visibilityState !== "visible" || pendingRef.current) return;
+      try {
+        setList((await loadKey(KEY, online)).items || []);
+      } catch {
+        /* 다음에 */
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [waitingCount, online]);
+
+  const [audioLink, setAudioLink] = useState("");
+  const takeAudio = async (u) => {
+    setMsg("");
+    try {
+      const folderId = sel !== "all" && sel !== "none" ? sel : null;
+      const r = await queueInstaAudio({ url: u, folderId }, online);
+      setAudioLink("");
+      if (r.exists) setMsg("이 음원은 이미 음악 보관함에 있어요.");
+      setList((await loadKey(KEY, online)).items || []);
+    } catch (e) {
+      setMsg(e.message || "전곡 받기를 맡기지 못했어요.");
+    }
+  };
 
   const save = async (fn) => {
     try {
@@ -220,6 +267,12 @@ export default function MusicPage({ online }) {
   useEffect(() => {
     const onPaste = (e) => {
       if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
+      const text = e.clipboardData?.getData("text") || "";
+      if (instaAudioUrl(text)) {
+        e.preventDefault();
+        takeAudio(text);
+        return;
+      }
       const fs = [...(e.clipboardData?.files || [])].filter(isMediaFile);
       if (!fs.length) return;
       e.preventDefault();
@@ -256,7 +309,7 @@ export default function MusicPage({ online }) {
       setNow({ id: null, playing: false, loading: false, t: 0, d: 0 });
     }
     try {
-      await removeMusic(item.key, online);
+      if (item.key) await removeMusic(item.key, online);
     } catch {
       /* 파일이 이미 없어도 목록은 지운다 */
     }
@@ -288,6 +341,26 @@ export default function MusicPage({ online }) {
           <Upload size={15} /> 음악 넣기
         </button>
       </div>
+
+      {/* 10/15 인스타 음원 링크 → 사무실 PC 가 전곡을 받아 여기로 */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (instaAudioUrl(audioLink)) takeAudio(audioLink);
+        }}
+        className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2"
+      >
+        <AudioLines size={15} className="shrink-0 text-rose-700" />
+        <input
+          value={audioLink}
+          onChange={(e) => setAudioLink(e.target.value)}
+          placeholder="인스타 음원 링크 — 게시물 위 '계정 • 오리지널 오디오'(또는 곡 이름)를 눌러 연 주소"
+          className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-stone-400"
+        />
+        <button type="submit" disabled={!instaAudioUrl(audioLink)} className="shrink-0 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-stone-300">
+          전곡 담기
+        </button>
+      </form>
 
       {msg && (
         <div className="mb-3 flex items-start justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">

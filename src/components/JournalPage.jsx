@@ -1856,11 +1856,11 @@ function TodoText({ items, date, today, startOn, editable, placeholder, onCommit
  */
 function Todos({ todos, date, today, editable, onChange, onShowDone }) {
   const tomorrow = shiftDay(today, 1);
-  // 오늘 칸엔 안 끝낸 것만 — 끝내면 빠져서 '오늘 끝낸 일'로 (10/3). 지난 날은 그날 끝낸 것도 같이 보여 준다
+  // 오늘 칸 = 안 끝낸 것 + 오늘 끝낸 것(줄 그어진 채 그 자리에, 10/16) — 어제까지 끝낸 건 '끝낸 일'에만. 지난 날은 그날 끝낸 것도 같이 보여 준다
   const shown = useMemo(
     () =>
       date === today
-        ? todos.filter((t) => !t.done && startOf(t) <= today)
+        ? todos.filter((t) => startOf(t) <= today && (!t.done || t.doneOn === today))
         : todos.filter((t) => t.doneOn === date || (startOf(t) === date && !t.done)),
     [todos, date, today],
   );
@@ -1886,13 +1886,12 @@ function Todos({ todos, date, today, editable, onChange, onShowDone }) {
             date={date}
             today={today}
             startOn={today}
-            hideDone
-            placeholder="할 일 — 엔터로 다음 줄 · 탭 들여쓰기 · 끝내면 줄 왼쪽 ✓ 또는 Ctrl+엔터"
+            placeholder="할 일 — 엔터로 다음 줄 · 탭 들여쓰기 · 끝내면 줄 왼쪽 ✓ 또는 Ctrl+엔터(줄이 그어져요)"
             onCommit={commit}
           />
         </Suspense>
       ) : (
-        <TodoText key={`d${date}`} items={shown} date={date} today={today} startOn={today} editable={false} hideDone={date === today} onCommit={commit} />
+        <TodoText key={`d${date}`} items={shown} date={date} today={today} startOn={today} editable={false} onCommit={commit} />
       )}
       {date === today && <DoneToday items={doneToday} editable={editable} onUndo={undone} onAll={onShowDone} />}
 
@@ -1907,7 +1906,6 @@ function Todos({ todos, date, today, editable, onChange, onShowDone }) {
                 date={date}
                 today={today}
                 startOn={tomorrow}
-                hideDone
                 placeholder="내일이 되면 '오늘 할 일'로 올라와요"
                 onCommit={commit}
               />
@@ -1956,6 +1954,7 @@ function DoneToday({ items, editable, onUndo, onAll }) {
         {items.length > 0 ? (
           <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-1 text-xs font-medium text-stone-500 hover:text-stone-800">
             <Check size={12} className="text-rose-700" /> 오늘 끝낸 일 {items.length}개
+            <span className="font-normal text-stone-400">· 줄 그은 채로 있다가 내일 '끝낸 일'로</span>
             <ChevronDown size={12} className={open ? "rotate-180" : ""} />
           </button>
         ) : (

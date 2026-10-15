@@ -22,7 +22,6 @@ import {
   FileCheck,
   FileSpreadsheet,
   Music,
-  Headset,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -44,7 +43,8 @@ export const SECTIONS = [
           // 10/6 세원: "넥스트팩 발주 변환기를 ERP 에 넣고 단가 칸에 단가를 넣어 줘" → 이지어드민 발주 → SO+ 붙여넣기. "일 카테고리로"
           { key: "soOrder", label: "SO+ 발주 변환", icon: FileSpreadsheet },
           // 10/13 세원: CS 자동화 영상·PDF — "포클로 일 칸에 CS 관리를 할 수 있는 칸"
-          { key: "cs", label: "CS 관리", icon: Headset },
+          // 10/16 세원: "카톡·톡톡 같은 걸 못 읽으면 그냥 안 하는 게 낫다" → 메뉴에서 숨김(화면·코드는 남김, 다시 쓰려면 이 줄 주석만 풀면 됨)
+          // { key: "cs", label: "CS 관리", icon: Headset },
         ],
       },
     ],

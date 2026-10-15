@@ -80,3 +80,7 @@
   color: #be123c !important;
   background: #fff1f2 !important;
 }
+/* 끝낸 줄의 ✓ — 로즈로 칠해 '누르면 풀린다'를 보여 줌 (10/16) */
+.poclo-done.on {
+  color: #be123c !important;
+}

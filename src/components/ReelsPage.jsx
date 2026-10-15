@@ -22,6 +22,7 @@ import {
   Timer,
   Type,
   Eye,
+  AudioLines,
 } from "lucide-react";
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf, readCloseness, saveCloseness, reelAngles, angleOf } from "../lib/reels";
@@ -42,6 +43,7 @@ import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ProductReelTab from "./ProductReel";
 import TrimVideo from "./TrimVideo";
 import ReelMusic from "./ReelMusic";
+import { instaAudioUrl, queueInstaAudio } from "../lib/music";
 import { CopyButton, WorkerStatus, EditableTitle, TrendBox } from "./ContentBits";
 import { workerAlive, addedOn, musicOf } from "../lib/reels";
 
@@ -70,7 +72,7 @@ const num = (n) => (n == null ? "—" : new Intl.NumberFormat("ko-KR").format(n)
 
 // ------------------------------------------------------------- 넣기 (링크 · 파일)
 
-function AddBar({ worker, onLink, onFile, onBrowser, onKeep, notice }) {
+function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) {
   const [tab, setTab] = useState("link");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState(null);
@@ -137,12 +139,31 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, notice }) {
         ))}
       </div>
 
-      {tab === "link" ? (
+      {tab === "link" && instaAudioUrl(url) ? (
+        // 10/15 음원 링크(게시물 위 '계정 • 오리지널 오디오'를 눌러 연 주소)면 릴스가 아니라 음원 전곡 → 음악 보관함
+        <div>
+          <div className="flex flex-wrap gap-2">
+            <input value={url} onChange={(e) => setUrl(e.target.value)} className={FIELD + " min-w-0 flex-1 text-sm"} />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => wrap("맡기는 중…", () => onAudio(url.trim()))}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
+            >
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <AudioLines size={15} />}
+              {busy ? step : "전곡 담기"}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-stone-500">
+            인스타 음원 링크예요 — 사무실 PC 가 원곡 전체를 받아 <b className="font-semibold text-stone-700">콘텐츠 › 음악 보관함</b>에 넣어요(무료, 10~20초).
+          </p>
+        </div>
+      ) : tab === "link" ? (
         <div className="flex flex-wrap gap-2">
           <input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.instagram.com/reel/…"
+            placeholder="릴스 링크 https://www.instagram.com/reel/… · 음원 링크 …/reels/audio/… 도 돼요"
             className={FIELD + " min-w-0 flex-1 text-sm"}
           />
           <button
@@ -285,7 +306,7 @@ function statusOf(item, queue, target = "ref") {
   return { kind: "done" };
 }
 
-function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onShomanma }) {
+function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onTag }) {
   const r = item.reference || {};
   const pending = status.kind !== "done";
   return (
@@ -322,7 +343,11 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
               <Star size={10} className="fill-amber-950" /> BEST
             </span>
           )}
-          {item.shomanma && <span className="rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">쇼만마</span>}
+          {TAGS.filter((t) => item[t.key]).map((t) => (
+            <span key={t.key} className={"rounded px-1.5 py-0.5 text-[10px] font-bold text-white " + t.badge}>
+              {t.label}
+            </span>
+          ))}
           {item.ours && <span className="rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">우리 영상</span>}
         </span>
         {item.hasVideo && !pending && (
@@ -353,7 +378,9 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
           </span>
         </button>
         <span className="ml-auto flex items-center gap-1">
-          <ShomanmaToggle on={!!item.shomanma} onChange={onShomanma} />
+          {TAGS.map((t) => (
+            <TagToggle key={t.key} tag={t} on={!!item[t.key]} onChange={(b) => onTag(t.key, b)} />
+          ))}
           <BestToggle on={!!item.best} onChange={onBest} />
           <FolderPicker item={item} folders={folders} onMove={onMove} />
         </span>
@@ -384,24 +411,29 @@ function BestToggle({ on, onChange, big }) {
 }
 
 /**
- * 쇼만마 표시 — 쇼만마(광고 대행)에서 준 레퍼런스 (10/15 세원: "영상 각각 쇼만마 버튼, 누르면 쇼만마에서 준 레퍼런스라는 걸 바로 알 수 있게").
- * 누르면 켜고 끈다. 켜진 건 썸네일 오른쪽 위 보라 '쇼만마' + 폴더 막대 '쇼만마만'으로 모아 본다.
+ * 표시 단추 둘 (켜고 끔, 켜진 건 썸네일 오른쪽 위 배지 + 폴더 막대 '…만'으로 모아 봄):
+ * - 쇼만마 — 쇼만마(광고 대행)에서 준 레퍼런스 (10/15 세원: "영상 각각 쇼만마 버튼, 누르면 쇼만마에서 준 레퍼런스라는 걸 바로 알 수 있게").
+ * - 내 상품 — 우리 상품이 나오는 영상 (10/16 세원: "쇼만마 버튼 옆에 내 상품 버튼").
  */
-const shomanmaPatch = (on) => ({ shomanma: on, shomanmaAt: on ? new Date().toISOString() : null });
-function ShomanmaToggle({ on, onChange, big }) {
+const TAGS = [
+  { key: "shomanma", label: "쇼만마", tip: "쇼만마에서 준 레퍼런스", on: "border-violet-300 bg-violet-600 text-white", off: "hover:border-violet-300 hover:text-violet-700", badge: "bg-violet-600", only: "border-violet-600 bg-violet-600 text-white", onlyOff: "hover:border-violet-300" },
+  { key: "mine", label: "내 상품", tip: "우리 상품이 나오는 영상", on: "border-emerald-300 bg-emerald-600 text-white", off: "hover:border-emerald-300 hover:text-emerald-700", badge: "bg-emerald-600", only: "border-emerald-600 bg-emerald-600 text-white", onlyOff: "hover:border-emerald-300" },
+];
+const tagPatch = (key, on) => ({ [key]: on, [key + "At"]: on ? new Date().toISOString() : null });
+function TagToggle({ tag, on, onChange, big }) {
   return (
     <button
       type="button"
       onClick={() => onChange(!on)}
       aria-pressed={on}
-      title={on ? "쇼만마 표시 빼기" : "쇼만마에서 준 레퍼런스로 표시"}
+      title={on ? `${tag.label} 표시 빼기` : `${tag.tip}로 표시`}
       className={
-        "flex shrink-0 items-center justify-center rounded-md border font-semibold " +
+        "flex shrink-0 items-center justify-center rounded-md border font-semibold whitespace-nowrap " +
         (big ? "px-2 py-0.5 text-[11px] " : "h-7 px-1.5 text-[10px] ") +
-        (on ? "border-violet-300 bg-violet-600 text-white" : "border-stone-200 text-stone-400 hover:border-violet-300 hover:text-violet-700")
+        (on ? tag.on : "border-stone-200 text-stone-400 " + tag.off)
       }
     >
-      쇼만마
+      {tag.label}
     </button>
   );
 }
@@ -713,7 +745,9 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
           <div className="flex items-start gap-2">
             <EditableTitle value={item.title} onChange={(t) => onSave({ ...item, title: t })} />
             <BestToggle big on={!!item.best} onChange={(b) => onSave({ ...item, best: b, bestAt: b ? new Date().toISOString() : null })} />
-            <ShomanmaToggle big on={!!item.shomanma} onChange={(b) => onSave({ ...item, ...shomanmaPatch(b) })} />
+            {TAGS.map((t) => (
+              <TagToggle key={t.key} big tag={t} on={!!item[t.key]} onChange={(b) => onSave({ ...item, ...tagPatch(t.key, b) })} />
+            ))}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
             {r.structure?.hookType && (
@@ -1422,7 +1456,7 @@ export default function ReelsPage({
   const [notice, setNotice] = useState("");
   const [q, setQ] = useState("");
   const [bestOnly, setBestOnly] = useState(false);
-  const [smOnly, setSmOnly] = useState(false);
+  const [tagOnly, setTagOnly] = useState(""); // "" | "shomanma" | "mine"
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
@@ -1458,15 +1492,15 @@ export default function ReelsPage({
       (i) =>
         inSel(i) &&
         (!bestOnly || i.best) &&
-        (!smOnly || i.shomanma) &&
+        (!tagOnly || i[tagOnly]) &&
         (!needle ||
-          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name, i.shomanma && "쇼만마"])
+          JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name, i.shomanma && "쇼만마", i.mine && "내 상품"])
             .toLowerCase()
             .includes(needle)),
     );
     // BEST 는 보고 있는 폴더 안에서 맨 앞 (나중에 올린 BEST 가 더 앞). 나머지는 원래 순서
     return [...list.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...list.filter((i) => !i.best)];
-  }, [items, q, sel, folders, bestOnly, smOnly]);
+  }, [items, q, sel, folders, bestOnly, tagOnly]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
@@ -1725,7 +1759,25 @@ export default function ReelsPage({
         />
       ) : (
       <>
-      <AddBar worker={worker} onLink={queueLink} onFile={queueFile} onBrowser={analyzeHere} onKeep={keepOnly} notice={notice} />
+      <AddBar
+        worker={worker}
+        onLink={queueLink}
+        onFile={queueFile}
+        onBrowser={analyzeHere}
+        onKeep={keepOnly}
+        onAudio={async (u) => {
+          setNotice("");
+          try {
+            const r = await queueInstaAudio({ url: u }, online);
+            setNotice(r.exists ? "이 음원은 이미 음악 보관함에 있어요." : "전곡 받기를 맡겼어요 — 사무실 PC 가 받으면 콘텐츠 › 음악 보관함에 들어가요.");
+            onPoll?.();
+          } catch (e) {
+            setNotice(e.message || "전곡 받기를 맡기지 못했어요.");
+            return false;
+          }
+        }}
+        notice={notice}
+      />
 
       <FolderBar
         items={items}
@@ -1738,19 +1790,20 @@ export default function ReelsPage({
         bestOnly={bestOnly}
         setBestOnly={setBestOnly}
         bestCount={items.filter((i) => i.best).length}
-        extra={
+        extra={TAGS.map((t) => (
           <button
+            key={t.key}
             type="button"
-            onClick={() => setSmOnly(!smOnly)}
-            aria-pressed={smOnly}
+            onClick={() => setTagOnly(tagOnly === t.key ? "" : t.key)}
+            aria-pressed={tagOnly === t.key}
             className={
               "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold " +
-              (smOnly ? "border-violet-600 bg-violet-600 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-violet-300")
+              (tagOnly === t.key ? t.only : "border-stone-200 bg-white text-stone-600 " + t.onlyOff)
             }
           >
-            쇼만마만 {items.filter((i) => i.shomanma).length}
+            {t.label}만 {items.filter((i) => i[t.key]).length}
           </button>
-        }
+        ))}
       />
 
       {shown.length === 0 ? (
@@ -1785,7 +1838,7 @@ export default function ReelsPage({
                 onSave({ ...it, folderId: id, folder: f && !f.parent ? f.name : "" });
               }}
               onBest={(b) => onSave({ ...it, best: b, bestAt: b ? new Date().toISOString() : null })}
-              onShomanma={(b) => onSave({ ...it, ...shomanmaPatch(b) })}
+              onTag={(key, b) => onSave({ ...it, ...tagPatch(key, b) })}
             />
           ))}
         </div>

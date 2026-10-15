@@ -7,6 +7,8 @@
 // 이 기기 저장 모드(시험용)에서는 파일을 IndexedDB 에 둔다.
 
 import { isRemote, supabase } from "./supabase";
+import { newId } from "./id";
+import { loadKey, changeKey, upsert } from "./shoot";
 
 const KEEP = /\.(mp3|m4a|aac)$/i;
 const KEEP_TYPE = /^audio\/(mpeg|mp3|mp4|x-m4a|aac|m4a)$/i;
@@ -203,6 +205,55 @@ export async function downloadMusic(item, online) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+// ---------------------------------------------------------------- 인스타 음원 전곡 (10/15)
+//
+// 세원: "릴스 기획란에 음원 가져올 때, 게시물 위 '계정 • 오리지널 오디오'를 누른 뒤 그 음원을 통째로 가져오게."
+// 인스타 음원 페이지(instagram.com/reels/audio/<id>/)는 로그인 없이 열리고 전곡 파일 주소를 준다 — 브라우저는 인스타를 못 읽으니
+// **사무실 PC 분석기**(reels_worker.run_audio)가 받는다. 앱은 음악 보관함에 '받는 중' 항목(job queued, insta {url, reelId})을 만들고
+// reels_queue 에 {id, target:"audio"} 를 넣는다. 다 받으면 분석기가 key·size·seconds·제목을 채우고, reelId 가 있으면 그 릴스 musicFull 도.
+
+export const INSTA_AUDIO = /instagram\.com\/reels?\/audio\/(\d+)/i;
+/** 인스타 음원 페이지 주소로 맞춤 (아니면 "") */
+export const instaAudioUrl = (s) => {
+  const m = String(s || "").match(INSTA_AUDIO);
+  return m ? `https://www.instagram.com/reels/audio/${m[1]}/` : "";
+};
+
+/** 전곡 받기 맡기기 → {id, exists}. 같은 음원을 이미 담았거나 받는 중이면 그 항목(exists) */
+export async function queueInstaAudio({ url, title = "", reelId = null, folderId = null, source = "" }, online) {
+  const audio = instaAudioUrl(url);
+  if (!audio) throw new Error("인스타 음원 링크가 아니에요. 게시물 위 '계정 • 오리지널 오디오'(또는 곡 이름)를 눌러 연 주소를 넣어 주세요.");
+  if (!remoteOn(online)) throw new Error("전곡은 사무실 PC 가 받아 와요 — 공유 장부에 로그인한 상태에서만 돼요.");
+  const had = ((await loadKey("music", online)).items || []).find((m) => m.insta?.url === audio && m.job?.status !== "error");
+  if (had) return { id: had.id, exists: true };
+  const id = newId("m");
+  const at = new Date().toISOString();
+  await changeKey(
+    "music",
+    online,
+    upsert({
+      id,
+      title: title || "인스타 음원",
+      key: "",
+      type: "",
+      size: 0,
+      seconds: 0,
+      folderId,
+      source: ["인스타 음원", audio, source].filter(Boolean).join(" · "),
+      memo: "",
+      best: false,
+      createdAt: at,
+      insta: { url: audio, reelId },
+      job: { status: "queued", at },
+    }),
+  );
+  await changeKey("reels_queue", online, (v) => ({
+    ...v,
+    items: [...(v.items || []).filter((j) => !(j.id === id && j.target === "audio")), { id, target: "audio", status: "queued", step: "", at }],
+  }));
+  return { id, exists: false };
 }
 
 export async function removeMusic(key, online) {

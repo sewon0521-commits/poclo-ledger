@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { ko } from "@blocknote/core/locales";
 import { SideMenuExtension } from "@blocknote/core/extensions";
@@ -128,13 +128,21 @@ function HighlightButton() {
 // 할 일 칸의 '끝냄' — 줄 왼쪽 ✓ 단추·Ctrl+엔터가 부른다
 const DoneCtx = createContext(null);
 
-/** 줄에 마우스를 올리면 ⋮⋮ 앞에 뜨는 ✓ — 누르면 그 줄(안쪽 줄까지)을 끝냄 */
+/** 줄에 마우스를 올리면 ⋮⋮ 앞에 뜨는 ✓ — 누르면 그 줄(안쪽 줄까지)을 끝냄 · 끝낸 줄이면 풀기 */
 function DoneButton() {
   const Components = useComponentsContext();
-  const done = useContext(DoneCtx);
+  const ctx = useContext(DoneCtx);
   const block = useExtensionState(SideMenuExtension, { selector: (st) => st?.block });
-  if (!block || !done || !["bulletListItem", "numberedListItem"].includes(block.type)) return null;
-  return <Components.SideMenu.Button className="bn-button poclo-done" label="끝냄 (Ctrl+엔터)" icon={<CircleCheck size={17} />} onClick={() => done(block.id)} />;
+  if (!block || !ctx || !["bulletListItem", "numberedListItem"].includes(block.type)) return null;
+  const on = ctx.done.has(block.id);
+  return (
+    <Components.SideMenu.Button
+      className={"bn-button poclo-done" + (on ? " on" : "")}
+      label={on ? "끝냄 풀기 (Ctrl+엔터)" : "끝냄 (Ctrl+엔터)"}
+      icon={<CircleCheck size={17} />}
+      onClick={() => ctx.toggle(block.id)}
+    />
+  );
 }
 
 const dragMenu = () => (
@@ -371,10 +379,12 @@ const sigOf = (items) => items.map((t) => `${t.id}|${t.text}|${t.depth || 0}|${k
 
 /**
  * 할 일 한 칸 — 블록 하나 = 할 일 하나(블록 id = 할 일 id). **점으로 통일**(10/11 저녁 세원: "작대기나 버그가 너무 많아서 체크박스 없애고 점으로").
- * 끝냄 = 줄에 마우스를 올리면 ⋮⋮ 앞에 뜨는 ✓ · Ctrl+엔터 → 그 줄(안쪽 줄까지 묶음째)이 바로 '끝낸 일'로 빠진다.
- * '되돌리기'·Ctrl+Z 로 돌아오면 같은 할 일(적은 날 그대로) — 묶음이면 안쪽 줄까지 같이 돌아온다.
+ * 끝냄 = 줄에 마우스를 올리면 ⋮⋮ 앞에 뜨는 ✓ · Ctrl+엔터 → 그 줄(안쪽 줄까지 묶음째)에 **줄만 긋고 그 자리에 둔다**
+ * (10/16 세원: "체크하면 바로 내려가지 말고 그 자리에 그대로 있되 작대기만 그어 줘. 다음 날이 되면 끝낸 일로").
+ * 다음 날엔 오늘 칸이 '안 끝낸 것 + 오늘 끝낸 것'만 받으니(JournalPage Todos) 어제 끝낸 줄은 저절로 '끝낸 일'에만 남는다.
+ * 한 번 더 누르면 끝냄을 푼다. 끝냄은 글이 아니라 표시라서 줄 긋기는 블록 id 로 거는 CSS(doneCss)로 그린다.
  */
-export function TodoEditor({ items, date, today, startOn, hideDone, placeholder, onCommit }) {
+export function TodoEditor({ items, date, today, startOn, placeholder, onCommit }) {
   const [start] = useState(() => todosToBlocks(items));
   const editor = useCreateBlockNote(
     {
@@ -394,138 +404,106 @@ export function TodoEditor({ items, date, today, startOn, hideDone, placeholder,
   useEffect(() => {
     if (import.meta.env.DEV && startOn === today) window.__todoEditor = editor;
   }, [editor, startOn, today]);
-  const hidden = useRef(new Map()); // 끝내서 뺀 할 일: id → 할 일
-  const groups = useRef(new Map()); // 끝내서 뺀 묶음: 맨 위 id → {snap(안쪽 줄까지), prevId, nextId, parentId}
-  const pending = useRef(new Set()); // 이번에 끝낼 묶음의 맨 위 id
+  const doneOf = (list) => new Map(list.filter((t) => t.done).map((t) => [t.id, t.doneOn || today]));
+  const doneMap = useRef(null); // 끝낸 줄: id → 끝낸 날
+  if (doneMap.current === null) doneMap.current = doneOf(items);
+  const [doneIds, setDoneIds] = useState(() => items.filter((t) => t.done).map((t) => t.id));
   const gone = useRef(new Map()); // 지운 것: id → 할 일
   const lastSig = useRef(sigOf(items));
   const inflight = useRef(0);
   const focused = useRef(false);
   const timer = useRef(null);
   const noteTimer = useRef(null);
-  const [note, setNote] = useState(null); // {text, ids}
+  const [note, setNote] = useState(null); // {text, id}
 
-  const say = (text, ids = []) => {
-    setNote({ text, ids });
+  const say = useCallback((text, id = null) => {
+    setNote({ text, id });
     clearTimeout(noteTimer.current);
     noteTimer.current = setTimeout(() => setNote(null), 7000);
-  };
+  }, []);
 
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     const { items: before, onCommit: commit } = latest.current;
-    // 1) Ctrl+Z·되돌리기로 돌아온 끝낸 할 일 → 다시 할 일로
-    const back = new Map();
-    for (const b of flatBlocks(editor.document)) {
-      const t = hidden.current.get(b.id);
-      if (!t) continue;
-      hidden.current.delete(b.id);
-      groups.current.delete(b.id);
-      back.set(b.id, { ...t, done: false, doneOn: null });
-    }
-    // 2) 이번에 끝낼 묶음 — 맨 위 줄과 안쪽 줄 전부
-    const doneIds = new Set();
-    for (const id of pending.current) {
-      const at = findBlock(editor.document, id);
-      if (at) for (const b of flatBlocks([at.block])) doneIds.add(b.id);
-    }
     const rows = blocksToRows(editor.document).filter((r) => r.plain);
-    const pool = new Map([...before, ...gone.current.values(), ...back.values()].map((x) => [x.id, x]));
+    const pool = new Map([...before, ...gone.current.values()].map((x) => [x.id, x]));
     const next = rows.map((r) => {
       const old = pool.get(r.id);
       gone.current.delete(r.id);
-      const done = doneIds.has(r.id);
+      const doneOn = doneMap.current.get(r.id) || null;
       return {
         ...(old || { id: r.id, createdOn: today, ...(startOn !== today ? { startOn } : {}) }),
         text: r.text,
         depth: r.depth,
         kind: r.kind,
         box: false,
-        done,
-        doneOn: done ? today : null,
+        done: !!doneOn,
+        doneOn,
       };
     });
     const ids = new Set(next.map((x) => x.id));
-    const removed = before.filter((x) => !ids.has(x.id) && !hidden.current.has(x.id));
+    const removed = before.filter((x) => !ids.has(x.id));
     for (const x of removed) gone.current.set(x.id, x);
 
     const sig = sigOf(next);
     if (sig !== lastSig.current || removed.length) {
-      lastSig.current = sigOf(next.filter((x) => !(hideDone && x.done)));
+      lastSig.current = sig;
       inflight.current++;
       Promise.resolve(commit(next, removed.map((x) => x.id))).finally(() => {
         inflight.current--;
       });
     }
-
-    // 3) 끝낸 묶음은 칸에서 빼서 '끝낸 일'로 (10/3 세원: "다 한 일은 사라지고 어디 따로 모아지게")
-    const roots = [...pending.current].filter((id) => findBlock(editor.document, id));
-    pending.current.clear();
-    if (roots.length) {
-      for (const id of roots) {
-        const at = findBlock(editor.document, id);
-        if (!at) continue;
-        for (const b of flatBlocks([at.block])) {
-          const t = next.find((x) => x.id === b.id);
-          if (t) hidden.current.set(b.id, t);
-        }
-        groups.current.set(id, { snap: at.block, prevId: at.prev?.id, nextId: at.next?.id, parentId: at.parent?.id });
-        editor.removeBlocks([id]);
-      }
-      // 비면 빈 점 하나 (빈 문단이면 점이 아니라 글 줄이 돼서)
-      const left = editor.document;
-      if (left.length === 1 && left[0].type === "paragraph" && !inlineToText(left[0].content).trim() && !left[0].children?.length)
-        editor.replaceBlocks([left[0]], [{ type: "bulletListItem" }]);
-      const n = [...doneIds].filter((x) => ids.has(x)).length;
-      say(`끝낸 일로 옮겼어요${n > 1 ? ` (${n}개)` : ""}`, roots);
-    } else if (removed.length) say(`할 일 ${removed.length}개를 지웠어요`);
-  }, [editor, today, startOn, hideDone]);
+    if (removed.length) say(`할 일 ${removed.length}개를 지웠어요 · Ctrl+Z 로 되살려요`);
+  }, [editor, today, startOn, say]);
   useEffect(() => () => flush(), [flush]);
 
-  /** 끝냄 — 바로 저장하고 칸에서 뺀다 */
-  const markDone = useCallback(
+  /** 끝냄 켜고 끄기 — 그 줄과 안쪽 줄 묶음째, 바로 저장 */
+  const toggleDone = useCallback(
     (id) => {
-      pending.current.add(id);
+      const at = findBlock(editor.document, id);
+      if (!at) return;
+      const group = flatBlocks([at.block]).map((b) => b.id);
+      const undo = doneMap.current.has(id);
+      for (const b of group) {
+        if (undo) doneMap.current.delete(b);
+        else doneMap.current.set(b, today);
+      }
+      setDoneIds([...doneMap.current.keys()]);
       flush();
+      if (undo) setNote(null);
+      else say(`끝냈어요${group.length > 1 ? ` (${group.length}줄)` : ""} — 줄 그은 채로 두었다가 내일 '끝낸 일'로 옮겨져요`, id);
     },
-    [flush],
+    [editor, today, flush, say],
   );
 
   // 다른 데서 바뀐 할 일(끝낸 일 되돌리기·다른 기기) — 쓰는 중이 아니고 보낸 게 없을 때만 칸을 새로
   const sig = sigOf(items);
   useEffect(() => {
-    for (const x of items) {
-      hidden.current.delete(x.id);
-      groups.current.delete(x.id);
-    }
     if (focused.current || inflight.current > 0 || sig === lastSig.current) return;
     lastSig.current = sig;
+    doneMap.current = doneOf(items);
+    setDoneIds([...doneMap.current.keys()]);
     editor.replaceBlocks(editor.document, todosToBlocks(items));
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
-  /** 되돌리기 — 끝낸 묶음을 원래 자리에(안쪽 줄까지) */
-  const restore = (rootIds) => {
-    for (const id of rootIds) {
-      const g = groups.current.get(id);
-      if (!g) continue;
-      const doc = editor.document;
-      if (g.prevId && findBlock(doc, g.prevId)) editor.insertBlocks([g.snap], g.prevId, "after");
-      else if (g.nextId && findBlock(doc, g.nextId)) editor.insertBlocks([g.snap], g.nextId, "before");
-      else if (g.parentId && findBlock(doc, g.parentId)) {
-        const p = findBlock(doc, g.parentId).block;
-        editor.updateBlock(p.id, { children: [...(p.children || []), g.snap] });
-      } else if (doc[0]) editor.insertBlocks([g.snap], doc[0].id, "before");
-    }
-    setNote(null);
-    flush();
-  };
-
-  const onKey = useKeys(editor, markDone);
+  const onKey = useKeys(editor, toggleDone);
   const carried = items.filter((r) => !r.done && isTask(r) && (r.startOn || r.createdOn) < date);
+  // 끝낸 줄 — 그 블록 글자만(안쪽 줄은 따로 id 로 걸린다) 줄 긋고 흐리게, 점도 흐리게
+  const doneCss = doneIds
+    .map((id) => String(id).replace(/[^\w-]/g, ""))
+    .filter(Boolean)
+    .map(
+      (id) =>
+        `.poclo-bn.todo .bn-block-outer[data-id="${id}"]>.bn-block>.bn-block-content{opacity:.5}` +
+        `.poclo-bn.todo .bn-block-outer[data-id="${id}"]>.bn-block>.bn-block-content .bn-inline-content{text-decoration:line-through;text-decoration-color:#a8a29e}`,
+    )
+    .join("");
+  const ctx = useMemo(() => ({ toggle: toggleDone, done: new Set(doneIds) }), [toggleDone, doneIds]);
 
   return (
-    <DoneCtx.Provider value={markDone}>
+    <DoneCtx.Provider value={ctx}>
+      {doneCss && <style>{doneCss}</style>}
       <div
         className="poclo-bn todo"
         onKeyDownCapture={onKey}
@@ -554,14 +532,14 @@ export function TodoEditor({ items, date, today, startOn, hideDone, placeholder,
         {note && (
           <p className="mt-1 flex items-center gap-2 px-1 text-[11px] text-stone-500">
             {note.text}
-            {note.ids.length > 0 && (
+            {note.id && (
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => restore(note.ids)}
+                onClick={() => toggleDone(note.id)}
                 className="flex items-center gap-0.5 rounded px-1 py-0.5 font-medium text-rose-700 hover:bg-rose-50"
               >
-                <Undo2 size={11} /> 되돌리기 <span className="font-normal text-stone-400">Ctrl+Z</span>
+                <Undo2 size={11} /> 끝냄 풀기
               </button>
             )}
           </p>
