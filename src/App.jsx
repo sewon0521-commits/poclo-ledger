@@ -37,6 +37,7 @@ import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import JournalPage, { JournalQuick } from "./components/JournalPage";
 import SubsPage from "./components/SubsPage";
+import EventsPage from "./components/EventsPage";
 import InvoiceRequestPage from "./components/InvoiceRequestPage";
 import ShootPage from "./components/ShootPage";
 import PasswordBox from "./components/PasswordBox";
@@ -372,7 +373,7 @@ export default function App() {
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}
-        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "soOrder" || page === "cs" ? "max-w-6xl" : "max-w-4xl")}>
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "soOrder" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : "max-w-4xl")}>
           <div className="mb-4 flex justify-end">
             <SyncBadge
               live={L.live}
@@ -608,6 +609,8 @@ export default function App() {
                 </PricingCtx.Provider>
               ) : page === "invoiceReq" ? (
                 <InvoiceRequestPage tx={tx} vendors={vendors} online={L.mode === "remote" && !!L.session} onPatchTxs={L.patchTxs} onBreakdown={openBreakdown} />
+              ) : page === "events" ? (
+                <EventsPage online={L.mode === "remote" && !!L.session} rows={S.rows} />
               ) : page === "subs" ? (
                 <SubsPage online={L.mode === "remote" && !!L.session} />
               ) : page === "journal" ? (
