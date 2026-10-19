@@ -23,6 +23,7 @@ import {
   FileSpreadsheet,
   Music,
   CalendarDays,
+  Newspaper,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -31,6 +32,13 @@ export const SECTIONS = [
     label: "홈",
     icon: Home,
     groups: [{ group: "기본", items: [{ key: "home", label: "홈", icon: Home }] }],
+  },
+  {
+    // 10/19 세원: "쇼만마 커리큘럼은 그대로, 우리 쇼핑몰로 채우고 UI 는 우리 것. 보고는 ERP 안에" (위키 topics/보고-체계-설계.md)
+    key: "report",
+    label: "보고",
+    icon: Newspaper,
+    groups: [{ group: "기본", items: [{ key: "reports", label: "매일 보고", icon: Newspaper }] }],
   },
   {
     key: "work",
