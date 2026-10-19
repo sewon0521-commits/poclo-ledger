@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Sparkles, ListTodo, Megaphone, Package, CalendarDays, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, Sparkles, ListTodo, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
 import { loadKey, onSettingsChange } from "../lib/shoot";
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
@@ -13,27 +13,92 @@ import { dayTitle } from "../lib/journal";
 const pct = (v, d = 1) => (v == null ? "—" : `${Number(v).toFixed(d)}%`);
 const change = (a, b) => (a == null || !b ? null : (a - b) / b);
 
-function Delta({ now, prev, good = "up" }) {
+/** 큰 숫자 — 쇼만마처럼 만 단위로 짧게(204만 · 1.2만), 단위는 작게 */
+const man = (v) => {
+  if (v == null || !Number.isFinite(v)) return ["—", ""];
+  const a = Math.abs(v);
+  if (a >= 1e5) return [String(Math.round(v / 1e4)).replace(/\B(?=(\d{3})+(?!\d))/g, ","), "만원"];
+  if (a >= 1e4) return [(v / 1e4).toFixed(1).replace(/\.0$/, ""), "만원"];
+  return [won(v), "원"];
+};
+const ratio = (a, b) => (b ? a / b : null);
+
+/** 지난 7일 대비 한 줄 — 좋아진 쪽이 초록 */
+function Vs({ now, prev, good = "up" }) {
   const c = change(now, prev);
-  if (c == null || !Number.isFinite(c)) return null;
+  if (c == null || !Number.isFinite(c)) return <div className="font-mono text-[11px] text-stone-300">— vs 지난 7일</div>;
   const up = c >= 0;
   const ok = good === "up" ? up : !up;
   return (
-    <span className={"inline-flex items-center gap-0.5 text-[11px] font-semibold " + (ok ? "text-emerald-700" : "text-rose-700")}>
-      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-      {up ? "+" : ""}
-      {Math.round(c * 100)}%
-    </span>
+    <div className={"font-mono text-[11px] " + (ok ? "text-emerald-600" : "text-rose-600")}>
+      {up ? "▲" : "▼"} {up ? "+" : ""}
+      {(c * 100).toFixed(1)}% <span className="text-stone-400">vs 지난 7일</span>
+    </div>
   );
 }
 
-function Card({ label, value, sub, children, tone = "" }) {
+function Kpi({ label, value, unit, sub, now, prev, good, mark }) {
   return (
-    <div className={"rounded-2xl border border-stone-200 bg-white px-4 py-3 " + tone}>
-      <div className="text-[11px] font-semibold text-stone-500">{label}</div>
-      <div className="mt-0.5 text-xl font-bold tracking-tight text-stone-900 tabular-nums">{value}</div>
-      {(sub || children) && <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-stone-500 tabular-nums">{sub}{children}</div>}
+    <div className="flex flex-col gap-1.5 border-b border-stone-200 px-4 py-4 sm:border-r [&:nth-child(2n)]:border-r-0 lg:[&:nth-child(2n)]:border-r lg:[&:nth-child(4n)]:border-r-0">
+      <div className="flex items-start justify-between gap-2">
+        <span className="pt-1 text-sm font-bold text-stone-900">{label}</span>
+        <span className="text-right tabular-nums">
+          <b className="text-[28px] font-bold leading-none tracking-tight text-stone-900">{value}</b>
+          {unit && <span className="ml-0.5 text-xs text-stone-500">{unit}</span>}
+        </span>
+      </div>
+      <div className="min-h-[18px] text-xs text-stone-500 tabular-nums">{mark || sub}</div>
+      <Vs now={now} prev={prev} good={good} />
     </div>
+  );
+}
+
+/** 쇼만마 주간 보고 카드 12칸 — 최근 7일, 지난 7일 대비 */
+function KpiGrid({ w, pw, target }) {
+  const rows = [
+    // [이름, 값, 단위?, 보조, 지금, 지난, 좋은 쪽]
+    ["매출", ...man(w.revenue), `순매출 ${man((w.revenue || 0) - (w.refund || 0)).join("")}`, w.revenue, pw.revenue, "up"],
+    ["CPA", ...man(ratio(w.ads, w.orders)), `주문수 ${w.orders || 0}건`, ratio(w.ads, w.orders), ratio(pw.ads, pw.orders), "down"],
+    ["ROAS", ratio(w.revenue, w.ads)?.toFixed(2) ?? "—", "x", "총매출 ÷ 광고비", ratio(w.revenue, w.ads), ratio(pw.revenue, pw.ads), "up"],
+    ["객단가", ...man(ratio(w.revenue, w.orders)), "매출 ÷ 주문수", ratio(w.revenue, w.orders), ratio(pw.revenue, pw.orders), "up"],
+    ["환불", ...man(w.refund), w.revenue ? `매출 대비 ${pct(((w.refund || 0) / w.revenue) * 100)}` : "", w.refund, pw.refund, "down"],
+    ["광고 CPA", ...man(ratio(w.metaSpend, w.metaPurchases)), `광고구매수 ${w.metaPurchases ?? 0}건`, ratio(w.metaSpend, w.metaPurchases), ratio(pw.metaSpend, pw.metaPurchases), "down"],
+    ["광고 ROAS", ratio(w.metaValue, w.metaSpend)?.toFixed(2) ?? "—", "x", `광고매출 ${man(w.metaValue).join("")}`, ratio(w.metaValue, w.metaSpend), ratio(pw.metaValue, pw.metaSpend), "up"],
+    ["광고 객단가", ...man(ratio(w.metaValue, w.metaPurchases)), "광고매출 ÷ 광고구매수", ratio(w.metaValue, w.metaPurchases), ratio(pw.metaValue, pw.metaPurchases), "up"],
+    ["광고비", ...man(w.ads), null, w.ads, pw.ads, "down"],
+    ["광고 CPA · 1일 클릭", ...man(ratio(w.metaSpend, w.metaPurchases1d)), `1일 클릭 구매수 ${w.metaPurchases1d ?? 0}건`, ratio(w.metaSpend, w.metaPurchases1d), ratio(pw.metaSpend, pw.metaPurchases1d), "down"],
+    ["광고 ROAS · 1일 클릭", ratio(w.metaValue1d, w.metaSpend)?.toFixed(2) ?? "—", "x", `1일 클릭 광고매출 ${man(w.metaValue1d).join("")}`, ratio(w.metaValue1d, w.metaSpend), ratio(pw.metaValue1d, pw.metaSpend), "up"],
+    ["광고 객단가 · 1일 클릭", ...man(ratio(w.metaValue1d, w.metaPurchases1d)), "", ratio(w.metaValue1d, w.metaPurchases1d), ratio(pw.metaValue1d, pw.metaPurchases1d), "up"],
+  ];
+  const over = w.adRate != null && w.adRate > target;
+  return (
+    <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b-2 border-stone-900 px-4 pt-3.5 pb-2.5">
+        <h3 className="text-sm font-bold text-stone-900">최근 7일</h3>
+        <span className="text-[11px] text-stone-400">광고 숫자는 메타 기준(7일 클릭) · 1일 클릭은 광고를 누르고 하루 안에 산 것만</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        {rows.map(([label, value, unit, sub, now, prev, good]) => (
+          <Kpi
+            key={label}
+            label={label}
+            value={value}
+            unit={unit}
+            sub={sub}
+            now={now}
+            prev={prev}
+            good={good}
+            mark={
+              label === "광고비" ? (
+                <span className={"rounded px-1.5 py-0.5 font-semibold " + (over ? "bg-amber-200 text-amber-950" : "bg-emerald-100 text-emerald-800")}>
+                  매출 대비 {pct(w.adRate)} · 목표 {target}%
+                </span>
+              ) : null
+            }
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -66,6 +131,90 @@ function Trend({ rows }) {
         </div>
       ))}
     </div>
+  );
+}
+
+const KIND_TONE = {
+  "광고 구매": "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  "광고 추천": "bg-rose-700 text-white ring-rose-700",
+  "광고 비효율": "bg-amber-50 text-amber-800 ring-amber-200",
+};
+
+/** 쇼만마 '상품별 광고 기여(AD-ORDER PRODUCT MATCH)' — 유형 · 상품 · 광고비 · 광고 구매 비율 · 광고구매수(1일) · 판매 · 광고 수 */
+function ProductTable({ products, waste }) {
+  const top = new Set([...products].sort((a, b) => b.q7 - a.q7).slice(0, 5).map((p) => p.code));
+  return (
+    <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b-2 border-stone-900 px-4 pt-3.5 pb-2.5">
+        <h3 className="text-sm font-bold text-stone-900">상품별 광고 기여 · 최근 7일</h3>
+        <span className="text-[11px] text-stone-400">광고 이름의 상품명으로 이어요 · 광고 구매 비율 = 광고로 산 건수 ÷ 판매 장수(대략)</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead>
+            <tr className="border-b border-stone-200 bg-stone-50 text-left text-[11px] font-semibold text-stone-500">
+              <th className="px-4 py-2 font-semibold">유형</th>
+              <th className="px-2 py-2 font-semibold">상품</th>
+              <th className="px-2 py-2 text-right font-semibold">광고비</th>
+              <th className="px-2 py-2 text-right font-semibold">광고 구매 비율</th>
+              <th className="px-2 py-2 text-right font-semibold">광고 구매 (1일 클릭)</th>
+              <th className="px-2 py-2 text-right font-semibold">판매</th>
+              <th className="px-4 py-2 text-right font-semibold">광고 수</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100 tabular-nums">
+            {products.map((p) => {
+              const share = p.q7 ? Math.min(100, Math.round(((p.adPurchases7 || 0) / p.q7) * 100)) : 0;
+              return (
+                <tr key={p.code} className="hover:bg-stone-50/70">
+                  <td className="px-4 py-2.5 align-middle">
+                    <div className="flex flex-col items-start gap-1">
+                      {top.has(p.code) && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-stone-600 ring-1 ring-stone-200">판매 상위</span>}
+                      {p.kind && <span className={"rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 " + (KIND_TONE[p.kind] || "")}>{p.kind}</span>}
+                    </div>
+                  </td>
+                  <td className="px-2 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <span className="h-12 w-9 shrink-0 overflow-hidden rounded-md bg-stone-100">{p.image && <img src={p.image} alt="" loading="lazy" className="h-full w-full object-cover" />}</span>
+                      <span className="min-w-0">
+                        <span className="line-clamp-2 font-medium text-stone-900">{p.name}</span>
+                        <span className="text-[11px] text-stone-400">30일 {p.q30 ?? 0}장</span>
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-semibold text-stone-900">{p.adSpend7 ? `${man(p.adSpend7).join("")}` : <span className="text-stone-300">0</span>}</td>
+                  <td className="px-2 py-2.5 text-right">
+                    <div className="ml-auto flex w-24 items-center justify-end gap-1.5">
+                      <span className="h-1.5 w-12 overflow-hidden rounded-full bg-stone-100">
+                        <span className="block h-full rounded-full bg-rose-600" style={{ width: `${share}%` }} />
+                      </span>
+                      <span className="w-9 text-right text-stone-700">{share}%</span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2.5 text-right text-stone-700">
+                    {p.adPurchases7 ? (
+                      <>
+                        {p.adPurchases7}건 <span className="text-stone-400">({p.adPurchases1d7 ?? 0})</span>
+                        <span className="block text-[11px] text-stone-400">{man(p.adValue7).join("")}</span>
+                      </>
+                    ) : (
+                      <span className="text-stone-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2.5 text-right font-semibold text-stone-900">{p.q7}장</td>
+                  <td className="px-4 py-2.5 text-right text-stone-500">{p.adCount || 0}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {waste.length > 0 && (
+        <p className="border-t border-stone-100 bg-amber-50/60 px-4 py-2 text-xs text-amber-900">
+          7일에 1만 원 넘게 썼는데 광고 구매 0: {waste.map((x) => `${x.code} ${won(x.spend)}원`).join(" · ")}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -135,38 +284,27 @@ function Report({ r }) {
         )}
       </section>
 
-      {off && (
+      {off && !y.weekend && (
         <p className="flex items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" /> 어제 메타 광고비가 0원이에요 — 광고가 꺼져 있었어요.
         </p>
       )}
 
-      {/* 어제 숫자 */}
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-        <Card label="어제 매출" value={`${won(y.revenue)}원`} sub={`주문 ${y.orders || 0}건`} />
-        <Card label="어제 광고비" value={`${won(y.ads)}원`} sub={y.adRate != null ? `매출의 ${pct(y.adRate)}` : "매출 없음"} />
-        <Card label="7일 매출" value={`${won(w.revenue)}원`}>
-          <span>하루 {won(w.perDay)}원</span>
-          <Delta now={w.revenue} prev={pw.revenue} />
-        </Card>
-        <Card label="7일 광고비율" value={pct(w.adRate)} tone={w.adRate != null && w.adRate <= (r.target || 10) ? "ring-1 ring-emerald-200" : ""}>
-          <span>목표 {r.target || 10}%</span>
-          <Delta now={w.adRate} prev={pw.adRate} good="down" />
-        </Card>
-        <Card label="7일 메타 ROAS" value={w.metaRoas ?? "—"}>
-          <span>구매 {won(w.metaValue)}원</span>
-          <Delta now={w.metaRoas} prev={pw.metaRoas} />
-        </Card>
-        <Card label="7일 CPC · CTR" value={`${won(w.cpc)}원`}>
-          <span>CTR {pct(w.ctr, 2)}</span>
-          <Delta now={w.cpc} prev={pw.cpc} good="down" />
-        </Card>
-      </div>
+      {/* 어제 한 줄 */}
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-white px-4 py-2.5 text-sm ring-1 ring-stone-200 tabular-nums">
+        <b className="text-stone-900">어제</b>
+        <span>매출 <b className="text-stone-900">{won(y.revenue)}원</b></span>
+        <span>주문 {y.orders || 0}건</span>
+        <span>광고비 {won(y.ads)}원{y.adRate != null ? ` (매출의 ${pct(y.adRate)})` : ""}</span>
+        {y.weekend && !m.spend && <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600">주말 광고 쉬는 날</span>}
+      </p>
+
+      <KpiGrid w={w} pw={pw} target={r.target || 10} />
 
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <Box icon={Megaphone} title="오늘 광고 예산" right={<span className="text-[11px] text-stone-400">지난 7일 하루 평균 {won(r.budget?.avg7Spend)}원</span>}>
           <p className="text-2xl font-bold text-stone-900 tabular-nums">
-            {won(r.budget?.base)}원{r.budget?.max > r.budget?.base && <span className="text-base font-semibold text-stone-500"> ~ {won(r.budget.max)}원</span>}
+            {r.budget?.weekend ? "쉬는 날" : `${won(r.budget?.base)}원`}{!r.budget?.weekend && r.budget?.max > r.budget?.base && <span className="text-base font-semibold text-stone-500"> ~ {won(r.budget.max)}원</span>}
           </p>
           <p className="mt-1 text-xs text-stone-500">{r.budget?.rule}</p>
           <div className="mt-3">
@@ -204,45 +342,7 @@ function Report({ r }) {
         </Box>
       </div>
 
-      <Box icon={Package} title="상품별 광고 — 최근 7일" right={<span className="text-[11px] text-stone-400">광고 이름의 상품명으로 이어요</span>}>
-        <div className="-mx-1 overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead>
-              <tr className="border-b border-stone-100 text-left text-[11px] text-stone-400">
-                <th className="px-1 py-1.5 font-medium">상품</th>
-                <th className="px-1 py-1.5 text-right font-medium">7일 판매</th>
-                <th className="px-1 py-1.5 text-right font-medium">30일</th>
-                <th className="px-1 py-1.5 text-right font-medium">7일 광고비</th>
-                <th className="px-1 py-1.5 text-right font-medium">광고 구매</th>
-                <th className="px-1 py-1.5 font-medium" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-50 tabular-nums">
-              {(r.products || []).map((p) => (
-                <tr key={p.code}>
-                  <td className="max-w-[16rem] truncate px-1 py-1.5 text-stone-800" title={p.name}>
-                    {p.name}
-                  </td>
-                  <td className="px-1 py-1.5 text-right font-semibold text-stone-900">{p.q7}장</td>
-                  <td className="px-1 py-1.5 text-right text-stone-500">{p.q30 ?? "—"}</td>
-                  <td className="px-1 py-1.5 text-right text-stone-700">{p.adSpend7 ? `${won(p.adSpend7)}원` : "0"}</td>
-                  <td className="px-1 py-1.5 text-right text-stone-700">{p.adPurchases7 ? `${p.adPurchases7}건 · ${won(p.adValue7)}원` : "—"}</td>
-                  <td className="px-1 py-1.5">
-                    {p.kind && (
-                      <span className={"rounded-full px-2 py-0.5 text-[11px] font-semibold " + (p.kind === "광고 추천" ? "bg-rose-700 text-white" : "bg-stone-100 text-stone-600")}>{p.kind}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {r.waste?.length > 0 && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
-            7일에 1만 원 넘게 썼는데 구매 0: {r.waste.map((x) => `${x.code} ${won(x.spend)}원`).join(" · ")}
-          </p>
-        )}
-      </Box>
+      <ProductTable products={r.products || []} waste={r.waste || []} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Box icon={TrendingUp} title="어제 잘 된 소재">
