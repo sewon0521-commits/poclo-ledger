@@ -143,3 +143,66 @@ export const periodLabel = (e) => {
   const md = (k) => `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`;
   return endOf(e) === e.start ? md(e.start) : `${md(e.start)} ~ ${md(endOf(e))}`;
 };
+
+// ------------------------------------------------------------------ 반복 할 일 (10/19 밤)
+// 세원: "캘린더를 우리 하나 만들까? 어떤 날짜에 어떻게 하라고?" + "일주일에 한 번 은행 엑셀 넣으라고 알려 주거나"
+// → 이벤트 캘린더에 '반복 할 일'을 얹는다. 같은 settings 'events' 값의 tasks (items 와 따로 — upsert/remove 는 items 만 고쳐서 tasks 는 그대로 남는다)
+//   task = {id, title, how, who: '세원'|'지원'|'둘 다', repeat: {type:'daily'|'weekdays'|'weekly'|'monthly', days:[요일 0=일 … 6=토] | dates:[1..31]}, time, from}
+export const WHO = ["세원", "지원", "둘 다"];
+export const WEEK_KO = ["일", "월", "화", "수", "목", "금", "토"];
+
+export function taskDue(t, k) {
+  const r = t.repeat || {};
+  if (t.from && k < t.from) return false;
+  const wd = weekday(k);
+  if (r.type === "daily") return true;
+  if (r.type === "weekdays") return wd >= 1 && wd <= 5;
+  if (r.type === "weekly") return (r.days || []).includes(wd);
+  if (r.type === "monthly") {
+    const d = Number(k.slice(8));
+    const last = new Date(Date.UTC(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 0)).getUTCDate();
+    return (r.dates || []).some((x) => x === d || (x > last && d === last)); // 31일 → 그달 마지막 날
+  }
+  return false;
+}
+
+export function repeatLabel(t) {
+  const r = t.repeat || {};
+  const time = t.time ? ` ${t.time}` : "";
+  if (r.type === "daily") return `매일${time}`;
+  if (r.type === "weekdays") return `평일${time}`;
+  if (r.type === "weekly") return `매주 ${(r.days || []).slice().sort().map((d) => WEEK_KO[d]).join("·") || "?"}${time}`;
+  if (r.type === "monthly") return `매월 ${(r.dates || []).slice().sort((a, b) => a - b).map((d) => `${d}일`).join("·") || "?"}${time}`;
+  return "";
+}
+
+/** 처음 열 때 깔아 두는 것 — 세원이 말한 것만 (고치고 지울 수 있다) */
+export const DEFAULT_TASKS = [
+  {
+    title: "통장·카드 엑셀 넣기",
+    who: "세원",
+    repeat: { type: "weekly", days: [1] },
+    how: "국민은행 인터넷뱅킹 › 거래내역조회 › 지난 7일 → 엑셀 저장\n국민카드 › 이용내역 › 지난 7일 → 엑셀 저장\n→ ERP 재무 비서에 끌어다 놓기 (재무 비서 화면은 만드는 중 — 그전엔 바탕화면 '재무_엑셀' 폴더에 모아 두기)",
+  },
+  {
+    title: "오늘출발 재고 엑셀 확인",
+    who: "세원",
+    repeat: { type: "daily" },
+    time: "06:00",
+    how: "아침 6시에 바탕화면에 이지어드민 재고 엑셀이 들어왔는지 확인 → 사무실 PC 가 오늘출발 분류·배지를 맞춰요 (자동 받기는 세팅 중)",
+  },
+  {
+    title: "사입 트래커 3분 루틴",
+    who: "세원",
+    repeat: { type: "weekdays" },
+    time: "09:00",
+    how: "보고 › 사입 트래커 → '1일 변화' → NEW 진입 칸 누르기 → '사입 상품만' 켜기 → 여러 몰에서 같이 뜬 품목·디테일 메모 → 신마에서 비슷한 상품 담기",
+  },
+  {
+    title: "끌 소재 끄기 · 키울 소재 보기",
+    who: "세원",
+    repeat: { type: "weekdays" },
+    time: "09:00",
+    how: "보고 › 소재 성적표 → '끌 것'을 광고 관리자에서 끄기 → '에이스 후보'는 같은 상품으로 변형(첫 3초·색) 만들기",
+  },
+];

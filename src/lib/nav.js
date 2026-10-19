@@ -25,6 +25,7 @@ import {
   CalendarDays,
   Newspaper,
   ScanSearch,
+  Trophy,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -45,6 +46,9 @@ export const SECTIONS = [
         items: [
           { key: "reports", label: "매일 보고", icon: Newspaper },
           { key: "tracker", label: "사입 트래커", icon: ScanSearch },
+          // 10/19 밤 세원 "가나다라 다 만들어줘" — 소재 성적표(가·다) · 콘텐츠 트래커(나·라)
+          { key: "creatives", label: "소재 성적표", icon: Trophy },
+          { key: "contentTracker", label: "콘텐츠 트래커", icon: Clapperboard },
         ],
       },
     ],

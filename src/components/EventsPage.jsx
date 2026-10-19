@@ -4,12 +4,13 @@ import { loadKey, changeKey, upsert, remove, FIELD, onSettingsChange, watchKeys 
 import { won } from "../lib/sales";
 import { newId } from "../lib/id";
 import { dayKey, dayTitle } from "../lib/journal";
-import { KEY, KINDS, kindOf, colorOf, TARGETS, CHANNELS, KIND_TODOS, TEMPLATES, newTodo, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
+import { KEY, KINDS, kindOf, colorOf, TARGETS, CHANNELS, KIND_TODOS, TEMPLATES, newTodo, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel, WHO, WEEK_KO, taskDue, repeatLabel, DEFAULT_TASKS } from "../lib/events";
 import { Sheet, SheetHead, Chips } from "./ShootBits";
 
 /**
  * 일 › 이벤트 캘린더 (lib/events.js 머리말).
  * 위 = 달력(기간 막대 · 월·목 '신상' 표시 · 빈 칸 누르면 그날 새 이벤트), 아래 = 상시 진행 / 진행 중 / 다가오는 / 지난 이벤트(그 기간 매출).
+ * 10/19 밤: '반복 할 일'(매일·평일·매주 요일·매월 날짜 + 방법 + 담당) — 맨 위 '오늘 할 일', 달력 칸 작은 줄, 매일 보고에도.
  */
 
 const MAX_LANES = 4;
@@ -39,7 +40,7 @@ function Bar({ b, onOpen }) {
   );
 }
 
-function Month({ ym, events, today, onNew, onOpen }) {
+function Month({ ym, events, tasks, today, onNew, onOpen, onTask }) {
   const weeks = useMemo(() => monthWeeks(ym), [ym]);
   return (
     <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
@@ -54,7 +55,7 @@ function Month({ ym, events, today, onNew, onOpen }) {
         const { bars, lanes } = weekBars(events, week);
         const hidden = (k) => bars.filter((b) => b.lane >= MAX_LANES && b.s <= k && b.t >= k).length;
         return (
-          <div key={week[0]} className="relative grid grid-cols-7 border-b border-stone-100 last:border-b-0" style={{ minHeight: 30 + Math.min(lanes, MAX_LANES) * 22 + 18 }}>
+          <div key={week[0]} className="relative grid grid-cols-7 border-b border-stone-100 last:border-b-0" style={{ minHeight: 30 + Math.min(lanes, MAX_LANES) * 22 + 18 + (tasks.length ? 32 : 0) }}>
             {week.map((k) => {
               const out = k.slice(0, 7) !== ym;
               const wd = weekday(k);
@@ -80,6 +81,7 @@ function Month({ ym, events, today, onNew, onOpen }) {
                     <Plus size={11} className="ml-auto text-stone-300 opacity-0 group-hover:opacity-100" />
                   </span>
                   {more > 0 && <span className="absolute bottom-0.5 left-1 text-[10px] text-stone-400">+{more}개</span>}
+                  {!out && <DayTasks list={tasks.filter((t) => taskDue(t, k))} onTask={onTask} />}
                 </button>
               );
             })}
@@ -92,6 +94,166 @@ function Month({ ym, events, today, onNew, onOpen }) {
         );
       })}
     </div>
+  );
+}
+
+/** 달력 칸 아래 — 그날 반복 할 일 (2개 + 더) */
+function DayTasks({ list, onTask }) {
+  if (!list.length) return null;
+  return (
+    <span className="absolute inset-x-1 bottom-0.5 flex flex-col gap-px">
+      {list.slice(0, 2).map((t) => (
+        <span
+          key={t.id}
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTask(t);
+          }}
+          className="truncate rounded bg-stone-100 px-1 text-[9px] leading-[14px] text-stone-600 hover:bg-stone-200"
+          title={`${t.title} · ${repeatLabel(t)} · ${t.who || ""}`}
+        >
+          ↻ {t.title}
+        </span>
+      ))}
+      {list.length > 2 && <span className="px-1 text-[9px] text-stone-400">↻ +{list.length - 2}</span>}
+    </span>
+  );
+}
+
+/** 반복 할 일 고치기 */
+function TaskEditor({ seed, onSave, onRemove, onClose }) {
+  const [x, setX] = useState(() => ({ title: "", how: "", who: "세원", time: "", repeat: { type: "weekly", days: [1] }, ...seed }));
+  const set = (p) => setX((v) => ({ ...v, ...p }));
+  const r = x.repeat || {};
+  const setR = (p) => set({ repeat: { ...r, ...p } });
+  const toggle = (arr, v) => (arr.includes(v) ? arr.filter((a) => a !== v) : [...arr, v]);
+  const ok = x.title.trim() && (r.type !== "weekly" || (r.days || []).length) && (r.type !== "monthly" || (r.dates || []).length);
+  const pill = (on) => "rounded-full border px-3 py-1 text-xs font-medium " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300");
+  return (
+    <Sheet onClose={onClose}>
+      <SheetHead title={seed.id ? "반복 할 일" : "반복 할 일 넣기"} onClose={onClose} />
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-sm">
+        <label className="block space-y-1">
+          <span className="text-xs text-stone-500">할 일</span>
+          <input value={x.title} onChange={(e) => set({ title: e.target.value })} placeholder="예: 통장·카드 엑셀 넣기" className={FIELD} />
+        </label>
+        <div className="space-y-1.5">
+          <span className="text-xs text-stone-500">언제</span>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              ["daily", "매일"],
+              ["weekdays", "평일"],
+              ["weekly", "매주"],
+              ["monthly", "매월"],
+            ].map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setR({ type: k })} className={pill(r.type === k)}>
+                {l}
+              </button>
+            ))}
+            <input type="time" value={x.time || ""} onChange={(e) => set({ time: e.target.value })} className="rounded-full border border-stone-200 px-2 py-0.5 text-xs" title="시각 (선택)" />
+          </div>
+          {r.type === "weekly" && (
+            <div className="flex flex-wrap gap-1">
+              {WEEK_KO.map((w, i) => (
+                <button key={w} type="button" onClick={() => setR({ days: toggle(r.days || [], i) })} className={pill((r.days || []).includes(i))}>
+                  {w}
+                </button>
+              ))}
+            </div>
+          )}
+          {r.type === "monthly" && (
+            <div className="grid grid-cols-8 gap-1">
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                <button key={d} type="button" onClick={() => setR({ dates: toggle(r.dates || [], d) })} className={"rounded-md border py-1 text-xs tabular-nums " + ((r.dates || []).includes(d) ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 text-stone-600")}>
+                  {d}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <span className="text-xs text-stone-500">누가</span>
+          <div className="flex gap-1.5">
+            {WHO.map((w) => (
+              <button key={w} type="button" onClick={() => set({ who: w })} className={pill(x.who === w)}>
+                {w}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block space-y-1">
+          <span className="text-xs text-stone-500">어떻게 (순서·어디서)</span>
+          <textarea value={x.how} onChange={(e) => set({ how: e.target.value })} rows={5} placeholder="예: 국민은행 › 거래내역조회 › 지난 7일 엑셀 → ERP 재무 비서에 끌어다 놓기" className={FIELD + " leading-relaxed"} />
+        </label>
+      </div>
+      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-stone-200 px-4 py-3">
+        {seed.id ? (
+          <button type="button" onClick={() => confirm("이 반복 할 일을 지울까요?") && onRemove(seed.id)} className="flex items-center gap-1 text-xs text-stone-500 hover:text-rose-700">
+            <Trash2 size={13} /> 지우기
+          </button>
+        ) : (
+          <span className="text-xs text-stone-400">{repeatLabel(x)}</span>
+        )}
+        <button type="button" disabled={!ok} onClick={() => onSave({ ...x, title: x.title.trim(), id: seed.id || newId("tk"), from: seed.from || dayKey() })} className="rounded-xl bg-rose-700 px-6 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300">
+          저장
+        </button>
+      </footer>
+    </Sheet>
+  );
+}
+
+/** 오늘 할 일 + 반복 할 일 목록 */
+function TasksPanel({ tasks, today, onTask, onNew }) {
+  const [open, setOpen] = useState(false);
+  const due = tasks.filter((t) => taskDue(t, today));
+  return (
+    <section className="rounded-2xl border border-stone-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3.5 pb-2">
+        <h3 className="text-sm font-bold text-stone-900">
+          오늘 할 일 <span className="font-normal text-stone-400">{dayTitle(today)} · 반복 할 일 {due.length}개</span>
+        </h3>
+        <span className="flex items-center gap-2">
+          <button type="button" onClick={() => setOpen(!open)} className="text-xs text-stone-500 hover:text-stone-800">
+            반복 할 일 전체 {tasks.length} <ChevronDown size={12} className={"inline " + (open ? "rotate-180" : "")} />
+          </button>
+          <button type="button" onClick={onNew} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2 py-1 text-xs text-stone-700 hover:border-rose-300">
+            <Plus size={12} /> 반복 할 일
+          </button>
+        </span>
+      </div>
+      <ul className="divide-y divide-stone-100 px-4 pb-2">
+        {due.map((t) => (
+          <li key={t.id}>
+            <button type="button" onClick={() => onTask(t)} className="w-full py-2 text-left">
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                <b className="text-sm text-stone-900">↻ {t.title}</b>
+                <span className="text-[11px] text-stone-400">
+                  {repeatLabel(t)} · {t.who}
+                </span>
+              </span>
+              {t.how && <span className="mt-0.5 block text-xs leading-relaxed whitespace-pre-line text-stone-600">{t.how}</span>}
+            </button>
+          </li>
+        ))}
+        {!due.length && <li className="py-2 text-xs text-stone-400">오늘은 반복 할 일이 없어요.</li>}
+      </ul>
+      {open && (
+        <ul className="divide-y divide-stone-100 border-t border-stone-100 px-4 py-1">
+          {tasks.map((t) => (
+            <li key={t.id}>
+              <button type="button" onClick={() => onTask(t)} className="flex w-full items-baseline justify-between gap-2 py-1.5 text-left text-xs">
+                <span className="text-stone-800">↻ {t.title}</span>
+                <span className="shrink-0 text-stone-400">
+                  {repeatLabel(t)} · {t.who}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -361,10 +523,19 @@ export default function EventsPage({ online, rows }) {
   const [ym, setYm] = useState(today.slice(0, 7));
   const [kind, setKind] = useState("");
   const [showPast, setShowPast] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [taskEdit, setTaskEdit] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      setList((await loadKey(KEY, online)).items || []);
+      const v = await loadKey(KEY, online);
+      setList(v.items || []);
+      if (v.tasks === undefined) {
+        // 처음 한 번 — 세원이 말한 반복 할 일을 깔아 둔다(고치고 지울 수 있다)
+        const seeded = DEFAULT_TASKS.map((t) => ({ ...t, id: newId("tk"), from: dayKey() }));
+        const next = await changeKey(KEY, online, (cur) => (cur.tasks === undefined ? { ...cur, tasks: seeded } : cur));
+        setTasks(next.tasks || []);
+      } else setTasks(v.tasks || []);
     } catch {
       setMsg("이벤트를 불러오지 못했어요. 인터넷을 확인해 주세요.");
     } finally {
@@ -383,6 +554,15 @@ export default function EventsPage({ online, rows }) {
     };
   }, [load]);
 
+  const saveTasks = async (fn) => {
+    try {
+      const next = await changeKey(KEY, online, (v) => ({ ...v, tasks: fn(v.tasks || []) }));
+      setTasks(next.tasks || []);
+      setTaskEdit(null);
+    } catch (e) {
+      setMsg(e.message || "저장하지 못했어요.");
+    }
+  };
   const save = async (fn) => {
     try {
       setList((await changeKey(KEY, online, fn)).items || []);
@@ -452,9 +632,11 @@ export default function EventsPage({ online, rows }) {
         </div>
       </div>
 
-      <Month ym={ym} events={shown} today={today} onNew={(k) => setEdit({ start: k, end: k })} onOpen={setEdit} />
+      <TasksPanel tasks={tasks} today={today} onTask={setTaskEdit} onNew={() => setTaskEdit({})} />
+
+      <Month ym={ym} events={shown} tasks={tasks} today={today} onNew={(k) => setEdit({ start: k, end: k })} onOpen={setEdit} onTask={setTaskEdit} />
       <p className="-mt-2 px-1 text-[11px] text-stone-400">
-        <CalendarDays size={11} className="mr-0.5 inline align-[-1px]" /> 빈 칸을 누르면 그날 이벤트를 넣어요 · 월·목 '신상'은 신상 드랍 날(주간 루틴)
+        <CalendarDays size={11} className="mr-0.5 inline align-[-1px]" /> 빈 칸을 누르면 그날 이벤트를 넣어요 · 월·목 '신상'은 신상 드랍 날(주간 루틴) · ↻ 는 반복 할 일
       </p>
 
       {loaded && !list.length ? (
@@ -484,6 +666,15 @@ export default function EventsPage({ online, rows }) {
         </>
       )}
 
+      {taskEdit && (
+        <TaskEditor
+          key={taskEdit.id || "new"}
+          seed={taskEdit}
+          onClose={() => setTaskEdit(null)}
+          onSave={(t) => saveTasks((ts) => (ts.some((x) => x.id === t.id) ? ts.map((x) => (x.id === t.id ? t : x)) : [...ts, t]))}
+          onRemove={(id) => saveTasks((ts) => ts.filter((x) => x.id !== id))}
+        />
+      )}
       {edit && <Editor key={edit.id || "new" + edit.start} seed={edit} rows={rows} today={today} onClose={() => setEdit(null)} onSave={(e) => save(upsert(e))} onRemove={(id) => save(remove(id))} />}
     </div>
   );
