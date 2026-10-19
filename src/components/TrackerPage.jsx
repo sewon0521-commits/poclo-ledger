@@ -79,7 +79,7 @@ function Section({ title, sub, list, baseLabel, limit = 15, open: startOpen = tr
       </button>
       {open && (
         <>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-6">
             {shown.map((it) => (
               <Item key={it.host + it.id + (it.gone ? "g" : "")} it={it} baseLabel={baseLabel} />
             ))}
@@ -381,7 +381,7 @@ function AllProducts({ items, board, span, first, baseLabel, onlyNew, setOnlyNew
       {!list.length && <p className="rounded-xl border border-dashed border-stone-300 bg-white py-10 text-center text-sm text-stone-400">조건에 맞는 상품이 없어요.</p>}
       {!groups && list.length > 0 && (
         <>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-6">
             {list.slice(0, n).map((it) => (
               <Item key={it.host + it.id} it={it} baseLabel={baseLabel} />
             ))}
@@ -409,7 +409,7 @@ function Group({ title, arr, sub, baseLabel }) {
         <span className="text-sm font-bold text-stone-900">{title}</span>
         <span className="text-[11px] text-stone-400">{sub}</span>
       </div>
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-6">
         {shown.map((it) => (
           <Item key={it.host + it.id} it={it} baseLabel={baseLabel} />
         ))}
@@ -420,6 +420,77 @@ function Group({ title, arr, sub, baseLabel }) {
         </button>
       )}
     </div>
+  );
+}
+
+/** 사입 전 3분 루틴 — 접는 가이드 (10/19 세원: "쇼만마 사입 대시보드 가이드를 토글로"). 쇼만마 가이드의 순서를 우리 화면·우리 기준으로 다시 씀 */
+function Step({ n, title, children }) {
+  return (
+    <li className="flex gap-2.5">
+      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-700 text-[11px] font-bold text-white">{n}</span>
+      <span>
+        <b className="text-stone-900">{title}</b>
+        <span className="block text-stone-600">{children}</span>
+      </span>
+    </li>
+  );
+}
+const GUIDE_KEY = "poclo_trk_guide";
+function Guide() {
+  const [open, setOpenState] = useState(() => {
+    try {
+      return localStorage.getItem(GUIDE_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const setOpen = (v) => {
+    setOpenState(v);
+    try {
+      localStorage.setItem(GUIDE_KEY, v ? "1" : "0");
+    } catch {
+      /* 무시 */
+    }
+  };
+  return (
+    <section className="rounded-2xl border border-rose-100 bg-gradient-to-br from-rose-50/70 to-white">
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left">
+        <span className="flex items-baseline gap-2">
+          <b className="text-sm text-stone-900">사입 전 3분 루틴</b>
+          <span className="text-[11px] text-stone-500">이 화면 보는 법 · 매일 아침 사입 정하기 전에</span>
+        </span>
+        <ChevronDown size={15} className={"shrink-0 text-stone-400 transition " + (open ? "rotate-180" : "")} />
+      </button>
+      {open && (
+        <div className="grid gap-4 border-t border-rose-100 px-4 py-4 text-[13px] leading-relaxed lg:grid-cols-3">
+          <div className="space-y-1.5">
+            <div className="text-xs font-bold text-rose-800">이건 상품 목록이 아니라 '신호'예요</div>
+            <p className="text-stone-600">
+              경쟁몰 베스트 상위 30개를 매일 아침 8시 30분에 모아서, <b>어제(또는 7일 전)와 비교해 새로 들어오거나 오른 상품만</b> 골라 보여 줘요.
+            </p>
+            <p className="text-stone-600">
+              <b>순위는 과거</b> — 이미 많이 팔린 결과라 다들 알아요. <b>변화는 오늘</b> — 막 팔리기 시작한 흐름이라, 하루라도 먼저 잡으면 재고 회전과 마진에서 앞서요.
+            </p>
+          </div>
+          <ol className="space-y-2">
+            <Step n="1" title="'1일 변화' → 위 'NEW 진입' 칸 누르기">오늘 새로 들어온 상품이 순위 높은 것부터 떠요.</Step>
+            <Step n="2" title="'사입 상품만(MADE 빼기)' 켜기">몰이 직접 만든 상품은 동대문에서 못 가져와요.</Step>
+            <Step n="3" title="여러 몰 동시 인기 품목 펼치기">품목을 누르면 크롭·셔링·레이스 같은 디테일 키워드가 몰 수 순으로 나와요. 여러 몰에서 같이 뜨면 우연이 아니에요.</Step>
+            <Step n="4" title="오늘 사입 목록에 옮기기">신마에서 비슷한 상품을 찾아 신상 관리에 담아요. 이틀·사흘 이어지는 신호는 '7일 변화'로 한 번 더 봐요.</Step>
+          </ol>
+          <div className="space-y-1.5">
+            <div className="text-xs font-bold text-rose-800">우리 기준으로 거르기</div>
+            <ul className="space-y-1 text-stone-600">
+              <li>· 2030 데일리, 150~160cm 스트레이트 체형에 맞는지 먼저</li>
+              <li>· 한 몰에서만 뜬 건 그 몰 광고 덕일 수 있어요 → <b>2곳 이상 · 2일 이상</b>이면 신호</li>
+              <li>· 3일 넘게 10위 안에 버티는 상품은 검증된 스테디 → 색·기장 바꿔 가져오기</li>
+              <li>· '가장 많은 가격대'와 우리 판매가 구간을 맞춰 보기</li>
+            </ul>
+            <p className="pt-1 text-[11px] text-stone-400">NEW = 비교한 날 베스트에 없던 상품(새로 넣은 몰은 빼고) · ▲ = 순위 오름 · MADE = 자체제작 · 사입 신호순 = NEW → 여러 몰 품목 → 순위</p>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -682,6 +753,8 @@ export default function TrackerPage({ online }) {
           <Settings2 size={14} /> 경쟁몰 {conf.filter((m) => !m.off).length || allMalls.length}곳 관리
         </button>
       </div>
+
+      <Guide />
 
       {state === "loading" && <p className="py-10 text-center text-sm text-stone-400">불러오는 중…</p>}
       {state === "error" && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">트래커를 불러오지 못했어요.</p>}
