@@ -494,6 +494,45 @@ function Guide() {
   );
 }
 
+/** 메타 광고 페이지 — comp_ads.py 가 몰 이름으로 찾아 기억(fbPage). 못 찾으면 광고 라이브러리 주소를 붙여 넣는다 */
+function AdPage({ m, busy, onSet }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState("");
+  if (edit)
+    return (
+      <span className="mt-1 flex items-center gap-1">
+        <input value={v} onChange={(e) => setV(e.target.value)} placeholder="광고 라이브러리 주소 (view_all_page_id=… 가 든 것)" className="min-w-0 flex-1 rounded-md border border-stone-300 px-2 py-0.5 text-[11px] outline-none focus:border-rose-600" />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            const id = (v.match(/view_all_page_id=(\d+)/) || v.match(/^\s*(\d{6,})\s*$/) || [])[1];
+            if (id) onSet(id);
+            setEdit(false);
+          }}
+          className="rounded-md bg-rose-700 px-2 py-0.5 text-[11px] text-white"
+        >
+          넣기
+        </button>
+      </span>
+    );
+  return (
+    <span className="block text-[11px] text-stone-400">
+      메타 광고:{" "}
+      {m.fbPage ? (
+        <a href={`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=KR&search_type=page&view_all_page_id=${m.fbPage}`} target="_blank" rel="noreferrer" className="text-stone-500 hover:text-rose-700">
+          {m.fbPageName || "페이지"} ↗
+        </a>
+      ) : (
+        <span className="text-amber-700">페이지 못 찾음</span>
+      )}{" "}
+      <button type="button" onClick={() => setEdit(true)} className="underline decoration-dotted hover:text-rose-700">
+        {m.fbPage ? "바꾸기" : "주소 넣기"}
+      </button>
+    </span>
+  );
+}
+
 /** 경쟁몰 관리 — settings 'tracker_malls' {items:[{name, host, style, best?, off?, addedOn?, offOn?}]} */
 function MallSheet({ online, conf, snap, onClose }) {
   const [list, setList] = useState(conf);
@@ -592,6 +631,7 @@ function MallSheet({ online, conf, snap, onClose }) {
                         <a href={m.best || `https://${m.host}/`} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-stone-400 hover:text-rose-700">
                           {(m.best || m.host).replace(/^https?:\/\//, "")}
                         </a>
+                        <AdPage m={m} busy={busy} onSet={(fbPage) => patch(m.host, { fbPage, fbPageName: "" }, fbPage ? `${m.name} 광고 페이지를 넣었어요 — 내일 아침부터 광고를 모아요.` : "")} />
                       </span>
                       <select value={m.style} disabled={busy} onChange={(e) => patch(m.host, { style: e.target.value })} className="rounded-md border border-stone-200 bg-white px-1.5 py-1 text-xs text-stone-600">
                         {STYLES.map((x) => (
