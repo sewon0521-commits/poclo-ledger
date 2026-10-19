@@ -614,7 +614,7 @@ export default function App() {
               ) : page === "tracker" ? (
                 <TrackerPage online={L.mode === "remote" && !!L.session} />
               ) : page === "reports" ? (
-                <ReportPage online={L.mode === "remote" && !!L.session} />
+                <ReportPage online={L.mode === "remote" && !!L.session} rows={S.rows} />
               ) : page === "events" ? (
                 <EventsPage online={L.mode === "remote" && !!L.session} rows={S.rows} />
               ) : page === "subs" ? (

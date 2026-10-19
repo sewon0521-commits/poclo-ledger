@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Sparkles, ListTodo, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
 import { loadKey, onSettingsChange } from "../lib/shoot";
+import { SPANS, rangeOf, rangeLabel, vsLabel, spanStats, productRows, adCountsIn, addDays } from "../lib/reportPeriod";
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
 
@@ -8,6 +9,8 @@ import { dayTitle } from "../lib/journal";
  * 보고 › 매일 보고 (2026-10-19, 위키 topics/보고-체계-설계.md).
  * 사무실 PC 가 아침 8시 30분에 poclo-cafe24/daily_report.py 로 만든다 → settings 'report_<날짜>' + 목록 'reports'.
  * 쇼만마 주간 보고 항목(매출·주문·광고비·광고비율·ROAS·CPC·상품별 광고 기여·소재)을 매일, 우리 숫자로.
+ * 10/19 저녁: 숫자 격자·상품 표는 기간을 바꿔 본다(하루·7일·한 달·3개월·6개월·직접 — lib/reportPeriod.js),
+ * 광고 수는 '전체(만든 것) · 지금 켜짐 · 이 기간에 만든 것'으로 나눠 보여 준다.
  */
 
 const pct = (v, d = 1) => (v == null ? "—" : `${Number(v).toFixed(d)}%`);
@@ -24,20 +27,20 @@ const man = (v) => {
 const ratio = (a, b) => (b ? a / b : null);
 
 /** 지난 7일 대비 한 줄 — 좋아진 쪽이 초록 */
-function Vs({ now, prev, good = "up" }) {
+function Vs({ now, prev, good = "up", vs = "vs 지난 7일" }) {
   const c = change(now, prev);
-  if (c == null || !Number.isFinite(c)) return <div className="font-mono text-[11px] text-stone-300">— vs 지난 7일</div>;
+  if (c == null || !Number.isFinite(c)) return <div className="text-[11px] text-stone-300">— {vs}</div>;
   const up = c >= 0;
   const ok = good === "up" ? up : !up;
   return (
     <div className={"font-mono text-[11px] " + (ok ? "text-emerald-600" : "text-rose-600")}>
       {up ? "▲" : "▼"} {up ? "+" : ""}
-      {(c * 100).toFixed(1)}% <span className="text-stone-400">vs 지난 7일</span>
+      {(c * 100).toFixed(1)}% <span className="font-sans text-stone-400">{vs}</span>
     </div>
   );
 }
 
-function Kpi({ label, value, unit, sub, now, prev, good, mark }) {
+function Kpi({ label, value, unit, sub, now, prev, good, mark, vs }) {
   return (
     <div className="flex flex-col gap-1.5 border-b border-stone-200 px-4 py-4 sm:border-r [&:nth-child(2n)]:border-r-0 lg:[&:nth-child(2n)]:border-r lg:[&:nth-child(4n)]:border-r-0">
       <div className="flex items-start justify-between gap-2">
@@ -48,19 +51,19 @@ function Kpi({ label, value, unit, sub, now, prev, good, mark }) {
         </span>
       </div>
       <div className="min-h-[18px] text-xs text-stone-500 tabular-nums">{mark || sub}</div>
-      <Vs now={now} prev={prev} good={good} />
+      <Vs now={now} prev={prev} good={good} vs={vs} />
     </div>
   );
 }
 
-/** 쇼만마 주간 보고 카드 12칸 — 최근 7일, 지난 7일 대비 */
-function KpiGrid({ w, pw, target }) {
+/** 쇼만마 주간 보고 카드 12칸 — 고른 기간, 바로 앞 같은 길이 대비 */
+function KpiGrid({ w, pw, target, title = "최근 7일", vs, picker, counts, note }) {
   const rows = [
     // [이름, 값, 단위?, 보조, 지금, 지난, 좋은 쪽]
     ["매출", ...man(w.revenue), `순매출 ${man((w.revenue || 0) - (w.refund || 0)).join("")}`, w.revenue, pw.revenue, "up"],
-    ["CPA", ...man(ratio(w.ads, w.orders)), `주문수 ${w.orders || 0}건`, ratio(w.ads, w.orders), ratio(pw.ads, pw.orders), "down"],
+    ["CPA", ...man(ratio(w.adsOrd ?? w.ads, w.orders)), `주문수 ${w.orders || 0}건`, ratio(w.adsOrd ?? w.ads, w.orders), ratio(pw.adsOrd ?? pw.ads, pw.orders), "down"],
     ["ROAS", ratio(w.revenue, w.ads)?.toFixed(2) ?? "—", "x", "총매출 ÷ 광고비", ratio(w.revenue, w.ads), ratio(pw.revenue, pw.ads), "up"],
-    ["객단가", ...man(ratio(w.revenue, w.orders)), "매출 ÷ 주문수", ratio(w.revenue, w.orders), ratio(pw.revenue, pw.orders), "up"],
+    ["객단가", ...man(ratio(w.revOrd ?? w.revenue, w.orders)), "매출 ÷ 주문수", ratio(w.revOrd ?? w.revenue, w.orders), ratio(pw.revOrd ?? pw.revenue, pw.orders), "up"],
     ["환불", ...man(w.refund), w.revenue ? `매출 대비 ${pct(((w.refund || 0) / w.revenue) * 100)}` : "", w.refund, pw.refund, "down"],
     ["광고 CPA", ...man(ratio(w.metaSpend, w.metaPurchases)), `광고구매수 ${w.metaPurchases ?? 0}건`, ratio(w.metaSpend, w.metaPurchases), ratio(pw.metaSpend, pw.metaPurchases), "down"],
     ["광고 ROAS", ratio(w.metaValue, w.metaSpend)?.toFixed(2) ?? "—", "x", `광고매출 ${man(w.metaValue).join("")}`, ratio(w.metaValue, w.metaSpend), ratio(pw.metaValue, pw.metaSpend), "up"],
@@ -73,9 +76,27 @@ function KpiGrid({ w, pw, target }) {
   const over = w.adRate != null && w.adRate > target;
   return (
     <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b-2 border-stone-900 px-4 pt-3.5 pb-2.5">
-        <h3 className="text-sm font-bold text-stone-900">최근 7일</h3>
-        <span className="text-[11px] text-stone-400">광고 숫자는 메타 기준(7일 클릭) · 1일 클릭은 광고를 누르고 하루 안에 산 것만</span>
+      <div className="space-y-2 border-b-2 border-stone-900 px-4 pt-3.5 pb-2.5">
+        {picker}
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-sm font-bold text-stone-900">{title}</h3>
+          <span className="text-[11px] text-stone-400">광고 숫자는 메타 기준(7일 클릭) · 1일 클릭은 광고를 누르고 하루 안에 산 것만</span>
+        </div>
+        {counts && (
+          <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-stone-600 tabular-nums">
+            <span>
+              광고 <b className="text-stone-900">전체 {counts.total}개</b>
+            </span>
+            <span>
+              지금 켜짐 <b className={counts.active ? "text-emerald-700" : "text-stone-900"}>{counts.active}개</b>
+            </span>
+            <span>
+              이 기간에 만든 것 <b className="text-stone-900">{counts.made}개</b>
+            </span>
+            {counts.at && <span className="text-stone-400">켜짐은 {counts.at.slice(5, 10).replace("-", "/")} {counts.at.slice(11, 16)} 기준</span>}
+          </p>
+        )}
+        {note && <p className="text-[11px] text-stone-400">{note}</p>}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {rows.map(([label, value, unit, sub, now, prev, good]) => (
@@ -88,6 +109,7 @@ function KpiGrid({ w, pw, target }) {
             now={now}
             prev={prev}
             good={good}
+            vs={vs}
             mark={
               label === "광고비" ? (
                 <span className={"rounded px-1.5 py-0.5 font-semibold " + (over ? "bg-amber-200 text-amber-950" : "bg-emerald-100 text-emerald-800")}>
@@ -140,17 +162,19 @@ const KIND_TONE = {
   "광고 비효율": "bg-amber-50 text-amber-800 ring-amber-200",
 };
 
-/** 쇼만마 '상품별 광고 기여(AD-ORDER PRODUCT MATCH)' — 유형 · 상품 · 광고비 · 광고 구매 비율 · 광고구매수(1일) · 판매 · 광고 수 */
-function ProductTable({ products, waste }) {
-  const top = new Set([...products].sort((a, b) => b.q7 - a.q7).slice(0, 5).map((p) => p.code));
+/** 쇼만마 '상품별 광고 기여(AD-ORDER PRODUCT MATCH)' — 유형 · 상품 · 광고비 · 광고 구매 비율 · 광고 구매(1일) · 판매 · 광고 수
+ *  줄 = lib/reportPeriod.productRows 모양 {code, name, image, q, spend, value, pu, pu1, adsTotal, adsActive, adsMade, kind, top} */
+function ProductTable({ rows, waste, title }) {
+  const [n, setN] = useState(15);
+  const shown = rows.slice(0, n);
   return (
     <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b-2 border-stone-900 px-4 pt-3.5 pb-2.5">
-        <h3 className="text-sm font-bold text-stone-900">상품별 광고 기여 · 최근 7일</h3>
+        <h3 className="text-sm font-bold text-stone-900">상품별 광고 기여 · {title}</h3>
         <span className="text-[11px] text-stone-400">광고 이름의 상품명으로 이어요 · 광고 구매 비율 = 광고로 산 건수 ÷ 판매 장수(대략)</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b border-stone-200 bg-stone-50 text-left text-[11px] font-semibold text-stone-500">
               <th className="px-4 py-2 font-semibold">유형</th>
@@ -159,19 +183,28 @@ function ProductTable({ products, waste }) {
               <th className="px-2 py-2 text-right font-semibold">광고 구매 비율</th>
               <th className="px-2 py-2 text-right font-semibold">광고 구매 (1일 클릭)</th>
               <th className="px-2 py-2 text-right font-semibold">판매</th>
-              <th className="px-4 py-2 text-right font-semibold">광고 수</th>
+              <th className="px-4 py-2 text-right font-semibold">
+                광고 수<span className="block font-normal text-stone-400">켜짐 / 전체</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100 tabular-nums">
-            {products.map((p) => {
+            {!rows.length && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-xs text-stone-400">
+                  이 기간에 팔린 상품·광고가 없어요.
+                </td>
+              </tr>
+            )}
+            {shown.map((p) => {
               // 광고 구매가 판매 장수보다 많을 수 있다(광고를 누르고 다른 상품을 같이 산 것) — 100% 넘으면 '100%+'
-              const raw = p.q7 ? ((p.adPurchases7 || 0) / p.q7) * 100 : 0;
+              const raw = p.q ? ((p.pu || 0) / p.q) * 100 : 0;
               const share = Math.min(100, Math.round(raw));
               return (
                 <tr key={p.code} className="hover:bg-stone-50/70">
                   <td className="px-4 py-2.5 align-middle">
                     <div className="flex flex-col items-start gap-1">
-                      {top.has(p.code) && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-stone-600 ring-1 ring-stone-200">판매 상위</span>}
+                      {p.top && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-stone-600 ring-1 ring-stone-200">판매 상위</span>}
                       {p.kind && <span className={"rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 " + (KIND_TONE[p.kind] || "")}>{p.kind}</span>}
                     </div>
                   </td>
@@ -180,43 +213,110 @@ function ProductTable({ products, waste }) {
                       <span className="h-12 w-9 shrink-0 overflow-hidden rounded-md bg-stone-100">{p.image && <img src={p.image} alt="" loading="lazy" className="h-full w-full object-cover" />}</span>
                       <span className="min-w-0">
                         <span className="line-clamp-2 font-medium text-stone-900">{p.name}</span>
-                        <span className="text-[11px] text-stone-400">30일 {p.q30 ?? 0}장</span>
+                        {!p.q && !p.image && <span className="text-[11px] text-stone-400">광고 이름으로만 알아요</span>}
                       </span>
                     </div>
                   </td>
-                  <td className="px-2 py-2.5 text-right font-semibold text-stone-900">{p.adSpend7 ? `${man(p.adSpend7).join("")}` : <span className="text-stone-300">0</span>}</td>
+                  <td className="px-2 py-2.5 text-right font-semibold text-stone-900">{p.spend ? man(p.spend).join("") : <span className="text-stone-300">0</span>}</td>
                   <td className="px-2 py-2.5 text-right">
                     <div className="ml-auto flex w-24 items-center justify-end gap-1.5">
                       <span className="h-1.5 w-12 overflow-hidden rounded-full bg-stone-100">
                         <span className="block h-full rounded-full bg-rose-600" style={{ width: `${share}%` }} />
                       </span>
-                      <span className="w-10 text-right text-stone-700" title={raw > 100 ? "광고를 누르고 다른 상품을 같이 산 것도 들어가서 100%를 넘어요" : undefined}>{raw > 100 ? "100%+" : `${share}%`}</span>
+                      <span className="w-10 text-right text-stone-700" title={raw > 100 ? "광고를 누르고 다른 상품을 같이 산 것도 들어가서 100%를 넘어요" : undefined}>
+                        {raw > 100 ? "100%+" : `${share}%`}
+                      </span>
                     </div>
                   </td>
                   <td className="px-2 py-2.5 text-right text-stone-700">
-                    {p.adPurchases7 ? (
+                    {p.pu ? (
                       <>
-                        {p.adPurchases7}건 <span className="text-stone-400">({p.adPurchases1d7 ?? 0})</span>
-                        <span className="block text-[11px] text-stone-400">{man(p.adValue7).join("")}</span>
+                        {p.pu}건 <span className="text-stone-400">({p.pu1 ?? 0})</span>
+                        <span className="block text-[11px] text-stone-400">{man(p.value).join("")}</span>
                       </>
                     ) : (
                       <span className="text-stone-300">—</span>
                     )}
                   </td>
-                  <td className="px-2 py-2.5 text-right font-semibold text-stone-900">{p.q7}장</td>
-                  <td className="px-4 py-2.5 text-right text-stone-500">{p.adCount || 0}</td>
+                  <td className="px-2 py-2.5 text-right font-semibold text-stone-900">{p.q}장</td>
+                  <td className="px-4 py-2.5 text-right text-stone-500">
+                    {p.adsTotal ? (
+                      <>
+                        <b className={p.adsActive ? "text-emerald-700" : "text-stone-400"}>{p.adsActive}</b> / {p.adsTotal}
+                        {p.adsMade > 0 && <span className="block text-[11px] text-stone-400">이 기간 {p.adsMade}개 만듦</span>}
+                      </>
+                    ) : (
+                      <span className="text-stone-300">0</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      {rows.length > n && (
+        <button type="button" onClick={() => setN(n + 20)} className="w-full border-t border-stone-100 py-2 text-xs text-stone-500 hover:text-rose-700">
+          {rows.length - n}개 더 보기
+        </button>
+      )}
       {waste.length > 0 && (
         <p className="border-t border-stone-100 bg-amber-50/60 px-4 py-2 text-xs text-amber-900">
-          7일에 1만 원 넘게 썼는데 광고 구매 0: {waste.map((x) => `${x.code} ${won(x.spend)}원`).join(" · ")}
+          1만 원 넘게 썼는데 광고 구매 0: {waste.map((x) => `${x.name || x.code} ${won(x.spend)}원`).join(" · ")}
         </p>
       )}
     </section>
+  );
+}
+
+/** 하루 단위 기록이 아직 없을 때 — 아침 보고에 담긴 7일 상품 표를 같은 모양으로 */
+function fromReport(products) {
+  const list = products || [];
+  const top = new Set([...list].sort((a, b) => b.q7 - a.q7).slice(0, 5).map((p) => p.code));
+  return list.map((p) => ({
+    code: p.code,
+    name: p.name,
+    image: p.image,
+    q: p.q7 || 0,
+    spend: p.adSpend7 || 0,
+    value: p.adValue7 || 0,
+    pu: p.adPurchases7 || 0,
+    pu1: p.adPurchases1d7 || 0,
+    adsTotal: p.adsTotal ?? p.adCount ?? 0,
+    adsActive: p.adsActive ?? 0,
+    adsMade: 0,
+    kind: p.kind,
+    top: top.has(p.code),
+  }));
+}
+
+const SPAN_KEY = "poclo_report_span";
+const readSpan = () => {
+  try {
+    return localStorage.getItem(SPAN_KEY) || "7";
+  } catch {
+    return "7";
+  }
+};
+
+function SpanPicker({ spanId, setSpanId, custom, setCustom, end }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex gap-0.5 overflow-x-auto rounded-full bg-stone-100 p-0.5 [scrollbar-width:none]">
+        {SPANS.map((x) => (
+          <button key={x.id} type="button" onClick={() => setSpanId(x.id)} className={"shrink-0 rounded-full px-3 py-1 text-xs font-semibold " + (spanId === x.id ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800")}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      {spanId === "custom" && (
+        <span className="flex items-center gap-1 text-xs text-stone-500">
+          <input type="date" value={custom.start} max={end} onChange={(e) => setCustom({ ...custom, start: e.target.value })} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-800" />
+          ~
+          <input type="date" value={custom.end} max={end} onChange={(e) => setCustom({ ...custom, end: e.target.value })} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-800" />
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -241,10 +341,30 @@ function AdList({ list, empty }) {
   );
 }
 
-function Report({ r }) {
+function Report({ r, hist, rows }) {
   const y = r.yesterday || {};
-  const w = r.week || {};
-  const pw = r.prevWeek || {};
+  const [spanId, setSpanIdState] = useState(readSpan);
+  const [custom, setCustom] = useState(() => ({ start: addDays(r.date, -29), end: r.date }));
+  const setSpanId = (v) => {
+    setSpanIdState(v);
+    try {
+      localStorage.setItem(SPAN_KEY, v);
+    } catch {
+      /* 무시 */
+    }
+  };
+  const rg = rangeOf(spanId, r.date, custom);
+  // 하루 단위 기록(메타·판매)이 있으면 어떤 기간이든 센다. 없으면 아침 보고에 담긴 7일 숫자만.
+  const canSpan = !!hist?.meta?.days && rows?.length > 0;
+  const w = canSpan ? spanStats(rows, hist.meta.days, rg.start, rg.end) : r.week || {};
+  // 앞 기간이 매출 장부 첫 기록(2/21)보다 앞이면 비교하지 않는다(6개월 vs 그 전 6개월 +20,000% 같은 숫자가 나와서)
+  const pwRaw = canSpan ? spanStats(rows, hist.meta.days, rg.prevStart, rg.prevEnd) : r.prevWeek || {};
+  const pw = canSpan && pwRaw.noData ? {} : pwRaw;
+  const prodRows = canSpan && hist.prod?.days ? productRows({ prod: hist.prod, metaProd: hist.metaProd, metaAds: hist.ads, s: rg.start, e: rg.end }) : fromReport(r.products);
+  const wasteLine = canSpan && hist.prod?.days ? prodRows.filter((p) => p.spend >= Math.max(5000, Math.round((10000 * rg.n) / 7)) && !p.pu) : r.waste || [];
+  const counts = hist?.ads ? adCountsIn(hist.ads, rg.start, rg.end) : r.adCounts ? { ...r.adCounts, made: r.adCounts.made7 } : null;
+  const spanName = { 1: "하루", 7: "최근 7일", 30: "최근 한 달", 90: "최근 3개월", 180: "최근 6개월" }[spanId] || `직접 지정 ${rg.n}일`;
+  const title = canSpan || spanId === "7" ? `${spanName} · ${rangeLabel(rg)}` : "최근 7일";
   const m = y.meta || {};
   const off = !m.spend;
   const evs = r.events || {};
@@ -301,9 +421,33 @@ function Report({ r }) {
         {y.weekend && !m.spend && <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600">주말 광고 쉬는 날</span>}
       </p>
 
-      <KpiGrid w={w} pw={pw} target={r.target || 10} />
+      <KpiGrid
+        w={w}
+        pw={pw}
+        target={r.target || 10}
+        title={title}
+        vs={canSpan ? vsLabel(rg, spanId) : "vs 지난 7일"}
+        counts={counts}
+        note={
+          canSpan
+            ? [
+                w.adsFromMeta ? `광고비 중 ${w.adsFromMeta}일은 매출 장부에 안 적혀 있어서 메타 값으로 셌어요.` : "",
+                w.ordPartial ? `주문 수는 ${w.firstOrd.slice(5).replace("-", "/")}부터 있어서 CPA·객단가는 그 뒤만 셌어요.` : "",
+                pwRaw.noData ? "그 전 기간은 매출 장부 기록(2/21부터)이 모자라 비교하지 않아요." : "",
+              ]
+                .filter(Boolean)
+                .join(" ")
+            : ""
+        }
+        picker={
+          <>
+            <SpanPicker spanId={spanId} setSpanId={setSpanId} custom={custom} setCustom={setCustom} end={r.date} />
+            {!canSpan && spanId !== "7" && <p className="text-xs text-amber-700">기간 바꿔 보기는 하루 단위 기록이 들어온 뒤부터 돼요 — 지금은 최근 7일만 보여요.</p>}
+          </>
+        }
+      />
 
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_1fr]">
         <Box icon={Megaphone} title="오늘 광고 예산" right={<span className="text-[11px] text-stone-400">지난 7일 하루 평균 {won(r.budget?.avg7Spend)}원</span>}>
           <p className="text-2xl font-bold text-stone-900 tabular-nums">
             {r.budget?.weekend ? "쉬는 날" : `${won(r.budget?.base)}원`}{!r.budget?.weekend && r.budget?.max > r.budget?.base && <span className="text-base font-semibold text-stone-500"> ~ {won(r.budget.max)}원</span>}
@@ -344,7 +488,7 @@ function Report({ r }) {
         </Box>
       </div>
 
-      <ProductTable products={r.products || []} waste={r.waste || []} />
+      <ProductTable rows={prodRows} waste={wasteLine} title={title} />
 
       {r.competitors?.length > 0 && (
         <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
@@ -369,7 +513,7 @@ function Report({ r }) {
         </section>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Box icon={TrendingUp} title="어제 잘 된 소재">
           <AdList list={r.topAds} empty="어제 구매가 잡힌 소재가 없어요." />
         </Box>
@@ -387,8 +531,9 @@ function Report({ r }) {
   );
 }
 
-export default function ReportPage({ online }) {
+export default function ReportPage({ online, rows }) {
   const [list, setList] = useState([]);
+  const [hist, setHist] = useState(null);
   const [day, setDay] = useState("");
   const [rep, setRep] = useState(null);
   const [state, setState] = useState("loading"); // loading | ready | empty | error
@@ -422,6 +567,17 @@ export default function ReportPage({ online }) {
       alive = false;
     };
   }, [day, online]);
+
+  // 기간 바꿔 보기용 하루 단위 기록 — 아침 보고가 같이 올린다(lib/reportPeriod.js 머리말)
+  useEffect(() => {
+    let alive = true;
+    Promise.all(["meta_daily", "meta_prod_daily", "meta_ads", "prod_daily"].map((k) => loadKey(k, online, null).catch(() => null))).then(([meta, metaProd, ads, prod]) => {
+      if (alive) setHist({ meta, metaProd, ads, prod });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [online]);
 
   const i = useMemo(() => list.findIndex((x) => x.date === day), [list, day]);
 
@@ -458,7 +614,7 @@ export default function ReportPage({ online }) {
           아직 보고가 없어요. 사무실 PC 가 매일 아침 8시 30분에 만들어요{online ? "." : " (공유 장부로 로그인해야 보여요)."}
         </div>
       )}
-      {state === "ready" && rep && <Report r={rep} />}
+      {state === "ready" && rep && <Report key={rep.date} r={rep} hist={hist} rows={rows} />}
     </div>
   );
 }
