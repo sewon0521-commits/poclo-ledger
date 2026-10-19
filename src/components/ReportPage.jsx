@@ -164,7 +164,9 @@ function ProductTable({ products, waste }) {
           </thead>
           <tbody className="divide-y divide-stone-100 tabular-nums">
             {products.map((p) => {
-              const share = p.q7 ? Math.min(100, Math.round(((p.adPurchases7 || 0) / p.q7) * 100)) : 0;
+              // 광고 구매가 판매 장수보다 많을 수 있다(광고를 누르고 다른 상품을 같이 산 것) — 100% 넘으면 '100%+'
+              const raw = p.q7 ? ((p.adPurchases7 || 0) / p.q7) * 100 : 0;
+              const share = Math.min(100, Math.round(raw));
               return (
                 <tr key={p.code} className="hover:bg-stone-50/70">
                   <td className="px-4 py-2.5 align-middle">
@@ -188,7 +190,7 @@ function ProductTable({ products, waste }) {
                       <span className="h-1.5 w-12 overflow-hidden rounded-full bg-stone-100">
                         <span className="block h-full rounded-full bg-rose-600" style={{ width: `${share}%` }} />
                       </span>
-                      <span className="w-9 text-right text-stone-700">{share}%</span>
+                      <span className="w-10 text-right text-stone-700" title={raw > 100 ? "광고를 누르고 다른 상품을 같이 산 것도 들어가서 100%를 넘어요" : undefined}>{raw > 100 ? "100%+" : `${share}%`}</span>
                     </div>
                   </td>
                   <td className="px-2 py-2.5 text-right text-stone-700">
@@ -343,6 +345,29 @@ function Report({ r }) {
       </div>
 
       <ProductTable products={r.products || []} waste={r.waste || []} />
+
+      {r.competitors?.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b-2 border-stone-900 px-4 pt-3.5 pb-2.5">
+            <h3 className="text-sm font-bold text-stone-900">경쟁몰에서 뜨는 상품</h3>
+            <span className="text-[11px] text-stone-400">사입 트래커 {r.trackerDate || ""} · 자세히는 보고 › 사입 트래커</span>
+          </div>
+          <div className="flex gap-2.5 overflow-x-auto p-3 [scrollbar-width:thin]">
+            {r.competitors.map((c) => (
+              <a key={c.url + c.tag} href={c.url} target="_blank" rel="noreferrer" className="w-32 shrink-0">
+                <div className="relative aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">
+                  {c.img && <img src={c.img} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" />}
+                  <span className={"absolute top-1 left-1 rounded px-1.5 py-0.5 text-[10px] font-bold " + (c.tag === "NEW" ? "bg-rose-700 text-white" : c.tag.startsWith("▲") ? "bg-emerald-600 text-white" : "bg-white/90 text-stone-700")}>{c.tag}</span>
+                </div>
+                <div className="mt-1 truncate text-[11px] text-stone-500">
+                  {c.mall} {c.rank}위
+                </div>
+                <div className="line-clamp-2 text-xs font-medium text-stone-800">{c.name}</div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Box icon={TrendingUp} title="어제 잘 된 소재">

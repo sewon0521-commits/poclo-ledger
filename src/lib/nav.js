@@ -24,6 +24,7 @@ import {
   Music,
   CalendarDays,
   Newspaper,
+  ScanSearch,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -38,7 +39,15 @@ export const SECTIONS = [
     key: "report",
     label: "보고",
     icon: Newspaper,
-    groups: [{ group: "기본", items: [{ key: "reports", label: "매일 보고", icon: Newspaper }] }],
+    groups: [
+      {
+        group: "기본",
+        items: [
+          { key: "reports", label: "매일 보고", icon: Newspaper },
+          { key: "tracker", label: "사입 트래커", icon: ScanSearch },
+        ],
+      },
+    ],
   },
   {
     key: "work",
