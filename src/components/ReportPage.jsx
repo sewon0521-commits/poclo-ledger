@@ -56,9 +56,11 @@ function Trend({ rows }) {
   return (
     <div className="flex h-28 items-end gap-1">
       {rows.map((r) => (
-        <div key={r.date} className="group relative flex flex-1 flex-col items-center justify-end gap-0.5" title={`${r.date.slice(5)} · 매출 ${won(r.revenue)}원 · 광고 ${won(r.ads)}원`}>
-          <div className="relative w-full overflow-hidden rounded-t bg-stone-200" style={{ height: `${Math.max(2, (r.revenue / max) * 100)}%` }}>
-            <div className="absolute inset-x-0 bottom-0 bg-rose-600/80" style={{ height: `${r.revenue ? Math.min(100, (r.ads / r.revenue) * 100) : r.ads ? 100 : 0}%` }} />
+        <div key={r.date} className="flex h-full flex-1 flex-col items-center gap-0.5" title={`${r.date.slice(5)} · 매출 ${won(r.revenue)}원 · 광고 ${won(r.ads)}원`}>
+          <div className="flex w-full flex-1 items-end">
+            <div className="relative w-full overflow-hidden rounded-t bg-stone-200" style={{ height: `${Math.max(2, (r.revenue / max) * 100)}%` }}>
+              <div className="absolute inset-x-0 bottom-0 bg-rose-600/80" style={{ height: `${r.revenue ? Math.min(100, (r.ads / r.revenue) * 100) : r.ads ? 100 : 0}%` }} />
+            </div>
           </div>
           <span className="text-[9px] text-stone-400 tabular-nums">{Number(r.date.slice(8))}</span>
         </div>
