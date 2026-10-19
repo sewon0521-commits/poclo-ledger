@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Sparkles, ListTodo, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
-import { loadKey, onSettingsChange } from "../lib/shoot";
+import { ChevronLeft, ChevronRight, ChevronDown, Sparkles, ListTodo, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
+import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { SPANS, rangeOf, rangeLabel, vsLabel, spanStats, productRows, adCountsIn, addDays } from "../lib/reportPeriod";
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
@@ -56,6 +56,30 @@ function Kpi({ label, value, unit, sub, now, prev, good, mark, vs }) {
   );
 }
 
+/** '지금 켜짐 N개' — 누르면 켜진 광고 이름 (사무실 PC ads_live.py 가 1시간마다 settings meta_ads 를 새로 쓴다) */
+function ActiveAds({ counts }) {
+  const [open, setOpen] = useState(false);
+  const list = counts.list || [];
+  return (
+    <span className="relative">
+      <button type="button" disabled={!list.length} onClick={() => setOpen(!open)} className="rounded px-0.5 hover:bg-stone-100 disabled:hover:bg-transparent">
+        지금 켜짐 <b className={counts.active ? "text-emerald-700" : "text-stone-900"}>{counts.active}개</b>
+        {list.length > 0 && <ChevronDown size={11} className={"ml-0.5 inline align-[-1px] " + (open ? "rotate-180" : "")} />}
+      </button>
+      {open && (
+        <span className="absolute top-full left-0 z-20 mt-1 block w-[min(26rem,80vw)] rounded-xl border border-stone-200 bg-white p-2 text-left shadow-lg">
+          {list.map((a) => (
+            <span key={a.name} className="block truncate rounded px-1.5 py-1 text-[11px] text-stone-700 hover:bg-stone-50" title={a.name}>
+              <b className="mr-1 text-emerald-700">{a.code}</b>
+              {a.name}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** 쇼만마 주간 보고 카드 12칸 — 고른 기간, 바로 앞 같은 길이 대비 */
 function KpiGrid({ w, pw, target, title = "최근 7일", vs, picker, counts, note }) {
   const rows = [
@@ -87,13 +111,11 @@ function KpiGrid({ w, pw, target, title = "최근 7일", vs, picker, counts, not
             <span>
               광고 <b className="text-stone-900">전체 {counts.total}개</b>
             </span>
-            <span>
-              지금 켜짐 <b className={counts.active ? "text-emerald-700" : "text-stone-900"}>{counts.active}개</b>
-            </span>
+            <ActiveAds counts={counts} />
             <span>
               이 기간에 만든 것 <b className="text-stone-900">{counts.made}개</b>
             </span>
-            {counts.at && <span className="text-stone-400">켜짐은 {counts.at.slice(5, 10).replace("-", "/")} {counts.at.slice(11, 16)} 기준</span>}
+            {counts.at && <span className="text-stone-400">켜짐은 {counts.at.slice(5, 10).replace("-", "/")} {counts.at.slice(11, 16)} 기준 · 1시간마다 새로</span>}
           </p>
         )}
         {note && <p className="text-[11px] text-stone-400">{note}</p>}
@@ -574,8 +596,14 @@ export default function ReportPage({ online, rows }) {
     Promise.all(["meta_daily", "meta_prod_daily", "meta_ads", "prod_daily"].map((k) => loadKey(k, online, null).catch(() => null))).then(([meta, metaProd, ads, prod]) => {
       if (alive) setHist({ meta, metaProd, ads, prod });
     });
+    // 광고 켜짐은 1시간마다 바뀐다 — 화면이 떠 있으면 다시 읽는다
+    const reAds = () => loadKey("meta_ads", online, null).then((ads) => alive && ads && setHist((h) => ({ ...(h || {}), ads })));
+    const off1 = onSettingsChange((k) => k === "meta_ads" && reAds());
+    const off2 = watchKeys(["meta_ads"], reAds, 60000);
     return () => {
       alive = false;
+      off1();
+      off2();
     };
   }, [online]);
 

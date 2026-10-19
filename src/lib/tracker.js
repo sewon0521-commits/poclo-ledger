@@ -49,13 +49,44 @@ export function catOf(name) {
   return "팬츠(기타)";
 }
 
-/** 가격대 — 만 원 단위 */
+/** 가격대 — 쇼만마 트래커와 같은 다섯 칸(10/19 세원 화면) */
+export const BANDS = [
+  ["~1.9만", 0, 19999],
+  ["2만~2.9만", 20000, 29999],
+  ["3만~3.9만", 30000, 39999],
+  ["4만~5.9만", 40000, 59999],
+  ["6만~", 60000, Infinity],
+];
 export function priceBand(p) {
   if (!p) return "";
-  if (p < 10000) return "1만 미만";
-  if (p >= 100000) return "10만 이상";
-  const m = Math.floor(p / 10000);
-  return `${m}만~${m}.9만`;
+  return BANDS.find(([, a, b]) => p >= a && p <= b)?.[0] || "";
+}
+
+/** 몰이 직접 만든 상품(MADE·자체제작) — 동대문에서 사입할 수 없는 것 */
+export const isMade = (name) => /\bmade\b|자체\s*제작|p\.b\b/i.test(String(name || ""));
+
+/**
+ * 품목 안 디테일 키워드 — 핏·소재·넥라인·무늬·기장 (쇼만마 '품목 랭킹 디테일 키워드'와 같은 생각, 낱말은 우리 타겟에 맞춰)
+ * → [{word, malls, count}] 몰 수 많은 순
+ */
+const DETAIL = [
+  ["크롭", "크롭|crop"], ["오버핏", "오버핏|오버 ?사이즈|over"], ["루즈핏", "루즈|loose"], ["슬림", "슬림|slim"], ["와이드", "와이드|wide"],
+  ["부츠컷·플레어", "부츠컷|플레어|flare"], ["벌룬", "벌룬"], ["밴딩", "밴딩|밴드"], ["셔링", "셔링|shirring"], ["프릴·러플", "프릴|러플"],
+  ["레이스", "레이스|lace"], ["골지", "골지|립|rib"], ["울·캐시미어", "울|wool|캐시미어|cashmere"], ["모헤어·앙고라·알파카", "모헤어|mohair|앙고라|알파카"],
+  ["코듀로이·골덴", "코듀로이|골덴|corduroy"], ["워싱·빈티지", "워싱|워시드|washed|빈티지|vintage"], ["퍼·양털·무스탕", "퍼|양털|무스탕|플리스|fleece|뽀글"],
+  ["레더·스웨이드", "레더|leather|스웨이드|suede"], ["트위드", "트위드|tweed"], ["체크", "체크|check|타탄"], ["스트라이프", "스트라이프|stripe|단가라"],
+  ["도트·플라워", "도트|땡땡이|플라워|flower|꽃"], ["브이넥", "브이넥|v넥|v-?neck|딥브이|딥v"], ["하이넥·터틀", "하이넥|터틀|폴라|목폴라"],
+  ["카라", "카라|collar|폴로"], ["후드", "후드|hood"], ["집업", "집업|zip"], ["버튼·단추", "버튼|단추|button"], ["포켓", "포켓|pocket|카고"],
+  ["플리츠·주름", "플리츠|주름|pleat"], ["미니", "미니|mini"], ["미디", "미디|midi"], ["롱·맥시", "맥시|롱(?!슬리브)|long"], ["기모", "기모|fleece"],
+  ["1+1·기획", "1\\+1|기획"],
+].map(([w, re]) => [w, new RegExp(re, "i")]);
+export function detailWords(items) {
+  const rows = [];
+  for (const [word, re] of DETAIL) {
+    const hit = items.filter((x) => re.test(x.name || ""));
+    if (hit.length) rows.push({ word, re, malls: new Set(hit.map((x) => x.host)).size, count: hit.length });
+  }
+  return rows.sort((a, b) => b.malls - a.malls || b.count - a.count).slice(0, 8);
 }
 
 /** 어느 기록과 비교할지 — 1일 = 바로 전 기록, 7일 = 7일 전(없으면 가장 오래된 것) */
@@ -90,7 +121,7 @@ export function compareSnaps(cur, base, conf = {}) {
     const known = !!b?.items?.length;
     const was = new Map((b?.items || []).map((x) => [x.id, x.rank]));
     for (const it of m.items || []) {
-      out.push({ ...it, mall: name, host, style, cat: catOf(it.name), band: priceBand(it.price), was: known ? (was.get(it.id) ?? null) : undefined, known });
+      out.push({ ...it, mall: name, host, style, cat: catOf(it.name), band: priceBand(it.price), made: isMade(it.name), was: known ? (was.get(it.id) ?? null) : undefined, known });
     }
     if (known) {
       const now = new Set((m.items || []).map((x) => x.id));

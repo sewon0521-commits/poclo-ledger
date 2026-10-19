@@ -149,7 +149,7 @@ export function productRows({ prod, metaProd, metaAds, s, e }) {
 /** 기간 안 광고 개수 — 전체(만든 것 전부) · 지금 켜진 것 · 이 기간에 만든 것 */
 export function adCountsIn(metaAds, s, e) {
   const items = metaAds?.items || [];
-  return { total: items.length, active: items.filter((x) => x[2]).length, made: items.filter((x) => x[1] >= s && x[1] <= e).length, at: metaAds?.at };
+  return { total: items.length, active: items.filter((x) => x[2]).length, made: items.filter((x) => x[1] >= s && x[1] <= e).length, at: metaAds?.at, list: metaAds?.active || [] };
 }
 
 /** 기간 막대 — 31일까지 하루씩, 넘으면 주마다 */

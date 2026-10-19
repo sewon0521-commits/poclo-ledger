@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, ChevronDown, Settings2, Flame, Sparkles, Tag, Plus, RotateCcw } from "lucide-react";
 import { loadKey, changeKey, onSettingsChange } from "../lib/shoot";
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
-import { baseDay, compareSnaps, catBoard, topBand, daysBetween } from "../lib/tracker";
+import { baseDay, compareSnaps, catBoard, topBand, daysBetween, detailWords, BANDS } from "../lib/tracker";
 import { Sheet, SheetHead } from "./ShootBits";
 
 /**
@@ -38,19 +38,25 @@ const Img = ({ src, className = "" }) => (src ? <img src={src} alt="" loading="l
 function Item({ it, baseLabel }) {
   const b = badgeOf(it);
   return (
-    <a href={it.url} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-xl border border-stone-200 bg-white transition hover:-translate-y-0.5 hover:shadow-md">
+    <a href={it.url} target="_blank" rel="noreferrer" className="group flex flex-col overflow-hidden rounded-xl border border-stone-200 bg-white transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative aspect-[3/4] bg-stone-100">
         <Img src={it.img} />
-        {b && <span className={"absolute top-1.5 left-1.5 rounded px-1.5 py-0.5 text-[11px] font-bold shadow-sm " + b[1]}>{b[0]}</span>}
+        <span className="absolute top-1.5 left-1.5 flex gap-1">
+          {b && <span className={"rounded px-1.5 py-0.5 text-[11px] font-bold shadow-sm " + b[1]}>{b[0]}</span>}
+          {it.made && <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[11px] font-bold text-white shadow-sm">MADE</span>}
+        </span>
         {it.streak >= 3 && !it.gone && <span className="absolute top-1.5 right-1.5 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-stone-700 shadow-sm">{it.streak}일 연속</span>}
       </div>
-      <div className="space-y-0.5 p-2">
-        <div className="truncate text-[11px] text-stone-500">
-          {it.cat} · <b className="text-stone-700">{it.mall}</b> {it.gone ? `${baseLabel} ${it.was}위` : `${it.rank}위`}
-          {!it.gone && it.was > 0 && it.was !== it.rank && <span className="text-stone-400"> ({baseLabel} {it.was}위)</span>}
+      <div className="flex flex-1 flex-col gap-0.5 p-2.5">
+        <div className="text-[11px] font-semibold text-rose-700">{it.cat}</div>
+        <div className="line-clamp-2 min-h-[2.5em] text-[13px] leading-snug font-medium text-stone-900">{it.name || "이름 없음"}</div>
+        <div className="mt-auto flex items-baseline justify-between gap-2 pt-1">
+          <span className="text-sm font-bold text-stone-900 tabular-nums">{it.price > 0 ? `${won(it.price)}원` : "—"}</span>
+          <span className="min-w-0 truncate text-right text-[11px] text-stone-400">
+            {it.mall} {it.gone ? `${baseLabel} ${it.was}위` : `${it.rank}위`}
+            {!it.gone && it.was > 0 && it.was !== it.rank && ` (${baseLabel} ${it.was}위)`}
+          </span>
         </div>
-        <div className="line-clamp-2 min-h-[2.4em] text-[13px] leading-snug font-medium text-stone-900">{it.name || "이름 없음"}</div>
-        {it.price > 0 && <div className="text-[13px] font-bold text-stone-900 tabular-nums">{won(it.price)}원</div>}
       </div>
     </a>
   );
@@ -105,6 +111,43 @@ function Stat({ icon: Icon, label, value, unit, sub, accent }) {
   );
 }
 
+/** 품목을 펼치면 — 그 품목 안에서 많이 보이는 디테일 키워드(핏·소재·넥라인…) + 상품. 키워드를 누르면 그 상품만 */
+function CatDetail({ c, baseLabel }) {
+  const [kw, setKw] = useState("");
+  const words = useMemo(() => detailWords(c.items), [c.items]);
+  const hit = words.find((w) => w.word === kw);
+  const list = hit ? c.items.filter((x) => hit.re.test(x.name || "")) : c.items;
+  const max = Math.max(1, ...words.map((w) => w.malls));
+  return (
+    <div className="mt-2 space-y-2 rounded-xl bg-stone-50 p-2.5">
+      {words.length > 0 && (
+        <div>
+          <div className="mb-1 text-[11px] text-stone-500">{c.cat} 안에서 많이 보이는 디테일 (몰 수 기준) — 누르면 그 상품만</div>
+          <div className="grid gap-1 sm:grid-cols-2">
+            {words.map((w) => (
+              <button key={w.word} type="button" onClick={() => setKw(kw === w.word ? "" : w.word)} className={"flex items-center gap-2 rounded-lg px-2 py-1 text-left text-xs " + (kw === w.word ? "bg-rose-700 text-white" : "bg-white text-stone-700 hover:bg-rose-50")}>
+                <span className="w-24 shrink-0 truncate font-semibold">{w.word}</span>
+                <span className="h-1 flex-1 overflow-hidden rounded-full bg-stone-200">
+                  <span className={"block h-full rounded-full " + (kw === w.word ? "bg-white" : "bg-rose-500")} style={{ width: `${(w.malls / max) * 100}%` }} />
+                </span>
+                <span className={"shrink-0 tabular-nums " + (kw === w.word ? "text-white/80" : "text-stone-400")}>
+                  {w.malls}개 몰 · {w.count}개
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {list.slice(0, 24).map((x) => (
+          <Item key={x.host + x.id} it={x} baseLabel={baseLabel} />
+        ))}
+      </div>
+      {list.length > 24 && <p className="text-center text-[11px] text-stone-400">그 밖에 {list.length - 24}개 — 아래 '전체 상품'에서 품목으로 걸러 보세요</p>}
+    </div>
+  );
+}
+
 /** 다몰 동시 인기 품목 — 여러 몰 베스트에 동시에 오른 품목 순(사입 우선순위) */
 function CatBoard({ board, malls, baseLabel }) {
   const [open, setOpen] = useState("");
@@ -146,14 +189,7 @@ function CatBoard({ board, malls, baseLabel }) {
                 <span className="w-14 shrink-0 text-right text-xs text-stone-500 tabular-nums">{c.mallCount}개 몰</span>
                 <ChevronDown size={14} className={"shrink-0 text-stone-400 transition " + (isOpen ? "rotate-180" : "")} />
               </button>
-              {isOpen && (
-                <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {c.items.slice(0, 24).map((x) => (
-                    <Item key={x.host + x.id} it={x} baseLabel={baseLabel} />
-                  ))}
-                  {c.items.length > 24 && <p className="col-span-full text-center text-[11px] text-stone-400">그 밖에 {c.items.length - 24}개 — 위 '전체 몰'에서 몰을 골라 보세요</p>}
-                </div>
-              )}
+              {isOpen && <CatDetail c={c} baseLabel={baseLabel} />}
             </li>
           );
         })}
@@ -210,6 +246,180 @@ function RiseList({ list, span, first }) {
         </button>
       )}
     </section>
+  );
+}
+
+/**
+ * 전체 상품 — 정렬·거르기로 사입 후보 좁히기 (10/19 세원 쇼만마 화면).
+ * 사입 신호순 = 쇼만마와 같은 기준: ① 새로 들어온 것(NEW) 먼저 ② 그 품목이 베스트에 든 몰 수가 많은 것 ③ 몰 안 순위 높은 것.
+ * 여러 몰 인기 품목 = 2개 몰 이상 베스트에 든 품목. 우리만 더한 것: '사입 상품만'(MADE·자체제작 빼기 — 동대문에서 못 가져온다), '많이 오른 순'.
+ */
+const SORTS = [
+  ["signal", "사입 신호순 (NEW · 여러 몰 품목)"],
+  ["rank", "몰 안 순위 높은 순"],
+  ["rise", "많이 오른 순"],
+  ["newfirst", "NEW 먼저"],
+  ["pricedesc", "가격 높은 순"],
+  ["priceasc", "가격 낮은 순"],
+];
+const VIEWS = [
+  ["flat", "전체"],
+  ["bycat", "품목별 묶기"],
+  ["bymall", "몰별 묶기"],
+];
+const SEL = "rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-sm text-stone-800";
+const CHK = "flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold select-none ";
+
+function AllProducts({ items, board, span, first, baseLabel, onlyNew, setOnlyNew, boxRef }) {
+  const [sort, setSort] = useState("signal");
+  const [view, setView] = useState("flat");
+  const [cat, setCat] = useState("");
+  const [band, setBand] = useState("");
+  const [multi, setMulti] = useState(false);
+  const [noMade, setNoMade] = useState(false);
+  const [q, setQ] = useState("");
+  const [n, setN] = useState(40);
+  const reset = (fn) => (v) => {
+    fn(v);
+    setN(40);
+  };
+  const catMalls = useMemo(() => Object.fromEntries(board.map((c) => [c.cat, c.mallCount])), [board]);
+  const isNew = (x) => (x.was === null ? 1 : 0);
+  const jump = (x) => (x.was > 0 ? x.was - x.rank : x.was === null ? 31 - x.rank : -99);
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const bandRow = BANDS.find((b) => b[0] === band);
+  const list = items
+    .filter((x) => !cat || x.cat === cat)
+    .filter((x) => !bandRow || (x.price >= bandRow[1] && x.price <= bandRow[2]))
+    .filter((x) => !onlyNew || x.was === null)
+    .filter((x) => !multi || (catMalls[x.cat] || 0) >= 2)
+    .filter((x) => !noMade || !x.made)
+    .filter((x) => !words.length || words.every((w) => `${x.name} ${x.mall}`.toLowerCase().includes(w)))
+    .sort(
+      {
+        signal: (a, b) => isNew(b) - isNew(a) || (catMalls[b.cat] || 0) - (catMalls[a.cat] || 0) || a.rank - b.rank,
+        rank: (a, b) => a.rank - b.rank || a.mall.localeCompare(b.mall),
+        rise: (a, b) => jump(b) - jump(a) || a.rank - b.rank,
+        newfirst: (a, b) => isNew(b) - isNew(a) || a.rank - b.rank,
+        pricedesc: (a, b) => b.price - a.price,
+        priceasc: (a, b) => (a.price || 9e9) - (b.price || 9e9),
+      }[sort],
+    );
+  const keyOf = (x) => (view === "bycat" ? x.cat : x.mall);
+  const groups =
+    view === "flat"
+      ? null
+      : [...list.reduce((m, x) => m.set(keyOf(x), [...(m.get(keyOf(x)) || []), x]), new Map())].sort((a, b) => b[1].length - a[1].length);
+  const cats = board.map((c) => c.cat);
+
+  return (
+    <section ref={boxRef} className="scroll-mt-4 space-y-3">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h3 className="text-base font-bold text-stone-900">전체 상품</h3>
+        <span className="text-xs text-stone-400">정렬·거르기로 사입 후보를 좁혀 보세요</span>
+      </div>
+      <div className="space-y-2 rounded-2xl border border-stone-200 bg-white p-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <label className="flex items-center gap-1.5 text-xs text-stone-500">
+            정렬
+            <select value={sort} onChange={(e) => reset(setSort)(e.target.value)} className={SEL}>
+              {SORTS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-stone-500">
+            보기
+            <select value={view} onChange={(e) => reset(setView)(e.target.value)} className={SEL}>
+              {VIEWS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-stone-500">
+            품목
+            <select value={cat} onChange={(e) => reset(setCat)(e.target.value)} className={SEL}>
+              <option value="">전체</option>
+              {cats.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-stone-500">
+            가격대
+            <select value={band} onChange={(e) => reset(setBand)(e.target.value)} className={SEL}>
+              <option value="">전체</option>
+              {BANDS.map(([b]) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={CHK + (onlyNew ? "bg-rose-700 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200") + (first ? " pointer-events-none opacity-40" : "")}>
+            <input type="checkbox" checked={onlyNew} disabled={first} onChange={(e) => reset(setOnlyNew)(e.target.checked)} className="accent-white" />
+            {span === 1 ? "오늘 NEW만" : "7일 NEW만"}
+          </label>
+          <label className={CHK + (multi ? "bg-rose-700 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200")}>
+            <input type="checkbox" checked={multi} onChange={(e) => reset(setMulti)(e.target.checked)} className="accent-white" />
+            여러 몰 인기 품목만
+          </label>
+          <label className={CHK + (noMade ? "bg-rose-700 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200")} title="상품명에 MADE·자체제작이 든 것은 그 몰이 직접 만든 거라 사입할 수 없어요">
+            <input type="checkbox" checked={noMade} onChange={(e) => reset(setNoMade)(e.target.checked)} className="accent-white" />
+            사입 상품만 (MADE 빼기)
+          </label>
+          <input type="search" value={q} onChange={(e) => reset(setQ)(e.target.value)} placeholder="상품명·몰 찾기" className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-rose-600 sm:max-w-[16rem]" />
+          <span className="ml-auto text-xs text-stone-400 tabular-nums">{list.length}개</span>
+        </div>
+        {first && <p className="text-[11px] text-amber-700">첫 기록이라 NEW 는 비교할 날이 생기는 내일부터 골라져요.</p>}
+      </div>
+
+      {!list.length && <p className="rounded-xl border border-dashed border-stone-300 bg-white py-10 text-center text-sm text-stone-400">조건에 맞는 상품이 없어요.</p>}
+      {!groups && list.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+            {list.slice(0, n).map((it) => (
+              <Item key={it.host + it.id} it={it} baseLabel={baseLabel} />
+            ))}
+          </div>
+          {list.length > n && (
+            <button type="button" onClick={() => setN(n + 40)} className="w-full rounded-lg border border-stone-200 bg-white py-2 text-xs text-stone-600 hover:border-rose-300">
+              {list.length - n}개 더 보기
+            </button>
+          )}
+        </>
+      )}
+      {groups?.map(([g, arr]) => (
+        <Group key={g} title={g} arr={arr} sub={view === "bycat" ? `${arr.length}개 · ${new Set(arr.map((x) => x.host)).size}개 몰` : `${arr.length}개 · ${arr[0]?.style || ""}`} baseLabel={baseLabel} />
+      ))}
+    </section>
+  );
+}
+
+function Group({ title, arr, sub, baseLabel }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? arr : arr.slice(0, 10);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-2 border-b-2 border-stone-900 pb-1.5">
+        <span className="text-sm font-bold text-stone-900">{title}</span>
+        <span className="text-[11px] text-stone-400">{sub}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+        {shown.map((it) => (
+          <Item key={it.host + it.id} it={it} baseLabel={baseLabel} />
+        ))}
+      </div>
+      {arr.length > shown.length && (
+        <button type="button" onClick={() => setAll(true)} className="w-full rounded-lg border border-stone-200 bg-white py-1.5 text-xs text-stone-600 hover:border-rose-300">
+          {arr.length - shown.length}개 더 보기
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -364,6 +574,8 @@ export default function TrackerPage({ online }) {
   const [mall, setMall] = useState("");
   const [conf, setConf] = useState([]);
   const [manage, setManage] = useState(false);
+  const [onlyNew, setOnlyNew] = useState(false);
+  const allRef = useRef(null);
 
   const setSpan = (n) => {
     setSpanState(n);
@@ -439,7 +651,6 @@ export default function TrackerPage({ online }) {
   const up = live.filter((x) => x.was > x.rank).sort((a, b) => b.was - b.rank - (a.was - a.rank) || a.rank - b.rank);
   const down = live.filter((x) => x.was > 0 && x.was < x.rank).sort((a, b) => b.rank - b.was - (a.rank - a.was));
   const steady = live.filter((x) => x.streak >= 3 && x.rank <= 10).sort((a, b) => b.streak - a.streak || a.rank - b.rank);
-  const top = live.filter((x) => x.rank <= 5).sort((a, b) => a.rank - b.rank || a.mall.localeCompare(b.mall));
   const rise = first ? live.filter((x) => x.rank === 1) : [...isNew, ...up.filter((x) => x.was - x.rank >= 5)];
   const board = useMemo(() => catBoard(live), [live]);
   const band = topBand(live);
@@ -527,7 +738,17 @@ export default function TrackerPage({ online }) {
           {/* 숫자 칸 셋 */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Stat icon={Flame} label="가장 뜨거운 품목" value={hot?.cat || "—"} accent sub={hot ? `${hot.mallCount}개 몰 베스트에 같이 들어감 (${mallsIn}곳 중)` : ""} />
-            <Stat icon={Sparkles} label={`${span}일 NEW 진입`} value={first ? "—" : isNew.length} unit={first ? "" : "건"} sub={first ? "비교할 기록이 쌓이면 보여요" : `${baseLabel} 베스트에 없던 상품`} />
+            <button
+              type="button"
+              disabled={first}
+              onClick={() => {
+                setOnlyNew(true);
+                allRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              className="text-left disabled:cursor-default enabled:hover:[&>div]:border-rose-300"
+            >
+              <Stat icon={Sparkles} label={`${span}일 NEW 진입`} value={first ? "—" : isNew.length} unit={first ? "" : "건"} sub={first ? "비교할 기록이 쌓이면 보여요" : `${baseLabel} 베스트에 없던 상품 · 눌러서 보기`} />
+            </button>
             <Stat icon={Tag} label="가장 많은 가격대" value={band?.band || "—"} sub={band ? `베스트의 ${Math.round(band.share * 100)}%가 이 가격` : ""} />
           </div>
 
@@ -536,10 +757,9 @@ export default function TrackerPage({ online }) {
             <RiseList list={rise} span={span} first={first} />
           </div>
 
-          {!first && <Section title={`NEW — ${span}일 사이 새로 들어온 상품`} sub={`${baseLabel} 베스트에 없던 것`} list={isNew} baseLabel={baseLabel} />}
-          {!first && <Section title="▲ 순위가 오른 상품" sub={`${baseLabel}보다 위로`} list={up} baseLabel={baseLabel} open={false} />}
+          <AllProducts items={live} board={board} span={span} first={first} baseLabel={baseLabel} onlyNew={onlyNew && !first} setOnlyNew={setOnlyNew} boxRef={allRef} />
+
           <Section title="오래 버티는 상품" sub="3일 넘게 10위 안" list={steady} baseLabel={baseLabel} open={false} />
-          <Section title="몰별 베스트 TOP 5" sub="오늘 순위" list={top} baseLabel={baseLabel} limit={25} open={first} />
           {!first && <Section title="▼ 순위가 내린 상품" sub={`${baseLabel}보다 아래로`} list={down} baseLabel={baseLabel} open={false} />}
           {!first && <Section title="이탈 — 베스트에서 빠진 상품" sub={`${baseLabel} 있었는데 지금 없음`} list={gone} baseLabel={baseLabel} open={false} />}
 
