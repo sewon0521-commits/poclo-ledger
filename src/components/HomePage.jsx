@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import HomeCalendar from "./HomeCalendar";
 import { TrendingUp, BookOpen, ArrowRight, Target } from "lucide-react";
 import { won as wonKrw, monthLabel, thisMonth } from "../lib/calc";
 import { buildDays, totalPnl, pct, TARGET_AD_RATE, DEFAULT_COSTS } from "../lib/sales";
@@ -44,7 +45,7 @@ function Line({ label, value, sub, tone }) {
   );
 }
 
-export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage }) {
+export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage, online }) {
   const month = thisMonth();
 
   // 매출·광고는 있는 날 전부로, 손익은 원가를 아는 날로만 낸다.
@@ -60,10 +61,12 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage 
 
   return (
     <div>
-      <div className="mb-4">
+      <div className="mb-3">
         <h2 className="text-xl font-bold text-stone-900">홈</h2>
-        <p className="mt-0.5 text-sm text-stone-500">{monthLabel(month)} 현황</p>
+        <p className="mt-0.5 text-sm text-stone-500">뭐 할지 한눈에 · {monthLabel(month)} 현황</p>
       </div>
+
+      <HomeCalendar online={online} onPage={onPage} />
 
       <div className="grid gap-3 lg:grid-cols-2">
         <Card

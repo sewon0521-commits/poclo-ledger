@@ -22,6 +22,21 @@ const FILTERS = [
   ["week", "이번 주 새 소재"],
   ["all", "전체"],
 ];
+// 만든 날 — 10/19 세원: "에이스 후보가 진짜 옛날 것까지 뜬다, 1달 기준으로. 지금 겨울 소재 준비해야 되는데 여름 소재가 보여서"
+const SPANS = [
+  ["30", "최근 1달"],
+  ["90", "최근 3달"],
+  ["all", "전체"],
+];
+const SPAN_KEY = "poclo_creatives_span";
+const readSpan = () => {
+  try {
+    return localStorage.getItem(SPAN_KEY) || "30";
+  } catch {
+    return "30";
+  }
+};
+const sinceOf = (span) => (span === "all" ? "" : new Date(Date.now() - Number(span) * 864e5).toISOString().slice(0, 10));
 const SORTS = [
   ["spend", "광고비 많은 순"],
   ["roas", "ROAS 높은 순"],
@@ -245,6 +260,16 @@ export default function CreativesPage({ online, fileUrls }) {
   const [sort, setSort] = useState("spend");
   const [q, setQ] = useState("");
   const [n, setN] = useState(50);
+  const [span, setSpanState] = useState(readSpan);
+  const setSpan = (v) => {
+    setSpanState(v);
+    setN(50);
+    try {
+      localStorage.setItem(SPAN_KEY, v);
+    } catch {
+      /* 무시 */
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -287,11 +312,14 @@ export default function CreativesPage({ online, fileUrls }) {
   const on = stats.filter((o) => o.active);
   const kill = on.filter((o) => o.status === "kill");
   const spendToday = on.reduce((a, o) => a + (o.sT || 0), 0);
-  const aceAll = stats.filter((o) => o.status === "ace");
   const curWeek = thisWeek?.week;
 
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  // 켜진 것·끌 것은 지금 켜진 광고라 기간과 상관없이, 나머지는 '만든 날'로 거른다
+  const since = sinceOf(span);
+  const inSpan = (o) => filter === "on" || filter === "kill" || !since || (o.created || "") >= since;
   const list = stats
+    .filter(inSpan)
     .filter((o) =>
       filter === "all" ? true : filter === "on" ? o.active : filter === "week" ? o.created && weekOf(o.created) === curWeek : o.status === filter,
     )
@@ -304,7 +332,9 @@ export default function CreativesPage({ online, fileUrls }) {
         today: (a, b) => (b.sT || 0) - (a.sT || 0) || b.spend - a.spend,
       }[sort],
     );
-  const count = (k) => (k === "all" ? stats.length : k === "on" ? on.length : k === "week" ? stats.filter((o) => o.created && weekOf(o.created) === curWeek).length : stats.filter((o) => o.status === k).length);
+  const recent = (o) => !since || (o.created || "") >= since;
+  const count = (k) =>
+    k === "on" ? on.length : k === "kill" ? kill.length : k === "all" ? stats.filter(recent).length : k === "week" ? stats.filter((o) => o.created && weekOf(o.created) === curWeek).length : stats.filter((o) => o.status === k && recent(o)).length;
 
   return (
     <div className="space-y-4">
@@ -324,7 +354,7 @@ export default function CreativesPage({ online, fileUrls }) {
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Kpi icon={Rocket} label="이번 주 새 소재" value={thisWeek?.made ?? 0} unit={`/ ${RULES.weekGoal}개`} sub={`${md(curWeek)}부터 · 주 ${RULES.weekGoal}개면 에이스가 주 1개 꼴`} tone={(thisWeek?.made || 0) >= RULES.weekGoal ? "text-emerald-700" : "text-stone-900"} onClick={() => setFilter("week")} active={filter === "week"} />
-            <Kpi icon={Trophy} label="지난 4주 에이스 · 후보" value={good4} unit={`/ ${made4}개`} sub={made4 ? `비율 ${((good4 / made4) * 100).toFixed(1)}% · 누적 에이스 ${aceAll.length}개` : `누적 에이스 ${aceAll.length}개`} tone="text-rose-700" onClick={() => setFilter("hopeful")} active={filter === "hopeful"} />
+            <Kpi icon={Trophy} label="지난 4주 에이스 · 후보" value={good4} unit={`/ ${made4}개`} sub={made4 ? `비율 ${((good4 / made4) * 100).toFixed(1)}% · 누르면 최근 1달 후보` : "누르면 최근 1달 후보"} tone="text-rose-700" onClick={() => (setFilter("hopeful"), setSpan("30"))} active={filter === "hopeful"} />
             <Kpi icon={Target} label="지금 켜진 소재" value={on.length} unit="개" sub={`오늘 광고비 ${man(spendToday)}원`} onClick={() => setFilter("on")} active={filter === "on"} />
             <Kpi icon={Power} label="끌 것" value={kill.length} unit="개" sub={kill.length ? `${man(kill.reduce((a, o) => a + (o.sT || 0), 0))}원이 오늘도 나가는 중` : "지금은 없어요"} tone={kill.length ? "text-amber-600" : "text-stone-900"} onClick={() => setFilter("kill")} active={filter === "kill"} />
           </div>
@@ -341,6 +371,13 @@ export default function CreativesPage({ online, fileUrls }) {
                   </button>
                 ))}
               </div>
+              <select value={span} onChange={(e) => setSpan(e.target.value)} title="에이스 후보·에이스·전체는 이 기간에 만든 소재만" className="rounded-lg border border-rose-200 bg-rose-50/60 px-2 py-1 text-xs font-semibold text-rose-800">
+                {SPANS.map(([k, l]) => (
+                  <option key={k} value={k}>
+                    만든 날: {l}
+                  </option>
+                ))}
+              </select>
               <select value={sort} onChange={(e) => setSort(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700">
                 {SORTS.map(([k, l]) => (
                   <option key={k} value={k}>

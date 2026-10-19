@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown, Sparkles, ListTodo, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
-import { taskDue, repeatLabel } from "../lib/events";
+import { taskDue, repeatLabel, CAL_KEY } from "../lib/events";
 import { dayKey } from "../lib/journal";
 import { SPANS, rangeOf, rangeLabel, vsLabel, spanStats, productRows, adCountsIn, addDays } from "../lib/reportPeriod";
 import { won } from "../lib/sales";
@@ -365,21 +365,29 @@ function AdList({ list, empty }) {
   );
 }
 
-/** 오늘 반복 할 일 — 일 › 이벤트 캘린더의 '반복 할 일' 중 오늘 것 */
-function TodayTasks({ tasks }) {
+/** 오늘 할 일 — 홈 캘린더(settings calendar) 중 오늘 것 */
+function TodayTasks({ cal }) {
   const today = dayKey();
-  const due = (tasks || []).filter((t) => taskDue(t, today));
+  const due = (cal?.tasks || []).filter((t) => taskDue(t, today));
+  const done = cal?.done?.[today] || [];
   if (!due.length) return null;
   return (
     <section className="rounded-2xl border border-stone-200 bg-white px-4 py-3">
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-bold text-stone-900">오늘 반복 할 일</h3>
-        <span className="text-[11px] text-stone-400">일 › 이벤트 캘린더에서 고쳐요</span>
+        <h3 className="text-sm font-bold text-stone-900">
+          오늘 할 일{" "}
+          <span className="font-normal text-stone-400">
+            {due.filter((t) => done.includes(t.id)).length}/{due.length} 끝냄
+          </span>
+        </h3>
+        <span className="text-[11px] text-stone-400">홈 캘린더에서 체크·고치기</span>
       </div>
       <ul className="grid gap-x-6 gap-y-1.5 lg:grid-cols-2">
         {due.map((t) => (
           <li key={t.id} className="text-sm">
-            <b className="text-stone-900">↻ {t.title}</b>{" "}
+            <b className={done.includes(t.id) ? "text-stone-400 line-through" : "text-stone-900"}>
+              {done.includes(t.id) ? "✓" : t.repeat?.type === "once" ? "•" : "↻"} {t.title}
+            </b>{" "}
             <span className="text-[11px] text-stone-400">
               {repeatLabel(t)} · {t.who}
             </span>
@@ -391,7 +399,7 @@ function TodayTasks({ tasks }) {
   );
 }
 
-function Report({ r, hist, rows, tasks }) {
+function Report({ r, hist, rows, cal }) {
   const y = r.yesterday || {};
   const [spanId, setSpanIdState] = useState(readSpan);
   const [custom, setCustom] = useState(() => ({ start: addDays(r.date, -29), end: r.date }));
@@ -456,7 +464,7 @@ function Report({ r, hist, rows, tasks }) {
         )}
       </section>
 
-      <TodayTasks tasks={tasks} />
+      <TodayTasks cal={cal} />
 
       {off && !y.weekend && (
         <p className="flex items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -586,12 +594,12 @@ function Report({ r, hist, rows, tasks }) {
 export default function ReportPage({ online, rows }) {
   const [list, setList] = useState([]);
   const [hist, setHist] = useState(null);
-  const [tasks, setTasks] = useState([]);
+  const [cal, setCal] = useState(null);
   useEffect(() => {
     let alive = true;
-    const load = () => loadKey("events", online, { items: [] }).then((v) => alive && setTasks(v.tasks || []));
+    const load = () => loadKey(CAL_KEY, online, null).then((v) => alive && setCal(v));
     load().catch(() => {});
-    const off = onSettingsChange((k) => k === "events" && load());
+    const off = onSettingsChange((k) => k === CAL_KEY && load());
     return () => {
       alive = false;
       off();
@@ -683,7 +691,7 @@ export default function ReportPage({ online, rows }) {
           아직 보고가 없어요. 사무실 PC 가 매일 아침 8시 30분에 만들어요{online ? "." : " (공유 장부로 로그인해야 보여요)."}
         </div>
       )}
-      {state === "ready" && rep && <Report key={rep.date} r={rep} hist={hist} rows={rows} tasks={tasks} />}
+      {state === "ready" && rep && <Report key={rep.date} r={rep} hist={hist} rows={rows} cal={cal} />}
     </div>
   );
 }

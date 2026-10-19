@@ -377,7 +377,7 @@ export default function App() {
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}
-        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "soOrder" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : page === "reports" || page === "tracker" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "soOrder" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : page === "home" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
           <div className="mb-4 flex justify-end">
             <SyncBadge
               live={L.live}
@@ -508,6 +508,7 @@ export default function App() {
                   salesConf={S.conf}
                   purchaseTotals={sumTotals(tx)}
                   onPage={setPage}
+                  online={L.mode === "remote" && !!L.session}
                 />
               ) : page === "sales" ? (
                 <SalesPage

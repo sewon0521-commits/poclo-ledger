@@ -144,10 +144,12 @@ export const periodLabel = (e) => {
   return endOf(e) === e.start ? md(e.start) : `${md(e.start)} ~ ${md(endOf(e))}`;
 };
 
-// ------------------------------------------------------------------ 반복 할 일 (10/19 밤)
-// 세원: "캘린더를 우리 하나 만들까? 어떤 날짜에 어떻게 하라고?" + "일주일에 한 번 은행 엑셀 넣으라고 알려 주거나"
-// → 이벤트 캘린더에 '반복 할 일'을 얹는다. 같은 settings 'events' 값의 tasks (items 와 따로 — upsert/remove 는 items 만 고쳐서 tasks 는 그대로 남는다)
-//   task = {id, title, how, who: '세원'|'지원'|'둘 다', repeat: {type:'daily'|'weekdays'|'weekly'|'monthly', days:[요일 0=일 … 6=토] | dates:[1..31]}, time, from}
+// ------------------------------------------------------------------ 할 일 캘린더 (10/19 밤 → 홈)
+// 세원: "캘린더를 우리 하나 만들까? 어떤 날짜에 어떻게 하라고?" → 처음엔 이벤트 캘린더에 얹었다가
+//       "이벤트 캘린더는 이벤트 용도로 냅두고, 캘린더는 홈에 대문짝하게 — 뭐할지 한 번에 보이니까" → 홈 맨 위(HomeCalendar).
+// settings 'calendar' {tasks:[…], done:{날짜:[할 일 id]}}  (처음엔 events.tasks 에 있던 것을 옮겨 온다)
+//   task = {id, title, how, who: '세원'|'지원'|'둘 다', repeat: {type:'daily'|'weekdays'|'weekly'|'monthly'|'once', days:[요일 0=일 … 6=토] | dates:[1..31] | date}, time, from}
+export const CAL_KEY = "calendar";
 export const WHO = ["세원", "지원", "둘 다"];
 export const WEEK_KO = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -155,6 +157,7 @@ export function taskDue(t, k) {
   const r = t.repeat || {};
   if (t.from && k < t.from) return false;
   const wd = weekday(k);
+  if (r.type === "once") return r.date === k;
   if (r.type === "daily") return true;
   if (r.type === "weekdays") return wd >= 1 && wd <= 5;
   if (r.type === "weekly") return (r.days || []).includes(wd);
@@ -169,6 +172,7 @@ export function taskDue(t, k) {
 export function repeatLabel(t) {
   const r = t.repeat || {};
   const time = t.time ? ` ${t.time}` : "";
+  if (r.type === "once") return `${r.date ? `${Number(r.date.slice(5, 7))}/${Number(r.date.slice(8))}` : "?"} 하루${time}`;
   if (r.type === "daily") return `매일${time}`;
   if (r.type === "weekdays") return `평일${time}`;
   if (r.type === "weekly") return `매주 ${(r.days || []).slice().sort().map((d) => WEEK_KO[d]).join("·") || "?"}${time}`;
