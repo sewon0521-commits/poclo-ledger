@@ -122,7 +122,8 @@ export function paidLabel(p) {
 /** 단계를 옮길 때 같이 적는 것 — 날짜는 그때 오늘로 */
 export function moveTo(x, stage, today = dayKey()) {
   const p = { stage };
-  if (stage === "back") Object.assign(p, { returning: true, backOn: x.backOn || today });
+  // backFrom: 어디서 반납 등록했나 — 취소하면 그 단계로 (10/20 촬영 탭에서도 반납 등록)
+  if (stage === "back") Object.assign(p, { returning: true, backOn: x.backOn || today, backFrom: x.stage === "back" ? x.backFrom || "" : x.stage });
   if (stage !== "drop" && stage !== "trash") p.refused = false;
   if (stage !== "trash") p.trashedOn = "";
   if (stage === "arrived") Object.assign(p, { arrivedOn: x.arrivedOn || today, returning: false, hold: false });

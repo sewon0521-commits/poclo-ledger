@@ -234,9 +234,17 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
             </Toggle>
           )}
           {tab === "pick" && (
-            <button type="button" onClick={go("shot")} className={MAIN + " w-full"}>
-              촬영 완료
-            </button>
+            <div className="flex gap-1">
+              <button type="button" onClick={go("shot")} className={MAIN}>
+                촬영 완료
+              </button>
+              {/* 10/20 세원: "촬영 잡아 놓고 안 예뻐서 안 찍는 경우 하나하나 들어가서 반납 등록으로 바꿔야 돼서" — 바로 반납·결제 예정으로 */}
+              {sample && (
+                <button type="button" onClick={go("back")} title="안 찍고 돌려보낼 샘플 — '반납·결제 예정'으로 가요" className={SUB}>
+                  반납 등록
+                </button>
+              )}
+            </div>
           )}
           {tab === "shot" && (
             <>
@@ -253,7 +261,7 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
           {tab === "returns" && (
             <>
               {x.stage === "back" && (
-                <button type="button" onClick={go("arrived")} title="반납 등록을 취소하고 입고·픽으로" className="flex w-full items-center justify-center gap-1 rounded-lg py-0.5 text-[11px] text-stone-400 hover:text-stone-700">
+                <button type="button" onClick={go(x.backFrom === "pick" ? "pick" : "arrived")} title={`반납 등록을 취소하고 ${x.backFrom === "pick" ? "촬영" : "입고·픽"}으로`} className="flex w-full items-center justify-center gap-1 rounded-lg py-0.5 text-[11px] text-stone-400 hover:text-stone-700">
                   <Undo2 size={11} /> 반납 등록 취소
                 </button>
               )}
@@ -907,8 +915,8 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                     onClick={() =>
                       set(
                         x.returning
-                          ? { returning: false, ...(x.stage === "back" ? { stage: "arrived" } : {}) }
-                          : { returning: true, backOn: x.backOn || today, ...(["arrived", "drop"].includes(x.stage) ? { stage: "back" } : {}) },
+                          ? { returning: false, ...(x.stage === "back" ? { stage: x.backFrom === "pick" ? "pick" : "arrived" } : {}) }
+                          : { returning: true, backOn: x.backOn || today, ...(["arrived", "drop", "pick"].includes(x.stage) ? { stage: "back", backFrom: x.stage } : {}) },
                       )
                     }
                   >
