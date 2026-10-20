@@ -525,9 +525,11 @@ function LookNote({ value = "", onSave, className = "" }) {
 }
 
 // 고를 수 있는 상품 (10/14 세원: "촬영 레퍼런스에 모든 제품이 다 뜨는데 — 요청에서는 픽업 요청을 누른 제품만, 입고·픽이랑 촬영까지 뜨는 건 괜찮아")
-// = 입고·픽 → 촬영 → 요청 중 '픽업 요청' 켠 것. 찾기도 이 안에서만.
-const LOOK_STAGES = ["arrived", "pick", "pickup"];
-const lookStage = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "") : x.stage);
+// 10/20 세원: "룩·상품 고치기에 뜨는 상품 입고·픽만 뜨는 거야? 요청까지 뜨게" → 요청 단계는 전부(픽업 요청 먼저).
+// = 입고·픽 → 촬영 → 요청(픽업 요청 켠 것) → 요청. '안 됨'·보류·휴지통·등록 뒤는 빠진다. 찾기도 이 안에서만.
+const LOOK_STAGES = ["arrived", "pick", "pickup", "request"];
+const lookStage = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "request") : x.stage);
+const stageLabel = (x) => (x.stage === "request" ? (x.pickup ? "픽업 요청" : "요청") : stageName(x.stage));
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
 function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
@@ -570,7 +572,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
       <span className="block aspect-[3/4] bg-stone-100">{itemSrc(x, d.urls) && <img src={itemSrc(x, d.urls)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}</span>
       <span className="block truncate px-1.5 pt-1 text-[11px] font-medium text-stone-800">{x.name || "이름 없음"}</span>
       <span className="block truncate px-1.5 pb-1 text-[10px] text-stone-400">
-        {x.stage === "request" ? "픽업 요청" : stageName(x.stage)}
+        {stageLabel(x)}
         {x.kind ? ` · ${x.kind}` : ""}
       </span>
       {on && (
@@ -662,17 +664,22 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
  * 왼쪽 레퍼런스 사진 크게(←·→ 로 이 소싱의 다른 사진) · 오른쪽 적어 둔 룩 + 고른 우리 상품(사진·이름·거래처·색상·사이즈).
  * 상품 사진을 누르면 그 상품 사진 크게(신마 사진 전부). 고치기는 '룩·상품 고치기'(LookSheet). 폰은 위아래로.
  */
-function LookView({ d, refs, start, src, looks, onEdit, onClose, paused }) {
+function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused }) {
   const [at, setAt] = useState(start);
   const [big, setBig] = useState(null); // {urls, i}
+  const [sel, setSel] = useState(() => new Set()); // 고른 상품 중 잡은 것 (끌어 옮길 것)
   const r = refs[Math.min(at, refs.length - 1)];
   const look = (r && looks[r.id]) || {};
   const items = (look.itemIds || []).map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
-  const go = (k) => setAt((i) => (i + k + refs.length) % refs.length);
+  const go = (k) => {
+    setSel(new Set());
+    setAt((i) => (i + k + refs.length) % refs.length);
+  };
   useEffect(() => {
     const k = (e) => {
       if (big || paused || e.target.closest?.("input, textarea, select")) return; // 고치기 창이 위에 떠 있으면 그 창이 받는다
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && sel.size) setSel(new Set());
+      else if (e.key === "Escape") onClose();
       else if (e.key === "ArrowLeft" && refs.length > 1) go(-1);
       else if (e.key === "ArrowRight" && refs.length > 1) go(1);
     };
@@ -724,31 +731,21 @@ function LookView({ d, refs, start, src, looks, onEdit, onClose, paused }) {
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {items.length ? (
-              <>
-                <div className="mb-2 text-xs font-medium text-stone-500">고른 우리 상품 {items.length}</div>
-                <div className={"grid gap-3 " + (items.length === 1 ? "grid-cols-1 sm:max-w-xs" : items.length >= 3 ? "grid-cols-2 lg:grid-cols-3" : "grid-cols-2")}>
-                  {items.map((x) => {
-                    const g = gallery(x);
-                    return (
-                      <div key={x.id} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
-                        <button type="button" onClick={() => g.length && setBig({ urls: g, i: 0 })} className="relative block aspect-[3/4] w-full bg-stone-100">
-                          {g[0] && <img src={g[0]} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
-                          {g.length > 1 && <span className="absolute right-1.5 bottom-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">사진 {g.length}</span>}
-                        </button>
-                        <div className="space-y-0.5 p-2.5">
-                          <div className="text-sm leading-snug font-semibold text-stone-900">{x.name || "이름 없음"}</div>
-                          <div className="truncate text-xs text-stone-500">{[x.vendor, x.place].filter(Boolean).join(" · ")}</div>
-                          {(x.colors || x.sizes) && <div className="text-xs text-stone-600">{[x.colors, x.sizes].filter(Boolean).join(" · ")}</div>}
-                          <div className="text-[11px] text-stone-400">
-                            {x.stage === "request" ? "픽업 요청" : stageName(x.stage)}
-                            {x.kind ? ` · ${x.kind}` : ""}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
+              <ProductGroups
+                d={d}
+                items={items}
+                groups={look.groups || {}}
+                sel={sel}
+                setSel={setSel}
+                onMove={(ids, kind) => {
+                  onLook(r.id, { groups: { ...(look.groups || {}), ...Object.fromEntries(ids.map((id) => [id, kind])) } });
+                  setSel(new Set());
+                }}
+                onBig={(x) => {
+                  const g = gallery(x);
+                  if (g.length) setBig({ urls: g, i: 0 });
+                }}
+              />
             ) : (
               <div className="rounded-xl border border-dashed border-stone-200 px-4 py-8 text-center text-sm text-stone-400">
                 이 사진에 쓸 우리 상품을 아직 안 골랐어요.
@@ -761,6 +758,220 @@ function LookView({ d, refs, start, src, looks, onEdit, onClose, paused }) {
         </div>
       </div>
       {big && <BigSlides urls={big.urls} start={big.i} onClose={() => setBig(null)} />}
+    </div>
+  );
+}
+
+/**
+ * 고른 우리 상품을 옷 종류 칸으로 (10/20 세원: "상의 2개·하의 3개를 골랐으면 한 번에 잡히기도 하고 하나만 잡히기도 해서
+ * 한 번에 드래그해서 하의는 하의로, 상의는 상의로, 아우터는 아우터로")
+ * 칸 = 신상 관리 옷 종류(촬영 레퍼런스 꼬리표 clothes) + 기타. 처음엔 상품의 종류대로 들어가고, 옮기면 이 레퍼런스의
+ * groups {상품 id: 칸} 에만 남는다(신상 관리의 옷 종류는 안 바뀐다 — 레퍼런스 룩처럼 이 소싱에서만).
+ * 잡기: 누르기 = 그것만(다시 누르면 풀림) · Ctrl(⌘) = 넣고 빼기 · Shift = 여기까지 · 빈 곳을 끌면 네모 안 것 · Esc 풀기.
+ * 잡은 것을 끌어 다른 칸에 놓으면 한꺼번에 옮겨진다. 끌기가 안 되는 폰에서는 잡으면 뜨는 '→ 칸' 단추로.
+ * 사진 크게 = 두 번 누르기 또는 사진 위 '크게'.
+ */
+const GROUP_ETC = "기타";
+function ProductGroups({ d, items, groups, sel, setSel, onMove, onBig }) {
+  const kinds = [...(d.tags?.clothes?.length ? d.tags.clothes : ["상의", "하의", "원피스·세트", "아우터", "신발·잡화"]), GROUP_ETC];
+  const groupOf = (x) => (kinds.includes(groups[x.id]) ? groups[x.id] : kinds.includes(x.kind) ? x.kind : GROUP_ETC);
+  const order = kinds.flatMap((k) => items.filter((x) => groupOf(x) === k)); // 화면 순서 (Shift 범위)
+  const [drag, setDrag] = useState(null); // 끄는 중인 상품 id 들
+  const [over, setOver] = useState("");
+  const [box, setBox] = useState(null); // 네모 잡기 {x0, y0, x1, y1}
+  const last = useRef(null);
+  const wrap = useRef(null);
+
+  const click = (e, x) => {
+    const add = e.ctrlKey || e.metaKey;
+    if (e.shiftKey && last.current) {
+      const a = order.findIndex((y) => y.id === last.current);
+      const b = order.findIndex((y) => y.id === x.id);
+      const [i, j] = a < b ? [a, b] : [b, a];
+      setSel(new Set([...(add ? sel : []), ...order.slice(i, j + 1).map((y) => y.id)]));
+      return;
+    }
+    last.current = x.id;
+    if (add) {
+      const n = new Set(sel);
+      if (n.has(x.id)) n.delete(x.id);
+      else n.add(x.id);
+      setSel(n);
+    } else setSel(sel.size === 1 && sel.has(x.id) ? new Set() : new Set([x.id]));
+  };
+  const dragStart = (e, x) => {
+    const ids = sel.has(x.id) ? order.filter((y) => sel.has(y.id)).map((y) => y.id) : [x.id];
+    if (!sel.has(x.id)) setSel(new Set([x.id]));
+    setDrag(ids);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", ids.join(","));
+    // 끄는 모양 — 'N개 옮기기'
+    const g = document.createElement("div");
+    g.textContent = ids.length > 1 ? `${ids.length}개 옮기기` : x.name || "상품 옮기기";
+    g.style.cssText = "position:fixed;top:-200px;left:0;padding:6px 12px;border-radius:999px;background:#be123c;color:#fff;font:600 13px Pretendard,'Malgun Gothic',sans-serif;white-space:nowrap";
+    document.body.appendChild(g);
+    e.dataTransfer.setDragImage(g, 18, 16);
+    setTimeout(() => g.remove(), 0);
+  };
+  const dragEnd = () => {
+    setDrag(null);
+    setOver("");
+  };
+  const drop = (e, k) => {
+    e.preventDefault();
+    const ids = (e.dataTransfer.getData("text/plain") || "").split(",").filter(Boolean);
+    dragEnd();
+    if (ids.length) onMove(ids, k);
+  };
+  // 빈 곳을 끌면 네모 안 것을 잡는다 (Ctrl 누른 채면 더하기)
+  const down = (e) => {
+    if (e.button !== 0 || e.target.closest("[data-card], button, a, input")) return;
+    const add = e.ctrlKey || e.metaKey;
+    const base = add ? [...sel] : [];
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moved = false;
+    const mv = (ev) => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+      moved = true;
+      const b = { x0: Math.min(x0, ev.clientX), y0: Math.min(y0, ev.clientY), x1: Math.max(x0, ev.clientX), y1: Math.max(y0, ev.clientY) };
+      setBox(b);
+      const hit = [...(wrap.current?.querySelectorAll("[data-card]") || [])]
+        .filter((c) => {
+          const r = c.getBoundingClientRect();
+          return r.left < b.x1 && r.right > b.x0 && r.top < b.y1 && r.bottom > b.y0;
+        })
+        .map((c) => c.dataset.card);
+      setSel(new Set([...base, ...hit]));
+    };
+    const up = () => {
+      removeEventListener("pointermove", mv);
+      removeEventListener("pointerup", up);
+      setBox(null);
+      if (!moved && !add) setSel(new Set());
+    };
+    addEventListener("pointermove", mv);
+    addEventListener("pointerup", up);
+  };
+
+  // 비어 있는 칸은 잡았거나 끄는 동안만 (놓을 자리)
+  const shown = kinds.filter((k) => order.some((x) => groupOf(x) === k) || drag || sel.size);
+  return (
+    <div ref={wrap} onPointerDown={down} className="relative min-h-full select-none">
+      <div className="mb-2 text-xs font-medium text-stone-500">
+        고른 우리 상품 {items.length} <span className="font-normal text-stone-400">· 눌러 잡고(Ctrl·Shift·빈 곳 끌기로 여러 개) 다른 칸으로 끌어 옮겨요</span>
+      </div>
+      {sel.size > 0 && (
+        <div className="sticky top-0 z-10 mb-2 flex flex-wrap items-center gap-1.5 rounded-xl bg-rose-50 px-2.5 py-2 text-xs text-rose-900 shadow-sm">
+          <b className="mr-0.5">{sel.size}개 잡음 →</b>
+          {kinds.map((k) => (
+            <button key={k} type="button" onClick={() => onMove([...sel], k)} className="rounded-full border border-rose-200 bg-white px-2.5 py-1 font-semibold text-rose-800 hover:border-rose-400">
+              {k}
+            </button>
+          ))}
+          <button type="button" onClick={() => setSel(new Set())} className="ml-auto font-medium text-rose-700 hover:text-rose-900">
+            풀기
+          </button>
+        </div>
+      )}
+      <div className="space-y-3">
+        {shown.map((k) => {
+          const xs = order.filter((x) => groupOf(x) === k);
+          return (
+            <section
+              key={k}
+              data-group={k}
+              onDragOver={(e) => {
+                if (!drag) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (over !== k) setOver(k);
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) setOver((o) => (o === k ? "" : o));
+              }}
+              onDrop={(e) => drop(e, k)}
+              className={
+                "rounded-xl border-2 p-1.5 transition-colors " +
+                (over === k ? "border-rose-400 bg-rose-50" : drag ? "border-dashed border-stone-300" : "border-transparent")
+              }
+            >
+              <div className="mb-1.5 flex items-baseline gap-1.5 px-0.5">
+                <span className="text-sm font-semibold text-stone-800">{k}</span>
+                <span className="text-xs text-stone-400 tabular-nums">{xs.length}</span>
+              </div>
+              {xs.length ? (
+                <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
+                  {xs.map((x) => {
+                    const on = sel.has(x.id);
+                    const img = itemSrc(x, d.urls) || (x.photos || [])[0] || "";
+                    const n = (x.photos || []).length;
+                    return (
+                      <div
+                        key={x.id}
+                        data-card={x.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-pressed={on}
+                        draggable
+                        onDragStart={(e) => dragStart(e, x)}
+                        onDragEnd={dragEnd}
+                        onClick={(e) => click(e, x)}
+                        onDoubleClick={() => onBig(x)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            click(e, x);
+                          }
+                        }}
+                        className={
+                          "relative cursor-grab overflow-hidden rounded-xl border bg-white transition active:cursor-grabbing " +
+                          (on ? "border-rose-600 ring-2 ring-rose-600" : "border-stone-200 hover:border-stone-300") +
+                          (drag?.includes(x.id) ? " opacity-40" : "")
+                        }
+                      >
+                        <div className="relative aspect-[3/4] bg-stone-100">
+                          {img && <img src={img} alt="" draggable={false} loading="lazy" decoding="async" className="pointer-events-none h-full w-full object-cover" />}
+                          <span
+                            className={
+                              "absolute top-1.5 left-1.5 flex h-6 w-6 items-center justify-center rounded-full shadow " +
+                              (on ? "bg-rose-600 text-white" : "bg-white/90 text-transparent ring-1 ring-stone-300")
+                            }
+                          >
+                            <Check size={14} strokeWidth={3} />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onBig(x);
+                            }}
+                            className="absolute right-1.5 bottom-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white hover:bg-black/70"
+                          >
+                            크게{n > 1 ? ` · ${n}장` : ""}
+                          </button>
+                        </div>
+                        <div className="space-y-0.5 p-2">
+                          <div className="text-sm leading-snug font-semibold text-stone-900">{x.name || "이름 없음"}</div>
+                          <div className="truncate text-xs text-stone-500">{[x.vendor, x.place].filter(Boolean).join(" · ")}</div>
+                          {(x.colors || x.sizes) && <div className="text-xs text-stone-600">{[x.colors, x.sizes].filter(Boolean).join(" · ")}</div>}
+                          <div className="text-[11px] text-stone-400">
+                            {stageLabel(x)}
+                            {x.kind && x.kind !== k ? ` · 원래 ${x.kind}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-stone-300 px-3 py-4 text-center text-xs text-stone-400">여기로 끌어다 놓기</div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      {box && <div className="pointer-events-none fixed z-20 rounded border border-rose-500 bg-rose-500/10" style={{ left: box.x0, top: box.y0, width: box.x1 - box.x0, height: box.y1 - box.y0 }} />}
     </div>
   );
 }
@@ -956,7 +1167,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           }}
         />
       )}
-      {see != null && refs.length > 0 && <LookView d={d} refs={refs} start={Math.min(see, refs.length - 1)} src={src} looks={looks} onEdit={(id) => setOpen(id)} onClose={() => setSee(null)} paused={!!open} />}
+      {see != null && refs.length > 0 && <LookView d={d} refs={refs} start={Math.min(see, refs.length - 1)} src={src} looks={looks} onEdit={(id) => setOpen(id)} onLook={onLook} onClose={() => setSee(null)} paused={!!open} />}
       {open && refs.some((r) => r.id === open) && (
         <LookSheet
           d={d}
