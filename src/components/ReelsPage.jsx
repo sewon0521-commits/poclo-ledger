@@ -72,6 +72,61 @@ const num = (n) => (n == null ? "—" : new Intl.NumberFormat("ko-KR").format(n)
 
 // ------------------------------------------------------------- 넣기 (링크 · 파일)
 
+/**
+ * 대본을 어디서 뽑나 (10/20 세원: "목소리랑 대본이 섞여서 만들어졌어. 영상 분석을 하기 전에 대본 or 목소리를 선택할 수 있게 만들고
+ * 둘중 하나만 뽑아야 될 것 같아") — 분석기 일감에 scriptFrom 으로 실려 /api/reels script 규칙이 갈린다. 기기마다 마지막 고른 것.
+ */
+const FROM_KEY = "poclo_script_from";
+const SCRIPT_FROM = [
+  { key: "caption", label: "자막대로", tip: "화면 자막 글자 그대로 — 목소리는 안 넣어요" },
+  { key: "voice", label: "목소리대로", tip: "말한 그대로 — 화면 자막은 안 넣어요" },
+];
+const FROM_LABEL = { caption: "자막대로 뽑음", voice: "목소리대로 뽑음" };
+function useScriptFrom() {
+  const [v, setV] = useState(() => {
+    try {
+      return localStorage.getItem(FROM_KEY) === "voice" ? "voice" : "caption";
+    } catch {
+      return "caption";
+    }
+  });
+  const set = (x) => {
+    setV(x);
+    try {
+      localStorage.setItem(FROM_KEY, x);
+    } catch {
+      /* 이 기기 저장이 막혀도 고른 건 이 화면에서는 그대로 */
+    }
+  };
+  return [v, set];
+}
+function ScriptFromPick({ value, onChange, className = "" }) {
+  const cur = SCRIPT_FROM.find((o) => o.key === value) || SCRIPT_FROM[0];
+  return (
+    <div className={"flex flex-wrap items-center gap-x-2 gap-y-1 " + className}>
+      <span className="text-xs font-medium text-stone-600">대본은</span>
+      <div className="flex gap-0.5 rounded-lg bg-stone-100 p-0.5" role="radiogroup" aria-label="대본을 어디서 뽑을까요">
+        {SCRIPT_FROM.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={value === o.key}
+            onClick={() => onChange(o.key)}
+            className={
+              "rounded-md px-2.5 py-1 text-xs font-medium " +
+              (value === o.key ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800")
+            }
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <span className="text-[11px] text-stone-400">{cur.tip}</span>
+    </div>
+  );
+}
+
 function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) {
   const [tab, setTab] = useState("link");
   const [url, setUrl] = useState("");
@@ -81,6 +136,7 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) 
   const [transcript, setTranscript] = useState("");
   const [over, setOver] = useState(false);
   const [step, setStep] = useState("");
+  const [from, setFrom] = useScriptFrom();
   const busy = !!step;
   const alive = workerAlive(worker);
 
@@ -159,6 +215,7 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) 
           </p>
         </div>
       ) : tab === "link" ? (
+        <>
         <div className="flex flex-wrap gap-2">
           <input
             value={url}
@@ -178,13 +235,15 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) 
           <button
             type="button"
             disabled={busy || !isLink(url)}
-            onClick={() => wrap("맡기는 중…", () => onLink(url.trim(), memo, true))}
+            onClick={() => wrap("맡기는 중…", () => onLink(url.trim(), memo, true, from))}
             className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
           >
             {busy ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
             {busy ? step : "분석하기"}
           </button>
         </div>
+        <ScriptFromPick value={from} onChange={setFrom} className="mt-2" />
+        </>
       ) : (
         <>
           <label className="flex cursor-pointer items-center gap-3">
@@ -210,8 +269,9 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) 
               }}
             />
           </label>
+          {file && <ScriptFromPick value={from} onChange={setFrom} className="mt-3 border-t border-stone-100 pt-3" />}
           {file && (
-            <div className="mt-3 flex flex-wrap gap-2 border-t border-stone-100 pt-3">
+            <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={busy}
@@ -224,7 +284,7 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) 
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => wrap("영상 올리는 중…", () => onFile(file, memo))}
+                onClick={() => wrap("영상 올리는 중…", () => onFile(file, memo, from))}
                 className="flex flex-1 flex-col items-center justify-center rounded-xl bg-rose-700 py-2 font-semibold text-white disabled:bg-stone-300"
               >
                 <span className="flex items-center gap-1.5">
@@ -515,6 +575,8 @@ function Meta({ meta, added }) {
  */
 function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
   const r = item.reference || {};
+  const [redo, setRedo] = useState(false);
+  const [from, setFrom] = useScriptFrom();
   const [edit, setEdit] = useState(false);
   const [v, setV] = useState("");
   const [busy, setBusy] = useState(false);
@@ -546,6 +608,7 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-stone-500">
           뽑은 대본
+          {FROM_LABEL[r.scriptFrom] && <span className="ml-1.5 rounded bg-stone-100 px-1 font-medium text-stone-600">{FROM_LABEL[r.scriptFrom]}</span>}
           {r.dense && <span className="ml-1.5 font-normal text-stone-400">자막 1초에 {r.dense.fps}번 확인</span>}
           {r.scriptEditedAt && <span className="ml-1.5 rounded bg-amber-100 px-1 font-medium text-amber-800">직접 고침</span>}
         </span>
@@ -573,7 +636,9 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
             onChange={(e) => setV(e.target.value)}
             className="block min-h-[12rem] w-full rounded-xl border border-rose-400 px-3 py-2.5 text-sm leading-relaxed text-stone-800 outline-none [field-sizing:content]"
           />
-          <p className="text-[11px] text-stone-400">줄 앞 [0:03.5] 은 시각이에요. 그대로 두고 글자만 고치면 돼요. 목소리로만 한 말은 시각 뒤에 ‘말:’.</p>
+          <p className="text-[11px] text-stone-400">
+            줄 앞 [0:03.5] 은 시각이에요. 그대로 두고 글자만 고치면 돼요.{r.scriptFrom ? "" : " 목소리로만 한 말은 시각 뒤에 ‘말:’."}
+          </p>
           <span className="flex justify-end gap-1.5">
             <button type="button" onClick={() => setEdit(false)} className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600">
               그만두기
@@ -635,26 +700,45 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
           <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap text-stone-600">{r.screenText}</p>
         </details>
       )}
-      {r.dense && item.hasVideo && onReExtract && !edit && (
+      {r.dense && item.hasVideo && onReExtract && !edit && !redo && (
         <button
           type="button"
-          onClick={() => {
-            if (!window.confirm(`대본을 다시 뽑을까요? (약 250~300원)${r.scriptEditedAt ? "\n직접 고친 대본도 새로 뽑은 대본으로 바뀌어요." : ""}`)) return;
-            onReExtract(item);
-          }}
+          onClick={() => setRedo(true)}
           className="mt-2 flex items-center gap-1 text-[11px] text-stone-400 hover:text-stone-700"
         >
           <Wand2 size={11} /> 대본이 이상하면 다시 뽑기
         </button>
       )}
+      {r.dense && item.hasVideo && onReExtract && !edit && redo && (
+        <div className="mt-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5">
+          <ScriptFromPick value={from} onChange={setFrom} />
+          {r.scriptEditedAt && <p className="mt-1.5 text-[11px] text-amber-700">직접 고친 대본도 새로 뽑은 대본으로 바뀌어요.</p>}
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setRedo(false);
+                onReExtract(item, from);
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              <Wand2 size={13} /> {from === "voice" ? "목소리대로" : "자막대로"} 다시 뽑기 · 약 250~300원
+            </button>
+            <button type="button" onClick={() => setRedo(false)} className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600">
+              그만두기
+            </button>
+          </div>
+        </div>
+      )}
       {!r.dense && item.hasVideo && onReExtract && !edit && (
         <div className="mt-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-xs text-stone-600">
           예전 방식으로 뽑은 대본이에요(장면 사진 10~18장만 봄). 빨리 지나가는 자막을 놓쳤을 수 있어요.
+          <ScriptFromPick value={from} onChange={setFrom} className="mt-2" />
           <button
             type="button"
             onClick={() => {
               if (r.scriptEditedAt && !window.confirm("직접 고친 대본도 새로 뽑은 대본으로 바뀌어요. 다시 뽑을까요?")) return;
-              onReExtract(item);
+              onReExtract(item, from);
             }}
             className="mt-2 flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800 hover:border-rose-300"
           >
@@ -668,6 +752,7 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
 
 function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract, online }) {
   const r = item.reference || {};
+  const [from, setFrom] = useScriptFrom();
   const status = statusOf(item, queue);
   const [seek, setSeek] = useState(null);
   const [tab, setTab] = useState(item.plan ? "write" : "script");
@@ -828,9 +913,10 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               <p className="mt-1 text-xs leading-relaxed text-stone-500">
                 대본·구조 분석은 아직 안 했어요. 필요할 때 누르면 사무실 PC 분석기가 소리까지 받아써서 분석해요 (한 번 약 100~200원).
               </p>
+              <ScriptFromPick value={from} onChange={setFrom} className="mt-3" />
               <button
                 type="button"
-                onClick={() => onAnalyze(item)}
+                onClick={() => onAnalyze(item, from)}
                 className="mt-3 flex items-center gap-1.5 rounded-lg bg-rose-700 px-3.5 py-2 text-sm font-semibold text-white"
               >
                 <Wand2 size={14} /> 분석하기
@@ -864,6 +950,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                       ? "영상은 보관돼 있어요. 다시 맡기면 분석만 다시 해요."
                       : "연령·나라 제한 게시물이면 로그인 없이는 영상을 못 받아요 — 인스타에서 열어 보고, 필요하면 폰에 저장해 '영상 파일'로 넣어 주세요."}
                   </p>
+                  {!(item.wantKeep || item.keepOnly) && <ScriptFromPick value={from} onChange={setFrom} className="mt-3" />}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {(item.source?.url || item.meta?.url) && (
                       <a
@@ -877,7 +964,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                     )}
                     <button
                       type="button"
-                      onClick={() => onRetry(item, "ref", item.wantKeep || item.keepOnly ? { analyze: false } : {})}
+                      onClick={() => onRetry(item, "ref", item.wantKeep || item.keepOnly ? { analyze: false } : { scriptFrom: from })}
                       className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white"
                     >
                       <RotateCw size={13} /> {item.wantKeep || item.keepOnly ? "다시 받아 보기 (보관만)" : "다시 분석 맡기기"}
@@ -1590,7 +1677,7 @@ export default function ReelsPage({
     return f ? { folderId: f.id, folder: f.parent ? "" : f.name } : { folderId: null, folder: "" };
   };
 
-  const queueLink = async (url, memo, analyze = true) => {
+  const queueLink = async (url, memo, analyze = true, scriptFrom = "") => {
     setNotice("");
     const id = newId("r");
     await onSave({
@@ -1605,22 +1692,22 @@ export default function ReelsPage({
       job: { status: "queued", at: new Date().toISOString() },
       filled: [],
     });
-    await onQueue(id, "ref", analyze ? {} : { analyze: false });
+    await onQueue(id, "ref", analyze ? (scriptFrom ? { scriptFrom } : {}) : { analyze: false });
   };
 
   /** 대본 다시 뽑기 (10/2) — 예전 방식으로 뽑은 레퍼런스를 자막 띠로 다시. 분석기는 보관된 영상을 쓴다 */
-  const reExtract = async (item) => {
+  const reExtract = async (item, scriptFrom = "") => {
     await onSave({ ...item, job: { status: "queued", at: new Date().toISOString() } });
-    await onQueue(item.id, "ref");
+    await onQueue(item.id, "ref", scriptFrom ? { scriptFrom } : {});
   };
 
   /** 보관만 한 영상을 나중에 분석 (9/23 세원: "나중에 분석이 필요하면 영상 눌러서 따로 분석하기") */
-  const analyzeLater = async (item) => {
+  const analyzeLater = async (item, scriptFrom = "") => {
     await onSave({ ...item, job: { status: "queued", at: new Date().toISOString() } });
-    await onQueue(item.id, "ref");
+    await onQueue(item.id, "ref", scriptFrom ? { scriptFrom } : {});
   };
 
-  const queueFile = async (file, memo) => {
+  const queueFile = async (file, memo, scriptFrom = "") => {
     setNotice("");
     if (file.size > MAX_VIDEO) {
       setNotice("영상이 40MB를 넘어요. 짧게 자르거나 화질을 낮춰서 넣어 주세요.");
@@ -1643,7 +1730,7 @@ export default function ReelsPage({
       job: { status: "queued", at: new Date().toISOString() },
       filled: [],
     });
-    await onQueue(id, "ref");
+    await onQueue(id, "ref", scriptFrom ? { scriptFrom } : {});
   };
 
   /** 예전 방식 — 브라우저에서 장면만 떠서 바로 분석 (소리 없음) */
