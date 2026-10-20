@@ -525,6 +525,38 @@ function LookNote({ value = "", onSave, className = "" }) {
   );
 }
 
+/** 룩 메모 — 여러 줄, 멈추면 0.8초 뒤·칸을 벗어나면 저장 (10/20) */
+function LookMemo({ value = "", onSave }) {
+  const [v, setV] = useState(value);
+  const [was, setWas] = useState(value);
+  const timer = useRef(null);
+  if (value !== was) {
+    setWas(value);
+    setV(value);
+  }
+  const flush = (t) => {
+    clearTimeout(timer.current);
+    if (t.trim() !== value.trim()) onSave(t.trim());
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return (
+    <textarea
+      value={v}
+      rows={3}
+      onChange={(e) => {
+        const t = e.target.value;
+        setV(t);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => flush(t), 800);
+      }}
+      onBlur={() => flush(v)}
+      placeholder="촬영 때 볼 것 · 색 조합 · 사이즈 · 소품 등 자유롭게"
+      style={{ fieldSizing: "content" }}
+      className="block min-h-20 w-full resize-none rounded-lg border border-stone-200 bg-amber-50/40 px-2.5 py-2 text-sm leading-relaxed text-stone-800 outline-none placeholder:text-stone-300 focus:border-rose-400 focus:bg-white"
+    />
+  );
+}
+
 // 고를 수 있는 상품 (10/14 세원: "촬영 레퍼런스에 모든 제품이 다 뜨는데 — 요청에서는 픽업 요청을 누른 제품만, 입고·픽이랑 촬영까지 뜨는 건 괜찮아")
 // 10/20 세원: "룩·상품 고치기에 뜨는 상품 입고·픽만 뜨는 거야? 요청까지 뜨게" → 요청 단계는 전부(픽업 요청 먼저).
 // = 입고·픽 → 촬영 → 요청(픽업 요청 켠 것) → 요청. '안 됨'·보류·휴지통·등록 뒤는 빠진다. 찾기도 이 안에서만.
@@ -643,6 +675,9 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
               <div className="mb-1 text-xs font-medium text-stone-500">어떤 룩 — 사진 밑에 바로 보여요</div>
               <LookNote value={look.text || ""} onSave={(text) => onSave({ text })} className="min-h-16 py-2 text-sm" />
               {(r.shop || r.memo) && <p className="mt-2 text-[11px] text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ")}</p>}
+              {/* 10/20 세원: "룩·상품 고치기에 메모 칸 — 고른 우리 상품 위에 메모장" */}
+              <div className="mt-3 mb-1 text-xs font-medium text-stone-500">메모</div>
+              <LookMemo value={look.memo || ""} onSave={(memo) => onSave({ memo })} />
               {picked.length > 0 && (
                 <div className="mt-3 space-y-2.5">
                   <div className="text-xs font-medium text-stone-500">
@@ -797,6 +832,7 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
             <div className="min-w-0">
               <div className="text-xs text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ") || "이 소싱에서 찍을 룩"}</div>
               <div className={"mt-0.5 text-lg leading-snug font-semibold whitespace-pre-wrap " + (look.text ? "text-stone-900" : "text-stone-300")}>{look.text || "룩을 아직 안 적었어요"}</div>
+              {look.memo && <p className="mt-1 max-h-32 overflow-y-auto rounded-lg bg-amber-50 px-2.5 py-1.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-700">{look.memo}</p>}
             </div>
             <span className="flex shrink-0 items-center gap-1">
               <button type="button" onClick={() => onEdit(r.id)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
@@ -1417,7 +1453,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
               const all = latest.current.refLooks || {};
               const next = { ...(all[id] || {}), ...p };
               const rest = Object.fromEntries(Object.entries(all).filter(([k]) => k !== id));
-              set({ refLooks: next.text || (next.itemIds || []).length ? { ...rest, [id]: next } : rest });
+              set({ refLooks: next.text || next.memo || (next.itemIds || []).length ? { ...rest, [id]: next } : rest });
             }}
             online={online}
             onMsg={setMsg}
