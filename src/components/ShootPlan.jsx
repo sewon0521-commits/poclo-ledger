@@ -25,7 +25,7 @@ import {
   Images,
   Star,
 } from "lucide-react";
-import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, codiName } from "../lib/shoot";
+import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, codiName } from "../lib/shoot";
 import { CutFilter } from "./CutBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
@@ -611,6 +611,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
     >
       <span className="block aspect-[3/4] bg-stone-100">{itemSrc(x, d.urls) && <img src={itemSrc(x, d.urls)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}</span>
       <span className="block truncate px-1.5 pt-1 text-[11px] font-medium text-stone-800">{x.name || "이름 없음"}</span>
+      {x.price > 0 && <span className="block truncate px-1.5 text-[10px] font-semibold text-stone-600 tabular-nums">공급가 {won(x.price)}</span>}
       <span className="block truncate px-1.5 pb-1 text-[10px] text-stone-400">
         {stageLabel(x)}
         {x.kind ? ` · ${x.kind}` : ""}
@@ -764,9 +765,13 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
   return (
     <div className="backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/80 p-0 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className="sheet relative z-10 flex h-full w-full max-w-6xl flex-col overflow-hidden bg-white shadow-2xl sm:h-[92vh] sm:rounded-2xl md:flex-row">
+      {/* 10/20 세원: "모바일에서는 드래그 안 되게 — 창이 내려가지지 않네" → 폰은 창 전체가 한 번에 내려간다(사진 → 상품) */}
+      <div className="sheet relative z-10 flex h-full w-full max-w-6xl flex-col overscroll-contain bg-white shadow-2xl max-md:overflow-y-auto sm:h-[92vh] sm:rounded-2xl md:flex-row md:overflow-hidden">
         {/* 레퍼런스 사진 */}
-        <div className="relative flex shrink-0 items-center justify-center bg-stone-900 max-md:h-[55vh] md:w-[48%]">
+        <div className="relative flex shrink-0 items-center justify-center bg-stone-900 max-md:h-[50vh] md:w-[48%]">
+          <button type="button" onClick={onClose} aria-label="닫기" className="absolute top-2 right-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white md:hidden">
+            <X size={20} />
+          </button>
           {src(r) && <img src={src(r)} alt="" decoding="async" className="max-h-full max-w-full object-contain" />}
           {refs.length > 1 && (
             <>
@@ -787,7 +792,7 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
         </div>
 
         {/* 룩 + 고른 상품 */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col md:min-h-0">
           <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
             <div className="min-w-0">
               <div className="text-xs text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ") || "이 소싱에서 찍을 룩"}</div>
@@ -802,7 +807,7 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
               </button>
             </span>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="p-4 md:min-h-0 md:flex-1 md:overflow-y-auto">
             {items.length ? (
               <ProductGroups
                 d={d}
@@ -858,6 +863,8 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   const [box, setBox] = useState(null); // 네모 잡기 {x0, y0, x1, y1}
   const last = useRef(null);
   const wrap = useRef(null);
+  // 끌어 옮기기·네모 잡기는 마우스일 때만 — 폰에서 손가락이 끌기로 잡혀 창이 안 내려갔다(10/20). 폰은 눌러 잡고 '→ 칸' 단추로
+  const [fine] = useState(() => (typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia("(pointer: fine)").matches));
 
   const click = (e, x) => {
     const add = e.ctrlKey || e.metaKey;
@@ -902,7 +909,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   };
   // 빈 곳을 끌면 네모 안 것을 잡는다 (Ctrl 누른 채면 더하기)
   const down = (e) => {
-    if (e.button !== 0 || e.target.closest("[data-card], button, a, input")) return;
+    if (!fine || e.pointerType !== "mouse" || e.button !== 0 || e.target.closest("[data-card], button, a, input")) return;
     const add = e.ctrlKey || e.metaKey;
     const base = add ? [...sel] : [];
     const x0 = e.clientX;
@@ -936,7 +943,10 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   return (
     <div ref={wrap} onPointerDown={down} className="relative min-h-full select-none">
       <div className="mb-2 text-xs font-medium text-stone-500">
-        고른 우리 상품 {items.length} <span className="font-normal text-stone-400">· 눌러 잡고(Ctrl·Shift·빈 곳 끌기로 여러 개) 다른 칸으로 끌어 옮겨요 · ☆ 를 누르면 그 칸에서 제일 잘 맞는 것</span>
+        고른 우리 상품 {items.length}{" "}
+        <span className="font-normal text-stone-400">
+          {fine ? "· 눌러 잡고(Ctrl·Shift·빈 곳 끌기로 여러 개) 다른 칸으로 끌어 옮겨요" : "· 눌러 잡고 위에 뜨는 '→ 칸' 단추로 옮겨요"} · ☆ 를 누르면 그 칸에서 제일 잘 맞는 것
+        </span>
       </div>
       {sel.size > 0 && (
         <div className="sticky top-0 z-10 mb-2 flex flex-wrap items-center gap-1.5 rounded-xl bg-rose-50 px-2.5 py-2 text-xs text-rose-900 shadow-sm">
@@ -991,7 +1001,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                         role="button"
                         tabIndex={0}
                         aria-pressed={on}
-                        draggable
+                        draggable={fine}
                         onDragStart={(e) => dragStart(e, x)}
                         onDragEnd={dragEnd}
                         onClick={(e) => click(e, x)}
@@ -1003,7 +1013,8 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                           }
                         }}
                         className={
-                          "relative cursor-grab overflow-hidden rounded-xl border bg-white transition active:cursor-grabbing " +
+                          "relative overflow-hidden rounded-xl border bg-white transition " +
+                          (fine ? "cursor-grab active:cursor-grabbing " : "") +
                           (on ? "border-rose-600 ring-2 ring-rose-600" : x.id === best[k] ? "border-amber-400 ring-2 ring-amber-400" : "border-stone-200 hover:border-stone-300") +
                           (drag?.includes(x.id) ? " opacity-40" : "")
                         }
@@ -1047,6 +1058,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                         </div>
                         <div className="space-y-0.5 p-2">
                           <div className="text-sm leading-snug font-semibold text-stone-900">{x.name || "이름 없음"}</div>
+                          {x.price > 0 && <div className="text-xs font-semibold text-stone-800 tabular-nums">공급가 {won(x.price)}</div>}
                           <div className="truncate text-xs text-stone-500">{[x.vendor, x.place].filter(Boolean).join(" · ")}</div>
                           {(x.colors || x.sizes) && <div className="text-xs text-stone-600">{[x.colors, x.sizes].filter(Boolean).join(" · ")}</div>}
                           <div className="text-[11px] text-stone-400">
