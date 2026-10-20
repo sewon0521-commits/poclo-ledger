@@ -296,3 +296,33 @@ export function musicOf(meta) {
     fileName: (original ? `${title}_${m.artist || ""}` : [m.title, m.artist].filter(Boolean).join(" - ")).replace(/[\\/:*?"<>|]+/g, " ").trim(),
   };
 }
+
+/**
+ * 같은 릴스를 두 번 담았나 (10/20 세원: "릴스 중복된 거 알아서 없애 주고 앞으로 중복 저장된 릴스는 표시해 줘").
+ * 인스타는 게시물 코드(앞 11글자), 광고 라이브러리는 광고 id, 올린 파일은 파일 이름 — 단 녹화·카톡처럼 숫자가 길게 붙은 이름만
+ * ('IMG_1234.MOV' 같은 흔한 이름은 다른 영상일 수 있어 안 본다 — 숫자가 8개 넘는 이름만).
+ */
+const DUP_CODE = /\/(?:p|reels?|tv)\/(?!audio\/)([A-Za-z0-9_-]{5,})/;
+export function dupKeyOf(item) {
+  const s = typeof item?.source === "string" ? { url: item.source } : item?.source || {};
+  for (const u of [item?.meta?.url, s.url]) {
+    const m = String(u || "").match(DUP_CODE);
+    if (m) return "insta:" + m[1].slice(0, 11);
+  }
+  if (s.type === "adlib" && s.adId) return "ad:" + s.adId;
+  if (s.type === "file" && s.name && s.name.replace(/\D/g, "").length >= 8) return "file:" + s.name;
+  return "";
+}
+/** id → 같은 릴스의 다른 복사본들 (중복 없는 건 안 들어감) */
+export function dupMapOf(items) {
+  const g = new Map();
+  for (const it of items || []) {
+    const k = dupKeyOf(it);
+    if (k) g.set(k, [...(g.get(k) || []), it]);
+  }
+  const out = new Map();
+  for (const list of g.values()) if (list.length > 1) for (const it of list) out.set(it.id, list.filter((x) => x.id !== it.id));
+  return out;
+}
+/** 복사본 중 남길 만한 정도 — 분석·BEST·우리 영상·영상 보관 */
+export const keepScore = (it) => (it?.reference?.script ? 4 : 0) + (it?.best ? 2 : 0) + (it?.ours ? 2 : 0) + (it?.hasVideo ? 1 : 0);

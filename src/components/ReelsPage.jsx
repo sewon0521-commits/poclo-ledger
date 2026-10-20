@@ -46,7 +46,7 @@ import TrimVideo from "./TrimVideo";
 import ReelMusic from "./ReelMusic";
 import { instaAudioUrl, queueInstaAudio } from "../lib/music";
 import { CopyButton, WorkerStatus, EditableTitle, TrendBox } from "./ContentBits";
-import { workerAlive, addedOn, musicOf } from "../lib/reels";
+import { workerAlive, addedOn, musicOf, dupMapOf, dupKeyOf, keepScore } from "../lib/reels";
 import { FROM_LABEL, useScriptFrom, ScriptFromPick } from "./ScriptFrom";
 import InstaClipGuide from "./InstaClipGuide";
 
@@ -322,7 +322,7 @@ function statusOf(item, queue, target = "ref") {
   return { kind: "done" };
 }
 
-function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onTag }) {
+function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onTag, dup = 0 }) {
   const r = item.reference || {};
   const pending = status.kind !== "done";
   const failed = status.kind === "error";
@@ -366,6 +366,11 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
             </span>
           ))}
           {item.ours && <span className="rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">우리 영상</span>}
+          {dup > 0 && (
+            <span className="rounded bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white" title={`같은 릴스가 ${dup}개 더 담겨 있어요`}>
+              중복{dup > 1 ? ` ${dup + 1}` : ""}
+            </span>
+          )}
         </span>
         {item.hasVideo && !pending && (
           <span className="absolute inset-0 flex items-center justify-center">
@@ -706,7 +711,7 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
   );
 }
 
-function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract, online }) {
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract, online, dups = [], onOpenItem }) {
   const r = item.reference || {};
   const [from, setFrom] = useScriptFrom();
   const status = statusOf(item, queue);
@@ -827,6 +832,30 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               ))}
             </select>
           </div>
+          {dups.length > 0 && (
+            <div className="mt-2 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-[11px] text-orange-900">
+              <b>중복</b> — 같은 릴스가 {dups.length}개 더 담겨 있어요:
+              {dups.map((d) => (
+                <button key={d.id} type="button" onClick={() => onOpenItem(d)} className="ml-1.5 underline underline-offset-2 hover:text-orange-700">
+                  {pathName(folderIdOf(d, folders), folders) || "미분류"} · {(d.title || "").slice(0, 16)}
+                  {d.reference?.script ? " (분석됨)" : d.keepOnly ? " (보관만)" : ""}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const better = keepScore(item) > Math.max(...dups.map(keepScore));
+                  if (window.confirm(better ? "이 복사본이 더 많이 채워져 있어요(분석·BEST·영상). 다른 쪽을 지우는 게 나아요.\n그래도 이걸 지울까요?" : "이 복사본을 지울까요? 같은 릴스는 남아 있어요.")) {
+                    onRemove(item.id);
+                    onClose();
+                  }
+                }}
+                className="ml-2 rounded border border-orange-300 bg-white px-1.5 py-0.5 font-semibold text-orange-800 hover:bg-orange-100"
+              >
+                이 복사본 지우기
+              </button>
+            </div>
+          )}
         </div>
         <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 shrink-0 p-1 text-stone-400 hover:text-stone-700">
           <X size={20} />
@@ -1536,6 +1565,8 @@ export default function ReelsPage({
   const [bestOnly, setBestOnly] = useState(false);
   const [tagOnly, setTagOnly] = useState(""); // "" | "shomanma"
   const [failOnly, setFailOnly] = useState(false); // 10/20 못 받은 릴스만
+  const [dupOnly, setDupOnly] = useState(false); // 10/20 중복만
+  const dupMap = useMemo(() => dupMapOf(items), [items]);
   const [instaGuide, setInstaGuide] = useState(false); // 10/20 인스타에서 한 번에 담기 안내
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
@@ -1574,6 +1605,7 @@ export default function ReelsPage({
         (!bestOnly || i.best) &&
         (!tagOnly || i[tagOnly]) &&
         (!failOnly || i.job?.status === "error") &&
+        (!dupOnly || dupMap.has(i.id)) &&
         (!needle ||
           JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name, i.shomanma && "쇼만마"])
             .toLowerCase()
@@ -1581,9 +1613,11 @@ export default function ReelsPage({
     );
     // BEST 는 보고 있는 폴더 안에서 맨 앞 (나중에 올린 BEST 가 더 앞). 나머지는 원래 순서
     const failed = (i) => i.job?.status === "error";
+    // 중복만 볼 때는 같은 릴스끼리 붙여서
+    if (dupOnly) return [...list].sort((a, b) => dupKeyOf(a).localeCompare(dupKeyOf(b)));
     const rest = list.filter((i) => !failed(i));
     return [...list.filter(failed), ...rest.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...rest.filter((i) => !i.best)];
-  }, [items, q, sel, folders, bestOnly, tagOnly, failOnly]);
+  }, [items, q, sel, folders, bestOnly, tagOnly, failOnly, dupOnly, dupMap]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
@@ -1650,6 +1684,10 @@ export default function ReelsPage({
       filled: [],
     });
     await onQueue(id, "ref", analyze ? (scriptFrom ? { scriptFrom } : {}) : { analyze: false });
+    // 10/20 이미 담긴 릴스면 알려 준다 (카드에는 '중복'이 붙는다)
+    const k = dupKeyOf({ meta: { url } });
+    const same = k && items.find((i) => dupKeyOf(i) === k);
+    if (same) setNotice(`이미 담긴 릴스예요 (${pathName(folderIdOf(same, folders), folders) || "미분류"} · ${(same.title || "").slice(0, 20)}) — 카드에 '중복'이 붙어요. 필요 없으면 하나를 지워 주세요.`);
   };
 
   /** 대본 다시 뽑기 (10/2) — 예전 방식으로 뽑은 레퍼런스를 자막 띠로 다시. 분석기는 보관된 영상을 쓴다 */
@@ -1921,6 +1959,31 @@ export default function ReelsPage({
         );
       })()}
 
+      {(dupMap.size > 0 || dupOnly) && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900">
+          <Info size={15} className="shrink-0" />
+          <span className="min-w-0 flex-1">
+            {dupMap.size ? (
+              <>
+                <b>같은 릴스가 두 번 이상 담긴 게 {new Set([...dupMap.keys()].map((id) => dupKeyOf(items.find((i) => i.id === id)))).size}개</b> — 카드에 '중복'이 붙어 있어요. 눌러서 남길 것을 보고 하나는 지워 주세요.
+              </>
+            ) : (
+              "중복된 릴스가 이제 없어요."
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (!dupOnly) setSel("all");
+              setDupOnly(!dupOnly);
+            }}
+            className={"shrink-0 rounded-lg px-3 py-1 text-xs font-semibold " + (dupOnly ? "bg-white text-orange-900 ring-1 ring-orange-300" : "bg-orange-600 text-white")}
+          >
+            {dupOnly ? "전체 보기" : "모아 보기"}
+          </button>
+        </div>
+      )}
+
       {shown.length === 0 ? (
         <Empty
           title={items.length ? "이 폴더에는 아직 없어요." : "아직 모아 둔 릴스가 없어요."}
@@ -1945,6 +2008,7 @@ export default function ReelsPage({
                 });
               }}
               folderName={pathName(folderIdOf(it, folders), folders)}
+              dup={dupMap.get(it.id)?.length || 0}
               status={statusOf(it, queue)}
               onOpen={openItem}
               folders={folders}
@@ -1981,6 +2045,8 @@ export default function ReelsPage({
               onAnalyze={analyzeLater}
               onReExtract={reExtract}
               online={online}
+              dups={dupMap.get(open.id) || []}
+              onOpenItem={(d) => setOpen(d)}
             />
           </div>
         </div>
