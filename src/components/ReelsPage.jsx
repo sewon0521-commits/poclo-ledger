@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clapperboard,
   Upload,
@@ -7,7 +7,6 @@ import {
   Info,
   Loader2,
   Link2,
-  Play,
   X,
   Sparkles,
   Heart,
@@ -46,6 +45,12 @@ import ReelMusic from "./ReelMusic";
 import { instaAudioUrl, queueInstaAudio } from "../lib/music";
 import { CopyButton, WorkerStatus, EditableTitle, TrendBox } from "./ContentBits";
 import { workerAlive, addedOn, musicOf } from "../lib/reels";
+import { CTYPES, CTYPE, autoType } from "../lib/contentTypes";
+import { loadKey, changeKey, onSettingsChange } from "../lib/shoot";
+
+// 카드 숫자 (10/20 세원: "유형별 레퍼런스의 썸네일 조회수 나오는 거나 밑에 누구의 레퍼이고 좋아요, 댓글 수 이게 좋아 보여")
+const man = (v) => (v >= 10000 ? `${(v / 10000).toFixed(1).replace(/\.0$/, "")}만` : Number(v || 0).toLocaleString("ko-KR"));
+const cnt = (v) => (v == null ? "—" : Number(v).toLocaleString("ko-KR"));
 
 /**
  * 릴스 기획 — 레퍼런스를 모으고(라이브러리), 그 구조로 우리 상품 대본을 만든다.
@@ -366,10 +371,13 @@ function statusOf(item, queue, target = "ref") {
   return { kind: "done" };
 }
 
-function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onTag }) {
-  const r = item.reference || {};
+function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onTag, type }) {
   const pending = status.kind !== "done";
   const failed = status.kind === "error";
+  const m = item.meta || {};
+  const who = item.shop?.name || m.name || (m.uploader ? `@${m.uploader}` : "") || (item.source?.type === "file" ? "직접 올린 영상" : "");
+  // 상태 배지는 할 말이 있을 때만 (분석 완료는 안 붙임 — 썸네일을 가리지 않게)
+  const badge = failed ? (item.hasVideo ? "분석 실패" : "못 받음") : pending ? status.text : item.keepOnly ? "보관만" : item.plan ? "대본 완성" : "";
   return (
     <div
       className={
@@ -378,7 +386,7 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
       }
     >
       <button type="button" onClick={() => onOpen(item)} className="block w-full overflow-hidden rounded-t-xl text-left">
-      <span className="relative block aspect-[3/4] bg-stone-100">
+      <span className="relative block aspect-[9/14] bg-stone-100">
         {thumbUrl ? (
           <img src={thumbUrl} alt="" loading="lazy" decoding="async" onError={onThumbError} className="h-full w-full object-cover" />
         ) : (
@@ -386,19 +394,17 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
             {pending && status.kind !== "error" ? <Loader2 size={24} className="animate-spin" /> : <Clapperboard size={28} />}
           </span>
         )}
-        <span
-          className={
-            "absolute top-2 left-2 max-w-[85%] truncate rounded px-1.5 py-0.5 text-[10px] font-medium " +
-            (status.kind === "error"
-              ? "bg-rose-600 text-white"
-              : pending
-                ? "bg-amber-400 text-amber-950"
-                : "bg-white/90 text-stone-600")
-          }
-        >
-          {failed ? (item.hasVideo ? "분석 실패" : "못 받음") : pending ? status.text : item.keepOnly ? "보관만" : item.plan ? "대본 완성" : "분석 완료"}
-        </span>
-        <span className="absolute top-2 right-2 flex flex-col items-end gap-1">
+        <span className="absolute top-1.5 left-1.5 flex max-w-[92%] flex-wrap gap-1">
+          {badge && (
+            <span
+              className={
+                "max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-semibold " +
+                (failed ? "bg-rose-600 text-white" : pending ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-600")
+              }
+            >
+              {badge}
+            </span>
+          )}
           {item.best && (
             <span className="flex items-center gap-0.5 rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
               <Star size={10} className="fill-amber-950" /> BEST
@@ -411,39 +417,34 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
           ))}
           {item.ours && <span className="rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">우리 영상</span>}
         </span>
-        {item.hasVideo && !pending && (
-          <span className="absolute inset-0 flex items-center justify-center">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white">
-              <Play size={16} />
-            </span>
-          </span>
-        )}
         {failed ? (
           <span className="absolute inset-x-0 bottom-0 bg-rose-700/90 px-2 py-1.5 text-[11px] leading-snug font-semibold text-white">
             {item.hasVideo ? "분석이 안 됐어요" : "영상을 못 받았어요"} · 눌러서 확인
           </span>
         ) : (
-          r.structure?.hookType && (
-            <span className="absolute bottom-2 left-2 max-w-[90%] truncate rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
-              {r.structure.hookType}
-            </span>
+          m.views > 0 && (
+            <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums">▶ {man(m.views)}</span>
           )
         )}
       </span>
       </button>
-      {/* 좁은 카드(폰 2칸)면 단추들이 제목 아래 줄로 내려간다 — 제목이 안 짓눌리게 */}
-      <div className="flex flex-wrap items-center gap-1 px-3 py-2">
-        <button type="button" onClick={() => onOpen(item)} className="min-w-[7rem] flex-1 text-left">
-          <span className="block truncate text-sm font-medium text-stone-900">{item.title}</span>
-          <span className="mt-0.5 block truncate text-[11px] text-stone-400">
-            {folderName}
-            {item.shop?.name ? ` · ${item.shop.name}` : item.meta?.uploader ? ` · @${item.meta.uploader}` : ""}
-            {item.plan?.product?.name && ` · ${item.plan.product.name}`}
-          </span>
-          <span className="mt-0.5 block truncate text-[11px] text-stone-400">
-            {[addedOn(item) && `${mdLabel(addedOn(item))} 가져옴`, musicOf(item.meta) && `♪ ${musicOf(item.meta).label}`].filter(Boolean).join(" · ")}
-          </span>
-        </button>
+      <button type="button" onClick={() => onOpen(item)} className="block w-full space-y-1 px-2.5 pt-2 text-left">
+        <span className="line-clamp-2 min-h-[2.5em] text-[13px] leading-snug font-medium text-stone-900">{item.title}</span>
+        <span className="block truncate text-[11px] text-stone-500">
+          {[who, m.postedAt && mdLabel(m.postedAt)].filter(Boolean).join(" · ") || "—"}
+        </span>
+        <span className="block text-[11px] text-stone-500 tabular-nums">
+          ♥ {cnt(m.likes)} · 💬 {cnt(m.comments)}
+        </span>
+      </button>
+      {/* 좁은 카드(폰 2칸)면 단추들이 아래 줄로 내려간다 */}
+      <div className="flex flex-wrap items-center gap-1 px-2.5 pt-1 pb-2">
+        <span
+          className="min-w-[6rem] flex-1 truncate text-[10px] text-stone-400"
+          title={[CTYPE[type]?.name, folderName, addedOn(item) && `${mdLabel(addedOn(item))} 가져옴`, musicOf(item.meta) && `♪ ${musicOf(item.meta).label}`].filter(Boolean).join(" · ")}
+        >
+          {[CTYPE[type] && `${CTYPE[type].icon} ${CTYPE[type].name}`, folderName, addedOn(item) && `${mdLabel(addedOn(item))} 가져옴`].filter(Boolean).join(" · ")}
+        </span>
         <span className="ml-auto flex items-center gap-1">
           {TAGS.map((t) => (
             <TagToggle key={t.key} tag={t} on={!!item[t.key]} onChange={(b) => onTag(t.key, b)} />
@@ -750,7 +751,7 @@ function ScriptBox({ item, canSeek, onSeek, onSave, onReExtract }) {
   );
 }
 
-function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract, online }) {
+function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry, onOurs, onTrim, stats, onAnalyze, onReExtract, online, type, onType }) {
   const r = item.reference || {};
   const [from, setFrom] = useScriptFrom();
   const status = statusOf(item, queue);
@@ -841,9 +842,19 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
             ))}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-            {r.structure?.hookType && (
-              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700">{r.structure.hookType}</span>
-            )}
+            <select
+              value={type || ""}
+              onChange={(e) => onType(item.id, e.target.value)}
+              title="콘텐츠 트래커와 같은 유형 — 바꾸면 보고 › 콘텐츠 트래커에도 같이 바뀌어요"
+              className="rounded border border-stone-300 bg-white px-1.5 py-0.5 text-stone-700"
+            >
+              <option value="">유형 미분류</option>
+              {CTYPES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.icon} {t.name}
+                </option>
+              ))}
+            </select>
             {r.kind && <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-600">{r.kind}</span>}
             {item.cost?.won > 0 && (
               <span className="rounded bg-stone-100 px-1.5 py-0.5 text-stone-500" title="이 영상 분석에 든 API 비용 (대략)">
@@ -1580,6 +1591,40 @@ export default function ReelsPage({
   const [bestOnly, setBestOnly] = useState(false);
   const [tagOnly, setTagOnly] = useState(""); // "" | "shomanma"
   const [failOnly, setFailOnly] = useState(false); // 10/20 못 받은 릴스만
+  // 유형 (10/20 세원: "릴스 기획의 카테고리를 콘텐츠 트래커의 카테고리로 변경하고 그 아래 내가 다는 건") — 폴더를 갈아엎지 않고
+  // 폴더 줄 위에 '유형' 줄. 유형은 보고 › 콘텐츠 트래커와 같은 것(settings reel_types, 없으면 분석 글로 짐작) — 한쪽에서 고치면 둘 다 바뀐다.
+  const [ctype, setCtype] = useState(() => {
+    try {
+      return localStorage.getItem("poclo_reels_ctype") || "";
+    } catch {
+      return "";
+    }
+  });
+  const pickType = (k) => {
+    setCtype(k);
+    try {
+      localStorage.setItem("poclo_reels_ctype", k);
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
+  const [typeMap, setTypeMap] = useState({});
+  useEffect(() => {
+    let alive = true;
+    const load = () => loadKey("reel_types", online, { map: {} }).then((v) => alive && setTypeMap(v.map || {})).catch(() => {});
+    load();
+    const off = onSettingsChange((k) => k === "reel_types" && load());
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [online]);
+  const typeOf = useCallback((it) => (it.id in typeMap ? typeMap[it.id] : autoType(it)), [typeMap]);
+  const setType = async (id, t) => {
+    setTypeMap((m) => ({ ...m, [id]: t }));
+    const v = await changeKey("reel_types", online, (v) => ({ ...v, map: { ...(v.map || {}), [id]: t } }), { map: {} });
+    if (v?.map) setTypeMap(v.map);
+  };
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
@@ -1614,6 +1659,7 @@ export default function ReelsPage({
     const list = items.filter(
       (i) =>
         inSel(i) &&
+        (!ctype || (ctype === "__none" ? !typeOf(i) : typeOf(i) === ctype)) &&
         (!bestOnly || i.best) &&
         (!tagOnly || i[tagOnly]) &&
         (!failOnly || i.job?.status === "error") &&
@@ -1626,7 +1672,7 @@ export default function ReelsPage({
     const failed = (i) => i.job?.status === "error";
     const rest = list.filter((i) => !failed(i));
     return [...list.filter(failed), ...rest.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...rest.filter((i) => !i.best)];
-  }, [items, q, sel, folders, bestOnly, tagOnly, failOnly]);
+  }, [items, q, sel, folders, bestOnly, tagOnly, failOnly, ctype, typeOf]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
@@ -1906,7 +1952,29 @@ export default function ReelsPage({
       />
 
       <FolderBar
-        items={items}
+        lead={
+          <div className="mb-2 flex flex-wrap items-center gap-1.5 border-b border-stone-100 pb-2">
+            <span className="mr-1 w-8 shrink-0 text-xs text-stone-400">유형</span>
+            {[["", "전체", items.length], ...CTYPES.map((t) => [t.key, `${t.icon} ${t.name}`, items.filter((i) => typeOf(i) === t.key).length]), ["__none", "미분류", items.filter((i) => !typeOf(i)).length]]
+              .filter(([k, , n]) => !k || n > 0 || ctype === k)
+              .map(([k, label, n]) => (
+                <button
+                  key={k || "all"}
+                  type="button"
+                  onClick={() => pickType(k)}
+                  aria-pressed={ctype === k}
+                  className={
+                    "flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium " +
+                    (ctype === k ? "bg-stone-900 text-white" : "border border-stone-200 bg-white text-stone-700 hover:bg-stone-50")
+                  }
+                >
+                  {label}
+                  <span className={ctype === k ? "text-stone-400" : "text-stone-400"}>{n}</span>
+                </button>
+              ))}
+          </div>
+        }
+        items={ctype ? items.filter((i) => (ctype === "__none" ? !typeOf(i) : typeOf(i) === ctype)) : items}
         folders={folders}
         sel={sel}
         onSel={setSel}
@@ -1986,6 +2054,7 @@ export default function ReelsPage({
                 });
               }}
               folderName={pathName(folderIdOf(it, folders), folders)}
+              type={typeOf(it)}
               status={statusOf(it, queue)}
               onOpen={openItem}
               folders={folders}
@@ -2022,6 +2091,8 @@ export default function ReelsPage({
               onAnalyze={analyzeLater}
               onReExtract={reExtract}
               online={online}
+              type={typeOf(items.find((i) => i.id === open.id) || open)}
+              onType={setType}
             />
           </div>
         </div>
@@ -2045,7 +2116,7 @@ export default function ReelsPage({
         <Info size={13} className="mt-0.5 shrink-0" />
         <span>
           Claude는 영상을 직접 못 봐요. 사무실 PC 분석기가 영상을 <b className="font-semibold">장면 사진</b>으로 뜨고{" "}
-          <b className="font-semibold">소리를 받아써서</b> 넘겨요. 조회수는 인스타가 로그인 없이는 안 알려줘서 좋아요·댓글·캡션으로 성과를 봐요.
+          <b className="font-semibold">소리를 받아써서</b> 넘겨요. 조회수는 계정이 숨겨 두면 안 와요(그땐 좋아요·댓글로 봐요).
         </span>
       </p>
     </div>

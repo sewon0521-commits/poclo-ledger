@@ -24,7 +24,8 @@ export function Chip({ active, onClick, children, count }) {
   );
 }
 
-export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnly, setBestOnly, bestCount, searchPlaceholder = "대본·계정·상품 검색", extra, children }) {
+// lead: 폴더 줄 위에 얹는 줄(릴스 기획 '유형' 줄 — 10/20 세원 "콘텐츠 트래커의 카테고리로 변경하고 그 아래 내가 다는")
+export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnly, setBestOnly, bestCount, searchPlaceholder = "대본·계정·상품 검색", extra, children, lead }) {
   const { total, none } = useMemo(() => folderCounts(items, folders), [items, folders]);
   const tops = folders.filter((f) => !f.parent);
   // 고른 폴더까지의 길 [상위, 하위, 세부] — 상위를 고르면 하위 줄, 하위를 고르면 세부 줄이 열린다
@@ -36,6 +37,7 @@ export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnl
 
   return (
     <div className="mb-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+      {lead}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="mr-1 w-8 shrink-0 text-xs text-stone-400">폴더</span>
