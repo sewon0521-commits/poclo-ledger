@@ -3,13 +3,13 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, Check, CalendarDays } from "lu
 import { loadKey, changeKey, FIELD, onSettingsChange, watchKeys } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { dayKey, dayTitle } from "../lib/journal";
-import { CAL_KEY, WHO, WEEK_KO, DEFAULT_TASKS, taskDue, repeatLabel, monthWeeks, shiftMonth, weekday, weekBars, colorOf, endOf } from "../lib/events";
+import { CAL_KEY, WHO, WEEK_KO, DEFAULT_TASKS, taskDue, repeatLabel, DROP_DAYS, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, colorOf, endOf } from "../lib/events";
 import { Sheet, SheetHead } from "./ShootBits";
 
 /**
  * 홈 › 할 일 캘린더 (2026-10-19 밤, 세원: "이벤트 캘린더는 이벤트 용도로 냅두고, 캘린더는 홈에 대문짝하게 — 뭐할지 한 번에 보이니까").
  * settings 'calendar' {tasks:[…], done:{날짜:[할 일 id]}} — 할 일 모양은 lib/events.js '할 일 캘린더'.
- * 달력 = 반복·하루만 할 일 + 이벤트 캘린더의 기간 막대(보기만) + 월·목 신상. 오른쪽 = 고른 날 할 일(체크·방법).
+ * 달력 = 반복·하루만 할 일 + 이벤트 캘린더의 기간 막대(보기만) + 월·화 저녁 6시 신상. 오른쪽 = 고른 날 할 일(체크·방법).
  */
 
 const WHO_KEY = "poclo_cal_who";
@@ -263,7 +263,7 @@ export default function HomeCalendar({ online, onPage }) {
                         >
                           {Number(k.slice(8))}
                         </span>
-                        {(wd === 1 || wd === 4) && !out && <span className="rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700">신상</span>}
+                        {DROP_DAYS.includes(wd) && !out && <span className="rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700">{DROP_LABEL}</span>}
                       </span>
                       <span style={{ height: L * 18 }} className="shrink-0" />
                       <span className="mt-0.5 flex flex-col gap-px">

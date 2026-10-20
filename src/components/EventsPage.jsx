@@ -4,12 +4,12 @@ import { loadKey, changeKey, upsert, remove, FIELD, onSettingsChange, watchKeys 
 import { won } from "../lib/sales";
 import { newId } from "../lib/id";
 import { dayKey, dayTitle } from "../lib/journal";
-import { KEY, KINDS, kindOf, colorOf, TARGETS, CHANNELS, KIND_TODOS, TEMPLATES, newTodo, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
+import { KEY, KINDS, kindOf, colorOf, TARGETS, CHANNELS, KIND_TODOS, TEMPLATES, newTodo, DROP_DAYS, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
 import { Sheet, SheetHead, Chips } from "./ShootBits";
 
 /**
  * 일 › 이벤트 캘린더 (lib/events.js 머리말).
- * 위 = 달력(기간 막대 · 월·목 '신상' 표시 · 빈 칸 누르면 그날 새 이벤트), 아래 = 상시 진행 / 진행 중 / 다가오는 / 지난 이벤트(그 기간 매출).
+ * 위 = 달력(기간 막대 · 월·화 '신상 6시' 표시 · 빈 칸 누르면 그날 새 이벤트), 아래 = 상시 진행 / 진행 중 / 다가오는 / 지난 이벤트(그 기간 매출).
  */
 
 const MAX_LANES = 4;
@@ -76,7 +76,7 @@ function Month({ ym, events, today, onNew, onOpen }) {
                     >
                       {Number(k.slice(8))}
                     </span>
-                    {(wd === 1 || wd === 4) && !out && <span className="rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700">신상</span>}
+                    {DROP_DAYS.includes(wd) && !out && <span className="rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700">{DROP_LABEL}</span>}
                     <Plus size={11} className="ml-auto text-stone-300 opacity-0 group-hover:opacity-100" />
                   </span>
                   {more > 0 && <span className="absolute bottom-0.5 left-1 text-[10px] text-stone-400">+{more}개</span>}
@@ -454,7 +454,7 @@ export default function EventsPage({ online, rows }) {
 
       <Month ym={ym} events={shown} today={today} onNew={(k) => setEdit({ start: k, end: k })} onOpen={setEdit} />
       <p className="-mt-2 px-1 text-[11px] text-stone-400">
-        <CalendarDays size={11} className="mr-0.5 inline align-[-1px]" /> 빈 칸을 누르면 그날 이벤트를 넣어요 · 월·목 '신상'은 신상 드랍 날(주간 루틴)
+        <CalendarDays size={11} className="mr-0.5 inline align-[-1px]" /> 빈 칸을 누르면 그날 이벤트를 넣어요 · '신상 6시'는 신상 업로드 날(월·화 저녁 6시)
       </p>
 
       {loaded && !list.length ? (

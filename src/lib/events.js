@@ -7,11 +7,15 @@
 // settings 'events' {items:[{id, title, kind, start, end, always, target, benefit, couponNo, channels[], banner, todos[{id,text,done}], memo, createdAt}]}
 //   start/end : 'YYYY-MM-DD' (하루짜리는 같게). always = 상시(재구매 쿠폰처럼 기간 없이 계속) — 달력 막대 대신 위 '상시 진행'에.
 //   결과는 저장하지 않는다 — 매출 장부(sales_daily)에서 그 기간 총매출을 그때그때 센다(resultOf).
-//   월·목 신상 드랍(주간 운영 루틴)은 저장하지 않고 달력에 '신상' 표시만.
+//   신상 업로드(주간 운영 루틴)는 저장하지 않고 달력에 '신상' 표시만 — DROP_DAYS 한 곳에서 정한다.
 
 import { dayKey, shiftDay } from "./journal";
 
 export const KEY = "events";
+
+/** 신상 업로드 날 — 10/20 세원: "신상 업로드 월, 화 저녁 6시로 변경" (예전 월·목). 요일 0=일 … 6=토 */
+export const DROP_DAYS = [1, 2];
+export const DROP_LABEL = "신상 6시";
 
 export const KINDS = [
   ["promo", "기획전", "#be123c"],
