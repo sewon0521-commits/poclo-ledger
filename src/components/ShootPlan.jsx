@@ -23,6 +23,7 @@ import {
   Megaphone,
   Shirt,
   Images,
+  Star,
 } from "lucide-react";
 import { FIELD, md, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, codiName } from "../lib/shoot";
 import { CutFilter } from "./CutBits";
@@ -530,6 +531,37 @@ function LookNote({ value = "", onSave, className = "" }) {
 const LOOK_STAGES = ["arrived", "pick", "pickup", "request"];
 const lookStage = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "request") : x.stage);
 const stageLabel = (x) => (x.stage === "request" ? (x.pickup ? "픽업 요청" : "요청") : stageName(x.stage));
+
+// 고른 상품의 옷 종류 칸 (10/20) — 신상 관리 옷 종류 + 기타. 이 레퍼런스에서 옮긴 칸(look.groups)이 먼저
+const GROUP_ETC = "기타";
+const lookKinds = (d) => [...(d.tags?.clothes?.length ? d.tags.clothes : ["상의", "하의", "원피스·세트", "아우터", "신발·잡화"]), GROUP_ETC];
+const lookGroupOf = (kinds, groups = {}) => (x) => (kinds.includes(groups[x.id]) ? groups[x.id] : kinds.includes(x.kind) ? x.kind : GROUP_ETC);
+/**
+ * 칸마다 제일 잘 맞는 상품 (10/20 세원: "룩·상품 고치기 중에서 각 카테고리마다 제일 잘 맞을 것 같은 상품을 고를 수 있게")
+ * look.best {칸: 상품 id} — 칸마다 하나. 그 상품이 다른 칸으로 옮겨졌거나 빠졌으면 없는 것으로 본다.
+ */
+const lookBest = (look, items, groupOf) => {
+  const out = {};
+  for (const [g, id] of Object.entries(look.best || {})) if (id && items.some((x) => x.id === id && groupOf(x) === g)) out[g] = id;
+  return out;
+};
+/** 사진 밑 한 줄 — 제일 잘 맞는 것이 있으면 '★ 그것들 · 후보 N', 없으면 고른 것 전부. ids = 동그라미 순서(제일 먼저) */
+const lookOrder = (d, look) => {
+  const items = (look.itemIds || []).map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+  const kinds = lookKinds(d);
+  const best = lookBest(look, items, lookGroupOf(kinds, look.groups));
+  const picks = kinds.map((k) => best[k]).filter(Boolean);
+  const ids = [...picks, ...items.map((x) => x.id).filter((id) => !picks.includes(id))];
+  const name = (id) => items.find((x) => x.id === id)?.name || "";
+  const line = picks.length ? `★ ${picks.map(name).join(" + ")}${items.length > picks.length ? ` · 후보 ${items.length - picks.length}` : ""}` : items.map((x) => x.name).filter(Boolean).join(" + ");
+  return { ids, line };
+};
+const bestPatch = (look, g, id) => {
+  const next = { ...(look.best || {}) };
+  if (next[g] === id) delete next[g];
+  else next[g] = id;
+  return { best: next };
+};
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
 function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
@@ -552,6 +584,10 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
     return all;
   }, [d.items, q]);
   const picked = chosen.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+  // 고른 상품은 옷 종류 칸으로, 칸마다 ☆ 제일 잘 맞는 것 (10/20)
+  const gKinds = lookKinds(d);
+  const groupOf = lookGroupOf(gKinds, look.groups);
+  const best = lookBest(look, picked, groupOf);
   const pool = list.filter((x) => !chosen.includes(x.id));
   const counts = pool.reduce((m, x) => ({ ...m, [kindOf(x)]: (m[kindOf(x)] || 0) + 1 }), {});
   const rest = kind ? pool.filter((x) => kindOf(x) === kind) : pool;
@@ -562,12 +598,16 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
     return () => document.removeEventListener("keydown", k);
   }, [onClose]);
 
-  const item = (x, on) => (
+  const item = (x, on, star) => (
     <button
       key={x.id}
       type="button"
       onClick={() => toggle(x.id)}
-      className={"relative overflow-hidden rounded-lg border text-left transition " + (on ? "border-rose-600 ring-2 ring-rose-600" : "border-stone-200 hover:border-rose-300")}
+      title={on ? "누르면 빼기" : "누르면 고르기"}
+      className={
+        "relative block w-full overflow-hidden rounded-lg border text-left transition " +
+        (on ? (star ? "border-amber-400 ring-2 ring-amber-400" : "border-rose-600 ring-2 ring-rose-600") : "border-stone-200 hover:border-rose-300")
+      }
     >
       <span className="block aspect-[3/4] bg-stone-100">{itemSrc(x, d.urls) && <img src={itemSrc(x, d.urls)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}</span>
       <span className="block truncate px-1.5 pt-1 text-[11px] font-medium text-stone-800">{x.name || "이름 없음"}</span>
@@ -595,7 +635,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="flex gap-3">
-            <button type="button" onClick={onBig} title="크게 보기" className="block aspect-[3/4] w-28 shrink-0 overflow-hidden rounded-lg bg-stone-100 sm:w-36">
+            <button type="button" onClick={onBig} title="크게 보기" className="block aspect-[3/4] w-28 shrink-0 self-start overflow-hidden rounded-lg bg-stone-100 sm:w-36">
               {src && <img src={src} alt="" decoding="async" className="h-full w-full object-cover" />}
             </button>
             <div className="min-w-0 flex-1">
@@ -603,11 +643,44 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
               <LookNote value={look.text || ""} onSave={(text) => onSave({ text })} className="min-h-16 py-2 text-sm" />
               {(r.shop || r.memo) && <p className="mt-2 text-[11px] text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ")}</p>}
               {picked.length > 0 && (
-                <div className="mt-3">
-                  <div className="mb-1 text-xs font-medium text-stone-500">고른 우리 상품 {picked.length}</div>
-                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                    {picked.map((x) => item(x, true))}
+                <div className="mt-3 space-y-2.5">
+                  <div className="text-xs font-medium text-stone-500">
+                    고른 우리 상품 {picked.length} <span className="font-normal text-stone-400">· ☆ 를 누르면 그 칸에서 제일 잘 맞는 것 · 사진을 누르면 빼기</span>
                   </div>
+                  {gKinds
+                    .filter((k) => picked.some((x) => groupOf(x) === k))
+                    .map((k) => {
+                      const xs = picked.filter((x) => groupOf(x) === k).sort((a, b) => (b.id === best[k]) - (a.id === best[k]));
+                      return (
+                        <div key={k}>
+                          <div className="mb-1 flex items-baseline gap-1.5 text-xs">
+                            <b className="font-semibold text-stone-700">{k}</b>
+                            <span className="text-stone-400 tabular-nums">{xs.length}</span>
+                            {best[k] && <span className="min-w-0 truncate font-semibold text-amber-700">★ {xs[0].name}</span>}
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                            {xs.map((x) => (
+                              <div key={x.id} className="relative">
+                                {item(x, true, best[k] === x.id)}
+                                <button
+                                  type="button"
+                                  onClick={() => onSave(bestPatch(look, k, x.id))}
+                                  aria-pressed={best[k] === x.id}
+                                  title={best[k] === x.id ? "제일 잘 맞음 빼기" : `${k} 중에서 제일 잘 맞음으로`}
+                                  className={
+                                    "absolute top-1 left-1 flex h-6 items-center gap-0.5 rounded-full px-1.5 text-[10px] font-semibold shadow " +
+                                    (best[k] === x.id ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-400 hover:text-amber-600")
+                                  }
+                                >
+                                  <Star size={12} className={best[k] === x.id ? "fill-amber-950" : ""} />
+                                  {best[k] === x.id && "제일"}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -735,6 +808,8 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
                 d={d}
                 items={items}
                 groups={look.groups || {}}
+                best={look.best || {}}
+                onBest={(g, id) => onLook(r.id, bestPatch(look, g, id))}
                 sel={sel}
                 setSel={setSel}
                 onMove={(ids, kind) => {
@@ -771,11 +846,13 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
  * 잡은 것을 끌어 다른 칸에 놓으면 한꺼번에 옮겨진다. 끌기가 안 되는 폰에서는 잡으면 뜨는 '→ 칸' 단추로.
  * 사진 크게 = 두 번 누르기 또는 사진 위 '크게'.
  */
-const GROUP_ETC = "기타";
-function ProductGroups({ d, items, groups, sel, setSel, onMove, onBig }) {
-  const kinds = [...(d.tags?.clothes?.length ? d.tags.clothes : ["상의", "하의", "원피스·세트", "아우터", "신발·잡화"]), GROUP_ETC];
-  const groupOf = (x) => (kinds.includes(groups[x.id]) ? groups[x.id] : kinds.includes(x.kind) ? x.kind : GROUP_ETC);
-  const order = kinds.flatMap((k) => items.filter((x) => groupOf(x) === k)); // 화면 순서 (Shift 범위)
+function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMove, onBig, onBest }) {
+  const kinds = lookKinds(d);
+  const groupOf = lookGroupOf(kinds, groups);
+  const best = lookBest({ best: bestRaw }, items, groupOf);
+  // 칸 안에서는 제일 잘 맞는 상품이 맨 앞
+  const inGroup = (k) => items.filter((x) => groupOf(x) === k).sort((a, b) => (b.id === best[k]) - (a.id === best[k]));
+  const order = kinds.flatMap(inGroup); // 화면 순서 (Shift 범위)
   const [drag, setDrag] = useState(null); // 끄는 중인 상품 id 들
   const [over, setOver] = useState("");
   const [box, setBox] = useState(null); // 네모 잡기 {x0, y0, x1, y1}
@@ -859,7 +936,7 @@ function ProductGroups({ d, items, groups, sel, setSel, onMove, onBig }) {
   return (
     <div ref={wrap} onPointerDown={down} className="relative min-h-full select-none">
       <div className="mb-2 text-xs font-medium text-stone-500">
-        고른 우리 상품 {items.length} <span className="font-normal text-stone-400">· 눌러 잡고(Ctrl·Shift·빈 곳 끌기로 여러 개) 다른 칸으로 끌어 옮겨요</span>
+        고른 우리 상품 {items.length} <span className="font-normal text-stone-400">· 눌러 잡고(Ctrl·Shift·빈 곳 끌기로 여러 개) 다른 칸으로 끌어 옮겨요 · ☆ 를 누르면 그 칸에서 제일 잘 맞는 것</span>
       </div>
       {sel.size > 0 && (
         <div className="sticky top-0 z-10 mb-2 flex flex-wrap items-center gap-1.5 rounded-xl bg-rose-50 px-2.5 py-2 text-xs text-rose-900 shadow-sm">
@@ -899,6 +976,7 @@ function ProductGroups({ d, items, groups, sel, setSel, onMove, onBig }) {
               <div className="mb-1.5 flex items-baseline gap-1.5 px-0.5">
                 <span className="text-sm font-semibold text-stone-800">{k}</span>
                 <span className="text-xs text-stone-400 tabular-nums">{xs.length}</span>
+                {best[k] && <span className="min-w-0 truncate text-xs font-semibold text-amber-700">★ {items.find((x) => x.id === best[k])?.name}</span>}
               </div>
               {xs.length ? (
                 <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
@@ -926,7 +1004,7 @@ function ProductGroups({ d, items, groups, sel, setSel, onMove, onBig }) {
                         }}
                         className={
                           "relative cursor-grab overflow-hidden rounded-xl border bg-white transition active:cursor-grabbing " +
-                          (on ? "border-rose-600 ring-2 ring-rose-600" : "border-stone-200 hover:border-stone-300") +
+                          (on ? "border-rose-600 ring-2 ring-rose-600" : x.id === best[k] ? "border-amber-400 ring-2 ring-amber-400" : "border-stone-200 hover:border-stone-300") +
                           (drag?.includes(x.id) ? " opacity-40" : "")
                         }
                       >
@@ -940,6 +1018,22 @@ function ProductGroups({ d, items, groups, sel, setSel, onMove, onBig }) {
                           >
                             <Check size={14} strokeWidth={3} />
                           </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onBest(k, x.id);
+                            }}
+                            aria-pressed={x.id === best[k]}
+                            title={x.id === best[k] ? "제일 잘 맞음 빼기" : `${k} 중에서 제일 잘 맞음으로`}
+                            className={
+                              "absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded-full px-1.5 py-1 text-[11px] font-semibold shadow " +
+                              (x.id === best[k] ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-400 hover:text-amber-600")
+                            }
+                          >
+                            <Star size={13} className={x.id === best[k] ? "fill-amber-950" : ""} />
+                            {x.id === best[k] && "제일 잘 맞음"}
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1113,7 +1207,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
                 {src(r) && <img src={src(r)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
                 {(looks[r.id]?.itemIds || []).length > 0 && (
                   <span className="absolute bottom-1 left-1 flex -space-x-1.5">
-                    {looks[r.id].itemIds.slice(0, 4).map((id) => {
+                    {lookOrder(d, looks[r.id]).ids.slice(0, 4).map((id) => {
                       const x = d.items.find((y) => y.id === id);
                       return x ? (
                         <span key={id} className="block h-7 w-7 overflow-hidden rounded-full border-2 border-white bg-stone-200 shadow-sm">
@@ -1127,10 +1221,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
               <LookNote value={looks[r.id]?.text || ""} onSave={(text) => onLook(r.id, { text })} className="mt-1" />
               {(looks[r.id]?.itemIds || []).length > 0 && (
                 <button type="button" onClick={() => setSee(refs.indexOf(r))} className="mt-0.5 line-clamp-2 block w-full px-1.5 text-left text-[11px] leading-snug text-rose-800 hover:underline">
-                  {looks[r.id].itemIds
-                    .map((id) => d.items.find((y) => y.id === id)?.name)
-                    .filter(Boolean)
-                    .join(" + ")}
+                  {lookOrder(d, looks[r.id]).line}
                 </button>
               )}
               <button
