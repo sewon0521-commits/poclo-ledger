@@ -657,10 +657,119 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
   );
 }
 
+/**
+ * 레퍼런스 크게 보기 (10/20 세원: "소싱 관리에서 촬영 레퍼런스 누르면 크게 보이고 사진 옆에 어떤 제품 골라져 있는지 크게 보여 주는 거")
+ * 왼쪽 레퍼런스 사진 크게(←·→ 로 이 소싱의 다른 사진) · 오른쪽 적어 둔 룩 + 고른 우리 상품(사진·이름·거래처·색상·사이즈).
+ * 상품 사진을 누르면 그 상품 사진 크게(신마 사진 전부). 고치기는 '룩·상품 고치기'(LookSheet). 폰은 위아래로.
+ */
+function LookView({ d, refs, start, src, looks, onEdit, onClose, paused }) {
+  const [at, setAt] = useState(start);
+  const [big, setBig] = useState(null); // {urls, i}
+  const r = refs[Math.min(at, refs.length - 1)];
+  const look = (r && looks[r.id]) || {};
+  const items = (look.itemIds || []).map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
+  const go = (k) => setAt((i) => (i + k + refs.length) % refs.length);
+  useEffect(() => {
+    const k = (e) => {
+      if (big || paused || e.target.closest?.("input, textarea, select")) return; // 고치기 창이 위에 떠 있으면 그 창이 받는다
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft" && refs.length > 1) go(-1);
+      else if (e.key === "ArrowRight" && refs.length > 1) go(1);
+    };
+    document.addEventListener("keydown", k);
+    return () => document.removeEventListener("keydown", k);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!r) return null;
+  const gallery = (x) => ((x.photos || []).length > 1 ? x.photos : itemSrc(x, d.urls) ? [itemSrc(x, d.urls)] : []);
+  return (
+    <div className="backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/80 p-0 sm:p-4">
+      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
+      <div className="sheet relative z-10 flex h-full w-full max-w-6xl flex-col overflow-hidden bg-white shadow-2xl sm:h-[92vh] sm:rounded-2xl md:flex-row">
+        {/* 레퍼런스 사진 */}
+        <div className="relative flex shrink-0 items-center justify-center bg-stone-900 max-md:h-[55vh] md:w-[48%]">
+          {src(r) && <img src={src(r)} alt="" decoding="async" className="max-h-full max-w-full object-contain" />}
+          {refs.length > 1 && (
+            <>
+              <button type="button" onClick={() => go(-1)} aria-label="앞 사진" className="absolute top-1/2 left-2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-stone-800 shadow hover:bg-white">
+                <ChevronRight size={20} className="rotate-180" />
+              </button>
+              <button type="button" onClick={() => go(1)} aria-label="다음 사진" className="absolute top-1/2 right-2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-stone-800 shadow hover:bg-white">
+                <ChevronRight size={20} />
+              </button>
+              <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-0.5 text-xs text-white tabular-nums">
+                {at + 1} / {refs.length}
+              </span>
+            </>
+          )}
+          <button type="button" onClick={() => setBig({ urls: refs.map(src), i: at })} className="absolute top-2 left-2 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white hover:bg-black/70">
+            확대
+          </button>
+        </div>
+
+        {/* 룩 + 고른 상품 */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
+            <div className="min-w-0">
+              <div className="text-xs text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ") || "이 소싱에서 찍을 룩"}</div>
+              <div className={"mt-0.5 text-lg leading-snug font-semibold whitespace-pre-wrap " + (look.text ? "text-stone-900" : "text-stone-300")}>{look.text || "룩을 아직 안 적었어요"}</div>
+            </div>
+            <span className="flex shrink-0 items-center gap-1">
+              <button type="button" onClick={() => onEdit(r.id)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+                <Pencil size={12} /> 룩·상품 고치기
+              </button>
+              <button type="button" onClick={onClose} aria-label="닫기" className="p-1 text-stone-400 hover:text-stone-700">
+                <X size={22} />
+              </button>
+            </span>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {items.length ? (
+              <>
+                <div className="mb-2 text-xs font-medium text-stone-500">고른 우리 상품 {items.length}</div>
+                <div className={"grid gap-3 " + (items.length === 1 ? "grid-cols-1 sm:max-w-xs" : items.length >= 3 ? "grid-cols-2 lg:grid-cols-3" : "grid-cols-2")}>
+                  {items.map((x) => {
+                    const g = gallery(x);
+                    return (
+                      <div key={x.id} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+                        <button type="button" onClick={() => g.length && setBig({ urls: g, i: 0 })} className="relative block aspect-[3/4] w-full bg-stone-100">
+                          {g[0] && <img src={g[0]} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
+                          {g.length > 1 && <span className="absolute right-1.5 bottom-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">사진 {g.length}</span>}
+                        </button>
+                        <div className="space-y-0.5 p-2.5">
+                          <div className="text-sm leading-snug font-semibold text-stone-900">{x.name || "이름 없음"}</div>
+                          <div className="truncate text-xs text-stone-500">{[x.vendor, x.place].filter(Boolean).join(" · ")}</div>
+                          {(x.colors || x.sizes) && <div className="text-xs text-stone-600">{[x.colors, x.sizes].filter(Boolean).join(" · ")}</div>}
+                          <div className="text-[11px] text-stone-400">
+                            {x.stage === "request" ? "픽업 요청" : stageName(x.stage)}
+                            {x.kind ? ` · ${x.kind}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-dashed border-stone-200 px-4 py-8 text-center text-sm text-stone-400">
+                이 사진에 쓸 우리 상품을 아직 안 골랐어요.
+                <button type="button" onClick={() => onEdit(r.id)} className="mt-3 block w-full font-semibold text-rose-700 hover:text-rose-900">
+                  우리 상품 고르기
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {big && <BigSlides urls={big.urls} start={big.i} onClose={() => setBig(null)} />}
+    </div>
+  );
+}
+
 function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook }) {
   const [pick, setPick] = useState(false);
   const [view, setView] = useState(null);
   const [open, setOpen] = useState(null); // 룩 창 — 레퍼런스 id
+  const [see, setSee] = useState(null); // 크게 보기 — refs 순서 (10/20)
   const [busy, setBusy] = useState("");
   const [pending, setPending] = useState([]); // 올리는 중인 사진 미리 보기
   const [shown, setShown] = useState({}); // 방금 붙인 사진 — 서명 주소가 오기 전에도 그 사진으로
@@ -715,7 +824,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   // 붙여넣기 — 이 칸에 마우스를 올렸거나 마지막에 누른 칸이면. 쇼핑몰 BEST 칸보다 먼저 받는다(capture).
   useEffect(() => {
     const onPaste = (e) => {
-      if (!hot || pick || open || view != null) return;
+      if (!hot || pick || open || view != null || see != null) return;
       if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
       const clip = clipImages(e.clipboardData);
       if (!clip.files.length && !clip.urls.length) return;
@@ -789,7 +898,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
         <div className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-5">
           {refs.map((r) => (
             <span key={r.id} className="group relative block min-w-0">
-              <button type="button" onClick={() => setOpen(r.id)} title="눌러서 룩 적기 · 우리 상품 고르기" className="relative block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
+              <button type="button" onClick={() => setSee(refs.indexOf(r))} title="크게 보기 — 고른 우리 상품까지" className="relative block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
                 {src(r) && <img src={src(r)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
                 {(looks[r.id]?.itemIds || []).length > 0 && (
                   <span className="absolute bottom-1 left-1 flex -space-x-1.5">
@@ -806,7 +915,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
               </button>
               <LookNote value={looks[r.id]?.text || ""} onSave={(text) => onLook(r.id, { text })} className="mt-1" />
               {(looks[r.id]?.itemIds || []).length > 0 && (
-                <button type="button" onClick={() => setOpen(r.id)} className="mt-0.5 line-clamp-2 block w-full px-1.5 text-left text-[11px] leading-snug text-rose-800 hover:underline">
+                <button type="button" onClick={() => setSee(refs.indexOf(r))} className="mt-0.5 line-clamp-2 block w-full px-1.5 text-left text-[11px] leading-snug text-rose-800 hover:underline">
                   {looks[r.id].itemIds
                     .map((id) => d.items.find((y) => y.id === id)?.name)
                     .filter(Boolean)
@@ -847,6 +956,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           }}
         />
       )}
+      {see != null && refs.length > 0 && <LookView d={d} refs={refs} start={Math.min(see, refs.length - 1)} src={src} looks={looks} onEdit={(id) => setOpen(id)} onClose={() => setSee(null)} paused={!!open} />}
       {open && refs.some((r) => r.id === open) && (
         <LookSheet
           d={d}
