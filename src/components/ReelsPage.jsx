@@ -309,11 +309,12 @@ function statusOf(item, queue, target = "ref") {
 function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folders, onMove, onBest, onTag }) {
   const r = item.reference || {};
   const pending = status.kind !== "done";
+  const failed = status.kind === "error";
   return (
     <div
       className={
         "rounded-xl border bg-white transition hover:shadow-sm " +
-        (item.best ? "border-amber-300 ring-1 ring-amber-300" : "border-stone-200 hover:border-stone-300")
+        (failed ? "border-rose-300 ring-1 ring-rose-300" : item.best ? "border-amber-300 ring-1 ring-amber-300" : "border-stone-200 hover:border-stone-300")
       }
     >
       <button type="button" onClick={() => onOpen(item)} className="block w-full overflow-hidden rounded-t-xl text-left">
@@ -335,7 +336,7 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
                 : "bg-white/90 text-stone-600")
           }
         >
-          {pending ? status.text : item.keepOnly ? "보관만" : item.plan ? "대본 완성" : "분석 완료"}
+          {failed ? (item.hasVideo ? "분석 실패" : "못 받음") : pending ? status.text : item.keepOnly ? "보관만" : item.plan ? "대본 완성" : "분석 완료"}
         </span>
         <span className="absolute top-2 right-2 flex flex-col items-end gap-1">
           {item.best && (
@@ -357,10 +358,16 @@ function Card({ item, thumbUrl, onThumbError, folderName, status, onOpen, folder
             </span>
           </span>
         )}
-        {r.structure?.hookType && (
-          <span className="absolute bottom-2 left-2 max-w-[90%] truncate rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
-            {r.structure.hookType}
+        {failed ? (
+          <span className="absolute inset-x-0 bottom-0 bg-rose-700/90 px-2 py-1.5 text-[11px] leading-snug font-semibold text-white">
+            {item.hasVideo ? "분석이 안 됐어요" : "영상을 못 받았어요"} · 눌러서 확인
           </span>
+        ) : (
+          r.structure?.hookType && (
+            <span className="absolute bottom-2 left-2 max-w-[90%] truncate rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
+              {r.structure.hookType}
+            </span>
+          )
         )}
       </span>
       </button>
@@ -841,13 +848,42 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                 {status.text}
               </div>
               {status.kind === "error" ? (
-                <button
-                  type="button"
-                  onClick={() => onRetry(item, "ref")}
-                  className="mt-3 flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white"
-                >
-                  <RotateCw size={13} /> 다시 분석 맡기기
-                </button>
+                <>
+                  {(item.meta?.uploader || item.meta?.caption) && (
+                    <div className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-xs text-stone-700">
+                      {item.meta?.uploader && (
+                        <div className="font-semibold text-stone-900">
+                          {item.meta.name ? `${item.meta.name} ` : ""}@{item.meta.uploader}
+                        </div>
+                      )}
+                      {item.meta?.caption && <p className="mt-1 line-clamp-6 whitespace-pre-line">{item.meta.caption}</p>}
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs opacity-80">
+                    {item.hasVideo
+                      ? "영상은 보관돼 있어요. 다시 맡기면 분석만 다시 해요."
+                      : "연령·나라 제한 게시물이면 로그인 없이는 영상을 못 받아요 — 인스타에서 열어 보고, 필요하면 폰에 저장해 '영상 파일'로 넣어 주세요."}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(item.source?.url || item.meta?.url) && (
+                      <a
+                        href={item.source?.url || item.meta?.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-800"
+                      >
+                        <ExternalLink size={13} /> 인스타에서 열기
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onRetry(item, "ref", item.wantKeep || item.keepOnly ? { analyze: false } : {})}
+                      className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white"
+                    >
+                      <RotateCw size={13} /> {item.wantKeep || item.keepOnly ? "다시 받아 보기 (보관만)" : "다시 분석 맡기기"}
+                    </button>
+                  </div>
+                </>
               ) : (
                 <p className="mt-1 text-xs opacity-80">
                   링크 받기 → 장면 뜨기 → 소리 받아쓰기 → 대본·구조 분석 순서로 해요. 보통 1~2분. 창을 닫아도 계속돼요.
@@ -1456,6 +1492,7 @@ export default function ReelsPage({
   const [q, setQ] = useState("");
   const [bestOnly, setBestOnly] = useState(false);
   const [tagOnly, setTagOnly] = useState(""); // "" | "shomanma"
+  const [failOnly, setFailOnly] = useState(false); // 10/20 못 받은 릴스만
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
@@ -1492,14 +1529,17 @@ export default function ReelsPage({
         inSel(i) &&
         (!bestOnly || i.best) &&
         (!tagOnly || i[tagOnly]) &&
+        (!failOnly || i.job?.status === "error") &&
         (!needle ||
           JSON.stringify([i.title, i.reference?.script, i.plan?.product?.name, i.meta?.uploader, i.memo, i.shop?.name, i.shomanma && "쇼만마"])
             .toLowerCase()
             .includes(needle)),
     );
     // BEST 는 보고 있는 폴더 안에서 맨 앞 (나중에 올린 BEST 가 더 앞). 나머지는 원래 순서
-    return [...list.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...list.filter((i) => !i.best)];
-  }, [items, q, sel, folders, bestOnly, tagOnly]);
+    const failed = (i) => i.job?.status === "error";
+    const rest = list.filter((i) => !failed(i));
+    return [...list.filter(failed), ...rest.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...rest.filter((i) => !i.best)];
+  }, [items, q, sel, folders, bestOnly, tagOnly, failOnly]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
@@ -1680,10 +1720,10 @@ export default function ReelsPage({
     });
   };
 
-  const retry = async (item, target) => {
+  const retry = async (item, target, extra = {}) => {
     const job = { status: "queued", at: new Date().toISOString() };
     await onSave(target === "ours" ? { ...item, ours: { ...item.ours, job } } : { ...item, job });
-    await onQueue(item.id, target);
+    await onQueue(item.id, target, extra);
   };
 
   /** 앞뒤 자르기 맡기기 — start 가 null 이면 원래대로 (target "trim" | "trim-ours") */
@@ -1804,6 +1844,36 @@ export default function ReelsPage({
           </button>
         ))}
       />
+
+      {/* 10/20 세원: "실패한 릴스가 안 보이니까 그냥 넘어가게 돼. 중요한 릴스일 수도 있는데" — 늘 위에 알리고, 카드는 맨 앞에 빨갛게 */}
+      {(() => {
+        const n = items.filter((i) => i.job?.status === "error").length;
+        if (!n && !failOnly) return null;
+        return (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            <Info size={15} className="shrink-0" />
+            <span className="min-w-0 flex-1">
+              {n ? (
+                <>
+                  <b>못 받은 릴스 {n}개</b> — 사진·계정을 보고 인스타에서 열어 확인해 주세요. 카드를 누르면 다시 받기·인스타 열기가 있어요.
+                </>
+              ) : (
+                "못 받은 릴스가 이제 없어요."
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (!failOnly) setSel("all");
+                setFailOnly(!failOnly);
+              }}
+              className={"shrink-0 rounded-lg px-3 py-1 text-xs font-semibold " + (failOnly ? "bg-white text-rose-800 ring-1 ring-rose-300" : "bg-rose-700 text-white")}
+            >
+              {failOnly ? "전체 보기" : "모아 보기"}
+            </button>
+          </div>
+        );
+      })()}
 
       {shown.length === 0 ? (
         <Empty
