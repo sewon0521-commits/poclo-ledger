@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Clapperboard,
   Upload,
+  MousePointerClick,
   Wand2,
   Trash2,
   Info,
@@ -46,6 +47,8 @@ import ReelMusic from "./ReelMusic";
 import { instaAudioUrl, queueInstaAudio } from "../lib/music";
 import { CopyButton, WorkerStatus, EditableTitle, TrendBox } from "./ContentBits";
 import { workerAlive, addedOn, musicOf } from "../lib/reels";
+import { FROM_LABEL, useScriptFrom, ScriptFromPick } from "./ScriptFrom";
+import InstaClipGuide from "./InstaClipGuide";
 
 /**
  * 릴스 기획 — 레퍼런스를 모으고(라이브러리), 그 구조로 우리 상품 대본을 만든다.
@@ -72,62 +75,7 @@ const num = (n) => (n == null ? "—" : new Intl.NumberFormat("ko-KR").format(n)
 
 // ------------------------------------------------------------- 넣기 (링크 · 파일)
 
-/**
- * 대본을 어디서 뽑나 (10/20 세원: "목소리랑 대본이 섞여서 만들어졌어. 영상 분석을 하기 전에 대본 or 목소리를 선택할 수 있게 만들고
- * 둘중 하나만 뽑아야 될 것 같아") — 분석기 일감에 scriptFrom 으로 실려 /api/reels script 규칙이 갈린다. 기기마다 마지막 고른 것.
- */
-const FROM_KEY = "poclo_script_from";
-const SCRIPT_FROM = [
-  { key: "caption", label: "자막대로", tip: "화면 자막 글자 그대로 — 목소리는 안 넣어요" },
-  { key: "voice", label: "목소리대로", tip: "말한 그대로 — 화면 자막은 안 넣어요" },
-];
-const FROM_LABEL = { caption: "자막대로 뽑음", voice: "목소리대로 뽑음" };
-function useScriptFrom() {
-  const [v, setV] = useState(() => {
-    try {
-      return localStorage.getItem(FROM_KEY) === "voice" ? "voice" : "caption";
-    } catch {
-      return "caption";
-    }
-  });
-  const set = (x) => {
-    setV(x);
-    try {
-      localStorage.setItem(FROM_KEY, x);
-    } catch {
-      /* 이 기기 저장이 막혀도 고른 건 이 화면에서는 그대로 */
-    }
-  };
-  return [v, set];
-}
-function ScriptFromPick({ value, onChange, className = "" }) {
-  const cur = SCRIPT_FROM.find((o) => o.key === value) || SCRIPT_FROM[0];
-  return (
-    <div className={"flex flex-wrap items-center gap-x-2 gap-y-1 " + className}>
-      <span className="text-xs font-medium text-stone-600">대본은</span>
-      <div className="flex gap-0.5 rounded-lg bg-stone-100 p-0.5" role="radiogroup" aria-label="대본을 어디서 뽑을까요">
-        {SCRIPT_FROM.map((o) => (
-          <button
-            key={o.key}
-            type="button"
-            role="radio"
-            aria-checked={value === o.key}
-            onClick={() => onChange(o.key)}
-            className={
-              "rounded-md px-2.5 py-1 text-xs font-medium " +
-              (value === o.key ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800")
-            }
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      <span className="text-[11px] text-stone-400">{cur.tip}</span>
-    </div>
-  );
-}
-
-function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) {
+function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, onInsta, notice }) {
   const [tab, setTab] = useState("link");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState(null);
@@ -243,6 +191,14 @@ function AddBar({ worker, onLink, onFile, onBrowser, onKeep, onAudio, notice }) 
           </button>
         </div>
         <ScriptFromPick value={from} onChange={setFrom} className="mt-2" />
+        {/* 10/20 세원: "저장한 릴스 하나씩 클릭해서 링크 복붙하고 있는데 포클로 담기처럼 한 번에" */}
+        <button
+          type="button"
+          onClick={onInsta}
+          className="mt-2.5 flex items-center gap-1.5 text-xs font-medium text-rose-700 hover:text-rose-900"
+        >
+          <MousePointerClick size={13} /> 여러 개 한 번에 — 인스타 저장됨에서 골라 담기
+        </button>
         </>
       ) : (
         <>
@@ -1580,6 +1536,7 @@ export default function ReelsPage({
   const [bestOnly, setBestOnly] = useState(false);
   const [tagOnly, setTagOnly] = useState(""); // "" | "shomanma"
   const [failOnly, setFailOnly] = useState(false); // 10/20 못 받은 릴스만
+  const [instaGuide, setInstaGuide] = useState(false); // 10/20 인스타에서 한 번에 담기 안내
   const [sel, setSel] = useState("all");
   const [open, setOpen] = useState(null);
   const [editCats, setEditCats] = useState(false);
@@ -1885,8 +1842,10 @@ export default function ReelsPage({
         />
       ) : (
       <>
+      {instaGuide && <InstaClipGuide onClose={() => setInstaGuide(false)} />}
       <AddBar
         worker={worker}
+        onInsta={() => setInstaGuide(true)}
         onLink={queueLink}
         onFile={queueFile}
         onBrowser={analyzeHere}

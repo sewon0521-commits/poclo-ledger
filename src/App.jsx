@@ -47,6 +47,7 @@ import ShootPage from "./components/ShootPage";
 import PasswordBox from "./components/PasswordBox";
 import ClipPage from "./components/ClipPage";
 import ClipBatch from "./components/ClipBatch";
+import ReelsClip from "./components/ReelsClip";
 import { readClipHash } from "./lib/sinsang";
 import { PricingCtx } from "./lib/priceKit";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
@@ -75,10 +76,13 @@ export default function App() {
   const [clip, setClip] = useState(() => readClipHash(window.location.hash));
   // 여러 개 담기 창 — #clip-batch (10/13)
   const [clipBatch, setClipBatch] = useState(() => window.location.hash === "#clip-batch");
+  // 인스타에서 한 번에 담기 창 — #reels-clip (10/20, public/insta-clip.js)
+  const [reelsClip, setReelsClip] = useState(() => window.location.hash === "#reels-clip");
   useEffect(() => {
     const onHash = () => {
       setClip(readClipHash(window.location.hash));
       setClipBatch(window.location.hash === "#clip-batch");
+      setReelsClip(window.location.hash === "#reels-clip");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -361,6 +365,7 @@ export default function App() {
   }
 
   if (L.mode === "remote" && !L.session) return <Login />;
+  if (reelsClip) return <ReelsClip online={L.mode === "remote" && !!L.session} ready={!L.loading} />;
   if (clipBatch) return <ClipBatch online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
   if (clip) return <ClipPage payload={clip} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
 
