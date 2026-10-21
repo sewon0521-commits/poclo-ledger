@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Menu, Loader2, LogOut } from "lucide-react";
+import { Menu, Loader2, LogOut, Columns2 } from "lucide-react";
 import {
   monthOf,
 
@@ -52,6 +52,8 @@ import { readClipHash } from "./lib/sinsang";
 import { PricingCtx } from "./lib/priceKit";
 import { SyncBadge, UploadBanner } from "./components/SyncBadge";
 import { useSales } from "./lib/useSales";
+import SplitPane from "./components/SplitPane";
+import { readSplit, writeSplit, useWide, defaultSplitW } from "./lib/split";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
 const NO_PRODUCTS = [];
@@ -71,6 +73,12 @@ export default function App() {
   const S = useSales(L.session);
 
   const [page, setPage] = useState("home");
+  // 창 나누기 (10/21 세원: "노션처럼 앱처럼 포클로 ERP 안에서 창을 나눌 수 있을까?") — 오른쪽에 다른 화면 하나. components/SplitPane.jsx
+  const [split, setSplitState] = useState(() => {
+    const v = readSplit();
+    return v?.on ? v : null;
+  });
+  const wide = useWide();
   const [pwOpen, setPwOpen] = useState(false);
   // 신상마켓 '포클로에 담기' 단추가 연 작은 창 — 주소 뒤 #clip=… (lib/sinsang.js). 같은 창에 다음 상품이 이어서 온다
   const [clip, setClip] = useState(() => readClipHash(window.location.hash));
@@ -369,9 +377,215 @@ export default function App() {
   if (clipBatch) return <ClipBatch online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
   if (clip) return <ClipPage payload={clip} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
 
+  // 화면 하나 그리기 — pg = 화면, go = 그 칸 안에서 다른 화면으로 넘어가기
+  const renderPage = (pg, go) =>
+pg === "home" ? (
+                <HomePage
+                  salesRows={S.rows}
+                  salesConf={S.conf}
+                  purchaseTotals={sumTotals(tx)}
+                  onPage={go}
+                  online={L.mode === "remote" && !!L.session}
+                />
+              ) : pg === "sales" ? (
+                <SalesPage
+                  rows={S.rows}
+                  conf={S.conf}
+                  onConf={S.saveConf}
+                  onDaily={S.putDaily}
+                  onCafe={S.putCafe}
+                  onAds={S.putAds}
+                  onSamchon={S.putSamchon}
+                  onEdit={S.editRow}
+                  onClear={S.clearAll}
+                  range={salesRange}
+                  preset={salesPreset}
+                  custom={salesCustom}
+                  onRange={({ preset: p, custom: c }) => {
+                    setSalesPreset(p);
+                    setSalesCustom(c);
+                  }}
+                />
+              ) : pg === "pnl" ? (
+                <PnlPage
+                  rows={S.rows}
+                  conf={S.conf}
+                  range={salesRange}
+                  preset={salesPreset}
+                  custom={salesCustom}
+                  onRange={({ preset: p, custom: c }) => {
+                    setSalesPreset(p);
+                    setSalesCustom(c);
+                  }}
+                  onPage={go}
+                  missingCost={S.missingCost}
+                />
+              ) : pg === "pricing" ? (
+                <PricingPage
+                  rows={S.rows}
+                  conf={S.conf}
+                  onConf={S.saveConf}
+                  items={S.pricing}
+                  vendors={vendors}
+                  products={S.productStats?.all || NO_PRODUCTS}
+                  onSave={S.savePricing}
+                  onRemove={S.removePricing}
+                />
+              ) : pg === "reels" ? (
+                <ReelsPage
+                  items={S.reels}
+                  fileUrls={S.reelFileUrls}
+                  online={L.mode === "remote" && !!L.session}
+                  onSave={S.saveReel}
+                  onRemove={S.removeReel}
+                  putFile={S.putReelFile}
+                  fileUrl={S.reelFileUrl}
+                  folders={S.reelFolders}
+                  onFolders={S.changeReelFolders}
+                  queue={S.reelQueue}
+                  worker={S.reelWorker}
+                  onQueue={S.queueReel}
+                  onPoll={S.pollReels}
+                  stats={S.productStats}
+                  plans={S.reelPlans}
+                  onSavePlan={S.saveReelPlan}
+                  onRemovePlan={S.removeReelPlan}
+                />
+              ) : pg === "carousel" ? (
+                <CarouselPage
+                  stats={S.productStats}
+                  online={L.mode === "remote" && !!L.session}
+                  carousels={S.carousels}
+                  plans={S.carouselPlans}
+                  reels={S.reels}
+                  onSaveRef={S.saveCarousel}
+                  onRemoveRef={S.removeCarousel}
+                  onSavePlan={S.saveCarouselPlan}
+                  onRemovePlan={S.removeCarouselPlan}
+                  putFile={S.putReelFile}
+                  fileUrl={S.reelFileUrl}
+                  fileUrls={S.reelFileUrls}
+                  worker={S.reelWorker}
+                  queue={S.reelQueue}
+                  onQueue={S.queueReel}
+                  onPoll={S.pollReels}
+                />
+              ) : pg === "accounts" ? (
+                <AccountsPage
+                  accounts={S.accounts}
+                  onSave={S.saveAccount}
+                  onRemove={S.removeAccount}
+                  load={S.loadAccount}
+                  patchData={S.patchAccountData}
+                  fileUrls={S.reelFileUrls}
+                  worker={S.reelWorker}
+                  queue={S.reelQueue}
+                  onQueue={S.queueReel}
+                  onPoll={S.pollReels}
+                  onSaveReel={S.saveReel}
+                  onSaveCarousel={S.saveCarousel}
+                />
+              ) : pg === "shoot" || pg === "shootRefs" || pg === "shootPlan" ? (
+                <PricingCtx.Provider value={pricingKit}>
+                  <ShootPage key={pg} view={pg === "shootRefs" ? "refs" : pg === "shootPlan" ? "plan" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
+                </PricingCtx.Provider>
+              ) : pg === "invoiceReq" ? (
+                <InvoiceRequestPage tx={tx} vendors={vendors} online={L.mode === "remote" && !!L.session} onPatchTxs={L.patchTxs} onBreakdown={openBreakdown} />
+              ) : pg === "tracker" ? (
+                <TrackerPage online={L.mode === "remote" && !!L.session} />
+              ) : pg === "creatives" ? (
+                <CreativesPage online={L.mode === "remote" && !!L.session} fileUrls={S.reelFileUrls} />
+              ) : pg === "contentTracker" ? (
+                <ContentTrackerPage online={L.mode === "remote" && !!L.session} reels={S.reels} fileUrls={S.reelFileUrls} />
+              ) : pg === "reports" ? (
+                <ReportPage online={L.mode === "remote" && !!L.session} rows={S.rows} />
+              ) : pg === "events" ? (
+                <EventsPage online={L.mode === "remote" && !!L.session} rows={S.rows} />
+              ) : pg === "subs" ? (
+                <SubsPage online={L.mode === "remote" && !!L.session} />
+              ) : pg === "journal" ? (
+                <JournalPage online={L.mode === "remote" && !!L.session} />
+              ) : pg === "work" || pg === "people" || pg === "content" ? (
+                <Soon page={pg} />
+              ) : pg === "ledger" ? (
+                <LedgerPage
+                  days={days}
+                  totals={totals}
+                  range={range}
+                  preset={preset}
+                  custom={custom}
+                  onRange={({ preset: p, custom: c }) => {
+                    setPreset(p);
+                    setCustom(c);
+                  }}
+                  taxType={taxType}
+                  onTaxType={pickTaxType}
+                  busy={false}
+                  waiting={receiptQueue.filter((x) => x.id !== queueCur).length}
+                  onReceipt={onReceipt}
+                  onAddBlank={openBlank}
+                  vendorName={vendorName}
+                  rowProps={rowProps}
+                  pending={pending}
+                  defects={defects}
+                  onPage={go}
+                  onBreakdown={openBreakdown}
+                  onPendingTab={(t) => {
+                    setPendingTab(t);
+                    go("pending");
+                  }}
+                />
+              ) : pg === "music" ? (
+                <MusicPage online={L.mode === "remote" && !!L.session} />
+              ) : pg === "soOrder" ? (
+                <SoOrderPage tx={tx} vendors={vendors} pricing={S.pricing} online={L.mode === "remote" && !!L.session} />
+              ) : pg === "cs" ? (
+                <CsPage online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
+              ) : pg === "pending" ? (
+                <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} initialTab={pendingTab} />
+              ) : pg === "vendors" ? (
+                <VendorsPage
+                  vendors={vendors}
+                  rows={tx}
+                  taxType={taxType}
+                  onSaveVendor={L.saveVendor}
+                  onDeleteVendor={deleteVendor}
+                  onMergeVendor={mergeVendor}
+                  rowProps={rowProps}
+                />
+              ) : (
+                <InvoicePage
+                  vendors={vendors}
+                  rows={tx}
+                  onRequestMessage={(vendor, text) => setRequest({ vendor, text, _k: Date.now() })}
+                  onBreakdown={openBreakdown}
+                />
+              );
+
+  // ---- 창 나누기 (10/21)
+  const setSplit = (v) => {
+    setSplitState(v);
+    writeSplit(v ? { ...v, on: true } : { ...(readSplit() || {}), on: false });
+  };
+  const showSplit = !!split && wide;
+  // 왼쪽에서 오른쪽에 열린 화면으로 가면 둘을 바꾼다(같은 화면을 두 칸에 열지 않게)
+  const goMain = (k) => {
+    if (showSplit && k === split.page) setSplit({ ...split, page });
+    setPage(k);
+  };
+  const goSide = (k) => {
+    if (k === page) setPage(split.page);
+    setSplit({ ...split, page: k });
+  };
+  const openSide = (k) => {
+    const last = readSplit();
+    const pg = k && k !== page ? k : last?.page && last.page !== page ? last.page : page === "journal" ? "home" : "journal";
+    setSplit({ w: split?.w || last?.w || defaultSplitW(), page: pg });
+  };
+
   return (
     <div className="flex min-h-screen bg-stone-50 text-stone-800">
-      <Sidebar page={page} onPage={setPage} open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <Sidebar page={page} onPage={goMain} onSide={wide ? openSide : undefined} sidePage={showSplit ? split.page : ""} open={menuOpen} onClose={() => setMenuOpen(false)} />
 
       <div className="min-w-0 flex-1">
         <header className="flex items-center gap-3 border-b border-stone-200 bg-white px-4 py-3 md:hidden">
@@ -383,7 +597,17 @@ export default function App() {
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}
         <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "soOrder" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : page === "home" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
-          <div className="mb-4 flex justify-end">
+          <div className="mb-4 flex items-center justify-end gap-2">
+            {wide && (
+              <button
+                type="button"
+                onClick={() => (showSplit ? setSplit(null) : openSide())}
+                title={showSplit ? "옆 창 닫기" : "오른쪽에 다른 화면 하나 더 열기 — 메뉴에서 Ctrl·Shift+클릭으로도 열려요"}
+                className={"flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold " + (showSplit ? "border-rose-200 bg-rose-50 text-rose-800" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
+              >
+                <Columns2 size={14} /> {showSplit ? "창 나누기 끄기" : "창 나누기"}
+              </button>
+            )}
             <SyncBadge
               live={L.live}
               email={L.session?.user?.email}
@@ -507,188 +731,7 @@ export default function App() {
                 )}
               </Modal>
 
-              {page === "home" ? (
-                <HomePage
-                  salesRows={S.rows}
-                  salesConf={S.conf}
-                  purchaseTotals={sumTotals(tx)}
-                  onPage={setPage}
-                  online={L.mode === "remote" && !!L.session}
-                />
-              ) : page === "sales" ? (
-                <SalesPage
-                  rows={S.rows}
-                  conf={S.conf}
-                  onConf={S.saveConf}
-                  onDaily={S.putDaily}
-                  onCafe={S.putCafe}
-                  onAds={S.putAds}
-                  onSamchon={S.putSamchon}
-                  onEdit={S.editRow}
-                  onClear={S.clearAll}
-                  range={salesRange}
-                  preset={salesPreset}
-                  custom={salesCustom}
-                  onRange={({ preset: p, custom: c }) => {
-                    setSalesPreset(p);
-                    setSalesCustom(c);
-                  }}
-                />
-              ) : page === "pnl" ? (
-                <PnlPage
-                  rows={S.rows}
-                  conf={S.conf}
-                  range={salesRange}
-                  preset={salesPreset}
-                  custom={salesCustom}
-                  onRange={({ preset: p, custom: c }) => {
-                    setSalesPreset(p);
-                    setSalesCustom(c);
-                  }}
-                  onPage={setPage}
-                  missingCost={S.missingCost}
-                />
-              ) : page === "pricing" ? (
-                <PricingPage
-                  rows={S.rows}
-                  conf={S.conf}
-                  onConf={S.saveConf}
-                  items={S.pricing}
-                  vendors={vendors}
-                  products={S.productStats?.all || NO_PRODUCTS}
-                  onSave={S.savePricing}
-                  onRemove={S.removePricing}
-                />
-              ) : page === "reels" ? (
-                <ReelsPage
-                  items={S.reels}
-                  fileUrls={S.reelFileUrls}
-                  online={L.mode === "remote" && !!L.session}
-                  onSave={S.saveReel}
-                  onRemove={S.removeReel}
-                  putFile={S.putReelFile}
-                  fileUrl={S.reelFileUrl}
-                  folders={S.reelFolders}
-                  onFolders={S.changeReelFolders}
-                  queue={S.reelQueue}
-                  worker={S.reelWorker}
-                  onQueue={S.queueReel}
-                  onPoll={S.pollReels}
-                  stats={S.productStats}
-                  plans={S.reelPlans}
-                  onSavePlan={S.saveReelPlan}
-                  onRemovePlan={S.removeReelPlan}
-                />
-              ) : page === "carousel" ? (
-                <CarouselPage
-                  stats={S.productStats}
-                  online={L.mode === "remote" && !!L.session}
-                  carousels={S.carousels}
-                  plans={S.carouselPlans}
-                  reels={S.reels}
-                  onSaveRef={S.saveCarousel}
-                  onRemoveRef={S.removeCarousel}
-                  onSavePlan={S.saveCarouselPlan}
-                  onRemovePlan={S.removeCarouselPlan}
-                  putFile={S.putReelFile}
-                  fileUrl={S.reelFileUrl}
-                  fileUrls={S.reelFileUrls}
-                  worker={S.reelWorker}
-                  queue={S.reelQueue}
-                  onQueue={S.queueReel}
-                  onPoll={S.pollReels}
-                />
-              ) : page === "accounts" ? (
-                <AccountsPage
-                  accounts={S.accounts}
-                  onSave={S.saveAccount}
-                  onRemove={S.removeAccount}
-                  load={S.loadAccount}
-                  patchData={S.patchAccountData}
-                  fileUrls={S.reelFileUrls}
-                  worker={S.reelWorker}
-                  queue={S.reelQueue}
-                  onQueue={S.queueReel}
-                  onPoll={S.pollReels}
-                  onSaveReel={S.saveReel}
-                  onSaveCarousel={S.saveCarousel}
-                />
-              ) : page === "shoot" || page === "shootRefs" || page === "shootPlan" ? (
-                <PricingCtx.Provider value={pricingKit}>
-                  <ShootPage key={page} view={page === "shootRefs" ? "refs" : page === "shootPlan" ? "plan" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
-                </PricingCtx.Provider>
-              ) : page === "invoiceReq" ? (
-                <InvoiceRequestPage tx={tx} vendors={vendors} online={L.mode === "remote" && !!L.session} onPatchTxs={L.patchTxs} onBreakdown={openBreakdown} />
-              ) : page === "tracker" ? (
-                <TrackerPage online={L.mode === "remote" && !!L.session} />
-              ) : page === "creatives" ? (
-                <CreativesPage online={L.mode === "remote" && !!L.session} fileUrls={S.reelFileUrls} />
-              ) : page === "contentTracker" ? (
-                <ContentTrackerPage online={L.mode === "remote" && !!L.session} reels={S.reels} fileUrls={S.reelFileUrls} />
-              ) : page === "reports" ? (
-                <ReportPage online={L.mode === "remote" && !!L.session} rows={S.rows} />
-              ) : page === "events" ? (
-                <EventsPage online={L.mode === "remote" && !!L.session} rows={S.rows} />
-              ) : page === "subs" ? (
-                <SubsPage online={L.mode === "remote" && !!L.session} />
-              ) : page === "journal" ? (
-                <JournalPage online={L.mode === "remote" && !!L.session} />
-              ) : page === "work" || page === "people" || page === "content" ? (
-                <Soon page={page} />
-              ) : page === "ledger" ? (
-                <LedgerPage
-                  days={days}
-                  totals={totals}
-                  range={range}
-                  preset={preset}
-                  custom={custom}
-                  onRange={({ preset: p, custom: c }) => {
-                    setPreset(p);
-                    setCustom(c);
-                  }}
-                  taxType={taxType}
-                  onTaxType={pickTaxType}
-                  busy={false}
-                  waiting={receiptQueue.filter((x) => x.id !== queueCur).length}
-                  onReceipt={onReceipt}
-                  onAddBlank={openBlank}
-                  vendorName={vendorName}
-                  rowProps={rowProps}
-                  pending={pending}
-                  defects={defects}
-                  onPage={setPage}
-                  onBreakdown={openBreakdown}
-                  onPendingTab={(t) => {
-                    setPendingTab(t);
-                    setPage("pending");
-                  }}
-                />
-              ) : page === "music" ? (
-                <MusicPage online={L.mode === "remote" && !!L.session} />
-              ) : page === "soOrder" ? (
-                <SoOrderPage tx={tx} vendors={vendors} pricing={S.pricing} online={L.mode === "remote" && !!L.session} />
-              ) : page === "cs" ? (
-                <CsPage online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
-              ) : page === "pending" ? (
-                <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} initialTab={pendingTab} />
-              ) : page === "vendors" ? (
-                <VendorsPage
-                  vendors={vendors}
-                  rows={tx}
-                  taxType={taxType}
-                  onSaveVendor={L.saveVendor}
-                  onDeleteVendor={deleteVendor}
-                  onMergeVendor={mergeVendor}
-                  rowProps={rowProps}
-                />
-              ) : (
-                <InvoicePage
-                  vendors={vendors}
-                  rows={tx}
-                  onRequestMessage={(vendor, text) => setRequest({ vendor, text, _k: Date.now() })}
-                  onBreakdown={openBreakdown}
-                />
-              )}
+              {renderPage(page, goMain)}
             </>
           )}
 
@@ -721,8 +764,35 @@ export default function App() {
           </footer>
         </main>
         {/* 어디서나 여는 업무일지 (10/11) — 업무일지 화면에서는 안 그린다(같은 글을 두 곳에서 고치지 않게) */}
-        {page !== "journal" && <JournalQuick online={L.mode === "remote" && !!L.session} onOpenPage={() => setPage("journal")} />}
+        {page !== "journal" && !(showSplit && split.page === "journal") && <JournalQuick online={L.mode === "remote" && !!L.session} onOpenPage={() => goMain("journal")} />}
       </div>
+
+      {showSplit && (
+        <SplitPane
+          page={split.page}
+          w={split.w}
+          mainPage={page}
+          onW={(w, end) => {
+            setSplitState((v) => (v ? { ...v, w } : v));
+            if (end) writeSplit({ ...split, w, on: true });
+          }}
+          onPage={goSide}
+          onSwap={() => {
+            const a = page;
+            setPage(split.page);
+            setSplit({ ...split, page: a });
+          }}
+          onClose={() => setSplit(null)}
+        >
+          {L.loading ? (
+            <div className="flex justify-center py-20 text-stone-400">
+              <Loader2 size={22} className="animate-spin" />
+            </div>
+          ) : (
+            renderPage(split.page, goSide)
+          )}
+        </SplitPane>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Volume2, VolumeX, Check } from "lucide-react";
+import { X, Volume2, VolumeX, Check, PanelRight } from "lucide-react";
 import { SOUNDS, soundKind, setSoundKind, tick } from "../lib/clickSound";
 import { SECTIONS, sectionOf, firstPageOf } from "../lib/nav";
 
@@ -81,7 +81,8 @@ function SoundToggle() {
   );
 }
 
-function Panel({ section, page, onPage }) {
+// 창 나누기 (10/21) — onSide 가 있으면(넓은 화면) Ctrl·Shift·가운데 클릭 = 오른쪽 창에 열기, 줄 오른쪽 '옆에 열기' 단추
+function Panel({ section, page, onPage, onSide, sidePage = "" }) {
   const current = SECTIONS.find((s) => s.key === section) || SECTIONS[0];
   return (
     <nav className="w-52 shrink-0 overflow-y-auto border-r border-stone-200 bg-white p-3">
@@ -93,18 +94,32 @@ function Panel({ section, page, onPage }) {
         <div key={g.group} className="mb-4">
           <div className="px-3 pb-1.5 text-xs font-medium text-stone-400">{g.group}</div>
           {g.items.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onPage(key)}
-              className={
-                "mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition " +
-                (page === key ? "bg-rose-700 text-white" : "text-stone-600 hover:bg-stone-100")
-              }
-            >
-              <Icon size={17} className="shrink-0" />
-              <span className="min-w-0 truncate">{label}</span>
-            </button>
+            <div key={key} className="group/item relative mb-0.5">
+              <button
+                type="button"
+                onClick={(e) => (onSide && (e.ctrlKey || e.metaKey || e.shiftKey) ? onSide(key) : onPage(key))}
+                onAuxClick={(e) => onSide && e.button === 1 && (e.preventDefault(), onSide(key))}
+                className={
+                  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition " +
+                  (page === key ? "bg-rose-700 text-white" : sidePage === key ? "bg-rose-50 text-rose-800 ring-1 ring-rose-200 ring-inset" : "text-stone-600 hover:bg-stone-100")
+                }
+              >
+                <Icon size={17} className="shrink-0" />
+                <span className="min-w-0 truncate">{label}</span>
+                {sidePage === key && <span className="ml-auto shrink-0 text-[10px] font-semibold text-rose-700">옆 창</span>}
+              </button>
+              {onSide && page !== key && sidePage !== key && (
+                <button
+                  type="button"
+                  onClick={() => onSide(key)}
+                  title="오른쪽 창에 열기 (Ctrl·Shift+클릭)"
+                  aria-label={`${label} 옆 창에 열기`}
+                  className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded-md p-1 text-stone-400 group-hover/item:block hover:bg-white hover:text-rose-700"
+                >
+                  <PanelRight size={15} />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       ))}
@@ -112,7 +127,7 @@ function Panel({ section, page, onPage }) {
   );
 }
 
-export default function Sidebar({ page, onPage, open, onClose }) {
+export default function Sidebar({ page, onPage, onSide, sidePage, open, onClose }) {
   const section = sectionOf(page);
   const goSection = (k) => onPage(firstPageOf(k));
 
@@ -122,7 +137,7 @@ export default function Sidebar({ page, onPage, open, onClose }) {
       {/* 화면을 내려도 메뉴는 제자리에 (9/28 세원: "스크롤을 내리면 목록 칸이 같이 딸려 내려가는데 그대로 놔둬줘") */}
       <div className="sticky top-0 hidden h-screen shrink-0 self-start md:flex">
         <Rail section={section} onSection={goSection} />
-        <Panel section={section} page={page} onPage={onPage} />
+        <Panel section={section} page={page} onPage={onPage} onSide={onSide} sidePage={sidePage} />
       </div>
 
       {/* 모바일: 왼쪽에서 밀어 나오는 서랍. 같은 두 칸을 그대로 담는다 */}
