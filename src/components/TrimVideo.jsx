@@ -9,6 +9,8 @@ import { extractWav, saveBlob } from "../lib/audio";
  * - '이대로 자르기' → trim {start, end, status:"queued"} 를 저장하고 사무실 PC 분석기(target trim)에 맡긴다.
  *   PC 가 실제 파일을 잘라 덮기 전에도 이 화면에서는 고른 구간만 재생한다.
  * - 처음 자를 때 원본을 따로 남겨 두므로 '원래대로' 로 되돌릴 수 있다.
+ * - 10/21 세원: "릴스 레퍼런스는 영상 보면서 찍는 경우가 많아서 무한 반복되게 — 끊겨서 불편" → 늘 반복 재생(loop).
+ *   PC 가 아직 안 자른 구간 재생도 끝에서 멈추지 않고 처음으로 돌아가 계속. 자르는 중(손잡이 고르기)에만 끝에서 멈춘다.
  */
 
 const fmt = (s) => `${Math.max(0, s).toFixed(1)}초`;
@@ -56,13 +58,13 @@ export default function TrimVideo({ src, trim, hasOrig, step, className, onTrim,
     if (!v || s0 === undefined) return;
     const stop = () => {
       if (s1 > 0 && v.currentTime >= s1) {
-        v.pause();
         v.currentTime = s0;
+        if (edit) v.pause(); // 자르는 중엔 끝에서 멈춰 확인, 아니면 고른 구간을 반복
       } else if (v.currentTime < s0 - 0.05) v.currentTime = s0;
     };
     v.addEventListener("timeupdate", stop);
     return () => v.removeEventListener("timeupdate", stop);
-  }, [s0, s1]);
+  }, [s0, s1, edit]);
 
   const seek = (t) => {
     if (ref.current) ref.current.currentTime = t;
@@ -99,6 +101,7 @@ export default function TrimVideo({ src, trim, hasOrig, step, className, onTrim,
         ref={ref}
         src={url}
         controls={!edit}
+        loop={!edit}
         playsInline
         className={className}
         onLoadedMetadata={(e) => {
