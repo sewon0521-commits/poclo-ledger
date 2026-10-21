@@ -23,6 +23,7 @@ import {
   ListChecks,
   Plus,
   Trash2,
+  Info,
 } from "lucide-react";
 import { putPhoto, photoUrls } from "../lib/shoot";
 import { Viewer } from "./ShootBits";
@@ -2164,7 +2165,8 @@ function Results({ all, q, onOpen }) {
 //
 // 세원: "업무일지에 루틴화된 곳을 체크하는 곳을 만들었으면 좋겠어."
 // 매일(또는 정한 요일마다) 하는 일을 한 번 적어 두면 날마다 새로 체크하는 칸이 뜬다. 할 일과 달리 넘어오지 않는다(그날 했나 안 했나만).
-// 저장: journal_<사람>.routines [{id, text, days}] · routineDone {날짜: [id…]}. 지난 7일 표로 되돌아본다.
+// 저장: journal_<사람>.routines [{id, text, days, time?, how?}] · routineDone {날짜: [id…]}. 지난 7일 표로 되돌아본다.
+// 10/21: 홈 캘린더의 반복 할 일을 여기로 옮기면서 시각(time 'HH:MM')·방법(how — 순서·어디서) 칸을 더했다. 칩 옆 ⓘ 로 방법을 펼친다.
 
 const dayLabel = (days) => (!days?.length || days.length === 7 ? "매일" : days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d)) ? "평일" : [...days].sort().map((d) => WEEKDAYS[d]).join("·"));
 
@@ -2172,6 +2174,7 @@ const dayLabel = (days) => (!days?.length || days.length === 7 ? "매일" : days
 function RoutineEditor({ routines, onSave, onClose }) {
   const [list, setList] = useState(() => routines.map((r) => ({ ...r, days: r.days || [] })));
   const [text, setText] = useState("");
+  const [open, setOpen] = useState(""); // 방법·시각을 펼친 루틴
   const add = () => {
     const t = text.trim();
     if (!t) return;
@@ -2219,9 +2222,29 @@ function RoutineEditor({ routines, onSave, onClose }) {
               })}
             </span>
             <span className="w-10 text-[11px] text-stone-400">{dayLabel(r.days)}</span>
+            <button
+              type="button"
+              onClick={() => setOpen(open === r.id ? "" : r.id)}
+              aria-expanded={open === r.id}
+              className={"rounded-md px-1.5 py-1 text-[11px] font-medium " + (open === r.id ? "bg-stone-800 text-white" : r.how || r.time ? "bg-stone-100 text-stone-700" : "text-stone-400 hover:text-stone-700")}
+            >
+              {r.time ? r.time : "시각"}·방법
+            </button>
             <button type="button" onClick={() => setList((l) => l.filter((x) => x.id !== r.id))} aria-label="루틴 지우기" className="p-1 text-stone-300 hover:text-rose-600">
               <Trash2 size={14} />
             </button>
+            {open === r.id && (
+              <div className="flex w-full flex-wrap items-start gap-1.5 pl-6">
+                <input type="time" value={r.time || ""} onChange={(e) => patch(r.id, { time: e.target.value })} title="시각 (선택)" className="rounded-lg border border-stone-200 px-2 py-1.5 text-sm" />
+                <textarea
+                  value={r.how || ""}
+                  onChange={(e) => patch(r.id, { how: e.target.value })}
+                  rows={2}
+                  placeholder="방법 (선택) — 예: 보고 › 사입 트래커 → 1일 변화 → NEW 진입 칸 누르기"
+                  className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm leading-relaxed outline-none focus:border-rose-400"
+                />
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -2245,7 +2268,11 @@ function RoutineEditor({ routines, onSave, onClose }) {
           type="button"
           onClick={() => {
             const extra = text.trim() ? [{ id: newId("rt"), text: text.trim(), days: [] }] : [];
-            onSave([...list, ...extra].map((r) => ({ ...r, text: r.text.trim() })).filter((r) => r.text));
+            onSave(
+              [...list, ...extra]
+                .map(({ time, how, ...r }) => ({ ...r, text: r.text.trim(), ...(time ? { time } : {}), ...(how?.trim() ? { how: how.trim() } : {}) }))
+                .filter((r) => r.text),
+            );
           }}
           className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white"
         >
@@ -2261,6 +2288,7 @@ function Routines({ data, date, today, editable, onChange, compact }) {
   const [edit, setEdit] = useState(false);
   const [week, setWeek] = useState(false);
   const [opt, setOpt] = useState(null); // 누른 즉시 보이게 — {date, ids}
+  const [howOf, setHowOf] = useState(""); // 방법을 펼친 루틴
   const all = data.routines || [];
   const list = routinesOn(all, date);
   const saved = data.routineDone?.[date] || [];
@@ -2338,28 +2366,58 @@ function Routines({ data, date, today, editable, onChange, compact }) {
           {list.map((r) => {
             const on = done.has(r.id);
             return (
-              <button
-                key={r.id}
-                type="button"
-                disabled={!can}
-                onClick={() => toggle(r.id)}
-                aria-pressed={on}
-                title={can ? (on ? "체크 풀기" : "했어요") : ""}
-                className={
-                  "flex items-center gap-1.5 rounded-full border py-1 pr-3 pl-1.5 text-xs font-medium transition-colors " +
-                  (on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-700 " + (can ? "hover:border-rose-300" : "")) +
-                  (can ? "" : " cursor-default")
-                }
-              >
-                <span className={"flex h-4 w-4 items-center justify-center rounded-full border " + (on ? "border-emerald-600 bg-emerald-600 text-white" : "border-stone-300")}>
-                  {on && <Check size={10} strokeWidth={3} />}
-                </span>
-                {r.text}
-              </button>
+              <span key={r.id} className="flex items-center">
+                <button
+                  type="button"
+                  disabled={!can}
+                  onClick={() => toggle(r.id)}
+                  aria-pressed={on}
+                  title={(can ? (on ? "체크 풀기" : "했어요") : "") + (r.how ? `\n${r.how}` : "")}
+                  className={
+                    "flex items-center gap-1.5 border py-1 pl-1.5 text-xs font-medium transition-colors " +
+                    (r.how ? "rounded-l-full border-r-0 pr-2" : "rounded-full pr-3") +
+                    " " +
+                    (on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-700 " + (can ? "hover:border-rose-300" : "")) +
+                    (can ? "" : " cursor-default")
+                  }
+                >
+                  <span className={"flex h-4 w-4 items-center justify-center rounded-full border " + (on ? "border-emerald-600 bg-emerald-600 text-white" : "border-stone-300")}>
+                    {on && <Check size={10} strokeWidth={3} />}
+                  </span>
+                  {r.time && <span className={"text-[10px] tabular-nums " + (on ? "text-emerald-700/70" : "text-stone-400")}>{r.time}</span>}
+                  {r.text}
+                </button>
+                {r.how && (
+                  <button
+                    type="button"
+                    onClick={() => setHowOf(howOf === r.id ? "" : r.id)}
+                    aria-expanded={howOf === r.id}
+                    aria-label={`${r.text} 방법 보기`}
+                    title="방법 보기"
+                    className={
+                      "flex items-center self-stretch rounded-r-full border py-1 pr-2 pl-1 " +
+                      (howOf === r.id ? "border-stone-800 bg-stone-800 text-white" : on ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-stone-200 bg-white text-stone-400 hover:text-stone-700")
+                    }
+                  >
+                    <Info size={12} />
+                  </button>
+                )}
+              </span>
             );
           })}
         </div>
       )}
+      {(() => {
+        const h = list.find((r) => r.id === howOf && r.how);
+        return (
+          h && (
+            <p className="mt-1.5 rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed whitespace-pre-line text-stone-600">
+              <b className="text-stone-800">{h.text}</b>
+              {h.time && <span className="text-stone-400"> · {h.time}</span>} — {h.how}
+            </p>
+          )
+        );
+      })()}
       {week && all.length > 0 && (
         <div className="mt-2 overflow-x-auto">
           <table className="text-[11px]">

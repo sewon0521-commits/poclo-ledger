@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown, Sparkles, ListTodo, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
-import { taskDue, repeatLabel, CAL_KEY } from "../lib/events";
-import { dayKey } from "../lib/journal";
+import { dayKey, PEOPLE, loadJournal, routinesOn } from "../lib/journal";
 import { SPANS, rangeOf, rangeLabel, vsLabel, spanStats, productRows, adCountsIn, addDays } from "../lib/reportPeriod";
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
@@ -365,41 +364,47 @@ function AdList({ list, empty }) {
   );
 }
 
-/** 오늘 할 일 — 홈 캘린더(settings calendar) 중 오늘 것 */
-function TodayTasks({ cal }) {
+/** 오늘 루틴 — 업무일지(journal_<사람>.routines) 중 오늘 것. 10/21 홈 캘린더의 반복 할 일을 루틴으로 옮겨서 여기도 루틴을 본다 */
+function TodayRoutines({ journals }) {
   const today = dayKey();
-  const due = (cal?.tasks || []).filter((t) => taskDue(t, today));
-  const done = cal?.done?.[today] || [];
-  if (!due.length) return null;
+  const rows = PEOPLE.map(([id, name], i) => {
+    const j = journals?.[i] || {};
+    const list = routinesOn(j.routines, today).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+    return { id, name, list, done: new Set(j.routineDone?.[today] || []) };
+  }).filter((p) => p.list.length);
+  if (!rows.length) return null;
   return (
     <section className="rounded-2xl border border-stone-200 bg-white px-4 py-3">
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-bold text-stone-900">
-          오늘 할 일{" "}
-          <span className="font-normal text-stone-400">
-            {due.filter((t) => done.includes(t.id)).length}/{due.length} 끝냄
-          </span>
-        </h3>
-        <span className="text-[11px] text-stone-400">홈 캘린더에서 체크·고치기</span>
+        <h3 className="text-sm font-bold text-stone-900">오늘 루틴</h3>
+        <span className="text-[11px] text-stone-400">업무일지에서 체크·고치기</span>
       </div>
-      <ul className="grid gap-x-6 gap-y-1.5 lg:grid-cols-2">
-        {due.map((t) => (
-          <li key={t.id} className="text-sm">
-            <b className={done.includes(t.id) ? "text-stone-400 line-through" : "text-stone-900"}>
-              {done.includes(t.id) ? "✓" : t.repeat?.type === "once" ? "•" : "↻"} {t.title}
-            </b>{" "}
-            <span className="text-[11px] text-stone-400">
-              {repeatLabel(t)} · {t.who}
+      <div className="space-y-2">
+        {rows.map((p) => (
+          <div key={p.id} className="flex flex-wrap items-start gap-x-3 gap-y-1">
+            <span className="w-16 shrink-0 pt-0.5 text-xs font-semibold text-stone-500">
+              {p.name} <span className="font-normal tabular-nums">{p.list.filter((r) => p.done.has(r.id)).length}/{p.list.length}</span>
             </span>
-            {t.how && <span className="block truncate text-xs text-stone-500" title={t.how}>{t.how.split("\n")[0]}</span>}
-          </li>
+            <ul className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+              {p.list.map((r) => {
+                const ok = p.done.has(r.id);
+                return (
+                  <li key={r.id} title={r.how || ""} className={"rounded-full border px-2.5 py-0.5 text-xs " + (ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-stone-200 text-stone-700")}>
+                    {ok ? "✓ " : ""}
+                    {r.time && <span className="text-[10px] text-stone-400 tabular-nums">{r.time} </span>}
+                    {r.text}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }
 
-function Report({ r, hist, rows, cal }) {
+function Report({ r, hist, rows, journals }) {
   const y = r.yesterday || {};
   const [spanId, setSpanIdState] = useState(readSpan);
   const [custom, setCustom] = useState(() => ({ start: addDays(r.date, -29), end: r.date }));
@@ -464,7 +469,7 @@ function Report({ r, hist, rows, cal }) {
         )}
       </section>
 
-      <TodayTasks cal={cal} />
+      <TodayRoutines journals={journals} />
 
       {off && !y.weekend && (
         <p className="flex items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -594,15 +599,19 @@ function Report({ r, hist, rows, cal }) {
 export default function ReportPage({ online, rows }) {
   const [list, setList] = useState([]);
   const [hist, setHist] = useState(null);
-  const [cal, setCal] = useState(null);
+  const [journals, setJournals] = useState(null);
   useEffect(() => {
     let alive = true;
-    const load = () => loadKey(CAL_KEY, online, null).then((v) => alive && setCal(v));
-    load().catch(() => {});
-    const off = onSettingsChange((k) => k === CAL_KEY && load());
+    const load = () =>
+      Promise.all(PEOPLE.map(([w]) => loadJournal(w, online)))
+        .then((v) => alive && setJournals(v))
+        .catch(() => {});
+    load();
+    const vis = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", vis);
     return () => {
       alive = false;
-      off();
+      document.removeEventListener("visibilitychange", vis);
     };
   }, [online]);
   const [day, setDay] = useState("");
@@ -691,7 +700,7 @@ export default function ReportPage({ online, rows }) {
           아직 보고가 없어요. 사무실 PC 가 매일 아침 8시 30분에 만들어요{online ? "." : " (공유 장부로 로그인해야 보여요)."}
         </div>
       )}
-      {state === "ready" && rep && <Report key={rep.date} r={rep} hist={hist} rows={rows} cal={cal} />}
+      {state === "ready" && rep && <Report key={rep.date} r={rep} hist={hist} rows={rows} journals={journals} />}
     </div>
   );
 }
