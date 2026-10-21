@@ -498,25 +498,74 @@ const SHOP_INPUT =
   "w-full min-w-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900 outline-none placeholder:font-normal placeholder:text-amber-700/60 focus:border-rose-400 focus:bg-white";
 const normLink = (t) => (!t ? "" : /^https?:\/\//i.test(t) ? t : /^[\w-]+(\.[\w-]+)+/.test(t) ? `https://${t}` : t);
 
-/** 상품 링크 칸 — 붙여넣으면 바로 저장, 있으면 '열기' */
-function LinkRow({ value = "", onSave }) {
+/** 레퍼런스 사진의 상품 링크들 — 예전 한 개(ref.link)도 첫 줄로 읽는다 */
+const linksOf = (r) => (r?.links?.length ? r.links : r?.link ? [{ id: "l0", kind: "", url: r.link }] : []);
+
+/**
+ * 상품 링크 여러 줄 (10/21 세원: "링크 옆에 상의·하의 적을 수 있게 하고 칸 + 로 늘릴 수 있게")
+ * 줄마다 [이름(상의·하의…)] [링크] 열기 ×, 아래 '+ 링크'. 저장 = ref.links [{id, kind, url}] (예전 ref.link 는 비운다).
+ * 빈 줄은 저장하지 않는다(화면에만). 링크를 붙여넣으면 바로 저장, 'ppoclo.kr/…' 처럼 적으면 https:// 를 붙인다.
+ */
+function LinkList({ links, onSave }) {
+  const [draft, setDraft] = useState([]); // '+ 링크'로 더한 아직 빈 줄
+  const [first] = useState(() => newId("lk")); // 아무것도 없을 때 보이는 첫 빈 줄
+  const [focusId, setFocusId] = useState("");
+  const rows = [...links, ...draft.filter((d) => !links.some((l) => l.id === d.id))];
+  const shown = rows.length ? rows : [{ id: first, kind: "", url: "" }];
+  const commit = (id, patch) => {
+    const cur = shown.map((r) => (r.id === id ? { ...r, ...patch } : r));
+    setDraft((d) => d.filter((x) => !cur.some((r) => r.id === x.id && (r.url || r.kind))));
+    onSave(cur.filter((r) => r.url || r.kind));
+  };
+  const drop = (id) => {
+    setDraft((d) => d.filter((x) => x.id !== id));
+    if (links.some((l) => l.id === id)) onSave(links.filter((l) => l.id !== id));
+  };
   return (
-    <div className="flex items-center gap-1.5">
-      <Link2 size={14} className="shrink-0 text-stone-400" />
-      <LineInput
-        value={value}
-        onSave={(t) => onSave(normLink(t))}
-        autoPaste
-        inputMode="url"
-        placeholder="상품 링크 붙여넣기 — 그 쇼핑몰 상품 페이지"
-        aria-label="상품 링크"
-        className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm outline-none focus:border-rose-400"
-      />
-      {value && (
-        <a href={value} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
-          열기 <ExternalLink size={12} />
-        </a>
-      )}
+    <div className="space-y-1.5">
+      {shown.map((r) => (
+        <div key={r.id} className="flex items-center gap-1.5">
+          <Link2 size={14} className="shrink-0 text-stone-400" />
+          <LineInput
+            value={r.kind || ""}
+            onSave={(kind) => commit(r.id, { kind })}
+            autoFocus={focusId === r.id}
+            placeholder="상의"
+            aria-label="어떤 상품 (상의·하의…)"
+            className="w-20 shrink-0 rounded-lg border border-stone-200 px-2 py-1.5 text-sm font-semibold text-stone-800 outline-none placeholder:font-normal placeholder:text-stone-300 focus:border-rose-400"
+          />
+          <LineInput
+            value={r.url || ""}
+            onSave={(t) => commit(r.id, { url: normLink(t) })}
+            autoPaste
+            inputMode="url"
+            placeholder="상품 링크 붙여넣기"
+            aria-label="상품 링크"
+            className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm outline-none focus:border-rose-400"
+          />
+          {r.url && (
+            <a href={r.url} target="_blank" rel="noreferrer" title={r.url} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+              열기 <ExternalLink size={12} />
+            </a>
+          )}
+          {(r.url || r.kind || shown.length > 1) && (
+            <button type="button" onClick={() => drop(r.id)} aria-label="이 링크 빼기" className="shrink-0 p-1 text-stone-300 hover:text-rose-600">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => {
+          const id = newId("lk");
+          setDraft((d) => [...d, { id, kind: "", url: "" }]);
+          setFocusId(id);
+        }}
+        className="ml-5 flex items-center gap-1 rounded-lg border border-dashed border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:border-rose-300 hover:text-rose-800"
+      >
+        <Plus size={12} /> 링크
+      </button>
     </div>
   );
 }
@@ -846,7 +895,7 @@ function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose }) {
                 <LineInput value={r.shop || ""} onSave={(shop) => onRef(r.id, { shop })} placeholder="어느 쇼핑몰? 적기" aria-label="어느 쇼핑몰" className={SHOP_INPUT + " mt-1.5 max-w-xs py-1.5 text-sm"} />
               )}
               <div className="mt-3 mb-1 text-xs font-medium text-stone-500">상품 링크</div>
-              <LinkRow value={r.link || ""} onSave={(link) => onRef(r.id, { link })} />
+              <LinkList links={linksOf(r)} onSave={(links) => onRef(r.id, { links, link: "" })} />
               {(r.shop || r.memo) && <p className="mt-2 text-[11px] text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ")}</p>}
               <div className="mt-3 mb-1 text-xs font-medium text-stone-500">메모 — 사진 밑에 바로 보여요</div>
               <LookMemo value={lookMemo(look)} onSave={(memo) => onSave({ memo, text: "" })} />
@@ -1035,7 +1084,7 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onC
                 {r.memo && <span>{r.memo}</span>}
               </div>
               <LookMemo key={`m-${r.id}`} value={lookMemo(look)} onSave={(memo) => onLook(r.id, { memo, text: "" })} />
-              <LinkRow key={`l-${r.id}`} value={r.link || ""} onSave={(link) => onRef(r.id, { link })} />
+              <LinkList key={`l-${r.id}`} links={linksOf(r)} onSave={(links) => onRef(r.id, { links, link: "" })} />
             </div>
             <span className="flex shrink-0 items-center gap-1">
               <button type="button" onClick={() => onEdit(r.id)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
@@ -1506,11 +1555,26 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
                 <LineInput value={r.shop || ""} onSave={(shop) => patchRef(r.id, { shop })} placeholder="어느 쇼핑몰? 적기" aria-label="어느 쇼핑몰" className={SHOP_INPUT + " mt-1"} />
               )}
               {/* 10/21 세원: "썸네일에 메모·상품 그냥 없애 버려" — 메모·링크·상품은 사진을 눌러 크게 보기에서 */}
-              {r.link && (
-                <a href={r.link} target="_blank" rel="noreferrer" title={`상품 링크 열기 — ${r.link}`} aria-label="상품 링크 열기" className="absolute top-1 left-1 flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow hover:text-rose-700">
-                  <Link2 size={13} />
-                </a>
-              )}
+              {(() => {
+                // 링크 하나면 바로 열기, 여럿이면 크게 보기(링크 목록)로
+                const ls = linksOf(r).filter((l) => l.url);
+                const cls = "absolute top-1 left-1 flex h-6 min-w-6 items-center justify-center gap-0.5 rounded-full bg-white/90 px-1 text-[10px] font-semibold text-stone-700 shadow hover:text-rose-700";
+                const tip = ls.map((l) => `${l.kind ? l.kind + " — " : ""}${l.url}`).join("\n");
+                if (ls.length === 1)
+                  return (
+                    <a href={ls[0].url} target="_blank" rel="noreferrer" title={`상품 링크 열기\n${tip}`} aria-label="상품 링크 열기" className={cls}>
+                      <Link2 size={13} />
+                    </a>
+                  );
+                if (ls.length > 1)
+                  return (
+                    <button type="button" onClick={() => setSee({ ids: shownRefs.map((x) => x.id), i })} title={`상품 링크 ${ls.length}개\n${tip}`} aria-label={`상품 링크 ${ls.length}개 보기`} className={cls}>
+                      <Link2 size={13} />
+                      {ls.length}
+                    </button>
+                  );
+                return null;
+              })()}
               <button
                 type="button"
                 onClick={() => onChange(ids.filter((k) => k !== r.id))}
