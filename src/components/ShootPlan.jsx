@@ -564,6 +564,22 @@ function LookMemo({ value = "", onSave }) {
 const LOOK_STAGES = ["arrived", "pick", "pickup", "request"];
 const lookStage = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "request") : x.stage);
 const stageLabel = (x) => (x.stage === "request" ? (x.pickup ? "픽업 요청" : "요청") : stageName(x.stage));
+// 단계 골라 보기 (10/21 세원: "룩·상품 고치기에서 입고·픽, 픽업 요청, 요청 선택할 수 있게") — 여러 개 켜기, 안 켜면 전부. 기기마다 기억
+const STAGE_CHIPS = [
+  ["arrived", "입고·픽"],
+  ["pick", "촬영"],
+  ["pickup", "픽업 요청"],
+  ["request", "요청"],
+];
+const LOOK_STAGE_KEY = "poclo_look_stages";
+const readLookStages = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(LOOK_STAGE_KEY) || "[]");
+    return Array.isArray(v) ? v.filter((k) => LOOK_STAGES.includes(k)) : [];
+  } catch {
+    return [];
+  }
+};
 
 // 고른 상품의 옷 종류 칸 · 칸마다 제일 잘 맞는 상품(10/20) — 규칙은 lib/lookStars (신상 관리 별표와 같이 씀)
 /** 사진 밑 한 줄 — 제일 잘 맞는 것이 있으면 '★ 그것들 · 후보 N', 없으면 고른 것 전부. ids = 동그라미 순서(제일 먼저) */
@@ -584,6 +600,16 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
   const [more, setMore] = useState(false);
   // 옷 종류로 나눠 고르기 (10/14 세원: "하의·상의·아우터·기타 등등 카테고리별로 나눠서 고를 수 있게") — "" 전체 · "__etc" 종류 없음/그 밖
   const [kind, setKind] = useState("");
+  const [stages, setStagesState] = useState(readLookStages);
+  const setStages = (v) => {
+    setStagesState(v);
+    setMore(false);
+    try {
+      localStorage.setItem(LOOK_STAGE_KEY, JSON.stringify(v));
+    } catch {
+      /* 무시 */
+    }
+  };
   const kinds = d.tags?.clothes?.length ? d.tags.clothes : ["상의", "하의", "원피스·세트", "아우터", "신발·잡화"];
   const kindOf = (x) => (kinds.includes(x.kind) ? x.kind : "__etc");
   const chosen = look.itemIds || [];
@@ -603,7 +629,9 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
   const gKinds = lookKinds(d.tags);
   const groupOf = lookGroupOf(gKinds, look.groups);
   const best = lookBest(look, picked, groupOf);
-  const pool = list.filter((x) => !chosen.includes(x.id));
+  const unpicked = list.filter((x) => !chosen.includes(x.id));
+  const stageCounts = unpicked.reduce((m, x) => ({ ...m, [lookStage(x)]: (m[lookStage(x)] || 0) + 1 }), {});
+  const pool = stages.length ? unpicked.filter((x) => stages.includes(lookStage(x))) : unpicked;
   const counts = pool.reduce((m, x) => ({ ...m, [kindOf(x)]: (m[kindOf(x)] || 0) + 1 }), {});
   const rest = kind ? pool.filter((x) => kindOf(x) === kind) : pool;
   const shown = more ? rest : rest.slice(0, 40);
@@ -708,7 +736,32 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
             <span className="text-xs font-medium text-stone-500">이 사진에 쓸 우리 상품 — 신상 관리에서 눌러 고르기</span>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품·거래처 찾기" className={FIELD + " w-48 py-1.5 text-sm"} />
           </div>
-          <div className="mb-2.5 flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="w-7 shrink-0 text-[11px] text-stone-400">단계</span>
+            <button
+              type="button"
+              onClick={() => setStages([])}
+              className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium " + (!stages.length ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
+            >
+              전체 <span className={!stages.length ? "opacity-70" : "text-stone-400"}>{unpicked.length}</span>
+            </button>
+            {STAGE_CHIPS.filter(([k]) => stageCounts[k] > 0 || stages.includes(k)).map(([k, label]) => {
+              const on = stages.includes(k);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setStages(on ? stages.filter((v) => v !== k) : LOOK_STAGES.filter((v) => v === k || stages.includes(v)))}
+                  className={"shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
+                >
+                  {label} <span className={on ? "opacity-70" : "text-stone-400"}>{stageCounts[k] || 0}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mb-2.5 flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+            <span className="w-7 shrink-0 text-[11px] text-stone-400">종류</span>
             {[["", "전체", pool.length], ...kinds.map((k) => [k, k, counts[k] || 0]), ["__etc", "기타", counts.__etc || 0]]
               .filter(([k, , n]) => !k || n > 0 || kind === k)
               .map(([k, label, n]) => (
@@ -733,7 +786,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
               {shown.map((x) => item(x, false))}
             </div>
           ) : (
-            <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">{q || kind ? "맞는 상품이 없어요." : "신상 관리에 상품이 없어요."}</p>
+            <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">{q || kind || stages.length ? "맞는 상품이 없어요." : "신상 관리에 상품이 없어요."}</p>
           )}
           {!more && rest.length > shown.length && (
             <button type="button" onClick={() => setMore(true)} className="mt-2 w-full rounded-lg border border-stone-200 py-2 text-xs text-stone-600 hover:border-rose-300">
