@@ -563,7 +563,9 @@ function LookMemo({ value = "", onSave }) {
 // = 입고·픽 → 촬영 → 요청(픽업 요청 켠 것) → 요청. '안 됨'·보류·휴지통·등록 뒤는 빠진다. 찾기도 이 안에서만.
 const LOOK_STAGES = ["arrived", "pick", "pickup", "request"];
 const lookStage = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "request") : x.stage);
-const stageLabel = (x) => (x.stage === "request" ? (x.pickup ? "픽업 요청" : "요청") : stageName(x.stage));
+// 10/21 세원: "룩·상품 고치기에 반납 완료한 상품은 안 떴으면" → 고르는 목록에서 뺀다. 이미 골라 둔 것은 남기되 '반납 완료'로 보인다.
+const returnedItem = (x) => !!x.returnedOn || x.settle === "returned";
+const stageLabel = (x) => (returnedItem(x) ? "반납 완료" : x.stage === "request" ? (x.pickup ? "픽업 요청" : "요청") : stageName(x.stage));
 // 단계 골라 보기 (10/21 세원: "룩·상품 고치기에서 입고·픽, 픽업 요청, 요청 선택할 수 있게") — 여러 개 켜기, 안 켜면 전부. 기기마다 기억
 const STAGE_CHIPS = [
   ["arrived", "입고·픽"],
@@ -620,7 +622,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
       const k = LOOK_STAGES.indexOf(lookStage(x));
       return k < 0 ? 99 : k;
     };
-    const all = d.items.filter((x) => rank(x) < 99).sort((a, b) => rank(a) - rank(b));
+    const all = d.items.filter((x) => rank(x) < 99 && !returnedItem(x)).sort((a, b) => rank(a) - rank(b));
     if (words.length) return all.filter((x) => words.every((w) => [x.name, x.fullName, x.vendor, x.kind, x.colors].join(" ").toLowerCase().includes(w)));
     return all;
   }, [d.items, q]);
@@ -655,7 +657,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
       <span className="block aspect-[3/4] bg-stone-100">{itemSrc(x, d.urls) && <img src={itemSrc(x, d.urls)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}</span>
       <span className="block truncate px-1.5 pt-1 text-[11px] font-medium text-stone-800">{x.name || "이름 없음"}</span>
       {x.price > 0 && <span className="block truncate px-1.5 text-[10px] font-semibold text-stone-600 tabular-nums">공급가 {won(x.price)}</span>}
-      <span className="block truncate px-1.5 pb-1 text-[10px] text-stone-400">
+      <span className={"block truncate px-1.5 pb-1 text-[10px] " + (returnedItem(x) ? "font-semibold text-rose-700" : "text-stone-400")}>
         {stageLabel(x)}
         {x.kind ? ` · ${x.kind}` : ""}
       </span>
@@ -1133,7 +1135,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                           {x.price > 0 && <div className="text-xs font-semibold text-stone-800 tabular-nums">공급가 {won(x.price)}</div>}
                           <div className="truncate text-xs text-stone-500">{[x.vendor, x.place].filter(Boolean).join(" · ")}</div>
                           {(x.colors || x.sizes) && <div className="text-xs text-stone-600">{[x.colors, x.sizes].filter(Boolean).join(" · ")}</div>}
-                          <div className="text-[11px] text-stone-400">
+                          <div className={"text-[11px] " + (returnedItem(x) ? "font-semibold text-rose-700" : "text-stone-400")}>
                             {stageLabel(x)}
                             {x.kind && x.kind !== k ? ` · 원래 ${x.kind}` : ""}
                           </div>
