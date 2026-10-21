@@ -21,6 +21,8 @@ import {
   Images,
   Star,
   SlidersHorizontal,
+  Link2,
+  ExternalLink,
 } from "lucide-react";
 import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, codiName } from "../lib/shoot";
 import { CutFilter } from "./CutBits";
@@ -452,51 +454,70 @@ function CatSelect({ cats, value, onChange, className = "" }) {
 }
 
 /**
- * 쇼핑몰 레퍼런스면 어느 쇼핑몰인지 (10/21 세원: "쇼핑몰 레퍼런스 누르면 어디 쇼핑몰인지 고를 수 있게 — 그러면 쇼핑몰 BEST 컷 칸 없애도 되겠지")
- * 레퍼런스 사진 자체의 쇼핑몰 꼬리표(ref.shop — 촬영 레퍼런스 '쇼핑몰' 줄과 같은 것)를 고친다. 목록 = 쓰던 쇼핑몰 + 사입 트래커 경쟁몰 + 새로
+ * 한 줄 적기 — 엔터·칸 벗어나면 저장, Esc 되돌림.
+ * 10/21 세원: "어느 쇼핑몰? 고르는 거 개빡세. 그냥 적는 걸로" (예전 ShopSelect 목록 고르기를 없앰) + "상품 링크 달 수 있게"
+ * 쇼핑몰·링크는 레퍼런스 사진 자체에(ref.shop · ref.link) — 촬영 레퍼런스 화면의 쇼핑몰 줄과 같은 꼬리표.
  */
-function ShopSelect({ value = "", mine, comp, onChange, className = "" }) {
-  const rest = comp.filter((n) => !mine.includes(n));
-  const other = value && !mine.includes(value) && !rest.includes(value);
+function LineInput({ value = "", onSave, autoPaste, className = "", ...rest }) {
+  const [v, setV] = useState(value);
+  const [was, setWas] = useState(value);
+  if (value !== was) {
+    setWas(value);
+    setV(value);
+  }
+  const save = () => {
+    const t = v.trim();
+    if (t !== (value || "").trim()) onSave(t);
+  };
   return (
-    <select
-      value={value}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (v !== "__new") return onChange(v);
-        const n = window.prompt("쇼핑몰 이름");
-        if (n?.trim()) onChange(n.trim());
+    <input
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) e.currentTarget.blur();
+        else if (e.key === "Escape") {
+          setV(value);
+          e.stopPropagation();
+        }
       }}
-      aria-label="어느 쇼핑몰 레퍼런스"
-      className={
-        "w-full min-w-0 truncate rounded-md border px-1.5 py-0.5 text-[11px] outline-none focus:border-rose-400 " +
-        (value ? "border-amber-200 bg-amber-50 font-semibold text-amber-900" : "border-dashed border-amber-300 bg-white text-amber-700") +
-        " " +
-        className
+      onPaste={
+        autoPaste
+          ? (e) => {
+              const el = e.currentTarget;
+              setTimeout(() => el.blur(), 30); // 링크는 붙여넣으면 바로 저장
+            }
+          : undefined
       }
-    >
-      <option value="">어느 쇼핑몰?</option>
-      {other && <option value={value}>{value}</option>}
-      {mine.length > 0 && (
-        <optgroup label="쓰던 쇼핑몰">
-          {mine.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </optgroup>
+      className={className}
+      {...rest}
+    />
+  );
+}
+const SHOP_INPUT =
+  "w-full min-w-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900 outline-none placeholder:font-normal placeholder:text-amber-700/60 focus:border-rose-400 focus:bg-white";
+const normLink = (t) => (!t ? "" : /^https?:\/\//i.test(t) ? t : /^[\w-]+(\.[\w-]+)+/.test(t) ? `https://${t}` : t);
+
+/** 상품 링크 칸 — 붙여넣으면 바로 저장, 있으면 '열기' */
+function LinkRow({ value = "", onSave }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Link2 size={14} className="shrink-0 text-stone-400" />
+      <LineInput
+        value={value}
+        onSave={(t) => onSave(normLink(t))}
+        autoPaste
+        inputMode="url"
+        placeholder="상품 링크 붙여넣기 — 그 쇼핑몰 상품 페이지"
+        aria-label="상품 링크"
+        className="min-w-0 flex-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm outline-none focus:border-rose-400"
+      />
+      {value && (
+        <a href={value} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+          열기 <ExternalLink size={12} />
+        </a>
       )}
-      {rest.length > 0 && (
-        <optgroup label="사입 트래커 경쟁몰">
-          {rest.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </optgroup>
-      )}
-      <option value="__new">+ 새 쇼핑몰…</option>
-    </select>
+    </div>
   );
 }
 
@@ -730,7 +751,7 @@ const lookOrder = (d, look) => {
 };
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
-function LookSheet({ d, r, src, look, cats, shopNames = [], comp = [], onShop, onSave, onBig, onClose }) {
+function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose }) {
   const [q, setQ] = useState("");
   const [more, setMore] = useState(false);
   // 옷 종류로 나눠 고르기 (10/14 세원: "하의·상의·아우터·기타 등등 카테고리별로 나눠서 고를 수 있게") — "" 전체 · "__etc" 종류 없음/그 밖
@@ -821,7 +842,11 @@ function LookSheet({ d, r, src, look, cats, shopNames = [], comp = [], onShop, o
               {/* 10/21 '어떤 룩' 칸은 없애고 분류 + 메모 하나로 (예전 룩 글은 메모에 합쳐 보인다) */}
               <div className="mb-1 text-xs font-medium text-stone-500">분류</div>
               <CatSelect cats={cats} value={look.cat || ""} onChange={(cat) => onSave({ cat })} className="max-w-xs [&_select]:py-1.5 [&_select]:text-sm" />
-              {isShopCat(cats.find((c) => c.id === look.cat)) && <ShopSelect value={r.shop || ""} mine={shopNames} comp={comp} onChange={(v) => onShop(r.id, v)} className="mt-1.5 max-w-xs py-1.5 text-sm" />}
+              {isShopCat(cats.find((c) => c.id === look.cat)) && (
+                <LineInput value={r.shop || ""} onSave={(shop) => onRef(r.id, { shop })} placeholder="어느 쇼핑몰? 적기" aria-label="어느 쇼핑몰" className={SHOP_INPUT + " mt-1.5 max-w-xs py-1.5 text-sm"} />
+              )}
+              <div className="mt-3 mb-1 text-xs font-medium text-stone-500">상품 링크</div>
+              <LinkRow value={r.link || ""} onSave={(link) => onRef(r.id, { link })} />
               {(r.shop || r.memo) && <p className="mt-2 text-[11px] text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ")}</p>}
               <div className="mt-3 mb-1 text-xs font-medium text-stone-500">메모 — 사진 밑에 바로 보여요</div>
               <LookMemo value={lookMemo(look)} onSave={(memo) => onSave({ memo, text: "" })} />
@@ -945,7 +970,7 @@ function LookSheet({ d, r, src, look, cats, shopNames = [], comp = [], onShop, o
  * 왼쪽 레퍼런스 사진 크게(←·→ 로 이 소싱의 다른 사진) · 오른쪽 적어 둔 룩 + 고른 우리 상품(사진·이름·거래처·색상·사이즈).
  * 상품 사진을 누르면 그 상품 사진 크게(신마 사진 전부). 고치기는 '룩·상품 고치기'(LookSheet). 폰은 위아래로.
  */
-function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onClose, paused }) {
+function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onClose, paused }) {
   const [at, setAt] = useState(start);
   const [big, setBig] = useState(null); // {urls, i}
   const [sel, setSel] = useState(() => new Set()); // 고른 상품 중 잡은 것 (끌어 옮길 것)
@@ -1001,12 +1026,16 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onClose, p
         {/* 룩 + 고른 상품 */}
         <div className="flex min-w-0 flex-1 flex-col md:min-h-0">
           <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1 space-y-2">
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-stone-400">
                 <CatSelect cats={cats} value={look.cat || ""} onChange={(cat) => onLook(r.id, { cat })} className="w-40" />
-                {[r.shop, r.memo].filter(Boolean).join(" · ")}
+                {isShopCat(cats.find((c) => c.id === look.cat)) && (
+                  <LineInput key={`s-${r.id}`} value={r.shop || ""} onSave={(shop) => onRef(r.id, { shop })} placeholder="어느 쇼핑몰? 적기" aria-label="어느 쇼핑몰" className={SHOP_INPUT + " w-40 py-1"} />
+                )}
+                {r.memo && <span>{r.memo}</span>}
               </div>
-              <div className={"mt-1 max-h-40 overflow-y-auto text-base leading-snug whitespace-pre-wrap " + (lookMemo(look) ? "font-semibold text-stone-900" : "text-stone-300")}>{lookMemo(look) || "메모를 아직 안 적었어요"}</div>
+              <LookMemo key={`m-${r.id}`} value={lookMemo(look)} onSave={(memo) => onLook(r.id, { memo, text: "" })} />
+              <LinkRow key={`l-${r.id}`} value={r.link || ""} onSave={(link) => onRef(r.id, { link })} />
             </div>
             <span className="flex shrink-0 items-center gap-1">
               <button type="button" onClick={() => onEdit(r.id)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
@@ -1331,22 +1360,8 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   const catOf = (id) => (catIds.has(looks[id]?.cat) ? looks[id].cat : "");
   const shownRefs = !only ? refs : refs.filter((r) => catOf(r.id) === (only === "__none" ? "" : only));
   const seeRefs = see ? see.ids.map((id) => refs.find((r) => r.id === id)).filter(Boolean) : [];
-  // 쇼핑몰 고르기 목록 (10/21) — 쓰던 쇼핑몰(촬영 레퍼런스 꼬리표) + 사입 트래커 경쟁몰
-  const shopNames = shopsOf(d.tags, d.refs);
-  const [comp, setComp] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    loadKey("tracker_malls", online, { items: [] })
-      .then((v) => alive && setComp([...new Set((v?.items || []).filter((m) => !m.off && m.name).map((m) => m.name))]))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [online]);
-  const setShop = (id, shop) => {
-    d.saveRefs((v) => ({ ...v, items: (v.items || []).map((x) => (x.id === id ? { ...x, shop } : x)) })).catch((e) => onMsg(e.message || "쇼핑몰을 저장하지 못했어요."));
-    if (shop && !(d.tags.shops || []).includes(shop)) d.saveTags((v) => ({ ...v, shops: [...new Set([...(v.shops || []), shop])] }));
-  };
+  // 레퍼런스 사진 자체의 쇼핑몰·상품 링크 고치기 (10/21 — 적는 칸)
+  const patchRef = (id, p) => d.saveRefs((v) => ({ ...v, items: (v.items || []).map((x) => (x.id === id ? { ...x, ...p } : x)) })).catch((e) => onMsg(e.message || "저장하지 못했어요."));
   const src = (r) => d.urls[r.photo] || shown[r.id] || r.photoUrl || "";
   const chooseFolder = (v) => {
     setFolder(v);
@@ -1487,26 +1502,15 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
                 )}
               </button>
               <CatSelect cats={cats} value={catOf(r.id)} onChange={(cat) => onLook(r.id, { cat })} className="mt-1" />
-              {isShopCat(cats.find((c) => c.id === catOf(r.id))) && <ShopSelect value={r.shop || ""} mine={shopNames} comp={comp} onChange={(v) => setShop(r.id, v)} className="mt-1" />}
-              {/* 10/21 세원: "메모·상품 칸 하나 누르면 안에서 고칠 수 있게, 밖에는 그냥 보이게" → 밖은 보기만, 누르면 룩·상품 고치기 */}
-              {(() => {
-                const memo = lookMemo(looks[r.id]);
-                const has = (looks[r.id]?.itemIds || []).length > 0;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setOpen(r.id)}
-                    title="눌러서 메모·상품 고치기"
-                    className={
-                      "mt-1 block w-full rounded-md px-1.5 py-1 text-left transition-colors " +
-                      (memo || has ? "bg-amber-50/70 hover:bg-amber-100/80" : "border border-dashed border-stone-200 hover:border-rose-300")
-                    }
-                  >
-                    {memo ? <span className="line-clamp-6 block text-[12px] leading-snug whitespace-pre-line text-stone-800">{memo}</span> : !has && <span className="block text-[12px] text-stone-300">+ 메모 · 상품</span>}
-                    {has && <span className={"line-clamp-2 block text-[11px] leading-snug text-rose-800 " + (memo ? "mt-0.5" : "")}>{lookOrder(d, looks[r.id]).line}</span>}
-                  </button>
-                );
-              })()}
+              {isShopCat(cats.find((c) => c.id === catOf(r.id))) && (
+                <LineInput value={r.shop || ""} onSave={(shop) => patchRef(r.id, { shop })} placeholder="어느 쇼핑몰? 적기" aria-label="어느 쇼핑몰" className={SHOP_INPUT + " mt-1"} />
+              )}
+              {/* 10/21 세원: "썸네일에 메모·상품 그냥 없애 버려" — 메모·링크·상품은 사진을 눌러 크게 보기에서 */}
+              {r.link && (
+                <a href={r.link} target="_blank" rel="noreferrer" title={`상품 링크 열기 — ${r.link}`} aria-label="상품 링크 열기" className="absolute top-1 left-1 flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow hover:text-rose-700">
+                  <Link2 size={13} />
+                </a>
+              )}
               <button
                 type="button"
                 onClick={() => onChange(ids.filter((k) => k !== r.id))}
@@ -1542,7 +1546,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
         />
       )}
       {see != null && seeRefs.length > 0 && (
-        <LookView d={d} refs={seeRefs} start={Math.min(see.i, seeRefs.length - 1)} src={src} looks={looks} cats={cats} onEdit={(id) => setOpen(id)} onLook={onLook} onClose={() => setSee(null)} paused={!!open || editCats} />
+        <LookView d={d} refs={seeRefs} start={Math.min(see.i, seeRefs.length - 1)} src={src} looks={looks} cats={cats} onEdit={(id) => setOpen(id)} onLook={onLook} onRef={patchRef} onClose={() => setSee(null)} paused={!!open || editCats} />
       )}
       {editCats && (
         <CatEditor
@@ -1561,9 +1565,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           src={src(refs.find((r) => r.id === open))}
           look={looks[open] || {}}
           cats={cats}
-          shopNames={shopNames}
-          comp={comp}
-          onShop={setShop}
+          onRef={patchRef}
           onSave={(p) => onLook(open, p)}
           onBig={() => setView(refs.findIndex((r) => r.id === open))}
           onClose={() => setOpen(null)}
