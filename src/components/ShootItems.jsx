@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus, Ruler, ChevronRight } from "lucide-react";
-import { FIELD, md, won, upsert, remove, putPhoto } from "../lib/shoot";
+import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus, Ruler, ChevronRight, Star } from "lucide-react";
+import { FIELD, md, won, upsert, remove, putPhoto, loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
+import { starsOf, starLabel } from "../lib/lookStars";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
 import { sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
@@ -116,7 +117,25 @@ function CardInfo({ x, line, copyName = false }) {
   );
 }
 
-export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, onMeasure, selectable, selected, mates }) {
+/**
+ * 소싱 관리에서 '제일 잘 맞음'으로 고른 상품 별 (10/21 세원: "썸네일 오른쪽 위에 별표 — 가독성 좋되 거슬리지 않게, 마우스 올리면 소싱일 딱 뜨게")
+ * 별 하나 + 소싱일(마우스를 올리면 펼쳐짐 · 손가락 화면은 늘 보임). 여러 소싱에서 골랐으면 가장 최근 소싱일 + 'N곳'.
+ */
+function StarPill({ list }) {
+  const top = list[0];
+  const tip = list.map((r) => `★ 제일 잘 맞음 — ${starLabel(r)}`).join("\n");
+  return (
+    <span title={tip} className="group/star flex items-center gap-1 rounded-full bg-amber-400/95 py-0.5 pr-1.5 pl-1 text-[10px] font-semibold whitespace-nowrap text-amber-950 shadow-sm ring-1 ring-white/70">
+      <Star size={11} className="shrink-0 fill-amber-950" />
+      <span className="hidden group-hover/star:inline [@media(hover:none)]:inline">
+        {top.on ? md(top.on) : "소싱"}
+        {list.length > 1 ? ` 외 ${list.length - 1}` : ""}
+      </span>
+    </span>
+  );
+}
+
+export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExtend, onMeasure, selectable, selected, mates, star }) {
   const sample = x.type !== "buy";
   const act = (patch) => (e) => {
     e.stopPropagation();
@@ -157,7 +176,12 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
               <Check size={14} />
             </span>
           ) : (
-            tab !== x.stage && <span className="absolute top-1.5 right-1.5 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-stone-600">{stageName(x.stage)}</span>
+            (star?.length > 0 || tab !== x.stage) && (
+              <span className="absolute top-1.5 right-1.5 flex flex-col items-end gap-1">
+                {star?.length > 0 && <StarPill list={star} />}
+                {tab !== x.stage && <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-medium text-stone-600">{stageName(x.stage)}</span>}
+              </span>
+            )
           )}
           {/* 메모는 사진 아래쪽에 어둡게 깔아서 (세원 10/1: "썸네일 밑에 살짝 검정 음영 주고 메모 내용") — 배지는 그 위 */}
           <span className={"absolute inset-x-0 bottom-0 flex flex-col gap-1 px-1.5 pb-1.5 " + (x.memo ? "bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-10" : "")}>
@@ -528,7 +552,7 @@ function DetailCutNote({ x }) {
   return <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-400">디테일컷이 있는지 아직 몰라요 — 신마에서 '포클로에 담기'를 한 번 더 누르면 알아요</div>;
 }
 
-export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, startPay }) {
+export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, startPay, star }) {
   const [extOpen, setExtOpen] = useState(false);
   const extOps = extendOps(d.saveItems, today);
   const kit = useContext(PricingCtx);
@@ -756,6 +780,14 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   </button>
                 </div>
               ))}
+            {star?.length > 0 && (
+              <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-950 ring-1 ring-amber-200">
+                <Star size={13} className="mt-0.5 shrink-0 fill-amber-500 text-amber-500" />
+                <span>
+                  <b>제일 잘 맞음</b> — {star.map(starLabel).join(" / ")} <span className="text-amber-800/70">· 소싱 관리 레퍼런스에서 고른 상품</span>
+                </span>
+              </div>
+            )}
             {x.refused && <ItemRefusal x={x} rec={(d.refusals || []).find((r) => (r.itemIds || []).includes(x.id))} />}
             <RefusalNote list={refusalsOf(d.refusals, x.vendorId, x.vendor)} />
 
@@ -1811,6 +1843,22 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const [backOnly, setBackOnly] = useState(false); // 반납·결제 예정 — 반납 등록한 것만
   const [noDetail, setNoDetail] = useState(false); // 반납·결제 예정·입고·픽·촬영·등록 — 디테일컷 아직 안 찍은 것만 (10/12)
   const [mateOf, setMateOf] = useState(""); // 반납·결제 예정 — 이 거래처만 보기 (10/15)
+  // 소싱 관리 '제일 잘 맞음' 별표 (10/21) — 소싱 회차(shoot_sessions)를 읽어 상품마다 어느 소싱에서 골랐나
+  const [sessions, setSessions] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => loadKey("shoot_sessions", online, { items: [] }).then((v) => alive && setSessions(v.items || [])).catch(() => {});
+    load();
+    const off = onSettingsChange((k) => k === "shoot_sessions" && load());
+    const stop = watchKeys(["shoot_sessions"], load, 15000);
+    return () => {
+      alive = false;
+      off();
+      stop();
+    };
+  }, [online]);
+  const stars = useMemo(() => starsOf(sessions, items, d.tags), [sessions, items, d.tags]);
+  const [starOnly, setStarOnly] = useState(false); // 별표 상품만 (10/21 — 샘플 내려올 때 별표만 보고 중요 행거로)
   const detailTab = ["returns", "arrived", "pick", "shot"].includes(tab);
   const [edit, setEdit] = useState(null); // {item, pay?}
   const [guide, setGuide] = useState(false);
@@ -1853,6 +1901,9 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const overdue = dues.filter((n) => n < 0).length;
   const soon = dues.filter((n) => n >= 0 && n <= 3).length;
   const retry = items.filter((x) => x.stage === "request" && x.retryOn && x.retryOn <= today).length;
+  // 별표 상품 중 아직 끝나지 않은 것 (등록 끝·휴지통·반납 끝은 빼고) — 단계마다 몇 개
+  const starItems = items.filter((x) => stars.has(x.id) && !["done", "trash"].includes(x.stage) && !x.returnedOn);
+  const starLive = starItems.length;
 
   const madeOn = sourcedOf;
   // 고른 날 상품을 통째로 다른 날로 (10/12 세원: "소싱한 날도 변경할 수 있게") — 요청 단계 상품만
@@ -1887,9 +1938,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!backOnly || tab !== "returns" || x.stage === "back") &&
         (!noDetail || !detailTab || !x.detailShot) &&
         (!mateOf || tab !== "returns" || mateKey(x) === mateOf) &&
+        (!starOnly || stars.has(x.id)) &&
         (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf, starOnly, stars]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 같은 거래처에 같이 반납할 것 (10/15 세원: "니트홀릭 1번 제품을 포장하는데 니트홀릭 상품을 2개 더 포장해야 되는데, 거래처 찾기에서 또 쳐서 확인해야 돼 —
   // 1번 포장하면서 알 수 있게, 옆에 쪼그맣게 안 거슬리게") — 반납·결제 예정에 있는 같은 거래처 상품(다른 기한 묶음 것도). 누르면 그 거래처만.
@@ -1992,8 +2044,19 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         <button type="button" onClick={() => setEdit({ item: {} })} className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm font-medium text-stone-700">
           <Plus size={16} /> 직접 넣기
         </button>
-        {(overdue > 0 || soon > 0 || retry > 0) && (
+        {(overdue > 0 || soon > 0 || retry > 0 || starLive > 0) && (
           <span className="flex flex-wrap items-center gap-1.5 text-xs">
+            {starLive > 0 && (
+              <button
+                type="button"
+                onClick={() => setStarOnly(!starOnly)}
+                aria-pressed={starOnly}
+                title="소싱 관리 레퍼런스에서 '제일 잘 맞음'으로 고른 상품 — 단계마다 몇 개인지 아래에 보여요"
+                className={"flex items-center gap-1 rounded-full px-2.5 py-1.5 font-semibold " + (starOnly ? "bg-amber-950 text-amber-50" : "bg-amber-400 text-amber-950")}
+              >
+                <Star size={12} className={starOnly ? "fill-amber-300 text-amber-300" : "fill-amber-950"} /> 별표 상품 {starLive}
+              </button>
+            )}
             {overdue > 0 && (
               <button type="button" onClick={() => setTab("returns")} className="flex items-center gap-1 rounded-full bg-rose-600 px-2.5 py-1.5 font-semibold text-white">
                 <AlertTriangle size={12} /> 반납 초과 {overdue}
@@ -2018,6 +2081,29 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           </span>
         )}
       </div>
+
+      {starOnly && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200">
+          <Star size={13} className="fill-amber-500 text-amber-500" />
+          <b className="mr-1">별표 상품만 보는 중</b>
+          {TABS.map(([k, label]) => [k, label, starItems.filter((x) => inTab(x, k)).length])
+            .filter(([, , n]) => n > 0)
+            .map(([k, label, n]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTab(k)}
+                className={"rounded-full px-2.5 py-1 font-semibold " + (tab === k ? "bg-amber-950 text-amber-50" : "bg-white text-amber-900 ring-1 ring-amber-300 hover:bg-amber-100")}
+              >
+                {label} {n}
+              </button>
+            ))}
+          <span className="text-amber-800/70">· 샘플이 내려오면 입고·픽에서 별표만 따로 빼 두세요</span>
+          <button type="button" onClick={() => setStarOnly(false)} className="ml-auto font-medium text-amber-900 hover:underline">
+            다 보기
+          </button>
+        </div>
+      )}
 
       <KindMix
         items={tab === "request" && day ? items.filter((x) => madeOn(x) === day) : items}
@@ -2223,7 +2309,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} mates={matesFor(x)} />
+                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} mates={matesFor(x)} star={stars.get(x.id)} />
                 ))}
               </div>
             </section>
@@ -2231,7 +2317,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         </div>
       )}
 
-      {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} onVendor={onVendor} today={today} onClose={() => setEdit(null)} />}
+      {edit && <ItemSheet key={edit.item.id || "new"} item={edit.item} startPay={edit.pay} d={d} online={online} vendors={vendors} onVendor={onVendor} today={today} onClose={() => setEdit(null)} star={stars.get(edit.item.id)} />}
       {guide && <ClipGuide onClose={() => setGuide(false)} />}
       {measureFor && (
         <MeasureSheet

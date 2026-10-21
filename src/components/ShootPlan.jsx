@@ -31,6 +31,7 @@ import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stageName } from "../lib/sinsang";
 import { BigSlides } from "./ContentBits";
+import { lookKinds, lookGroupOf, lookBest, bestPatch } from "../lib/lookStars";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
 
@@ -564,35 +565,17 @@ const LOOK_STAGES = ["arrived", "pick", "pickup", "request"];
 const lookStage = (x) => (x.stage === "request" ? (x.pickup ? "pickup" : "request") : x.stage);
 const stageLabel = (x) => (x.stage === "request" ? (x.pickup ? "픽업 요청" : "요청") : stageName(x.stage));
 
-// 고른 상품의 옷 종류 칸 (10/20) — 신상 관리 옷 종류 + 기타. 이 레퍼런스에서 옮긴 칸(look.groups)이 먼저
-const GROUP_ETC = "기타";
-const lookKinds = (d) => [...(d.tags?.clothes?.length ? d.tags.clothes : ["상의", "하의", "원피스·세트", "아우터", "신발·잡화"]), GROUP_ETC];
-const lookGroupOf = (kinds, groups = {}) => (x) => (kinds.includes(groups[x.id]) ? groups[x.id] : kinds.includes(x.kind) ? x.kind : GROUP_ETC);
-/**
- * 칸마다 제일 잘 맞는 상품 (10/20 세원: "룩·상품 고치기 중에서 각 카테고리마다 제일 잘 맞을 것 같은 상품을 고를 수 있게")
- * look.best {칸: 상품 id} — 칸마다 하나. 그 상품이 다른 칸으로 옮겨졌거나 빠졌으면 없는 것으로 본다.
- */
-const lookBest = (look, items, groupOf) => {
-  const out = {};
-  for (const [g, id] of Object.entries(look.best || {})) if (id && items.some((x) => x.id === id && groupOf(x) === g)) out[g] = id;
-  return out;
-};
+// 고른 상품의 옷 종류 칸 · 칸마다 제일 잘 맞는 상품(10/20) — 규칙은 lib/lookStars (신상 관리 별표와 같이 씀)
 /** 사진 밑 한 줄 — 제일 잘 맞는 것이 있으면 '★ 그것들 · 후보 N', 없으면 고른 것 전부. ids = 동그라미 순서(제일 먼저) */
 const lookOrder = (d, look) => {
   const items = (look.itemIds || []).map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
-  const kinds = lookKinds(d);
+  const kinds = lookKinds(d.tags);
   const best = lookBest(look, items, lookGroupOf(kinds, look.groups));
   const picks = kinds.map((k) => best[k]).filter(Boolean);
   const ids = [...picks, ...items.map((x) => x.id).filter((id) => !picks.includes(id))];
   const name = (id) => items.find((x) => x.id === id)?.name || "";
   const line = picks.length ? `★ ${picks.map(name).join(" + ")}${items.length > picks.length ? ` · 후보 ${items.length - picks.length}` : ""}` : items.map((x) => x.name).filter(Boolean).join(" + ");
   return { ids, line };
-};
-const bestPatch = (look, g, id) => {
-  const next = { ...(look.best || {}) };
-  if (next[g] === id) delete next[g];
-  else next[g] = id;
-  return { best: next };
 };
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
@@ -617,7 +600,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
   }, [d.items, q]);
   const picked = chosen.map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
   // 고른 상품은 옷 종류 칸으로, 칸마다 ☆ 제일 잘 맞는 것 (10/20)
-  const gKinds = lookKinds(d);
+  const gKinds = lookKinds(d.tags);
   const groupOf = lookGroupOf(gKinds, look.groups);
   const best = lookBest(look, picked, groupOf);
   const pool = list.filter((x) => !chosen.includes(x.id));
@@ -888,7 +871,7 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
  * 사진 크게 = 두 번 누르기 또는 사진 위 '크게'.
  */
 function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMove, onBig, onBest }) {
-  const kinds = lookKinds(d);
+  const kinds = lookKinds(d.tags);
   const groupOf = lookGroupOf(kinds, groups);
   const best = lookBest({ best: bestRaw }, items, groupOf);
   // 칸 안에서는 제일 잘 맞는 상품이 맨 앞
@@ -1369,7 +1352,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             <X size={20} />
           </button>
         </header>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain p-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium text-stone-500">
               소싱일

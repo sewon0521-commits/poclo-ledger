@@ -34,6 +34,23 @@ button {
   }
 }
 
+/* 아이폰 사파리의 날짜 칸은 글씨 폭만큼 고집스럽게 넓어져(가로 100% 를 무시) 창이 옆으로 밀렸다 (10/21 세원: "모바일에서 소싱 관리 고정 안 되고
+   양옆으로 움직이는 거 — 소싱일 칸이 조금 커서 그러는 것 같아") → 날짜·시각 칸은 줄어들 수 있게, 글씨는 왼쪽 정렬 */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value {
+  text-align: left;
+  min-height: 1.5em;
+}
+
 /* ------------------------------------------------------------------ 글씨 · 누르는 느낌 (9/23 통일)
    세원: "지금 색상이랑 UI 를 그대로 가져가되 글꼴이나 클릭할 때 밤티가 나지 않게".
    - 글꼴: Pretendard 를 실제로 불러온다(main.jsx). 예전엔 이름만 적혀 있어 윈도우에서 맑은 고딕으로 나왔다.
