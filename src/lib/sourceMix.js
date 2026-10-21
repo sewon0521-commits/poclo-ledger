@@ -14,6 +14,9 @@ export const DEFAULT_CATS = [
 ];
 const COLORS = ["#0369a1", "#b45309", "#be123c", "#15803d", "#6d28d9", "#0f766e", "#57534e"];
 
+/** 쇼핑몰 레퍼런스 분류인가 — 고르면 어느 쇼핑몰인지도 고른다(10/21). 이름을 바꿔도 '쇼핑몰'이 들어 있으면 */
+export const isShopCat = (c) => !!c && (c.id === "shop" || (c.name || "").includes("쇼핑몰"));
+
 export const catsOf = (tags) => (tags?.refCats?.length ? tags.refCats : DEFAULT_CATS).map((c, i) => ({ ...c, color: COLORS[i % COLORS.length] }));
 
 /**

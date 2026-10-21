@@ -138,10 +138,13 @@ function useData(online) {
     [items, refs],
   );
   useEffect(() => {
-    const want = keys.filter((k) => !urls[k]);
+    // 못 받은 사진은 빈 값으로 남겨 다시 안 묻는다 (10/21 — 예전엔 없는 파일이 하나라도 있으면 화면이 바뀔 때마다 끝없이 다시 물어 멈추거나 느려졌다)
+    const want = keys.filter((k) => !(k in urls)).slice(0, 300);
     if (!want.length) return;
     let alive = true;
-    photoUrls(want.slice(0, 300), online).then((m) => alive && setUrls((u) => ({ ...u, ...m })));
+    photoUrls(want, online)
+      .then((m) => alive && setUrls((u) => ({ ...u, ...Object.fromEntries(want.map((k) => [k, ""])), ...m })))
+      .catch(() => {});
     return () => {
       alive = false;
     };

@@ -7,7 +7,6 @@ import {
   Trash2,
   Check,
   ChevronRight,
-  ExternalLink,
   Pencil,
   CalendarDays,
   Sun,
@@ -17,7 +16,6 @@ import {
   CloudSun,
   CloudFog,
   CloudLightning,
-  Store,
   Megaphone,
   Shirt,
   Images,
@@ -31,7 +29,7 @@ import { dayKey } from "../lib/journal";
 import { stageName } from "../lib/sinsang";
 import { BigSlides } from "./ContentBits";
 import { lookKinds, lookGroupOf, lookBest, bestPatch } from "../lib/lookStars";
-import { catsOf, mixOf } from "../lib/sourceMix";
+import { catsOf, mixOf, isShopCat } from "../lib/sourceMix";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
 
@@ -48,13 +46,14 @@ import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
  *
  * 탭 둘 (settings 키):
  *   촬영 회차      shoot_sessions  [{id, on, title, place, uploads:[날짜], refIds, refLooks:{레퍼런스 id: {cat, memo, itemIds, groups, best}}, shops:[{id,name,url,photos}], sellNote, memo}]
- *                  shops = 그 촬영에서 따라갈 쇼핑몰 BEST 컷 (10/4 탭에서 회차 안으로). 예전 탭 것(shop_best)은 회차 창에서 '가져오기'로 옮긴다
+ *                  shops = 예전 쇼핑몰 BEST 컷 (10/4~10/21). 10/21 칸을 없애고 촬영 레퍼런스의 '쇼핑몰 레퍼런스' + 쇼핑몰 고르기로 대신 —
+ *                  사진이 남아 있는 회차는 창에서 '촬영 레퍼런스로 옮기기'. 예전 탭 키 shop_best 는 10/4 에 비었다.
  *   쇼만마 코디 노트 shomanma_notes  [{id, on, text, photos:[]}]
  * 날씨는 Open-Meteo(무료·키 없음, 서울) — 16일 안은 예보, 그 뒤는 작년 같은 날. 기온별 옷차림은 흔히 쓰는 표로 짐작만 한다.
  * 사진은 신상 관리와 같은 보관함(reels/shoot/…), 이 기기 저장 모드면 이 기기에.
  */
 
-const KEYS = { sessions: "shoot_sessions", shops: "shop_best", notes: "shomanma_notes" };
+const KEYS = { sessions: "shoot_sessions", notes: "shomanma_notes" };
 
 // ---------------------------------------------------------------- 저장 (서버 최신을 읽어 한 줄만 바꿔 쓰기)
 
@@ -428,44 +427,6 @@ const REF_FOLDER_KEY = "poclo_plan_ref_folder"; // 붙인 사진이 들어갈 �
 /** 예전 '룩'(text)과 메모(memo)를 하나로 — 10/21 '+ 룩 적기'를 없애면서 사진마다 메모 하나만 둔다. 저장하면 memo 에 합쳐지고 text 는 비운다 */
 const lookMemo = (look) => [...new Set([look?.text, look?.memo].map((x) => (x || "").trim()).filter(Boolean))].join("\n");
 
-/** 사진 밑 메모 — 바로 쳐서 적기, 멈추면 0.8초 뒤·칸을 벗어나면 저장. 엔터는 줄바꿈 */
-function RefMemo({ value = "", onSave, className = "" }) {
-  const [v, setV] = useState(value);
-  const [was, setWas] = useState(value);
-  const timer = useRef(null);
-  if (value !== was) {
-    // 다른 곳(룩·상품 고치기)에서 바뀌면 따라간다
-    setWas(value);
-    setV(value);
-  }
-  const flush = (t) => {
-    clearTimeout(timer.current);
-    if (t.trim() !== value.trim()) onSave(t.trim());
-  };
-  useEffect(() => () => clearTimeout(timer.current), []);
-  return (
-    <textarea
-      value={v}
-      rows={1}
-      onChange={(e) => {
-        const t = e.target.value;
-        setV(t);
-        clearTimeout(timer.current);
-        timer.current = setTimeout(() => flush(t), 800);
-      }}
-      onBlur={() => flush(v)}
-      placeholder="+ 메모"
-      style={{ fieldSizing: "content" }}
-      className={
-        "block max-h-40 w-full resize-none rounded-md border px-1.5 py-1 text-[12px] leading-snug outline-none placeholder:text-stone-300 focus:border-rose-400 focus:bg-white " +
-        (v ? "border-transparent bg-amber-50/70 text-stone-800 hover:border-stone-200" : "border-dashed border-stone-200 text-stone-700 hover:border-rose-300") +
-        " " +
-        className
-      }
-    />
-  );
-}
-
 /** 사진 분류 고르기 — 콘텐츠 레퍼런스 · 쇼핑몰 레퍼런스 · 우리빨 … (분류는 비율 바의 '분류·목표 고치기'에서) */
 function CatSelect({ cats, value, onChange, className = "" }) {
   const c = cats.find((x) => x.id === value);
@@ -490,10 +451,66 @@ function CatSelect({ cats, value, onChange, className = "" }) {
   );
 }
 
+/**
+ * 쇼핑몰 레퍼런스면 어느 쇼핑몰인지 (10/21 세원: "쇼핑몰 레퍼런스 누르면 어디 쇼핑몰인지 고를 수 있게 — 그러면 쇼핑몰 BEST 컷 칸 없애도 되겠지")
+ * 레퍼런스 사진 자체의 쇼핑몰 꼬리표(ref.shop — 촬영 레퍼런스 '쇼핑몰' 줄과 같은 것)를 고친다. 목록 = 쓰던 쇼핑몰 + 사입 트래커 경쟁몰 + 새로
+ */
+function ShopSelect({ value = "", mine, comp, onChange, className = "" }) {
+  const rest = comp.filter((n) => !mine.includes(n));
+  const other = value && !mine.includes(value) && !rest.includes(value);
+  return (
+    <select
+      value={value}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v !== "__new") return onChange(v);
+        const n = window.prompt("쇼핑몰 이름");
+        if (n?.trim()) onChange(n.trim());
+      }}
+      aria-label="어느 쇼핑몰 레퍼런스"
+      className={
+        "w-full min-w-0 truncate rounded-md border px-1.5 py-0.5 text-[11px] outline-none focus:border-rose-400 " +
+        (value ? "border-amber-200 bg-amber-50 font-semibold text-amber-900" : "border-dashed border-amber-300 bg-white text-amber-700") +
+        " " +
+        className
+      }
+    >
+      <option value="">어느 쇼핑몰?</option>
+      {other && <option value={value}>{value}</option>}
+      {mine.length > 0 && (
+        <optgroup label="쓰던 쇼핑몰">
+          {mine.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {rest.length > 0 && (
+        <optgroup label="사입 트래커 경쟁몰">
+          {rest.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      <option value="__new">+ 새 쇼핑몰…</option>
+    </select>
+  );
+}
+
 const MIX_BASIS_KEY = "poclo_mix_basis";
 /** 이번 소싱 비율 바 — 신상 관리 '요청한 옷 종류 비율'처럼. 목표 줄을 같이 그리고, 분류를 누르면 그 사진만 */
-function SourceMix({ refIds, looks, cats, basis, onBasis, only, onOnly, onEdit }) {
+function SourceMix({ refIds, looks, cats, basis, onBasis, only, onOnly, onEdit, shopOf }) {
   const m = mixOf(refIds, looks, cats, basis);
+  // 쇼핑몰 레퍼런스 안에서 어느 쇼핑몰이 몇 장 (사진 기준)
+  const shopLines = cats.filter(isShopCat).map((c) => {
+    const n = {};
+    for (const id of refIds || []) if (looks?.[id]?.cat === c.id) n[shopOf(id) || ""] = (n[shopOf(id) || ""] || 0) + 1;
+    const list = Object.entries(n).sort((a, b) => (a[0] ? 0 : 1) - (b[0] ? 0 : 1) || b[1] - a[1]);
+    return { c, list };
+  }).filter((x) => x.list.length);
   const unit = basis === "photo" ? "장" : "개";
   const sumT = cats.reduce((n, c) => n + (Number(c.target) || 0), 0);
   return (
@@ -558,6 +575,14 @@ function SourceMix({ refIds, looks, cats, basis, onBasis, only, onOnly, onEdit }
           </button>
         )}
       </div>
+      {shopLines.map(({ c, list }) => (
+        <p key={c.id} className="mt-1.5 px-2 text-[11px] text-stone-500">
+          <span style={{ color: c.color }} className="font-semibold">
+            {c.name}
+          </span>{" "}
+          — {list.map(([n, k]) => `${n || "쇼핑몰 안 정함"} ${k}`).join(" · ")}
+        </p>
+      ))}
       {m.tip.text && <p className={"mt-2 rounded-lg px-2.5 py-1.5 text-xs " + (m.tip.tone === "warn" ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800")}>{m.tip.text}</p>}
       {!m.sorted && refIds?.length > 0 && <p className="mt-2 text-[11px] text-stone-400">사진 밑에서 분류를 고르면 비율이 잡혀요.</p>}
     </div>
@@ -705,7 +730,7 @@ const lookOrder = (d, look) => {
 };
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
-function LookSheet({ d, r, src, look, cats, onSave, onBig, onClose }) {
+function LookSheet({ d, r, src, look, cats, shopNames = [], comp = [], onShop, onSave, onBig, onClose }) {
   const [q, setQ] = useState("");
   const [more, setMore] = useState(false);
   // 옷 종류로 나눠 고르기 (10/14 세원: "하의·상의·아우터·기타 등등 카테고리별로 나눠서 고를 수 있게") — "" 전체 · "__etc" 종류 없음/그 밖
@@ -796,6 +821,7 @@ function LookSheet({ d, r, src, look, cats, onSave, onBig, onClose }) {
               {/* 10/21 '어떤 룩' 칸은 없애고 분류 + 메모 하나로 (예전 룩 글은 메모에 합쳐 보인다) */}
               <div className="mb-1 text-xs font-medium text-stone-500">분류</div>
               <CatSelect cats={cats} value={look.cat || ""} onChange={(cat) => onSave({ cat })} className="max-w-xs [&_select]:py-1.5 [&_select]:text-sm" />
+              {isShopCat(cats.find((c) => c.id === look.cat)) && <ShopSelect value={r.shop || ""} mine={shopNames} comp={comp} onChange={(v) => onShop(r.id, v)} className="mt-1.5 max-w-xs py-1.5 text-sm" />}
               {(r.shop || r.memo) && <p className="mt-2 text-[11px] text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ")}</p>}
               <div className="mt-3 mb-1 text-xs font-medium text-stone-500">메모 — 사진 밑에 바로 보여요</div>
               <LookMemo value={lookMemo(look)} onSave={(memo) => onSave({ memo, text: "" })} />
@@ -1305,6 +1331,22 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   const catOf = (id) => (catIds.has(looks[id]?.cat) ? looks[id].cat : "");
   const shownRefs = !only ? refs : refs.filter((r) => catOf(r.id) === (only === "__none" ? "" : only));
   const seeRefs = see ? see.ids.map((id) => refs.find((r) => r.id === id)).filter(Boolean) : [];
+  // 쇼핑몰 고르기 목록 (10/21) — 쓰던 쇼핑몰(촬영 레퍼런스 꼬리표) + 사입 트래커 경쟁몰
+  const shopNames = shopsOf(d.tags, d.refs);
+  const [comp, setComp] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    loadKey("tracker_malls", online, { items: [] })
+      .then((v) => alive && setComp([...new Set((v?.items || []).filter((m) => !m.off && m.name).map((m) => m.name))]))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  const setShop = (id, shop) => {
+    d.saveRefs((v) => ({ ...v, items: (v.items || []).map((x) => (x.id === id ? { ...x, shop } : x)) })).catch((e) => onMsg(e.message || "쇼핑몰을 저장하지 못했어요."));
+    if (shop && !(d.tags.shops || []).includes(shop)) d.saveTags((v) => ({ ...v, shops: [...new Set([...(v.shops || []), shop])] }));
+  };
   const src = (r) => d.urls[r.photo] || shown[r.id] || r.photoUrl || "";
   const chooseFolder = (v) => {
     setFolder(v);
@@ -1416,7 +1458,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           <Loader2 size={14} className="animate-spin" /> {busy}
         </p>
       )}
-      {refs.length > 0 && <SourceMix refIds={ids} looks={looks} cats={cats} basis={basis} onBasis={setBasis} only={only} onOnly={setOnly} onEdit={() => setEditCats(true)} />}
+      {refs.length > 0 && <SourceMix refIds={ids} looks={looks} cats={cats} basis={basis} onBasis={setBasis} only={only} onOnly={setOnly} onEdit={() => setEditCats(true)} shopOf={(id) => refs.find((r) => r.id === id)?.shop || ""} />}
       {only && (
         <p className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-stone-800 px-3 py-1.5 text-xs text-white">
           {only === "__none" ? "분류 안 한" : cats.find((c) => c.id === only)?.name} 사진만 보는 중 · {shownRefs.length}장
@@ -1445,12 +1487,26 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
                 )}
               </button>
               <CatSelect cats={cats} value={catOf(r.id)} onChange={(cat) => onLook(r.id, { cat })} className="mt-1" />
-              <RefMemo value={lookMemo(looks[r.id])} onSave={(memo) => onLook(r.id, { memo, text: "" })} className="mt-1" />
-              {(looks[r.id]?.itemIds || []).length > 0 && (
-                <button type="button" onClick={() => setSee({ ids: shownRefs.map((x) => x.id), i })} className="mt-0.5 line-clamp-2 block w-full px-1.5 text-left text-[11px] leading-snug text-rose-800 hover:underline">
-                  {lookOrder(d, looks[r.id]).line}
-                </button>
-              )}
+              {isShopCat(cats.find((c) => c.id === catOf(r.id))) && <ShopSelect value={r.shop || ""} mine={shopNames} comp={comp} onChange={(v) => setShop(r.id, v)} className="mt-1" />}
+              {/* 10/21 세원: "메모·상품 칸 하나 누르면 안에서 고칠 수 있게, 밖에는 그냥 보이게" → 밖은 보기만, 누르면 룩·상품 고치기 */}
+              {(() => {
+                const memo = lookMemo(looks[r.id]);
+                const has = (looks[r.id]?.itemIds || []).length > 0;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setOpen(r.id)}
+                    title="눌러서 메모·상품 고치기"
+                    className={
+                      "mt-1 block w-full rounded-md px-1.5 py-1 text-left transition-colors " +
+                      (memo || has ? "bg-amber-50/70 hover:bg-amber-100/80" : "border border-dashed border-stone-200 hover:border-rose-300")
+                    }
+                  >
+                    {memo ? <span className="line-clamp-6 block text-[12px] leading-snug whitespace-pre-line text-stone-800">{memo}</span> : !has && <span className="block text-[12px] text-stone-300">+ 메모 · 상품</span>}
+                    {has && <span className={"line-clamp-2 block text-[11px] leading-snug text-rose-800 " + (memo ? "mt-0.5" : "")}>{lookOrder(d, looks[r.id]).line}</span>}
+                  </button>
+                );
+              })()}
               <button
                 type="button"
                 onClick={() => onChange(ids.filter((k) => k !== r.id))}
@@ -1505,6 +1561,9 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           src={src(refs.find((r) => r.id === open))}
           look={looks[open] || {}}
           cats={cats}
+          shopNames={shopNames}
+          comp={comp}
+          onShop={setShop}
           onSave={(p) => onLook(open, p)}
           onBig={() => setView(refs.findIndex((r) => r.id === open))}
           onClose={() => setOpen(null)}
@@ -1515,10 +1574,8 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   );
 }
 
-function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClose, onNotes, online, legacy = [], onTakeLegacy }) {
+function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClose, onNotes, online }) {
   const [msg, setMsg] = useState("");
-  // Ctrl+V 가 들어갈 칸 — 마우스를 올리거나 누른 칸. 아직 없으면 쇼핑몰 칸이 있을 때 쇼핑몰, 없으면 촬영 레퍼런스
-  const [pasteTo, setPasteTo] = useState("");
   const [s, setS] = useState(session);
   const latest = useRef(s);
   const timer = useRef(null);
@@ -1543,6 +1600,28 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
   const dayCodis = codis.filter((c) => s.on && c.shootDate === s.on);
   const nameOf = (id) => items.find((x) => x.id === id)?.name || "";
   const cats = catsOf(d.tags);
+  // 예전 '쇼핑몰 BEST 컷' 칸 사진 → 촬영 레퍼런스(쇼핑몰 레퍼런스 + 그 쇼핑몰)로 (10/21 칸을 없애면서)
+  const oldShops = (s.shops || []).filter((x) => (x.photos || []).length);
+  const moveShops = async () => {
+    const shopCat = cats.find(isShopCat)?.id || "";
+    const now = new Date().toISOString();
+    const made = (latest.current.shops || []).flatMap((x) =>
+      (x.photos || []).map((photo) => ({ id: newId("r"), photo, shop: (x.name || "").trim(), folderId: null, cuts: [], place: "", memo: x.url || "", createdAt: now })),
+    );
+    if (!made.length) return;
+    try {
+      await d.saveRefs((v) => ({ ...v, items: [...made, ...(v.items || [])] }));
+      const names = [...new Set(made.map((r) => r.shop).filter(Boolean))];
+      if (names.some((n) => !(d.tags.shops || []).includes(n))) d.saveTags((v) => ({ ...v, shops: [...new Set([...(v.shops || []), ...names])] }));
+      set({
+        refIds: [...(latest.current.refIds || []), ...made.map((r) => r.id)],
+        refLooks: { ...(latest.current.refLooks || {}), ...Object.fromEntries(made.map((r) => [r.id, shopCat ? { cat: shopCat } : {}]).filter(([, v]) => v.cat)) },
+        shops: [],
+      });
+    } catch (e) {
+      setMsg(e.message || "옮기지 못했어요.");
+    }
+  };
 
   return (
     <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
@@ -1556,14 +1635,73 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
               placeholder="소싱 날짜 — 예: 10월 13일 소싱"
               className="w-full bg-transparent text-lg font-semibold text-stone-900 outline-none placeholder:text-stone-300"
             />
-            <p className="text-xs text-stone-400">고치는 대로 저장돼요</p>
+            {/* 10/21 소싱일·장소 칸은 뺐다 — 소싱일은 날씨·목록 순서에 쓰여서 제목 아래 작게만 */}
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-stone-400">
+              <label className="flex items-center gap-1">
+                소싱일
+                <input type="date" value={s.on || ""} onChange={(e) => set({ on: e.target.value })} className="rounded-md border border-stone-200 px-1.5 py-0.5 text-xs text-stone-700" />
+              </label>
+              · 고치는 대로 저장돼요
+            </p>
           </div>
           <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>
         <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain p-4">
-          {/* 10/21 세원: "소싱 관리에서 제일 중요한 건 촬영 레퍼런스 칸" → 맨 위로 */}
+          {/* 10/21 세원: "소싱일·장소는 없애고 그 자리에 업로드 날짜·날씨(소싱일·업로드)·이 날씨에 팔릴 옷을 위로" — 그 아래가 제일 중요한 촬영 레퍼런스 */}
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="min-w-0 space-y-2">
+            <div>
+              <div className="mb-1 text-xs font-medium text-stone-500">업로드 날짜 — 이날 올라가요</div>
+              <div className="flex flex-wrap items-center gap-2">
+                {uploads.map((u, i) => (
+                  <span key={i} className="flex items-center gap-1">
+                    <input type="date" value={u} onChange={(e) => set({ uploads: uploads.map((x, k) => (k === i ? e.target.value : x)) })} className={FIELD + " w-40 py-1.5"} />
+                    {i > 0 && (
+                      <button type="button" onClick={() => set({ uploads: uploads.filter((_, k) => k !== i) })} aria-label="빼기" className="p-1 text-stone-400 hover:text-rose-700">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </span>
+                ))}
+                <button type="button" onClick={() => set({ uploads: [...uploads, ""] })} className="flex items-center gap-1 rounded-lg border border-dashed border-stone-300 px-2.5 py-1.5 text-xs text-stone-600 hover:border-rose-300">
+                  <Plus size={12} /> 날짜 추가
+                </button>
+              </div>
+            </div>
+
+            {/* 날씨 — 소싱일과 올라가는 날 */}
+            <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-1">
+              <div className="divide-y divide-sky-100">
+                <WeatherRow label="소싱일" date={s.on} w={w[s.on]} />
+                {uploads.map((u, i) => (
+                  <WeatherRow key={i} label={uploads.length > 1 ? `업로드 ${i + 1}` : "업로드"} date={u} w={u ? w[u] : undefined} />
+                ))}
+              </div>
+              <p className="pb-2 text-[10px] text-sky-900/60">서울 기준 · 16일 안은 예보, 그 뒤는 작년 같은 날 · 옷차림은 하루 평균 기온으로 짐작한 거예요</p>
+            </div>
+            </div>
+            <label className="flex flex-col text-xs font-medium text-stone-500">
+              이 날씨에 팔릴 옷 — 올라가는 날 사람들이 뭘 살까
+              <textarea
+                value={s.sellNote || ""}
+                onChange={(e) => set({ sellNote: e.target.value })}
+                placeholder="예: 업로드날 최저 9° → 아침저녁 쌀쌀, 가디건·자켓 레이어드 코디를 앞에. 반팔 단독 컷은 빼기"
+                className={FIELD + " mt-1 min-h-24 flex-1 resize-y text-sm"}
+              />
+            </label>
+          </div>
+          {oldShops.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-amber-300 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
+              <span>
+                예전 '쇼핑몰 BEST 컷' 칸에 사진 {oldShops.reduce((n, x) => n + x.photos.length, 0)}장({oldShops.map((x) => x.name || "이름 없음").join(", ")}) — 이제는 촬영 레퍼런스에서 '쇼핑몰 레퍼런스'로 고르고 쇼핑몰을 정해요
+              </span>
+              <button type="button" onClick={moveShops} className="rounded-lg bg-amber-600 px-2.5 py-1 font-semibold text-white">
+                촬영 레퍼런스로 옮기기
+              </button>
+            </div>
+          )}
           <PickedRefs
             d={d}
             ids={s.refIds || []}
@@ -1582,82 +1720,10 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             }}
             online={online}
             onMsg={setMsg}
-            hot={pasteTo === "refs" || (!pasteTo && !(s.shops || []).length)}
-            onHot={() => setPasteTo("refs")}
+            hot
+            onHot={() => {}}
             cats={cats}
             onCats={(next) => d.saveTags((v) => ({ ...v, refCats: next }))}
-          />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs font-medium text-stone-500">
-              소싱일
-              <input type="date" value={s.on || ""} onChange={(e) => set({ on: e.target.value })} className={FIELD + " mt-1"} />
-            </label>
-            <label className="block text-xs font-medium text-stone-500">
-              장소
-              <input value={s.place || ""} onChange={(e) => set({ place: e.target.value })} placeholder="예: 사무실 스튜디오 / 성수 야외" className={FIELD + " mt-1"} />
-            </label>
-          </div>
-          <div>
-            <div className="mb-1 text-xs font-medium text-stone-500">업로드 날짜 — 이날 올라가요</div>
-            <div className="flex flex-wrap items-center gap-2">
-              {uploads.map((u, i) => (
-                <span key={i} className="flex items-center gap-1">
-                  <input type="date" value={u} onChange={(e) => set({ uploads: uploads.map((x, k) => (k === i ? e.target.value : x)) })} className={FIELD + " w-40 py-1.5"} />
-                  {i > 0 && (
-                    <button type="button" onClick={() => set({ uploads: uploads.filter((_, k) => k !== i) })} aria-label="빼기" className="p-1 text-stone-400 hover:text-rose-700">
-                      <X size={14} />
-                    </button>
-                  )}
-                </span>
-              ))}
-              <button type="button" onClick={() => set({ uploads: [...uploads, ""] })} className="flex items-center gap-1 rounded-lg border border-dashed border-stone-300 px-2.5 py-1.5 text-xs text-stone-600 hover:border-rose-300">
-                <Plus size={12} /> 날짜 추가
-              </button>
-            </div>
-          </div>
-
-          {/* 날씨 — 소싱일과 올라가는 날 */}
-          <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-1">
-            <div className="divide-y divide-sky-100">
-              <WeatherRow label="소싱일" date={s.on} w={w[s.on]} />
-              {uploads.map((u, i) => (
-                <WeatherRow key={i} label={uploads.length > 1 ? `업로드 ${i + 1}` : "업로드"} date={u} w={u ? w[u] : undefined} />
-              ))}
-            </div>
-            <p className="pb-2 text-[10px] text-sky-900/60">서울 기준 · 16일 안은 예보, 그 뒤는 작년 같은 날 · 옷차림은 하루 평균 기온으로 짐작한 거예요</p>
-          </div>
-          <label className="block text-xs font-medium text-stone-500">
-            이 날씨에 팔릴 옷 — 올라가는 날 사람들이 뭘 살까
-            <textarea
-              value={s.sellNote || ""}
-              onChange={(e) => set({ sellNote: e.target.value })}
-              placeholder="예: 업로드날 최저 9° → 아침저녁 쌀쌀, 가디건·자켓 레이어드 코디를 앞에. 반팔 단독 컷은 빼기"
-              className={FIELD + " mt-1 h-20 resize-y text-sm"}
-            />
-          </label>
-
-          {legacy.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-rose-300 bg-rose-50/50 px-3 py-2 text-xs text-rose-900">
-              예전 '쇼핑몰 BEST 컷' 탭에 모아 둔 것 {legacy.length}곳 · 사진 {legacy.reduce((n, x) => n + (x.photos || []).length, 0)}장
-              <button
-                type="button"
-                onClick={() => {
-                  set({ shops: [...(latest.current.shops || []), ...legacy] });
-                  onTakeLegacy();
-                }}
-                className="rounded-lg bg-rose-700 px-2.5 py-1 font-semibold text-white"
-              >
-                이 소싱으로 가져오기
-              </button>
-            </div>
-          )}
-          <ShopBoard
-            list={s.shops || []}
-            change={(fn) => set({ shops: fn(latest.current.shops || []) })}
-            online={online}
-            onMsg={setMsg}
-            hot={pasteTo !== "refs"}
-            onHot={() => setPasteTo("shops")}
           />
           {msg && (
             <p className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
@@ -1735,7 +1801,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
   );
 }
 
-function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy, onTakeLegacy }) {
+function SessionsTab({ sessions, d, codis, items, notes, onNotes, online }) {
   const [open, setOpen] = useState(null);
   const today = dayKey();
   const all = sessions.items;
@@ -1765,7 +1831,6 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
             </span>
           )}
           {(s.refIds || []).length > 0 && <span>레퍼런스 {s.refIds.length}장</span>}
-          {(s.shops || []).length > 0 && <span>BEST 컷 {(s.shops || []).reduce((n, x) => n + (x.photos || []).length, 0)}장 · {(s.shops || []).length}곳</span>}
           {nCodi > 0 && <span>코디 {nCodi}</span>}
           {s.uploads?.filter(Boolean).length > 0 && <span>업로드 {s.uploads.filter(Boolean).map(md).join(", ")}</span>}
         </div>
@@ -1798,7 +1863,7 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
         <button
           type="button"
           onClick={() => {
-            const s = { id: newId("ss"), on: "", title: "", uploads: [""], createdAt: new Date().toISOString() };
+            const s = { id: newId("ss"), on: dayKey(), title: "", uploads: [""], createdAt: new Date().toISOString() };
             sessions.save(s);
             setOpen(s);
           }}
@@ -1833,8 +1898,6 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
           onSave={sessions.save}
           onRemove={sessions.drop}
           online={online}
-          legacy={legacy}
-          onTakeLegacy={onTakeLegacy}
           onClose={() => setOpen(null)}
           onNotes={() => {
             setOpen(null);
@@ -1842,232 +1905,6 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
           }}
         />
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- 쇼핑몰 BEST 컷
-
-const OPEN_KEY = "poclo_shop_best_open";
-/**
- * 쇼핑몰 BEST 컷 (10/4 세원: "촬영 회차 안에 쇼핑몰 BEST 컷이 들어갔으면. 촬영마다 우리가 지향하는 각 쇼핑몰의 코디 사진이 달라지기 때문에")
- * 촬영 회차마다 따로 — list = 그 회차의 shops [{id, name, url, photos}], change(fn) = 목록을 고치는 함수.
- */
-function ShopBoard({ list, change, online, onMsg, hot = true, onHot }) {
-  const [openIds, setOpenIds] = useState(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || "[]"));
-    } catch {
-      return new Set();
-    }
-  });
-  const [active, setActive] = useState(null); // 붙여넣기(Ctrl+V)가 들어갈 쇼핑몰 — 마지막에 누르거나 마우스를 올린 칸
-  const [busy, setBusy] = useState("");
-  const [pending, setPending] = useState({}); // 쇼핑몰 id → 올리는 중인 사진 미리 보기
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [editing, setEditing] = useState(null);
-  const file = useRef(null);
-  const target = useRef(null);
-  const urls = usePhotoUrls(
-    list.filter((s) => openIds.has(s.id)).flatMap((s) => s.photos || []),
-    online,
-  );
-  const toggle = (id) =>
-    setOpenIds((o) => {
-      const n = new Set(o);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      try {
-        localStorage.setItem(OPEN_KEY, JSON.stringify([...n]));
-      } catch {
-        /* 기억 못 해도 된다 */
-      }
-      return n;
-    });
-  /** 사진 넣기 — 붙여넣은 사진이 바로 보이고(흐리게 + 도는 표시), 올라가면 진하게 */
-  const addPhotos = async (shopId, clip) => {
-    setOpenIds((o) => new Set([...o, shopId]));
-    setBusy(clip.files.length ? `사진 ${clip.files.length}장 올리는 중…` : "사진 주소에서 사진 받는 중…");
-    const list = await filesOf(clip);
-    if (!list.length) {
-      setBusy("");
-      onMsg("붙여넣은 것에서 사진을 못 찾았어요. 사진 위에서 오른쪽 클릭 → '이미지 복사' 한 뒤 붙여넣어 보세요.");
-      return;
-    }
-    const previews = list.map((f) => URL.createObjectURL(f));
-    setPending((p) => ({ ...p, [shopId]: [...(p[shopId] || []), ...previews] }));
-    setBusy(`사진 ${list.length}장 올리는 중…`);
-    try {
-      const keys = await savePhotos(list, online);
-      change((l) => l.map((s) => (s.id === shopId ? { ...s, photos: [...(s.photos || []), ...keys] } : s)));
-    } catch (e) {
-      onMsg(e.message || "사진을 올리지 못했어요.");
-    }
-    setPending((p) => ({ ...p, [shopId]: (p[shopId] || []).filter((u) => !previews.includes(u)) }));
-    setBusy("");
-  };
-  // 붙여넣기 — 화면 어디서든 Ctrl+V. 들어갈 칸: 마지막에 누르거나 마우스를 올린 칸 → 없으면 펼쳐 둔 첫 칸 → 첫 칸
-  useEffect(() => {
-    const onPaste = (e) => {
-      if (e.defaultPrevented || !hot) return; // 촬영 레퍼런스 칸이 받았다
-      if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
-      const clip = clipImages(e.clipboardData);
-      if (!clip.files.length && !clip.urls.length) return;
-      e.preventDefault();
-      const id = (list.some((s) => s.id === active) && active) || list.find((s) => openIds.has(s.id))?.id || list[0]?.id;
-      if (!id) {
-        onMsg("먼저 '쇼핑몰 추가'로 칸을 만들어 주세요. 그다음 붙여넣으면 들어가요.");
-        return;
-      }
-      setActive(id);
-      addPhotos(id, clip);
-    };
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <div onMouseEnter={onHot} onMouseDown={onHot} className="rounded-xl border border-stone-200 p-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <span className="min-w-0">
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-            <Store size={15} className="text-rose-700" /> 쇼핑몰 BEST 컷 <span className="font-normal text-stone-400">이번 소싱에서 따라갈 코디 사진</span>
-          </span>
-          <span className="block text-[11px] text-stone-400">사진을 복사해서 Ctrl+V 하면 마우스를 올려 둔 칸에 바로 들어가요 · 끌어다 놓기도 돼요</span>
-        </span>
-        <button type="button" onClick={() => setAdding(true)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
-          <Plus size={13} /> 쇼핑몰 추가
-        </button>
-      </div>
-      {busy && (
-        <p className="mb-2 flex items-center gap-1.5 text-sm text-stone-600">
-          <Loader2 size={14} className="animate-spin" /> {busy}
-        </p>
-      )}
-      {adding && (
-        <div className="mb-3 flex flex-wrap gap-2 rounded-2xl border border-rose-200 bg-rose-50/40 p-3">
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="쇼핑몰 이름 — 예: 페트리코어" className={FIELD + " min-w-0 flex-1 text-sm"} />
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="베스트 페이지 주소 (선택)" className={FIELD + " min-w-0 flex-1 text-sm"} />
-          <button
-            type="button"
-            disabled={!name.trim()}
-            onClick={async () => {
-              const s = { id: newId("sb"), name: name.trim(), url: url.trim(), photos: [], createdAt: new Date().toISOString() };
-              change((l) => [...l, s]);
-              setOpenIds((o) => new Set([...o, s.id]));
-              setActive(s.id);
-              setName("");
-              setUrl("");
-              setAdding(false);
-            }}
-            className="rounded-lg bg-rose-700 px-4 text-sm font-semibold text-white disabled:bg-stone-300"
-          >
-            만들기
-          </button>
-          <button type="button" onClick={() => setAdding(false)} className="rounded-lg px-2 text-sm text-stone-500">
-            그만두기
-          </button>
-        </div>
-      )}
-      {!list.length && !adding ? (
-        <p className="rounded-xl border border-dashed border-stone-200 px-4 py-5 text-center text-xs text-stone-400">'쇼핑몰 추가'로 이번 소싱에서 참고할 쇼핑몰 칸(페트리코어 · 윈느 …)을 만들어 보세요.</p>
-      ) : (
-        <div className="space-y-2">
-          {list.map((s) => {
-            const isOpen = openIds.has(s.id);
-            const photos = s.photos || [];
-            return (
-              <section
-                key={s.id}
-                onMouseDown={() => setActive(s.id)}
-                onMouseEnter={() => setActive(s.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  // 다른 창의 사진을 바로 끌어 와도(주소로 온다) 들어가게
-                  const clip = clipImages(e.dataTransfer);
-                  if (!clip.files.length && !clip.urls.length) return;
-                  e.preventDefault();
-                  setActive(s.id);
-                  addPhotos(s.id, clip);
-                }}
-                className={"rounded-2xl border bg-white " + (hot && active === s.id ? "border-rose-300" : "border-stone-200")}
-              >
-                <header className="flex items-center gap-2 px-3 py-2">
-                  <button type="button" onClick={() => toggle(s.id)} className="group/tg flex min-w-0 flex-1 items-center gap-1.5 text-left">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-stone-500 group-hover/tg:bg-stone-200/80 group-hover/tg:text-stone-900">
-                      <ChevronRight size={17} strokeWidth={2.5} className={"transition-transform duration-150 " + (isOpen ? "rotate-90" : "")} />
-                    </span>
-                    {editing === s.id ? null : <span className="truncate font-semibold text-stone-900">{s.name}</span>}
-                    <span className="shrink-0 text-xs text-stone-400">{photos.length}장</span>
-                    {hot && active === s.id && <span className="hidden shrink-0 rounded bg-rose-50 px-1.5 text-[10px] font-medium text-rose-700 sm:inline">Ctrl+V 하면 여기로</span>}
-                  </button>
-                  {editing === s.id && (
-                    <input
-                      autoFocus
-                      defaultValue={s.name}
-                      onBlur={(e) => {
-                        const v = e.target.value.trim();
-                        setEditing(null);
-                        if (v && v !== s.name) change((l) => l.map((x) => (x.id === s.id ? { ...x, name: v } : x)));
-                      }}
-                      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                      className="min-w-0 flex-1 rounded-md border border-rose-400 px-2 py-1 text-sm outline-none"
-                    />
-                  )}
-                  {s.url && (
-                    <a href={s.url} target="_blank" rel="noreferrer" className="flex shrink-0 items-center gap-1 text-xs text-sky-700 hover:underline">
-                      베스트 열기 <ExternalLink size={11} />
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      target.current = s.id;
-                      file.current?.click();
-                    }}
-                    className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2 py-1 text-xs font-medium text-stone-600 hover:border-rose-300 hover:text-rose-800"
-                  >
-                    <ImagePlus size={13} /> 사진
-                  </button>
-                  <button type="button" onClick={() => setEditing(s.id)} aria-label="이름 바꾸기" className="shrink-0 rounded p-1 text-stone-400 hover:text-stone-700">
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => window.confirm(`'${s.name}' 칸과 사진 ${photos.length}장을 지울까요?`) && change((l) => l.filter((x) => x.id !== s.id))}
-                    aria-label="쇼핑몰 지우기"
-                    className="shrink-0 rounded p-1 text-stone-400 hover:text-rose-700"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </header>
-                {isOpen && (
-                  <div className="border-t border-stone-100 p-3">
-                    {photos.length || pending[s.id]?.length ? (
-                      <PhotoGrid keys={photos} urls={urls} pending={pending[s.id] || []} onRemove={(k) => change((l) => l.map((x) => (x.id === s.id ? { ...x, photos: (x.photos || []).filter((y) => y !== k) } : x)))} />
-                    ) : (
-                      <p className="rounded-xl border border-dashed border-stone-200 py-8 text-center text-sm text-stone-400">사진을 복사해서 이 칸에 마우스를 올리고 Ctrl+V · 끌어다 놓기 · '사진' 단추</p>
-                    )}
-                  </div>
-                )}
-              </section>
-            );
-          })}
-        </div>
-      )}
-      <input
-        ref={file}
-        type="file"
-        accept="image/*"
-        multiple
-        hidden
-        onChange={(e) => {
-          if (target.current) addPhotos(target.current, { files: [...e.target.files], urls: [] });
-          e.target.value = "";
-        }}
-      />
     </div>
   );
 }
@@ -2228,7 +2065,6 @@ const TAB_KEY = "poclo_shoot_plan_tab";
 
 export default function ShootPlan({ d, online }) {
   const sessions = useList(KEYS.sessions, online);
-  const shops = useList(KEYS.shops, online);
   const notes = useList(KEYS.notes, online);
   const [tab, setTabState] = useState(() => {
     try {
@@ -2247,19 +2083,19 @@ export default function ShootPlan({ d, online }) {
     }
   };
   const sortedNotes = useMemo(() => [...notes.items].sort((a, b) => (b.on || "").localeCompare(a.on || "")), [notes.items]);
-  const msg = sessions.msg || shops.msg || notes.msg;
+  const msg = sessions.msg || notes.msg;
   const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, notes: notes.items.length };
 
   return (
     <div>
       <div className="mb-4">
         <h2 className="text-xl font-bold text-stone-900">소싱 관리</h2>
-        <p className="mt-0.5 text-sm text-stone-500">소싱마다 촬영 레퍼런스(콘텐츠·쇼핑몰·우리빨 비율 + 사진마다 메모), 소싱일·올라가는 날 날씨, 따라갈 쇼핑몰 BEST 컷을 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
+        <p className="mt-0.5 text-sm text-stone-500">소싱마다 올라가는 날 날씨와 촬영 레퍼런스(콘텐츠·쇼핑몰·우리빨 비율 + 사진마다 메모·상품)를 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
       </div>
       {msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {msg}
-          <button type="button" onClick={() => [sessions, shops, notes].forEach((x) => x.setMsg(""))} aria-label="닫기">
+          <button type="button" onClick={() => [sessions, notes].forEach((x) => x.setMsg(""))} aria-label="닫기">
             <X size={14} />
           </button>
         </p>
@@ -2276,7 +2112,7 @@ export default function ShootPlan({ d, online }) {
           </button>
         ))}
       </div>
-      {!(sessions.loaded && shops.loaded && notes.loaded) ? (
+      {!(sessions.loaded && notes.loaded) ? (
         <div className="flex h-60 items-center justify-center text-stone-300">
           <Loader2 size={20} className="animate-spin" />
         </div>
@@ -2289,8 +2125,6 @@ export default function ShootPlan({ d, online }) {
           notes={sortedNotes}
           onNotes={() => setTab("notes")}
           online={online}
-          legacy={shops.items}
-          onTakeLegacy={() => shops.change(() => ({ items: [] }))}
         />
       ) : (
         <NotesTab notes={notes} online={online} />

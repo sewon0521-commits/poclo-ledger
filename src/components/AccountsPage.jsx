@@ -566,10 +566,13 @@ function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemo
 
   const need = tab === "ads" ? adsAll : tab === "reel" ? reels : photos;
   useEffect(() => {
-    const keys = need.map((x) => x.thumb).filter((k) => k && !urls[k]).slice(0, 150);
+    // 못 받은 사진은 빈 값으로 남겨 다시 안 묻는다 (10/21 — 예전엔 없는 파일이 하나라도 있으면 화면이 바뀔 때마다 끝없이 다시 물어 멈추거나 느려졌다)
+    const keys = need.map((x) => x.thumb).filter((k) => k && !(k in urls)).slice(0, 150);
     if (!keys.length) return;
     let alive = true;
-    fileUrls(keys).then((m) => alive && setUrls((u) => ({ ...u, ...m })));
+    fileUrls(keys)
+      .then((m) => alive && setUrls((u) => ({ ...u, ...Object.fromEntries(keys.map((k) => [k, ""])), ...m })))
+      .catch(() => {});
     return () => {
       alive = false;
     };

@@ -200,10 +200,13 @@ function OrganicPosts({ online, fileUrls }) {
     [data],
   );
   useEffect(() => {
-    const keys = posts.map((p) => p.thumb).filter((k) => k && !urls[k]);
+    // 못 받은 사진은 빈 값으로 남겨 다시 안 묻는다 (10/21 — 예전엔 없는 파일이 하나라도 있으면 화면이 바뀔 때마다 끝없이 다시 물어 멈추거나 느려졌다)
+    const keys = posts.map((p) => p.thumb).filter((k) => k && !(k in urls));
     if (!keys.length || !fileUrls) return;
     let alive = true;
-    fileUrls(keys).then((m) => alive && setUrls((u) => ({ ...u, ...m })));
+    fileUrls(keys)
+      .then((m) => alive && setUrls((u) => ({ ...u, ...Object.fromEntries(keys.map((k) => [k, ""])), ...m })))
+      .catch(() => {});
     return () => {
       alive = false;
     };
