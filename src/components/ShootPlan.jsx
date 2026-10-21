@@ -17,13 +17,12 @@ import {
   CloudSun,
   CloudFog,
   CloudLightning,
-  Camera,
-  Video,
   Store,
   Megaphone,
   Shirt,
   Images,
   Star,
+  SlidersHorizontal,
 } from "lucide-react";
 import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, codiName } from "../lib/shoot";
 import { CutFilter } from "./CutBits";
@@ -32,6 +31,7 @@ import { dayKey } from "../lib/journal";
 import { stageName } from "../lib/sinsang";
 import { BigSlides } from "./ContentBits";
 import { lookKinds, lookGroupOf, lookBest, bestPatch } from "../lib/lookStars";
+import { catsOf, mixOf } from "../lib/sourceMix";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
 
@@ -42,8 +42,12 @@ import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
  *    이번 촬영 날씨 — 언제 올라가고 사람들이 이날 보니 이 날씨에 어떤 제품을 사겠구나, 쇼만마에서 어떤 코디를 찍어라·
  *    지금 어떤 코디가 뜬다는 걸 내가 정리해 넣는 칸."
  *
+ * 10/21 세원: "찍을 컷·찍을 영상은 없어도 될 것 같고, 소싱 관리에서 제일 중요한 건 촬영 레퍼런스 칸 — 사진 하나하나 메모를" +
+ *   "'+ 룩 적기'를 없애고 콘텐츠 레퍼런스·쇼핑몰 레퍼런스·우리빨로 나누고, 위에 바로 이번 소싱이 몇 %인지" (lib/sourceMix.js)
+ *   → 회차 창 맨 위가 촬영 레퍼런스(비율 바 + 사진마다 분류·메모). 찍을 컷·영상 칸은 뺐다(예전 데이터 cuts·videos 는 그대로 남아 있음).
+ *
  * 탭 둘 (settings 키):
- *   촬영 회차      shoot_sessions  [{id, on, title, place, uploads:[날짜], cuts:[{id,text,done}], videos:[…], shops:[{id,name,url,photos}], sellNote, memo}]
+ *   촬영 회차      shoot_sessions  [{id, on, title, place, uploads:[날짜], refIds, refLooks:{레퍼런스 id: {cat, memo, itemIds, groups, best}}, shops:[{id,name,url,photos}], sellNote, memo}]
  *                  shops = 그 촬영에서 따라갈 쇼핑몰 BEST 컷 (10/4 탭에서 회차 안으로). 예전 탭 것(shop_best)은 회차 창에서 '가져오기'로 옮긴다
  *   쇼만마 코디 노트 shomanma_notes  [{id, on, text, photos:[]}]
  * 날씨는 Open-Meteo(무료·키 없음, 서울) — 16일 안은 예보, 그 뒤는 작년 같은 날. 기온별 옷차림은 흔히 쓰는 표로 짐작만 한다.
@@ -51,8 +55,6 @@ import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
  */
 
 const KEYS = { sessions: "shoot_sessions", shops: "shop_best", notes: "shomanma_notes" };
-const CUTS = ["전신 정면", "전신 측면", "뒷모습", "상반신", "앉은 컷", "걷는 컷", "디테일(소재·단추)", "거울 셀카", "손에 든 소품 컷"];
-const VIDEOS = ["착용 영상(상의)", "핏 영상 — 걷기(하의)", "디테일 영상", "릴스 기획 영상", "거울 셀카 영상", "코디 바꾸기 영상"];
 
 // ---------------------------------------------------------------- 저장 (서버 최신을 읽어 한 줄만 바꿔 쓰기)
 
@@ -317,77 +319,6 @@ function WeatherRow({ label, date, w }) {
   );
 }
 
-// ---------------------------------------------------------------- 체크 목록 (컷 · 영상)
-
-function CheckList({ title, icon: Icon, list, onChange, presets }) {
-  const [text, setText] = useState("");
-  const add = (t) => {
-    const v = String(t || "").trim();
-    if (!v) return;
-    onChange([...list, { id: newId("k"), text: v, done: false }]);
-  };
-  const done = list.filter((x) => x.done).length;
-  return (
-    <div className="rounded-xl border border-stone-200 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-          <Icon size={15} className="text-rose-700" /> {title}
-        </span>
-        <span className="text-xs text-stone-400 tabular-nums">
-          {done} / {list.length}
-        </span>
-      </div>
-      {list.length > 0 && (
-        <ul className="mb-2 space-y-0.5">
-          {list.map((x) => (
-            <li key={x.id} className="group flex items-center gap-2 rounded-md px-1 py-0.5 hover:bg-stone-50">
-              <button
-                type="button"
-                onClick={() => onChange(list.map((y) => (y.id === x.id ? { ...y, done: !y.done } : y)))}
-                aria-label={x.done ? "안 찍음으로" : "찍음"}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] hover:bg-stone-200/80"
-              >
-                <span className={"flex h-4 w-4 items-center justify-center rounded-[4px] border-[1.5px] " + (x.done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-400 bg-white")}>
-                  {x.done && <Check size={11} strokeWidth={3.5} />}
-                </span>
-              </button>
-              <input
-                value={x.text}
-                onChange={(e) => onChange(list.map((y) => (y.id === x.id ? { ...y, text: e.target.value } : y)))}
-                className={"min-w-0 flex-1 bg-transparent text-sm outline-none " + (x.done ? "text-stone-400 line-through decoration-stone-300" : "text-stone-800")}
-              />
-              <button type="button" onClick={() => onChange(list.filter((y) => y.id !== x.id))} aria-label="빼기" className="rounded p-1 text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-700 max-sm:opacity-100">
-                <X size={13} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyUp={(e) => {
-          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-            add(text);
-            setText("");
-          }
-        }}
-        placeholder="적고 엔터"
-        className={FIELD + " py-1.5 text-sm"}
-      />
-      <div className="mt-2 flex flex-wrap gap-1">
-        {presets
-          .filter((p) => !list.some((x) => x.text === p))
-          .map((p) => (
-            <button key={p} type="button" onClick={() => add(p)} className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-[11px] text-stone-600 hover:border-rose-300 hover:text-rose-800">
-              + {p}
-            </button>
-          ))}
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------- 촬영 회차
 
 const dday = (d) => {
@@ -494,35 +425,212 @@ const REF_FOLDER_KEY = "poclo_plan_ref_folder"; // 붙인 사진이 들어갈 �
  * 그리고 이 사진에 내가 소싱한 어떤 제품을 쓰면 좋겠다를 신상 관리에서 고를 수 있게 — 간단하게")
  * 회차의 refLooks {레퍼런스 id: {text, itemIds}} — 촬영 레퍼런스 원본에는 안 붙는다(다른 소싱에선 다른 룩).
  */
-function LookNote({ value = "", onSave, className = "" }) {
+/** 예전 '룩'(text)과 메모(memo)를 하나로 — 10/21 '+ 룩 적기'를 없애면서 사진마다 메모 하나만 둔다. 저장하면 memo 에 합쳐지고 text 는 비운다 */
+const lookMemo = (look) => [...new Set([look?.text, look?.memo].map((x) => (x || "").trim()).filter(Boolean))].join("\n");
+
+/** 사진 밑 메모 — 바로 쳐서 적기, 멈추면 0.8초 뒤·칸을 벗어나면 저장. 엔터는 줄바꿈 */
+function RefMemo({ value = "", onSave, className = "" }) {
   const [v, setV] = useState(value);
   const [was, setWas] = useState(value);
+  const timer = useRef(null);
   if (value !== was) {
-    // 다른 곳(룩 창)에서 바뀌면 따라간다
+    // 다른 곳(룩·상품 고치기)에서 바뀌면 따라간다
     setWas(value);
     setV(value);
   }
+  const flush = (t) => {
+    clearTimeout(timer.current);
+    if (t.trim() !== value.trim()) onSave(t.trim());
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
   return (
     <textarea
       value={v}
       rows={1}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => v.trim() !== value && onSave(v.trim())}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-          e.preventDefault();
-          e.currentTarget.blur();
-        }
+      onChange={(e) => {
+        const t = e.target.value;
+        setV(t);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => flush(t), 800);
       }}
-      placeholder="+ 룩 적기"
+      onBlur={() => flush(v)}
+      placeholder="+ 메모"
       style={{ fieldSizing: "content" }}
       className={
-        "block w-full resize-none rounded-md border px-1.5 py-1 text-[12px] leading-snug outline-none placeholder:text-stone-300 focus:border-rose-400 focus:bg-white " +
-        (v ? "border-transparent bg-stone-50 font-medium text-stone-800 hover:border-stone-200" : "border-dashed border-stone-200 text-stone-700 hover:border-rose-300") +
+        "block max-h-40 w-full resize-none rounded-md border px-1.5 py-1 text-[12px] leading-snug outline-none placeholder:text-stone-300 focus:border-rose-400 focus:bg-white " +
+        (v ? "border-transparent bg-amber-50/70 text-stone-800 hover:border-stone-200" : "border-dashed border-stone-200 text-stone-700 hover:border-rose-300") +
         " " +
         className
       }
     />
+  );
+}
+
+/** 사진 분류 고르기 — 콘텐츠 레퍼런스 · 쇼핑몰 레퍼런스 · 우리빨 … (분류는 비율 바의 '분류·목표 고치기'에서) */
+function CatSelect({ cats, value, onChange, className = "" }) {
+  const c = cats.find((x) => x.id === value);
+  return (
+    <span className={"relative flex items-center " + className}>
+      <span className="pointer-events-none absolute left-1.5 h-2 w-2 rounded-full" style={{ background: c?.color || "#d6d3d1" }} />
+      <select
+        value={c ? c.id : ""}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="이 사진 분류"
+        className={"w-full min-w-0 appearance-none truncate rounded-md border py-0.5 pr-1.5 pl-4.5 text-[11px] font-semibold outline-none focus:border-rose-400 " + (c ? "border-transparent" : "border-dashed border-stone-300 font-normal text-stone-400")}
+        style={c ? { background: c.color + "1a", color: c.color } : undefined}
+      >
+        <option value="">분류 안 함</option>
+        {cats.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.name}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
+
+const MIX_BASIS_KEY = "poclo_mix_basis";
+/** 이번 소싱 비율 바 — 신상 관리 '요청한 옷 종류 비율'처럼. 목표 줄을 같이 그리고, 분류를 누르면 그 사진만 */
+function SourceMix({ refIds, looks, cats, basis, onBasis, only, onOnly, onEdit }) {
+  const m = mixOf(refIds, looks, cats, basis);
+  const unit = basis === "photo" ? "장" : "개";
+  const sumT = cats.reduce((n, c) => n + (Number(c.target) || 0), 0);
+  return (
+    <div className="mb-3 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-stone-800">
+          이번 소싱 비율 <span className="font-normal text-stone-400">{m.sorted ? `분류한 ${m.sorted}${unit}` : ""}</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="flex gap-0.5 rounded-full bg-stone-200/70 p-0.5 text-[11px]">
+            {[
+              ["photo", "사진 기준"],
+              ["item", "상품 기준"],
+            ].map(([k, l]) => (
+              <button key={k} type="button" onClick={() => onBasis(k)} className={"rounded-full px-2 py-0.5 font-semibold " + (basis === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
+                {l}
+              </button>
+            ))}
+          </span>
+          <button type="button" onClick={onEdit} className="flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-[11px] font-semibold text-stone-600 hover:border-rose-300 hover:text-rose-800">
+            <SlidersHorizontal size={12} /> 분류·목표 고치기
+          </button>
+        </span>
+      </div>
+      <div className="mt-2 space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="w-7 shrink-0 text-[10px] text-stone-400">지금</span>
+          <div className="flex h-3.5 flex-1 overflow-hidden rounded-full bg-stone-200/70">
+            {m.sorted > 0 &&
+              m.rows
+                .filter((r) => r.n)
+                .map((r) => <span key={r.id} title={`${r.name} ${r.n}${unit} · ${r.pct}%`} style={{ width: `${(r.n / m.sorted) * 100}%`, background: r.color }} className="border-r border-white last:border-r-0" />)}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-7 shrink-0 text-[10px] text-stone-400">목표</span>
+          <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-stone-200/70">
+            {cats
+              .filter((c) => c.target > 0)
+              .map((c) => (
+                <span key={c.id} title={`${c.name} 목표 ${c.target}%`} style={{ width: `${(c.target / Math.max(sumT, 1)) * 100}%`, background: c.color, opacity: 0.45 }} className="border-r border-white last:border-r-0" />
+              ))}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1 text-xs">
+        {m.rows.map((r) => {
+          const on = only === r.id;
+          const gap = m.sorted ? r.pct - r.target : 0;
+          return (
+            <button key={r.id} type="button" onClick={() => onOnly(on ? "" : r.id)} title={on ? "전부 보기" : `${r.name} 사진만 보기`} className={"flex items-center gap-1.5 rounded-full px-2 py-0.5 " + (on ? "bg-stone-800 text-white" : "text-stone-700 hover:bg-white")}>
+              <span className="h-2 w-2 rounded-full" style={{ background: r.color }} />
+              {r.name} <b className="tabular-nums">{r.n}</b>
+              <span className={"tabular-nums " + (on ? "text-stone-300" : "text-stone-500")}>{m.sorted ? `${r.pct}%` : "–"}</span>
+              <span className={"tabular-nums " + (on ? "text-stone-400" : Math.abs(gap) >= 10 ? (gap < 0 ? "font-semibold text-amber-700" : "text-sky-700") : "text-stone-400")}>/ 목표 {r.target}%</span>
+            </button>
+          );
+        })}
+        {m.none > 0 && (
+          <button type="button" onClick={() => onOnly(only === "__none" ? "" : "__none")} className={"flex items-center gap-1.5 rounded-full px-2 py-0.5 " + (only === "__none" ? "bg-stone-800 text-white" : "text-stone-500 hover:bg-white")}>
+            <span className="h-2 w-2 rounded-full border border-dashed border-stone-400" /> 분류 안 함 <b className="tabular-nums">{m.none}</b>
+          </button>
+        )}
+      </div>
+      {m.tip.text && <p className={"mt-2 rounded-lg px-2.5 py-1.5 text-xs " + (m.tip.tone === "warn" ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800")}>{m.tip.text}</p>}
+      {!m.sorted && refIds?.length > 0 && <p className="mt-2 text-[11px] text-stone-400">사진 밑에서 분류를 고르면 비율이 잡혀요.</p>}
+    </div>
+  );
+}
+
+/** 분류·목표 % 고치기 — 모든 소싱 공통(shoot_tags.refCats) */
+function CatEditor({ cats, onSave, onClose }) {
+  const [list, setList] = useState(() => cats.map(({ id, name, target }) => ({ id, name, target })));
+  const sum = list.reduce((n, c) => n + (Number(c.target) || 0), 0);
+  const colored = catsOf({ refCats: list });
+  const patch = (id, p) => setList((l) => l.map((c) => (c.id === id ? { ...c, ...p } : c)));
+  const ok = list.length > 0 && list.every((c) => c.name.trim());
+  useEffect(() => {
+    const k = (e) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", k);
+    return () => document.removeEventListener("keydown", k);
+  }, [onClose]);
+  return (
+    <div className="backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-stone-900/50 p-3">
+      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
+      <div className="sheet relative z-10 w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
+        <div className="mb-1 flex items-center justify-between">
+          <b className="text-stone-900">분류 · 목표 비율</b>
+          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="mb-3 text-xs text-stone-500">모든 소싱에 같이 써요. 매출이 올라 비율을 바꾸면(예: 우리빨 50 · 콘텐츠 25 · 쇼핑몰 25) 여기서 고치세요.</p>
+        <ul className="space-y-2">
+          {list.map((c, i) => (
+            <li key={c.id} className="flex items-center gap-2">
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: colored[i].color }} />
+              <input value={c.name} onChange={(e) => patch(c.id, { name: e.target.value })} placeholder="분류 이름" className={FIELD + " min-w-0 flex-1 py-1.5 text-sm"} />
+              <span className="flex items-center gap-1">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={100}
+                  value={c.target}
+                  aria-label={`${c.name || "분류"} 목표 %`}
+                  onChange={(e) => patch(c.id, { target: e.target.value === "" ? "" : Math.max(0, Math.min(100, Math.round(Number(e.target.value)))) })}
+                  className={FIELD + " w-16 py-1.5 text-right text-sm tabular-nums"}
+                />
+                <span className="text-xs text-stone-500">%</span>
+              </span>
+              <button type="button" onClick={() => setList((l) => l.filter((x) => x.id !== c.id))} aria-label="분류 지우기" className="p-1 text-stone-300 hover:text-rose-600">
+                <Trash2 size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button type="button" onClick={() => setList((l) => [...l, { id: newId("mc"), name: "", target: 0 }])} className="mt-2 flex items-center gap-1 rounded-lg border border-dashed border-stone-300 px-2.5 py-1.5 text-xs text-stone-600 hover:border-rose-300">
+          <Plus size={12} /> 분류 더하기
+        </button>
+        <p className={"mt-3 text-xs " + (sum === 100 ? "text-emerald-700" : "text-amber-700")}>목표 합계 {sum}%{sum === 100 ? "" : " — 100%로 맞추면 보기 편해요"}</p>
+        <p className="mt-1 text-[11px] text-stone-400">분류를 지우면 그 분류로 고른 사진은 '분류 안 함'이 돼요.</p>
+        <div className="mt-3 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-600">
+            그만두기
+          </button>
+          <button
+            type="button"
+            disabled={!ok}
+            onClick={() => onSave(list.map((c) => ({ id: c.id, name: c.name.trim(), target: Number(c.target) || 0 })))}
+            className="rounded-xl bg-rose-700 px-5 py-2 text-sm font-semibold text-white disabled:bg-stone-300"
+          >
+            저장
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -597,7 +705,7 @@ const lookOrder = (d, look) => {
 };
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
-function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
+function LookSheet({ d, r, src, look, cats, onSave, onBig, onClose }) {
   const [q, setQ] = useState("");
   const [more, setMore] = useState(false);
   // 옷 종류로 나눠 고르기 (10/14 세원: "하의·상의·아우터·기타 등등 카테고리별로 나눠서 고를 수 있게") — "" 전체 · "__etc" 종류 없음/그 밖
@@ -674,7 +782,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
       <div className="sheet relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
-          <span className="text-sm font-semibold text-stone-900">이 사진으로 찍을 룩 · 이 소싱에서만 보여요</span>
+          <span className="text-sm font-semibold text-stone-900">이 레퍼런스 분류 · 메모 · 우리 상품 — 이 소싱에서만 보여요</span>
           <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
@@ -685,12 +793,12 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
               {src && <img src={src} alt="" decoding="async" className="h-full w-full object-cover" />}
             </button>
             <div className="min-w-0 flex-1">
-              <div className="mb-1 text-xs font-medium text-stone-500">어떤 룩 — 사진 밑에 바로 보여요</div>
-              <LookNote value={look.text || ""} onSave={(text) => onSave({ text })} className="min-h-16 py-2 text-sm" />
+              {/* 10/21 '어떤 룩' 칸은 없애고 분류 + 메모 하나로 (예전 룩 글은 메모에 합쳐 보인다) */}
+              <div className="mb-1 text-xs font-medium text-stone-500">분류</div>
+              <CatSelect cats={cats} value={look.cat || ""} onChange={(cat) => onSave({ cat })} className="max-w-xs [&_select]:py-1.5 [&_select]:text-sm" />
               {(r.shop || r.memo) && <p className="mt-2 text-[11px] text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ")}</p>}
-              {/* 10/20 세원: "룩·상품 고치기에 메모 칸 — 고른 우리 상품 위에 메모장" */}
-              <div className="mt-3 mb-1 text-xs font-medium text-stone-500">메모</div>
-              <LookMemo value={look.memo || ""} onSave={(memo) => onSave({ memo })} />
+              <div className="mt-3 mb-1 text-xs font-medium text-stone-500">메모 — 사진 밑에 바로 보여요</div>
+              <LookMemo value={lookMemo(look)} onSave={(memo) => onSave({ memo, text: "" })} />
               {picked.length > 0 && (
                 <div className="mt-3 space-y-2.5">
                   <div className="text-xs font-medium text-stone-500">
@@ -811,7 +919,7 @@ function LookSheet({ d, r, src, look, onSave, onBig, onClose }) {
  * 왼쪽 레퍼런스 사진 크게(←·→ 로 이 소싱의 다른 사진) · 오른쪽 적어 둔 룩 + 고른 우리 상품(사진·이름·거래처·색상·사이즈).
  * 상품 사진을 누르면 그 상품 사진 크게(신마 사진 전부). 고치기는 '룩·상품 고치기'(LookSheet). 폰은 위아래로.
  */
-function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused }) {
+function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onClose, paused }) {
   const [at, setAt] = useState(start);
   const [big, setBig] = useState(null); // {urls, i}
   const [sel, setSel] = useState(() => new Set()); // 고른 상품 중 잡은 것 (끌어 옮길 것)
@@ -868,9 +976,11 @@ function LookView({ d, refs, start, src, looks, onEdit, onLook, onClose, paused 
         <div className="flex min-w-0 flex-1 flex-col md:min-h-0">
           <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
             <div className="min-w-0">
-              <div className="text-xs text-stone-400">{[r.shop, r.memo].filter(Boolean).join(" · ") || "이 소싱에서 찍을 룩"}</div>
-              <div className={"mt-0.5 text-lg leading-snug font-semibold whitespace-pre-wrap " + (look.text ? "text-stone-900" : "text-stone-300")}>{look.text || "룩을 아직 안 적었어요"}</div>
-              {look.memo && <p className="mt-1 max-h-32 overflow-y-auto rounded-lg bg-amber-50 px-2.5 py-1.5 text-sm leading-relaxed whitespace-pre-wrap text-stone-700">{look.memo}</p>}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-stone-400">
+                <CatSelect cats={cats} value={look.cat || ""} onChange={(cat) => onLook(r.id, { cat })} className="w-40" />
+                {[r.shop, r.memo].filter(Boolean).join(" · ")}
+              </div>
+              <div className={"mt-1 max-h-40 overflow-y-auto text-base leading-snug whitespace-pre-wrap " + (lookMemo(look) ? "font-semibold text-stone-900" : "text-stone-300")}>{lookMemo(look) || "메모를 아직 안 적었어요"}</div>
             </div>
             <span className="flex shrink-0 items-center gap-1">
               <button type="button" onClick={() => onEdit(r.id)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
@@ -1156,11 +1266,28 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   );
 }
 
-function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook }) {
+function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook, cats, onCats }) {
   const [pick, setPick] = useState(false);
   const [view, setView] = useState(null);
   const [open, setOpen] = useState(null); // 룩 창 — 레퍼런스 id
-  const [see, setSee] = useState(null); // 크게 보기 — refs 순서 (10/20)
+  const [see, setSee] = useState(null); // 크게 보기 — {ids: 그때 보이던 순서, i} (10/20)
+  const [only, setOnly] = useState(""); // 비율 바에서 고른 분류만 (10/21) — "__none" = 분류 안 함
+  const [editCats, setEditCats] = useState(false);
+  const [basis, setBasisState] = useState(() => {
+    try {
+      return localStorage.getItem(MIX_BASIS_KEY) === "item" ? "item" : "photo";
+    } catch {
+      return "photo";
+    }
+  });
+  const setBasis = (v) => {
+    setBasisState(v);
+    try {
+      localStorage.setItem(MIX_BASIS_KEY, v);
+    } catch {
+      /* 무시 */
+    }
+  };
   const [busy, setBusy] = useState("");
   const [pending, setPending] = useState([]); // 올리는 중인 사진 미리 보기
   const [shown, setShown] = useState({}); // 방금 붙인 사진 — 서명 주소가 오기 전에도 그 사진으로
@@ -1174,6 +1301,10 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   const file = useRef(null);
   const folderId = d.folders.some((f) => f.id === folder) ? folder : "";
   const refs = ids.map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
+  const catIds = new Set(cats.map((c) => c.id));
+  const catOf = (id) => (catIds.has(looks[id]?.cat) ? looks[id].cat : "");
+  const shownRefs = !only ? refs : refs.filter((r) => catOf(r.id) === (only === "__none" ? "" : only));
+  const seeRefs = see ? see.ids.map((id) => refs.find((r) => r.id === id)).filter(Boolean) : [];
   const src = (r) => d.urls[r.photo] || shown[r.id] || r.photoUrl || "";
   const chooseFolder = (v) => {
     setFolder(v);
@@ -1215,7 +1346,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   // 붙여넣기 — 이 칸에 마우스를 올렸거나 마지막에 누른 칸이면. 쇼핑몰 BEST 칸보다 먼저 받는다(capture).
   useEffect(() => {
     const onPaste = (e) => {
-      if (!hot || pick || open || view != null || see != null) return;
+      if (!hot || pick || open || editCats || view != null || see != null) return;
       if (e.target.closest?.("input, textarea, [contenteditable=true]")) return;
       const clip = clipImages(e.clipboardData);
       if (!clip.files.length && !clip.urls.length) return;
@@ -1285,11 +1416,20 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           <Loader2 size={14} className="animate-spin" /> {busy}
         </p>
       )}
+      {refs.length > 0 && <SourceMix refIds={ids} looks={looks} cats={cats} basis={basis} onBasis={setBasis} only={only} onOnly={setOnly} onEdit={() => setEditCats(true)} />}
+      {only && (
+        <p className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-stone-800 px-3 py-1.5 text-xs text-white">
+          {only === "__none" ? "분류 안 한" : cats.find((c) => c.id === only)?.name} 사진만 보는 중 · {shownRefs.length}장
+          <button type="button" onClick={() => setOnly("")} className="font-semibold underline">
+            전부 보기
+          </button>
+        </p>
+      )}
       {refs.length || pending.length ? (
-        <div className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-5">
-          {refs.map((r) => (
+        <div className="grid grid-cols-3 gap-x-2 gap-y-3 sm:grid-cols-4 md:grid-cols-5">
+          {shownRefs.map((r, i) => (
             <span key={r.id} className="group relative block min-w-0">
-              <button type="button" onClick={() => setSee(refs.indexOf(r))} title="크게 보기 — 고른 우리 상품까지" className="relative block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
+              <button type="button" onClick={() => setSee({ ids: shownRefs.map((x) => x.id), i })} title="크게 보기 — 고른 우리 상품까지" className="relative block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
                 {src(r) && <img src={src(r)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
                 {(looks[r.id]?.itemIds || []).length > 0 && (
                   <span className="absolute bottom-1 left-1 flex -space-x-1.5">
@@ -1304,9 +1444,10 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
                   </span>
                 )}
               </button>
-              <LookNote value={looks[r.id]?.text || ""} onSave={(text) => onLook(r.id, { text })} className="mt-1" />
+              <CatSelect cats={cats} value={catOf(r.id)} onChange={(cat) => onLook(r.id, { cat })} className="mt-1" />
+              <RefMemo value={lookMemo(looks[r.id])} onSave={(memo) => onLook(r.id, { memo, text: "" })} className="mt-1" />
               {(looks[r.id]?.itemIds || []).length > 0 && (
-                <button type="button" onClick={() => setSee(refs.indexOf(r))} className="mt-0.5 line-clamp-2 block w-full px-1.5 text-left text-[11px] leading-snug text-rose-800 hover:underline">
+                <button type="button" onClick={() => setSee({ ids: shownRefs.map((x) => x.id), i })} className="mt-0.5 line-clamp-2 block w-full px-1.5 text-left text-[11px] leading-snug text-rose-800 hover:underline">
                   {lookOrder(d, looks[r.id]).line}
                 </button>
               )}
@@ -1344,13 +1485,26 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           }}
         />
       )}
-      {see != null && refs.length > 0 && <LookView d={d} refs={refs} start={Math.min(see, refs.length - 1)} src={src} looks={looks} onEdit={(id) => setOpen(id)} onLook={onLook} onClose={() => setSee(null)} paused={!!open} />}
+      {see != null && seeRefs.length > 0 && (
+        <LookView d={d} refs={seeRefs} start={Math.min(see.i, seeRefs.length - 1)} src={src} looks={looks} cats={cats} onEdit={(id) => setOpen(id)} onLook={onLook} onClose={() => setSee(null)} paused={!!open || editCats} />
+      )}
+      {editCats && (
+        <CatEditor
+          cats={cats}
+          onClose={() => setEditCats(false)}
+          onSave={(next) => {
+            onCats(next);
+            setEditCats(false);
+          }}
+        />
+      )}
       {open && refs.some((r) => r.id === open) && (
         <LookSheet
           d={d}
           r={refs.find((r) => r.id === open)}
           src={src(refs.find((r) => r.id === open))}
           look={looks[open] || {}}
+          cats={cats}
           onSave={(p) => onLook(open, p)}
           onBig={() => setView(refs.findIndex((r) => r.id === open))}
           onClose={() => setOpen(null)}
@@ -1388,11 +1542,12 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
   const w = useWeather([s.on, ...uploads]);
   const dayCodis = codis.filter((c) => s.on && c.shootDate === s.on);
   const nameOf = (id) => items.find((x) => x.id === id)?.name || "";
+  const cats = catsOf(d.tags);
 
   return (
     <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className="sheet relative z-10 flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+      <div className="sheet relative z-10 flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
           <div className="min-w-0 flex-1">
             <input
@@ -1408,6 +1563,30 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
           </button>
         </header>
         <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain p-4">
+          {/* 10/21 세원: "소싱 관리에서 제일 중요한 건 촬영 레퍼런스 칸" → 맨 위로 */}
+          <PickedRefs
+            d={d}
+            ids={s.refIds || []}
+            onChange={(v) => {
+              // 이 소싱에서 뺀 사진의 룩 메모도 같이 뺀다
+              const looks = Object.fromEntries(Object.entries(latest.current.refLooks || {}).filter(([k]) => v.includes(k)));
+              set({ refIds: v, refLooks: looks });
+            }}
+            onAdd={(more) => set({ refIds: [...(latest.current.refIds || []), ...more] })}
+            looks={s.refLooks || {}}
+            onLook={(id, p) => {
+              const all = latest.current.refLooks || {};
+              const next = { ...(all[id] || {}), ...p };
+              const rest = Object.fromEntries(Object.entries(all).filter(([k]) => k !== id));
+              set({ refLooks: next.text || next.memo || next.cat || (next.itemIds || []).length ? { ...rest, [id]: next } : rest });
+            }}
+            online={online}
+            onMsg={setMsg}
+            hot={pasteTo === "refs" || (!pasteTo && !(s.shops || []).length)}
+            onHot={() => setPasteTo("refs")}
+            cats={cats}
+            onCats={(next) => d.saveTags((v) => ({ ...v, refCats: next }))}
+          />
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium text-stone-500">
               소싱일
@@ -1457,11 +1636,6 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <CheckList title="찍을 컷" icon={Camera} list={s.cuts || []} onChange={(v) => set({ cuts: v })} presets={CUTS} />
-            <CheckList title="찍을 영상" icon={Video} list={s.videos || []} onChange={(v) => set({ videos: v })} presets={VIDEOS} />
-          </div>
-
           {legacy.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-rose-300 bg-rose-50/50 px-3 py-2 text-xs text-rose-900">
               예전 '쇼핑몰 BEST 컷' 탭에 모아 둔 것 {legacy.length}곳 · 사진 {legacy.reduce((n, x) => n + (x.photos || []).length, 0)}장
@@ -1477,27 +1651,6 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
               </button>
             </div>
           )}
-          <PickedRefs
-            d={d}
-            ids={s.refIds || []}
-            onChange={(v) => {
-              // 이 소싱에서 뺀 사진의 룩 메모도 같이 뺀다
-              const looks = Object.fromEntries(Object.entries(latest.current.refLooks || {}).filter(([k]) => v.includes(k)));
-              set({ refIds: v, refLooks: looks });
-            }}
-            onAdd={(more) => set({ refIds: [...(latest.current.refIds || []), ...more] })}
-            looks={s.refLooks || {}}
-            onLook={(id, p) => {
-              const all = latest.current.refLooks || {};
-              const next = { ...(all[id] || {}), ...p };
-              const rest = Object.fromEntries(Object.entries(all).filter(([k]) => k !== id));
-              set({ refLooks: next.text || next.memo || (next.itemIds || []).length ? { ...rest, [id]: next } : rest });
-            }}
-            online={online}
-            onMsg={setMsg}
-            hot={pasteTo === "refs" || (!pasteTo && !(s.shops || []).length)}
-            onHot={() => setPasteTo("refs")}
-          />
           <ShopBoard
             list={s.shops || []}
             change={(fn) => set({ shops: fn(latest.current.shops || []) })}
@@ -1592,9 +1745,9 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
     return { up, past };
   }, [all, today]);
   const w = useWeather(list.up.map((s) => s.on));
+  const cats = catsOf(d.tags);
   const card = (s) => {
-    const cuts = s.cuts || [];
-    const vids = s.videos || [];
+    const mix = mixOf(s.refIds, s.refLooks, cats, "photo");
     const nCodi = codis.filter((c) => s.on && c.shootDate === s.on).length;
     return (
       <button key={s.id} type="button" onClick={() => setOpen(s)} className="rounded-2xl border border-stone-200 bg-white p-4 text-left transition hover:border-rose-300 hover:shadow-sm">
@@ -1611,13 +1764,31 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
               <WxIcon code={w[s.on].code} size={14} /> {Math.round(w[s.on].max)}°/{Math.round(w[s.on].min)}°{w[s.on].past ? " (작년)" : ""}
             </span>
           )}
-          <span>컷 {cuts.filter((x) => x.done).length}/{cuts.length}</span>
-          <span>영상 {vids.filter((x) => x.done).length}/{vids.length}</span>
           {(s.refIds || []).length > 0 && <span>레퍼런스 {s.refIds.length}장</span>}
           {(s.shops || []).length > 0 && <span>BEST 컷 {(s.shops || []).reduce((n, x) => n + (x.photos || []).length, 0)}장 · {(s.shops || []).length}곳</span>}
           {nCodi > 0 && <span>코디 {nCodi}</span>}
           {s.uploads?.filter(Boolean).length > 0 && <span>업로드 {s.uploads.filter(Boolean).map(md).join(", ")}</span>}
         </div>
+        {/* 이번 소싱 비율 (10/21) — 분류한 레퍼런스 사진 기준 */}
+        {mix.sorted > 0 && (
+          <div className="mt-2.5">
+            <div className="flex h-1.5 overflow-hidden rounded-full bg-stone-100">
+              {mix.rows
+                .filter((r) => r.n)
+                .map((r) => (
+                  <span key={r.id} style={{ width: `${(r.n / mix.sorted) * 100}%`, background: r.color }} className="border-r border-white last:border-r-0" />
+                ))}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-stone-500">
+              {mix.rows.map((r) => (
+                <span key={r.id} className="flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: r.color }} />
+                  {r.name} <b className={"tabular-nums " + (r.pct - r.target <= -10 ? "text-amber-700" : "text-stone-700")}>{r.pct}%</b>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </button>
     );
   };
@@ -1627,7 +1798,7 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
         <button
           type="button"
           onClick={() => {
-            const s = { id: newId("ss"), on: "", title: "", uploads: [""], cuts: [], videos: [], createdAt: new Date().toISOString() };
+            const s = { id: newId("ss"), on: "", title: "", uploads: [""], createdAt: new Date().toISOString() };
             sessions.save(s);
             setOpen(s);
           }}
@@ -1638,7 +1809,7 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, legacy
       </div>
       {!sessions.items.length ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
-          '새 소싱'을 눌러 소싱일·올라가는 날·찍을 컷과 영상을 정리해 보세요. 날씨는 날짜만 넣으면 떠요.
+          '새 소싱'을 눌러 촬영 레퍼런스를 모으고 콘텐츠·쇼핑몰·우리빨로 나눠 보세요. 소싱일·올라가는 날 날씨도 같이 떠요.
         </p>
       ) : (
         <>
@@ -2083,7 +2254,7 @@ export default function ShootPlan({ d, online }) {
     <div>
       <div className="mb-4">
         <h2 className="text-xl font-bold text-stone-900">소싱 관리</h2>
-        <p className="mt-0.5 text-sm text-stone-500">소싱마다 찍을 컷·영상, 소싱일·올라가는 날 날씨, 따라갈 쇼핑몰 BEST 컷을 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
+        <p className="mt-0.5 text-sm text-stone-500">소싱마다 촬영 레퍼런스(콘텐츠·쇼핑몰·우리빨 비율 + 사진마다 메모), 소싱일·올라가는 날 날씨, 따라갈 쇼핑몰 BEST 컷을 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
       </div>
       {msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
