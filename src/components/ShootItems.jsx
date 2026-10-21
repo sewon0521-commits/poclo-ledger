@@ -1816,6 +1816,9 @@ function ClipGuide({ onClose }) {
 
 const TABS = [...STAGES.map(([k, label]) => [k, label]), ["drop", "보류·드랍"], ["returns", "반납·결제 예정"], ["returned", "반납 완료"], ["trash", "휴지통"]];
 
+// 별표 상품만 볼 때 묶는 순서 (10/21 세원: "신상 관리에서 별표 상품 누르면 요청, 입고·픽 다 보여 줄 수 있어?") — 탭과 상관없이 한 화면에
+const STAR_STAGES = ["request", "arrived", "pick", "shot", "back", "drop"];
+
 export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const today = dayKey();
   const vmap = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors]);
@@ -1925,6 +1928,9 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const weekAgo = shiftDay(today, -6);
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
+    const hit = (x) => !n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n);
+    if (starOnly)
+      return items.filter((x) => stars.has(x.id) && !["done", "trash"].includes(x.stage) && !x.returnedOn && (!type || (x.type || "sample") === type) && (!kind || x.kind === kind) && hit(x));
     return items.filter(
       (x) =>
         inTab(x, tab) &&
@@ -1938,8 +1944,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!backOnly || tab !== "returns" || x.stage === "back") &&
         (!noDetail || !detailTab || !x.detailShot) &&
         (!mateOf || tab !== "returns" || mateKey(x) === mateOf) &&
-        (!starOnly || stars.has(x.id)) &&
-        (!n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n)),
+        hit(x),
     );
   }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf, starOnly, stars]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1968,6 +1973,15 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       for (const x of shown) m.set(keyOf(x), [...(m.get(keyOf(x)) || []), x]);
       return [...m.entries()].sort(sort);
     };
+    // 별표 상품만 — 단계마다 한 묶음 (요청에는 픽업 요청 몇 개인지)
+    if (starOnly)
+      return [...STAR_STAGES, ...new Set(shown.map((x) => x.stage).filter((st) => !STAR_STAGES.includes(st)))]
+        .map((st) => {
+          const l = shown.filter((x) => x.stage === st);
+          const pk = st === "request" ? l.filter((x) => x.pickup).length : 0;
+          return l.length > 0 && { id: `star-${st}`, title: `★ ${stageName(st)} · ${l.length}개`, sub: pk ? `픽업 요청 ${pk}` : "", tone: "text-amber-900", list: l };
+        })
+        .filter(Boolean);
     // 재요청 모아보기 — 재요청할 날짜별로 (지난 날짜는 빨갛게)
     if (tab === "request" && reqOnly === "retryOn")
       return by((x) => x.retryOn, (a, b) => a[0].localeCompare(b[0])).map(([day, l]) => {
@@ -2001,7 +2015,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
     if (tab === "returned")
       return by((x) => x.returnedOn || x.paid?.on || "", (a, b) => b[0].localeCompare(a[0])).map(([day, l]) => ({ title: day ? `${dayTitle(day)} · ${l.length}개` : `날짜 없음 · ${l.length}개`, list: l }));
     return [{ title: "", list: shown }];
-  }, [shown, tab, today, vendors, dealt, items, d.refusals, reqOnly]);
+  }, [shown, tab, today, vendors, dealt, items, d.refusals, reqOnly, starOnly]);
 
   const patch = (x) => (p) => {
     // '요청으로 되돌리기' — 잘못 누른 것이니 그 거절 기록도 지운다
@@ -2085,26 +2099,28 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       {starOnly && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-200">
           <Star size={13} className="fill-amber-500 text-amber-500" />
-          <b className="mr-1">별표 상품만 보는 중</b>
-          {TABS.map(([k, label]) => [k, label, starItems.filter((x) => inTab(x, k)).length])
+          <b className="mr-1">별표 상품 전부 — 단계와 상관없이</b>
+          {STAR_STAGES.map((k) => [k, stageName(k), starItems.filter((x) => x.stage === k).length])
             .filter(([, , n]) => n > 0)
             .map(([k, label, n]) => (
               <button
                 key={k}
                 type="button"
-                onClick={() => setTab(k)}
-                className={"rounded-full px-2.5 py-1 font-semibold " + (tab === k ? "bg-amber-950 text-amber-50" : "bg-white text-amber-900 ring-1 ring-amber-300 hover:bg-amber-100")}
+                onClick={() => document.getElementById(`star-${k}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                title="그 묶음으로"
+                className="rounded-full bg-white px-2.5 py-1 font-semibold text-amber-900 ring-1 ring-amber-300 hover:bg-amber-100"
               >
                 {label} {n}
               </button>
             ))}
-          <span className="text-amber-800/70">· 샘플이 내려오면 입고·픽에서 별표만 따로 빼 두세요</span>
+          <span className="text-amber-800/70">· 샘플이 내려오면 입고·픽 묶음에서 별표만 따로 빼 두세요</span>
           <button type="button" onClick={() => setStarOnly(false)} className="ml-auto font-medium text-amber-900 hover:underline">
             다 보기
           </button>
         </div>
       )}
 
+      {!starOnly && (
       <KindMix
         items={tab === "request" && day ? items.filter((x) => madeOn(x) === day) : items}
         label={tab === "request" && day ? `${shortTitle(day)} 소싱` : ""}
@@ -2112,21 +2128,27 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         kind={kind}
         onKind={setKind}
       />
+      )}
 
       <div className="mb-2 flex gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 text-sm [scrollbar-width:none]">
         {TABS.map(([k, label], i) => (
           <button
             key={k}
             type="button"
-            onClick={() => setTab(k)}
-            className={"flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 font-medium " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500") + (i === STAGES.length ? " ml-auto" : "")}
+            onClick={() => {
+              setTab(k);
+              setStarOnly(false);
+            }}
+            className={"flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 font-medium " + (tab === k && !starOnly ? "bg-white text-stone-900 shadow-sm" : "text-stone-500") + (i === STAGES.length ? " ml-auto" : "")}
           >
             {i < STAGES.length && <span className="text-[11px] text-stone-400">{i + 1}</span>}
             {label}
-            <span className={tab === k ? "text-rose-700" : "text-stone-400"}>{count(k)}</span>
+            <span className={tab === k && !starOnly ? "text-rose-700" : "text-stone-400"}>{count(k)}</span>
           </button>
         ))}
       </div>
+      {!starOnly && (
+        <>
       <p className="mb-2 px-1 text-xs text-stone-500">
         {tab === "returns"
           ? `입고일 포함 ${RETURN_DAYS}일째를 반납 기한으로 저절로 계산해요(10/1 입고 → 10/${RETURN_DAYS}). 일부만 사면 '샘플 결제'에 적고, 나머지를 보냈으면 '거래처 반납' → '반납 완료'로 넘어가요.`
@@ -2173,6 +2195,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         </label>
       )}
 
+        </>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         <div className="flex gap-1 rounded-lg bg-stone-100 p-0.5 text-xs">
           {[
@@ -2268,8 +2292,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         </span>
       </div>
 
-      {tab === "request" && reqOnly === "pickup" && shown.length > 0 && <PickupList items={shown} vendors={vendors} />}
-      {tab === "returns" && mateOf && (
+      {!starOnly && tab === "request" && reqOnly === "pickup" && shown.length > 0 && <PickupList items={shown} vendors={vendors} />}
+      {!starOnly && tab === "returns" && mateOf && (
         <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <b>{returnMates.get(mateOf)?.[0]?.vendor || "이 거래처"}</b> 같이 반납할 것 {returnMates.get(mateOf)?.length || 0}개만 보는 중 · 포장 전 {(returnMates.get(mateOf) || []).filter((y) => !y.packed).length}
           <button type="button" onClick={() => setMateOf("")} className="ml-auto flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-stone-700 ring-1 ring-amber-200 hover:bg-amber-100">
@@ -2277,10 +2301,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           </button>
         </div>
       )}
-      {tab === "returns" && (
+      {!starOnly && tab === "returns" && (
         <RetryCalendar items={items.filter((x) => inTab(x, "returns") && dueOf(x))} today={today} day={dueDay} onDay={setDueDay} dateOf={dueOf} label="반납 기한" />
       )}
-      {tab === "request" && reqOnly === "retryOn" && <RetryCalendar items={items.filter((x) => x.stage === "request" && x.retryOn)} today={today} day={retryDay} onDay={setRetryDay} />}
+      {!starOnly && tab === "request" && reqOnly === "retryOn" && <RetryCalendar items={items.filter((x) => x.stage === "request" && x.retryOn)} today={today} day={retryDay} onDay={setRetryDay} />}
 
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
@@ -2289,7 +2313,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
       ) : (
         <div className="space-y-4">
           {groups.map((g) => (
-            <section key={g.title || "all"}>
+            <section key={g.id || g.title || "all"} id={g.id} className="scroll-mt-4">
               {g.title && (
                 <h3 className={"mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1 text-sm font-semibold " + (g.tone || "text-stone-700")}>
                   {g.title}
@@ -2309,7 +2333,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} mates={matesFor(x)} star={stars.get(x.id)} />
+                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={starOnly ? (x.stage === "back" ? "returns" : x.stage) : tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} mates={matesFor(x)} star={stars.get(x.id)} />
                 ))}
               </div>
             </section>
