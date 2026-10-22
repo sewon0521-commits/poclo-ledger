@@ -301,9 +301,14 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
                     mates.onShow();
                   }}
                   title={`${mates.name} 상품만 보기`}
-                  className={"block w-full truncate rounded-md px-1 py-0.5 text-center text-[11px] hover:bg-stone-100 " + (mates.left ? "text-amber-700" : "text-stone-400")}
+                  className={"flex w-full items-center justify-center gap-1 rounded-md px-1 py-0.5 text-[11px] hover:bg-stone-100 " + (mates.left ? "text-amber-700" : "text-stone-400")}
                 >
-                  {mates.name} {mates.n}개 더 · {mates.left ? `포장 전 ${mates.left}` : "다 포장함"}
+                  {/* 10/22 세원: "몇 개 더 포장 — 원래 잘 나왔는데 모바일에서" → 거래처 이름에 영어가 붙으며(니트홀릭 NITHOLIC) 한 줄이 넘쳐
+                      '포장 전 N'이 잘렸다 → 이름은 한글만·줄어들고, 개수는 늘 다 보이게 */}
+                  <span className="min-w-0 truncate">{(mates.name || "").match(/[가-힣]+/g)?.join(" ") || mates.name}</span>
+                  <span className="shrink-0">
+                    {mates.n}개 더 · {mates.left ? `포장 전 ${mates.left}` : "다 포장함"}
+                  </span>
                 </button>
               )}
               {/* 포장하면서 실측 재기 (10/6 세원: "샘플을 거래처에 다시 보낼 때 포장하면서 사이즈를 재거든") */}
