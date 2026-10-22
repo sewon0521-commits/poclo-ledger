@@ -501,7 +501,7 @@ export default function MallEventsPage({ online }) {
             <Stat icon={Flag} label="진행 중" value={live.length} unit="개" sub={`${new Set(live.map((x) => x.host)).size}개 몰`} onClick={() => setFocus(focus === "live" ? "" : "live")} on={focus === "live"} />
             <Stat icon={Sparkles} label="최근 7일 새로 시작" value={firstOnly ? "—" : started.length} unit={firstOnly ? "" : "개"} sub={firstOnly ? "내일 아침부터 오늘과 비교해요" : `${new Set(started.map((x) => x.host)).size}개 몰`} onClick={firstOnly ? undefined : () => setFocus(focus === "started" ? "" : "started")} on={focus === "started"} />
             <Stat icon={CalendarRange} label="최근 7일 끝남" value={firstOnly ? "—" : ended.length} unit={firstOnly ? "" : "개"} sub={firstOnly ? "어제까지 있다가 사라진 것" : `${new Set(ended.map((x) => x.host)).size}개 몰`} onClick={firstOnly ? undefined : () => setFocus(focus === "ended" ? "" : "ended")} on={focus === "ended"} />
-            <Stat icon={Store} label="오늘 수집" value={`${okHosts.length}`} unit={`/ ${okHosts.length + failHosts.length}곳`} sub={failHosts.length ? `못 읽음: ${failHosts.map(([h]) => name(h)).join(", ")}` : "다 읽었어요"} />
+            <Stat icon={Store} label={lastRun === today ? "오늘 수집" : `마지막 수집 ${md(lastRun)}`} value={`${okHosts.length}`} unit={`/ ${okHosts.length + failHosts.length}곳`} sub={failHosts.length ? `못 읽음: ${failHosts.map(([h]) => name(h)).join(", ")}` : "다 읽었어요"} />
           </div>
 
           {/* 최근 7일 — 시작·끝 */}

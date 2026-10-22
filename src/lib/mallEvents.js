@@ -10,7 +10,8 @@
  *   settings 'mall_events_<날짜>' 그날 스냅샷(30일) · 'mall_events_days' {items:[날짜…]}
  * 에 둔다. 여기서는 그걸 읽어 진행 중 · 최근 시작/끝 · 타임라인으로 보여 준다(쓰기 없음).
  *   first/last = 처음·마지막으로 본 날. pre = 그 몰을 처음 모은 날 이미 있던 것('10/22 이전부터').
- *   gone = 사라진 걸 알아챈 날(끝난 날 = last). 7일 안에 다시 보이면 같은 이벤트로 이어 붙인다.
+ *   gone = 사라진 걸 알아챈 날(끝난 날 = last). 띠·팝업·배너·태그·상세 그림은 이틀 연속 안 보여야 끝(gone = 처음 안 보인 날).
+ *   7일 안에 다시 보이면 같은 이벤트로 이어 붙인다.
  *   extra: 쿠폰 {rate, from, to} · 이벤트 분류 {photo:{lo, hi, min, cnt, n}} (그 분류 상품 사진 올린 날 — 시작 추정) ·
  *          배너·팝업·상세 {up} (그림 주소의 올린 날) · 태그 {n, of} (상품 몇 개에 붙었나)
  */
@@ -69,6 +70,7 @@ export function whenText(it, today) {
     const left = daysBetween(today, ex.to);
     parts.push(left >= 0 ? `${md(ex.to)}까지(${left === 0 ? "오늘 끝" : left + "일 남음"})` : `${md(ex.to)}에 끝날 예정이었음`);
   }
+  if (it.missOn) parts.push(`${md(it.missOn)}엔 안 보임 — 하루 더 보고 끝`);
   return parts.join(" · ");
 }
 
