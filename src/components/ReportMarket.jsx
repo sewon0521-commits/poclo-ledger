@@ -52,7 +52,7 @@ function Weather({ w, take }) {
                 key={x.date}
                 title={`${x.sky} · ${x.wear}`}
                 className={
-                  "flex w-[4.4rem] shrink-0 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-center " +
+                  "flex min-w-[3.4rem] flex-1 flex-col items-center gap-0.5 rounded-xl px-0.5 py-2 text-center " +
                   (isToday ? "bg-rose-50 ring-1 ring-rose-200" : past ? "bg-stone-50 opacity-60" : "bg-stone-50")
                 }
               >

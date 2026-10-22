@@ -678,7 +678,7 @@ export default function ReportPage({ online, rows }) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-xl font-bold text-stone-900">매일 보고</h2>
-          <p className="mt-0.5 text-sm text-stone-500">매일 아침 9시 전에 어제 매출·광고·상품을 정리해 둬요. 오늘 광고 예산과 할 일까지.</p>
+          <p className="mt-0.5 text-sm text-stone-500">매일 아침 기온·뉴스·경쟁몰 신상·경쟁사 인스타를 모아 소싱·콘텐츠·판매·광고 소재까지 판단해 둬요. 광고는 쇼만마에 요청할 것으로.</p>
         </div>
         {list.length > 0 && (
           <div className="flex items-center gap-1">
