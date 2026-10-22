@@ -425,19 +425,24 @@ export const requestText = (tpl, names) => String(tpl || "").split(MSG_SLOT).joi
 /**
  * 이미 아는 거래처 — 신마 담기 단추가 매장 정보(전화·카톡)를 찾으러 들어가지 않아도 되는 곳 (10/14 세원:
  * "전번 찾는 게 오래 걸려서 이미 거래처이거나 카톡을 보낸 적이 있는 곳이면 그냥 넘겨 줄 수 있니?")
- * = 돈 › 거래처에 있는 곳 + 신상 관리에서 '요청함'(카톡 보냄)을 켠 적이 있는 거래처.
- * 이름을 한글 조각·영문 조각으로 나눠 보낸다('래래 RAERAE' → 래래 · raerae) — 신마 이름과 조각 하나만 같아도 같은 곳(findVendor 와 같은 생각).
- * public/clip.js 의 nameParts 와 같은 규칙이어야 한다.
+ * 10/22 세원: "원래 상품 정보 뒤져 보고 없으면 거래처명 눌러서 찾아왔잖아? 이제 안 해 줘?" → 두 가지가 틀렸다:
+ *   ① 거래처 목록에 있기만 하면 건너뛰어서, **연락처가 비어 있는 거래처(26곳)** 는 영영 못 찾았다 → 이제 **전화·카톡이 실제로 적힌 곳만** 아는 곳.
+ *   ② 이름 조각 하나만 같아도 같은 곳으로 봐서 '아크 ARC' 가 '아크제이 arc ; j' 의 'arc' 에 걸렸다 → 이름을 **통째로**(한글만 'k:아크' · 영문·숫자만 'e:arc') 비교.
+ * public/clip.js 의 __pocloKeys 와 같은 규칙이어야 한다.
  */
-export const nameParts = (s) => {
+export const nameKeys = (s) => {
   const low = String(s || "").toLowerCase();
-  const parts = (low.match(/[가-힣]+|[a-z0-9]+/g) || []).filter((p) => p.length >= 2 && !/^\d+$/.test(p));
-  const all = low.replace(/[^가-힣a-z0-9]/g, "");
-  return [...new Set([...parts, ...(all.length >= 2 ? [all] : [])])];
+  const ko = (low.match(/[가-힣]+/g) || []).join("");
+  const en = (low.match(/[a-z0-9]+/g) || []).join("");
+  return [ko.length >= 2 && `k:${ko}`, en.length >= 2 && !/^\d+$/.test(en) && `e:${en}`].filter(Boolean);
 };
+const hasContact = (c) => !!(c && (c.mobile || c.tel || c.kakao));
 export function knownKeys(vendors = [], items = []) {
-  const names = [...vendors.map((v) => v.name), ...items.filter((x) => x.asked || x.askedOn).map((x) => x.vendor)];
-  return [...new Set(names.flatMap(nameParts))];
+  const names = [
+    ...vendors.filter((v) => String(v.phone || "").trim() || hasContact(contactOf(v.memo || ""))).map((v) => v.name),
+    ...items.filter((x) => hasContact(x.contact)).map((x) => x.vendor),
+  ];
+  return [...new Set(names.flatMap(nameKeys))];
 }
 
 // ---------------------------------------------------------------- 신상마켓에서 담기

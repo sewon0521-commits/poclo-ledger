@@ -9,37 +9,37 @@
 // 제품 설명: 거래처가 전화·카톡·인스타를 적어 두는 칸인데 접혀 있을 때가 있다 → 접혀 있으면 한 번 눌러 펼쳐서 읽는다(세원이 누르는 것과 같다).
 // 이미 아는 거래처 (10/14 세원: "전번 찾는 게 오래 걸려서 이미 거래처이거나 카톡을 보낸 적이 있는 곳이면 그냥 넘겨 줘")
 // ERP 담기 창이 담을 때마다 목록(이름 조각)을 보내 준다 → 이 신마 창의 저장소(poclo_known)에 두고, 그 거래처면 매장 정보를 찾으러 안 들어간다.
-// 이름 조각 규칙은 src/lib/sinsang.js nameParts 와 같아야 한다.
+// 10/22: 연락처가 적힌 거래처만, 이름은 통째로(한글만 · 영문만) — src/lib/sinsang.js nameKeys 와 같아야 한다. 저장 이름 poclo_known2(예전 조각 목록은 버림).
 if (!window.__pocloKnownOn) {
   window.__pocloKnownOn = true;
   window.addEventListener("message", function (e) {
     var m = e.data;
     if (!m || m.poclo !== "known" || !Array.isArray(m.keys) || e.origin !== window.__pocloO) return;
     try {
-      localStorage.setItem("poclo_known", JSON.stringify({ at: Date.now(), keys: m.keys.slice(0, 8000) }));
+      localStorage.setItem("poclo_known2", JSON.stringify({ at: Date.now(), keys: m.keys.slice(0, 8000) }));
     } catch (x) {
       void x;
     }
   });
 }
-window.__pocloParts = function (s) {
+window.__pocloKeys = function (s) {
   var low = String(s || "").toLowerCase();
-  var parts = (low.match(/[가-힣]+|[a-z0-9]+/g) || []).filter(function (p) {
-    return p.length >= 2 && !/^\d+$/.test(p);
-  });
-  var all = low.replace(/[^가-힣a-z0-9]/g, "");
-  if (all.length >= 2) parts.push(all);
-  return parts;
+  var ko = (low.match(/[가-힣]+/g) || []).join("");
+  var en = (low.match(/[a-z0-9]+/g) || []).join("");
+  var out = [];
+  if (ko.length >= 2) out.push("k:" + ko);
+  if (en.length >= 2 && !/^\d+$/.test(en)) out.push("e:" + en);
+  return out;
 };
 window.__pocloKnown = function (vendor) {
   try {
-    var k = JSON.parse(localStorage.getItem("poclo_known") || "null");
+    var k = JSON.parse(localStorage.getItem("poclo_known2") || "null");
     if (!k || !k.keys) return false;
     var set = {};
     k.keys.forEach(function (x) {
       set[x] = 1;
     });
-    return window.__pocloParts(vendor).some(function (p) {
+    return window.__pocloKeys(vendor).some(function (p) {
       return set[p];
     });
   } catch (e) {

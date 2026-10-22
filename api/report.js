@@ -5,6 +5,9 @@
 // 10/22 세원: "광고만 이야기하지 말고 시장 트렌드·기온·뉴스·경쟁사 신상·인스타를 종합해서 무엇을 소싱하고 어떤 콘텐츠를 기획하고
 //            어떻게 팔고 어떤 소재를 만들지 판단해서 보고. 광고 상황도 꼭 — 광고는 쇼만마가 하고 있으니 그걸 고려해서."
 // 키는 이 함수 환경변수에만(PC 에 두지 않는다). 지어내지 말 것 — 주어진 자료만. 하루 한 번, 비용은 보고에 같이 남긴다.
+// 10/22 세원: "430원 비싸 — 클로드 맥스 요금제(월 10만 원) 안에서 나가게 할 수 없어?"
+//   → 사무실 PC 가 먼저 **설치된 Claude Code(맥스 구독)** 로 같은 글을 쓴다(추가 비용 0원). 그래서 GET ?spec=1 이 프롬프트·출력 모양을 내준다(한 곳에서만 고치게).
+//     Claude Code 가 안 되면(로그아웃·한도) 여기 API 로 — effort low(약 250원 예상).
 
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
@@ -72,8 +75,10 @@ function fail(res, status, code, message) {
 }
 
 export default async function handler(req, res) {
+  // 사무실 PC 의 Claude Code(맥스 구독)가 같은 지시·모양으로 쓰게 — 프롬프트와 JSON 모양만 내준다(키·돈 안 씀)
+  if (req.method === "GET" && req.query?.spec) return res.status(200).json({ prompt: PROMPT, schema: z.toJSONSchema(ReportSchema) });
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+    res.setHeader("Allow", "GET, POST");
     return fail(res, 405, "method", "POST만 받습니다.");
   }
   const key = (process.env.ANTHROPIC_API_KEY || "").trim();
@@ -81,13 +86,14 @@ export default async function handler(req, res) {
   const data = req.body?.data;
   if (!data || typeof data !== "object") return fail(res, 400, "bad_request", "data 가 없어요.");
   const text = JSON.stringify(data).slice(0, 70000);
+  const effort = ["low", "medium", "high"].includes(req.body?.effort) ? req.body.effort : "low";
   try {
     const client = new Anthropic();
     const stream = client.messages.stream({
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: zodOutputFormat(ReportSchema) },
+      output_config: { effort, format: zodOutputFormat(ReportSchema) },
       messages: [{ role: "user", content: `${PROMPT}\n\n---\n${text}` }],
     });
     const r = await stream.finalMessage();

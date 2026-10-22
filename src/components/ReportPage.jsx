@@ -595,7 +595,7 @@ function Report({ r, hist, rows, journals }) {
 
       <p className="px-1 text-[11px] text-stone-400">
         {r.made && `만든 시각 ${r.made.replace("T", " ")}`}
-        {r.cost?.won != null && ` · Claude 약 ${r.cost.won}원`}
+        {r.cost?.won != null && (/Claude Code/.test(r.cost.via || "") ? " · Claude Code(맥스 구독)로 써서 추가 비용 0원" : ` · Claude 약 ${r.cost.won}원`)}
         {r.filledAds?.length > 0 && ` · 매출 장부에 비어 있던 광고비를 메타 값으로 채움: ${r.filledAds.map((f) => `${f.date.slice(5)} ${won(f.ads)}원`).join(", ")}`}
       </p>
     </div>
