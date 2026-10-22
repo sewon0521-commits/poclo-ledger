@@ -66,7 +66,7 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage,
         <p className="mt-0.5 text-sm text-stone-500">뭐 할지 한눈에 · {monthLabel(month)} 현황</p>
       </div>
 
-      <HomeCalendar online={online} onPage={onPage} />
+      <HomeCalendar online={online} onPage={onPage} rows={salesRows} />
 
       <div className="grid gap-3 lg:grid-cols-2">
         <Card

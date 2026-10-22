@@ -3,7 +3,7 @@
 // 세원: "캘린더 오른쪽에 있는 오늘 할 일 지우고 업무일지에 오늘 할 일을 채우든 루틴을 채우든 해야 될 듯?
 //        그리고 내가 캘린더에 직접 개인적인 일을 쓸 수 있게 — 노션 캘린더나 구글 캘린더처럼."
 // → 반복 할 일(예전 calendar.tasks)은 업무일지 루틴(journal_<사람>.routines — 시각·방법 칸)으로 옮겼다. 원래 것은 calendar.movedTasks.
-//   홈 캘린더 = 내 일정 + 이벤트 캘린더 기간 막대(보기만) + 신상 6시 표시.
+//   홈 캘린더 = 내 일정 + 이벤트 캘린더 기간 막대(10/22 누르면 홈에서 이벤트 창 · 끌어 옮기기) + 신상 6시 표시.
 //
 // settings 'calendar' { events: [{id, title, start, end, time, endTime, who, color, memo, repeat, createdAt}], movedTasks }
 //   start/end : 'YYYY-MM-DD' — 하루짜리는 end 가 비어 있다. time/endTime : 'HH:MM' — time 이 없으면 종일.

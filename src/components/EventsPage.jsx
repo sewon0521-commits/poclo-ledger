@@ -1,36 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, CalendarDays, Check, ChevronDown } from "lucide-react";
-import { loadKey, changeKey, upsert, remove, FIELD, onSettingsChange, watchKeys } from "../lib/shoot";
-import { won } from "../lib/sales";
-import { newId } from "../lib/id";
-import { dayKey, dayTitle } from "../lib/journal";
-import { KEY, KINDS, kindOf, colorOf, TARGETS, CHANNELS, KIND_TODOS, TEMPLATES, newTodo, DROP_DAYS, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
-import { Sheet, SheetHead, Chips } from "./ShootBits";
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, Check, ChevronDown } from "lucide-react";
+import { loadKey, changeKey, upsert, remove, onSettingsChange, watchKeys } from "../lib/shoot";
+import { dayKey, dayTitle, shiftDay } from "../lib/journal";
+import { KEY, KINDS, kindOf, colorOf, TEMPLATES, newTodo, DROP_DAYS, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
+import { useBarDrag, dropRange, rangeText } from "../lib/barDrag";
+import EventSheet, { ResultLine } from "./EventSheet";
 
 /**
  * 일 › 이벤트 캘린더 (lib/events.js 머리말).
  * 위 = 달력(기간 막대 · 월·화 '신상 6시' 표시 · 빈 칸 누르면 그날 새 이벤트), 아래 = 상시 진행 / 진행 중 / 다가오는 / 지난 이벤트(그 기간 매출).
+ * 10/22 세원: "이벤트 바 옮길 수 있게 해줘." → 막대를 끌어 다른 날에 놓으면 기간 길이 그대로 옮김(마우스 = 끌기, 폰 = 길게 눌러 끌기, lib/barDrag.js).
+ *   짧게 누르면 예전처럼 이벤트 창(EventSheet — 홈 캘린더도 같은 창).
  */
 
 const MAX_LANES = 4;
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
-function Bar({ b, onOpen }) {
+function Bar({ b, onOpen, onPress, quiet, dim }) {
   const c = colorOf(b.e.kind);
   const done = (b.e.todos || []).length > 0 && b.e.todos.every((t) => t.done);
   return (
     <button
       type="button"
+      onPointerDown={onPress}
+      onContextMenu={(ev) => ev.preventDefault()}
       onClick={(ev) => {
         ev.stopPropagation();
-        onOpen(b.e);
+        if (!quiet()) onOpen(b.e);
       }}
-      title={`${b.e.title} · ${periodLabel(b.e)}`}
+      title={`${b.e.title} · ${periodLabel(b.e)} — 누르면 열기 · 끌어서 날짜 옮기기`}
       style={{ top: 26 + b.lane * 22, left: `calc(${(b.col * 100) / 7}% + 2px)`, width: `calc(${(b.span * 100) / 7}% - 4px)`, background: c }}
       className={
-        "absolute z-[1] flex h-5 items-center gap-1 overflow-hidden px-1.5 text-left text-[11px] font-medium text-white shadow-sm hover:brightness-110 " +
+        "absolute z-[1] flex h-5 cursor-grab items-center gap-1 overflow-hidden px-1.5 text-left text-[11px] font-medium text-white shadow-sm select-none [-webkit-touch-callout:none] hover:brightness-110 " +
         (b.cutL ? "rounded-l-none " : "rounded-l-md ") +
-        (b.cutR ? "rounded-r-none" : "rounded-r-md")
+        (b.cutR ? "rounded-r-none" : "rounded-r-md") +
+        (dim ? " opacity-40" : "")
       }
     >
       {done && <Check size={11} strokeWidth={3} className="shrink-0" />}
@@ -39,10 +43,12 @@ function Bar({ b, onOpen }) {
   );
 }
 
-function Month({ ym, events, today, onNew, onOpen }) {
+function Month({ ym, events, today, onNew, onOpen, onMove }) {
   const weeks = useMemo(() => monthWeeks(ym), [ym]);
+  const { drag, press, quiet, box, tag } = useBarDrag((item, n) => onMove(item.id, n));
+  const hot = dropRange(drag); // 끄는 중이면 놓일 자리 [시작, 끝]
   return (
-    <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+    <div ref={box} className={"overflow-hidden rounded-2xl border border-stone-200 bg-white" + (drag ? " cursor-grabbing select-none" : "")}>
       <div className="grid grid-cols-7 border-b border-stone-200 bg-stone-50 text-center text-[11px] font-semibold text-stone-500">
         {WEEK.map((w, i) => (
           <div key={w} className={"py-1.5 " + (i === 0 ? "text-rose-600" : i === 6 ? "text-sky-700" : "")}>
@@ -59,13 +65,18 @@ function Month({ ym, events, today, onNew, onOpen }) {
               const out = k.slice(0, 7) !== ym;
               const wd = weekday(k);
               const more = hidden(k);
+              const on = hot && k >= hot[0] && k <= hot[1];
               return (
                 <button
                   key={k}
                   type="button"
-                  onClick={() => onNew(k)}
+                  data-day={k}
+                  onClick={() => !quiet() && onNew(k)}
                   title={`${dayTitle(k)} — 눌러서 이벤트 넣기`}
-                  className={"group relative flex flex-col items-stretch justify-start border-r border-stone-100 p-1 text-left last:border-r-0 hover:bg-rose-50/40 " + (out ? "bg-stone-50/60" : "")}
+                  className={
+                    "group relative flex flex-col items-stretch justify-start border-r border-stone-100 p-1 text-left last:border-r-0 " +
+                    (on ? "bg-rose-50 ring-2 ring-rose-300 ring-inset" : (out ? "bg-stone-50/60 " : "") + (drag ? "" : "hover:bg-rose-50/40"))
+                  }
                 >
                   <span className="flex items-center gap-1">
                     <span
@@ -86,29 +97,26 @@ function Month({ ym, events, today, onNew, onOpen }) {
             {bars
               .filter((b) => b.lane < MAX_LANES)
               .map((b) => (
-                <Bar key={b.e.id + b.s} b={b} onOpen={onOpen} />
+                <Bar
+                  key={b.e.id + b.s}
+                  b={b}
+                  onOpen={onOpen}
+                  quiet={quiet}
+                  dim={drag?.item.id === b.e.id}
+                  onPress={(ev) => press(ev, { id: b.e.id, s: b.e.start, t: endOf(b.e), title: b.e.title || "이름 없음" })}
+                />
               ))}
           </div>
         );
       })}
+      <div ref={tag} className={"pointer-events-none fixed top-0 left-0 z-[60] max-w-[80vw] truncate rounded-lg bg-stone-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg " + (drag ? "" : "hidden")}>
+        {drag && (
+          <>
+            {drag.item.title} → <b className="tabular-nums">{rangeText(hot[0], hot[1])}</b>
+          </>
+        )}
+      </div>
     </div>
-  );
-}
-
-function ResultLine({ r }) {
-  if (!r) return null;
-  const up = r.change != null && r.change >= 0;
-  return (
-    <span className="text-[11px] text-stone-500 tabular-nums">
-      {r.partial ? "지금까지" : "기간"} 매출 <b className="text-stone-800">{won(r.sum)}원</b> · 하루 {won(r.perDay)}원
-      {r.change != null && (
-        <b className={up ? "text-emerald-700" : "text-rose-700"}>
-          {" "}
-          ({up ? "+" : ""}
-          {Math.round(r.change * 100)}% 직전 {r.days}일보다)
-        </b>
-      )}
-    </span>
   );
 }
 
@@ -157,201 +165,6 @@ function Section({ title, list, rows, today, onOpen, empty }) {
   );
 }
 
-const EMPTY = { title: "", kind: "promo", start: "", end: "", always: false, target: "", benefit: "", couponNo: "", channels: [], banner: "", todos: [], memo: "" };
-
-function Editor({ seed, rows, today, onSave, onRemove, onClose }) {
-  const [x, setX] = useState(() => {
-    const v = { ...EMPTY, ...seed };
-    return v.todos.length || seed.id ? v : { ...v, todos: (KIND_TODOS[v.kind] || []).map(newTodo) };
-  });
-  const [todo, setTodo] = useState("");
-  const set = (p) => setX((v) => ({ ...v, ...p }));
-  const pickKind = (k) => {
-    // 할 일을 아직 안 건드렸으면 그 종류의 할 일로 바꿔 깐다
-    const untouched = x.todos.every((t) => !t.done) && x.todos.map((t) => t.text).join("|") === (KIND_TODOS[x.kind] || []).join("|");
-    set({ kind: k, ...(untouched ? { todos: (KIND_TODOS[k] || []).map(newTodo) } : {}) });
-  };
-  const applyTemplate = (t) =>
-    setX((v) => ({
-      ...v,
-      title: t.title,
-      kind: t.kind,
-      always: !!t.always,
-      target: t.target || v.target,
-      benefit: t.benefit || v.benefit,
-      channels: t.channels || v.channels,
-      todos: (t.todos || KIND_TODOS[t.kind] || []).map(newTodo),
-    }));
-  const addTodo = () => {
-    const t = todo.trim();
-    if (!t) return;
-    set({ todos: [...x.todos, newTodo(t)] });
-    setTodo("");
-  };
-  const ok = x.title.trim() && (x.always || x.start);
-  const r = resultOf(x, rows, today);
-  return (
-    <Sheet onClose={onClose} wide>
-      <SheetHead title={seed.id ? x.title || "이벤트" : "이벤트 넣기"} onClose={onClose} />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-sm">
-        {!seed.id && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-stone-400">틀로 시작</span>
-            {TEMPLATES.map((t) => (
-              <button key={t.label} type="button" onClick={() => applyTemplate(t)} className="rounded-full border border-dashed border-stone-300 px-2.5 py-1 text-xs text-stone-600 hover:border-rose-300 hover:text-rose-800">
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
-        <label className="block space-y-1">
-          <span className="text-xs font-semibold text-stone-500">이름</span>
-          <input value={x.title} onChange={(e) => set({ title: e.target.value })} placeholder="예: 겨울 아우터 얼리버드" className={FIELD + " text-base font-semibold"} />
-        </label>
-        <div className="space-y-1">
-          <span className="text-xs font-semibold text-stone-500">종류</span>
-          <div className="flex flex-wrap gap-1.5">
-            {KINDS.map(([k, label, c]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => pickKind(k)}
-                className={"flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium " + (x.kind === k ? "border-transparent text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
-                style={x.kind === k ? { background: c } : undefined}
-              >
-                {x.kind !== k && <span className="h-2 w-2 rounded-full" style={{ background: c }} />}
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <span className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-stone-500">기간</span>
-            <label className="flex items-center gap-1.5 text-xs text-stone-600">
-              <input type="checkbox" checked={x.always} onChange={(e) => set({ always: e.target.checked })} className="accent-rose-700" />
-              상시 (기간 없이 계속)
-            </label>
-          </span>
-          {!x.always && (
-            <div className="grid grid-cols-2 gap-2">
-              <input type="date" value={x.start} onChange={(e) => set({ start: e.target.value, end: !x.end || x.end < e.target.value ? e.target.value : x.end })} className={FIELD} />
-              <input type="date" value={x.end} min={x.start || undefined} onChange={(e) => set({ end: e.target.value })} className={FIELD} />
-            </div>
-          )}
-        </div>
-        <div className="space-y-1">
-          <span className="text-xs font-semibold text-stone-500">누구에게</span>
-          <Chips list={TARGETS} value={x.target} onChange={(v) => set({ target: v })} />
-        </div>
-        <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
-          <label className="block space-y-1">
-            <span className="text-xs font-semibold text-stone-500">혜택</span>
-            <input value={x.benefit} onChange={(e) => set({ benefit: e.target.value })} placeholder="예: 3,000원 할인 · 3만 원 이상 · 14일" className={FIELD} />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-semibold text-stone-500">카페24 쿠폰 번호</span>
-            <input value={x.couponNo} onChange={(e) => set({ couponNo: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" placeholder="만든 뒤 적기" className={FIELD + " tabular-nums"} />
-          </label>
-        </div>
-        <div className="space-y-1">
-          <span className="text-xs font-semibold text-stone-500">어디에 알리나</span>
-          <div className="flex flex-wrap gap-1.5">
-            {CHANNELS.map((c) => {
-              const on = x.channels.includes(c);
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => set({ channels: on ? x.channels.filter((y) => y !== c) : [...x.channels, c] })}
-                  className={"rounded-full border px-3 py-1.5 text-xs font-medium " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
-                >
-                  {c}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <label className="block space-y-1">
-          <span className="text-xs font-semibold text-stone-500">배너·알림 문구</span>
-          <textarea value={x.banner} onChange={(e) => set({ banner: e.target.value })} placeholder={"예: 가을 아우터 얼리버드 10%\n3만 원 이상 · 10/20 ~ 10/26"} className={FIELD + " min-h-[3.5rem] [field-sizing:content]"} />
-        </label>
-        <div className="space-y-1.5 rounded-xl border border-stone-200 p-3">
-          <span className="text-xs font-semibold text-stone-500">
-            할 일 <span className="font-normal text-stone-400">{x.todos.filter((t) => t.done).length}/{x.todos.length}</span>
-          </span>
-          {x.todos.map((t) => (
-            <div key={t.id} className="group flex items-center gap-2">
-              <input type="checkbox" checked={t.done} onChange={() => set({ todos: x.todos.map((y) => (y.id === t.id ? { ...y, done: !y.done } : y)) })} className="h-4 w-4 shrink-0 accent-rose-700" />
-              <input
-                value={t.text}
-                onChange={(e) => set({ todos: x.todos.map((y) => (y.id === t.id ? { ...y, text: e.target.value } : y)) })}
-                className={"min-w-0 flex-1 rounded-md border border-transparent px-1.5 py-1 text-sm outline-none hover:border-stone-200 focus:border-rose-400 " + (t.done ? "text-stone-400 line-through" : "text-stone-800")}
-              />
-              <button type="button" onClick={() => set({ todos: x.todos.filter((y) => y.id !== t.id) })} aria-label="할 일 빼기" className="p-1 text-stone-300 hover:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100">
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-          <div className="flex gap-1.5 pt-1">
-            <input
-              value={todo}
-              onChange={(e) => setTodo(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  addTodo();
-                }
-              }}
-              placeholder="할 일 더하기 (엔터)"
-              className={FIELD + " py-1.5"}
-            />
-            <button type="button" onClick={addTodo} aria-label="할 일 더하기" className="rounded-lg border border-stone-200 px-2.5 text-stone-500 hover:border-rose-300 hover:text-rose-700">
-              <Plus size={15} />
-            </button>
-          </div>
-        </div>
-        <label className="block space-y-1">
-          <span className="text-xs font-semibold text-stone-500">메모 · 결과 기록</span>
-          <textarea value={x.memo} onChange={(e) => set({ memo: e.target.value })} placeholder="예: 쿠폰 발급 42 · 사용 9 — 다음엔 2만 원 이상으로" className={FIELD + " min-h-[3rem] [field-sizing:content]"} />
-        </label>
-        {r && (
-          <p className="rounded-lg bg-stone-50 px-3 py-2">
-            <ResultLine r={r} />
-          </p>
-        )}
-      </div>
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-stone-200 p-3">
-        {seed.id ? (
-          <button type="button" onClick={() => window.confirm(`'${x.title}' 이벤트를 지울까요?`) && onRemove(seed.id)} className="flex items-center gap-1 text-xs text-stone-400 hover:text-rose-600">
-            <Trash2 size={13} /> 지우기
-          </button>
-        ) : (
-          <span className="text-xs text-stone-400">{!ok ? "이름과 날짜(또는 상시)를 넣으면 저장돼요" : ""}</span>
-        )}
-        <button
-          type="button"
-          disabled={!ok}
-          onClick={() =>
-            onSave({
-              ...x,
-              title: x.title.trim(),
-              end: x.always ? "" : x.end || x.start,
-              start: x.always ? "" : x.start,
-              todos: x.todos.filter((t) => t.text.trim()),
-              id: seed.id || newId("ev"),
-              createdAt: seed.createdAt || new Date().toISOString(),
-            })
-          }
-          className="rounded-xl bg-rose-700 px-6 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
-        >
-          저장
-        </button>
-      </footer>
-    </Sheet>
-  );
-}
-
 export default function EventsPage({ online, rows }) {
   const today = dayKey();
   const [list, setList] = useState([]);
@@ -389,6 +202,21 @@ export default function EventsPage({ online, rows }) {
       setEdit(null);
     } catch (e) {
       setMsg(e.message || "저장하지 못했어요.");
+    }
+  };
+  // 막대 끌어 옮기기 — 화면 먼저 옮기고, 서버는 조건부 쓰기로 그 이벤트의 날짜만 바꾼다(다른 칸·다른 이벤트는 서버 최신 그대로)
+  const moveEvent = async (id, n) => {
+    const e = list.find((x) => x.id === id);
+    if (!e?.start || !n) return;
+    const start = shiftDay(e.start, n);
+    const end = e.end ? shiftDay(e.end, n) : "";
+    const fn = (v) => ({ ...v, items: (v.items || []).map((x) => (x.id === id ? { ...x, start, end } : x)) });
+    setList((l) => fn({ items: l }).items);
+    try {
+      setList((await changeKey(KEY, online, fn)).items || []);
+    } catch (er) {
+      setMsg(er.message || "옮기지 못했어요.");
+      load();
     }
   };
 
@@ -452,9 +280,10 @@ export default function EventsPage({ online, rows }) {
         </div>
       </div>
 
-      <Month ym={ym} events={shown} today={today} onNew={(k) => setEdit({ start: k, end: k })} onOpen={setEdit} />
+      <Month ym={ym} events={shown} today={today} onNew={(k) => setEdit({ start: k, end: k })} onOpen={setEdit} onMove={moveEvent} />
       <p className="-mt-2 px-1 text-[11px] text-stone-400">
-        <CalendarDays size={11} className="mr-0.5 inline align-[-1px]" /> 빈 칸을 누르면 그날 이벤트를 넣어요 · '신상 6시'는 신상 업로드 날(월·화 저녁 6시)
+        <CalendarDays size={11} className="mr-0.5 inline align-[-1px]" /> 빈 칸을 누르면 그날 이벤트를 넣어요 · 막대를 끌어 다른 날에 놓으면 날짜가 옮겨져요
+        <span className="[@media(pointer:fine)]:hidden">(폰은 길게 눌러 끌기)</span> · '신상 6시'는 신상 업로드 날(월·화 저녁 6시)
       </p>
 
       {loaded && !list.length ? (
@@ -484,7 +313,7 @@ export default function EventsPage({ online, rows }) {
         </>
       )}
 
-      {edit && <Editor key={edit.id || "new" + edit.start} seed={edit} rows={rows} today={today} onClose={() => setEdit(null)} onSave={(e) => save(upsert(e))} onRemove={(id) => save(remove(id))} />}
+      {edit && <EventSheet key={edit.id || "new" + edit.start} seed={edit} rows={rows} today={today} onClose={() => setEdit(null)} onSave={(e) => save(upsert(e))} onRemove={(id) => save(remove(id))} />}
     </div>
   );
 }
