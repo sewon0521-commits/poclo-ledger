@@ -5,6 +5,7 @@ import { dayKey, PEOPLE, loadJournal, routinesOn } from "../lib/journal";
 import { SPANS, rangeOf, rangeLabel, vsLabel, spanStats, productRows, adCountsIn, addDays } from "../lib/reportPeriod";
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
+import { MarketBrief, AdsBrief } from "./ReportMarket";
 
 /**
  * 보고 › 매일 보고 (2026-10-19, 위키 topics/보고-체계-설계.md).
@@ -439,6 +440,7 @@ function Report({ r, hist, rows, journals }) {
           <Sparkles size={16} className="mt-1 shrink-0 text-rose-700" />
           <div className="min-w-0">
             <p className="text-lg font-bold leading-snug text-stone-900">{r.headline || "숫자 보고 (코멘트는 못 썼어요)"}</p>
+            {r.comment?.length > 0 && r.market_take && <div className="mt-2 text-xs font-semibold text-stone-500">매출 흐름</div>}
             {r.comment?.length > 0 && (
               <ul className="mt-2 space-y-1 text-sm leading-relaxed text-stone-700">
                 {r.comment.map((c, i) => (
@@ -468,6 +470,10 @@ function Report({ r, hist, rows, journals }) {
           </div>
         )}
       </section>
+
+      {/* 10/22 — 시장(기온·트렌드) → 소싱·콘텐츠·판매·소재 → 광고(쇼만마) */}
+      <MarketBrief r={r} />
+      <AdsBrief r={r} />
 
       <TodayRoutines journals={journals} />
 
