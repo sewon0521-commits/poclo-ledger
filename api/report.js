@@ -35,7 +35,7 @@ const PROMPT = `너는 여성 보세 의류 쇼핑몰 '포클로'의 MD 겸 마�
 - brand = 우리 방향 메모(타겟·모델 체형). 동대문 사입 보세 의류, 신상 업로드는 매주 월·화 저녁 6시 → 1~2주 뒤 기온도 같이 본다.
 
 자료
-- yesterday · week · prevWeek = 어제·지난 7일·그 전 7일 매출(revenue)·주문(orders). 요일은 yesterday.weekday 를 그대로 쓴다(날짜로 짐작하지 말 것).
+- yesterday · week · prevWeek = 어제·지난 7일·그 전 7일 매출(revenue)·주문(orders). 요일은 yesterday.weekday · weather.days[].weekday 를 그대로 쓴다(날짜로 짐작하지 말 것).
 - weather: days(어제·오늘·앞으로 7일, 서울, wear = 기온별 옷차림), next7(평균·가장 낮은 기온·비 오는 날), lastYear(작년 같은 30일 주 단위, firstBelow0 = 작년 첫 영하).
 - news: 최근 7일 패션 기사 제목. 패션과 상관없는 기사는 버린다. 제목에 없는 내용을 지어내지 않는다.
 - compNew: 경쟁몰 베스트(약 40곳). top10 = 지금 10위 안 품목·디테일(몰 수), new1 = 어제 대비 새로 들어온 상품, new7 = 7일 전 대비. cats/details 의 malls = 몰 수.
