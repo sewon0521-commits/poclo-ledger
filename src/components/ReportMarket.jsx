@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Sun, Cloud, CloudSun, CloudRain, CloudSnow, Thermometer, Newspaper, ShoppingBag, Clapperboard, Store, Megaphone, Copy, Check, ChevronDown } from "lucide-react";
+import { Sun, Cloud, CloudSun, CloudRain, CloudSnow, Thermometer, Newspaper, ChevronDown } from "lucide-react";
 
 /**
  * 매일 보고 — 시장 종합 (2026-10-22)
  * 세원: "광고만 이야기하지 말고 시장 트렌드·기온·뉴스·경쟁사 신상·경쟁사 인스타를 종합해서 무엇을 소싱하고 어떤 콘텐츠를 기획하고
  *        어떻게 팔고 어떤 소재를 만들지 판단해서 보고. 광고 상황도 꼭 — 광고는 쇼만마가 하고 있으니 그걸 고려해서."
- * 자료는 r.market (poclo-cafe24/market.py), 판단은 r.market_take · sourcing · content · selling · creatives_plan · ads (api/report.js).
+ * 자료는 r.market (poclo-cafe24/market.py), 판단은 r.market_take (api/report.js).
+ * 10/24 세원: "매일 보고 맨날 안 봐 — 간단 코멘트 · 기온 · 시장 흐름 빼고 다 없애" → 소싱할 것 · 기획할 콘텐츠 · 이렇게 팔아요 ·
+ *   만들 광고 소재 · 광고 상황 칸을 뺐다(예전 보고에 그 값이 남아 있어도 안 그린다).
  * 예전 보고(10/21 전)에는 없으니 있을 때만 그린다.
  */
 
@@ -167,131 +169,15 @@ function Trend({ trend, news, comp, insta }) {
   );
 }
 
-function Picks({ icon, title, sub, rows, render }) {
-  if (!rows?.length) return null;
-  return (
-    <Card icon={icon} title={title} sub={sub}>
-      <ol className="space-y-2.5">
-        {rows.map((x, i) => (
-          <li key={i} className="flex gap-2 text-sm">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-50 text-[11px] font-bold text-rose-700 tabular-nums">{i + 1}</span>
-            <div className="min-w-0 flex-1 leading-relaxed">{render(x)}</div>
-          </li>
-        ))}
-      </ol>
-    </Card>
-  );
-}
-
-/** 시장 → 소싱·콘텐츠·판매·소재 */
+/** 기온 · 시장 흐름 (10/24 소싱·콘텐츠·판매·소재·광고 칸은 뺌) */
 export function MarketBrief({ r }) {
   const m = r.market || {};
   const t = r.market_take || {};
   if (!r.market && !r.market_take) return null;
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Weather w={m.weather} take={t.weather} />
-        <Trend trend={t.trend} news={Array.isArray(m.news) ? m.news : []} comp={m.compNew} insta={m.insta} />
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Picks
-          icon={ShoppingBag}
-          title="소싱할 것"
-          sub="이번 주 사입"
-          rows={r.sourcing}
-          render={(x) => (
-            <>
-              <b className="text-stone-900">{x.item}</b>
-              <span className="block text-stone-600">{x.why}</span>
-              {x.fit && <span className="block text-xs text-rose-800">우리 체형 포인트 · {x.fit}</span>}
-            </>
-          )}
-        />
-        <Picks
-          icon={Clapperboard}
-          title="기획할 콘텐츠"
-          sub="릴스 · 캐러셀"
-          rows={r.content}
-          render={(x) => (
-            <>
-              <b className="text-stone-900">{x.title}</b>
-              {x.hook && <span className="mt-0.5 block rounded-lg bg-stone-50 px-2 py-1 text-stone-800">“{x.hook}”</span>}
-              <span className="block text-xs text-stone-500">{x.why}</span>
-            </>
-          )}
-        />
-        <Picks icon={Store} title="이렇게 팔아요" sub="진열 · 기획전 · 묶음" rows={r.selling} render={(x) => <span className="text-stone-800">{x}</span>} />
-        <Picks
-          icon={Megaphone}
-          title="만들 광고 소재"
-          sub="쇼만마에 보낼 것"
-          rows={r.creatives_plan}
-          render={(x) => (
-            <>
-              <b className="text-stone-900">{x.idea}</b>
-              {x.product && <span className="block text-xs font-medium text-rose-800">{x.product}</span>}
-              <span className="block text-xs text-stone-500">{x.why}</span>
-            </>
-          )}
-        />
-      </div>
+    <div className="grid gap-3 lg:grid-cols-2">
+      <Weather w={m.weather} take={t.weather} />
+      <Trend trend={t.trend} news={Array.isArray(m.news) ? m.news : []} comp={m.compNew} insta={m.insta} />
     </div>
-  );
-}
-
-/** 광고 상황 — 쇼만마가 운영하니 '요청할 것'으로. 복사해서 단톡에 붙일 수 있게 */
-export function AdsBrief({ r }) {
-  const [copied, setCopied] = useState(false);
-  const a = r.ads;
-  const c = r.market?.creatives;
-  if (!a && !c) return null;
-  const ask = a?.shomanma || [];
-  const copy = async () => {
-    const text = [`[포클로 ${mdOf(r.date)} 광고 요청]`, ...ask.map((x, i) => `${i + 1}. ${x}`)].join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* 복사가 막힌 브라우저 */
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <Card icon={Megaphone} title="광고 상황" sub="쇼만마가 운영 중 · 포클로는 소재 전달" className="border-amber-200 bg-amber-50/30">
-      {c && !c.error && (
-        <div className="mb-2 flex flex-wrap gap-1.5 text-xs">
-          {[
-            ["지금 켜진 광고", c.active],
-            ["끌 것", c.killCount, c.killCount ? "bg-amber-400 text-amber-950" : ""],
-            ["에이스·후보(한 달)", c.aceCount, c.aceCount ? "bg-rose-700 text-white" : ""],
-            ["이번 주 새 소재", `${c.made7} / ${c.weeklyGoal || 25}`],
-          ].map(([k, v, tone]) => (
-            <span key={k} className={"rounded-full px-2.5 py-1 font-semibold tabular-nums " + (tone || "bg-white text-stone-700 ring-1 ring-stone-200")}>
-              {k} {v}
-            </span>
-          ))}
-        </div>
-      )}
-      {a?.status && <p className="text-sm leading-relaxed text-stone-800">{a.status}</p>}
-      {ask.length > 0 && (
-        <div className="mt-2 rounded-xl bg-white p-3 ring-1 ring-amber-200">
-          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-amber-900">쇼만마에 요청·확인할 것</span>
-            <button type="button" onClick={copy} className="flex items-center gap-1 rounded-lg border border-amber-200 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-50">
-              {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "복사했어요" : "단톡에 붙일 글 복사"}
-            </button>
-          </div>
-          <ol className="space-y-1 text-sm text-stone-800">
-            {ask.map((x, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="font-semibold text-amber-700 tabular-nums">{i + 1}</span>
-                <span>{x}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-    </Card>
   );
 }

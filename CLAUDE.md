@@ -2500,3 +2500,18 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
   타임라인 점선·우리 이벤트 · 메인 배너만 · 찾기 '쿠폰팩' / 흉내: 새로 시작 3 · 끝 2 · '10/21 시작 · 2일째' · '10/20 이전~10/21 (2일 이상) · 10/22에 사라짐' · 숫자 칸 거르기 / 폰 열기·넘침 없음.
 - 10/22 **'같이 반납할 것' 줄이 폰에서 잘리던 것**(세원: "거래처 반납할 때 몇 개 더 포장 — 원래 잘 나왔는데 모바일에서"): 거래처 이름에 영어가 붙으며('니트홀릭 NITHOLIC') 한 줄(폰 카드 약 157px)을 넘어
   '포장 전 N'이 잘렸다(PC 도 긴 이름이면). → 이름은 **한글만·줄어들게**(truncate), '2개 더 · 포장 전 1'은 **늘 다 보이게**(shrink-0). 확인 `perf/matesm.mjs`(폰·PC 넘침 없음).
+
+## 60. 매일 보고 줄이기 · 경쟁몰 이벤트 끔 (2026-10-24)
+
+세원: "매일 보고 솔직히 맨날 안 보거든? 그냥 맨 위에 간단 코멘트, 기온, 시장 흐름 빼고 다 없애. 소싱할 것, 기획할 콘텐츠, 이렇게 팔아요, 만들 광고 소재, 광고 상황 다 없애.
+그리고 경쟁몰 이벤트는 내가 물어볼 때만 너가 판단만 해 줘. 이거 모으는 거 다 돈이잖아 맞지? 없애."
+
+- **Claude 가 쓰는 칸 = 셋**(`api/report.js` ReportSchema): headline(맨 위 한 줄) · comment(간단 코멘트 2~3줄 — 매출 흐름 숫자 + 지금 팔릴 것) · market_take{weather, trend}.
+  sourcing · content · selling · creatives_plan · ads · todo 는 뺐다. 프롬프트도 짧게(광고·소싱 목록 쓰지 말 것), max_tokens 16000 → 8000.
+- `poclo-cafe24/daily_report.py`: REQUIRED = 셋, Claude 에 보내는 자료(slim)는 date · yesterday · week · prevWeek · weather · news · compNew · insta · brand 만
+  (광고·상품·이벤트·경쟁몰 상품 목록·소재 성적은 안 보냄 — 글이 짧아지고 Claude Code 사용량도 줄어듦). `market.creatives` 는 안 부름(광고 상황 칸 전용이었음). 백업 `_daily_report_백업_261024.py`.
+  **숫자 칸(어제 한 줄 · KPI · 오늘 광고 예산 · 이벤트 · 상품별 · 경쟁몰에서 뜨는 상품 · 어제 소재)은 그대로** — Claude 를 안 쓰고 서버 자료로만 만들어서 돈이 안 든다(세원에게 뺄지 물어봄).
+- 화면: `ReportMarket.MarketBrief` = 기온 · 시장 흐름 두 칸만(Picks·AdsBrief 지움), ReportPage 의 '오늘 할 일'·'매출 흐름' 이름표 지움. 예전 보고에 그 값이 남아 있어도 안 그린다.
+- **경쟁몰 이벤트 매일 모으기 끔**: `poclo-cafe24/_아침보고.bat` 의 mall_events 줄을 rem(백업 `_아침보고_백업_261024.bat`), 메뉴(nav.js)에서 뺌.
+  화면(`MallEventsPage.jsx`·`lib/mallEvents.js`·App 길)과 `mall_events.py` 는 남겨 둠 — **세원이 물어보면 `python mall_events.py` 한 번 돌리고(약 4분) 결과를 읽어 판단만 말한다.**
+  모으는 데 API 돈은 안 들었다(사무실 PC 크롬으로 읽기만) — 대신 아침 배치 약 4분 · 서버 공간 하루 약 120KB(30일치 스냅샷 + 타임라인 180KB).

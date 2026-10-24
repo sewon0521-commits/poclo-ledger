@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, ChevronDown, Sparkles, ListTodo, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Sparkles, Megaphone, CalendarDays, AlertTriangle, TrendingUp } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { dayKey, PEOPLE, loadJournal, routinesOn } from "../lib/journal";
 import { SPANS, rangeOf, rangeLabel, vsLabel, spanStats, productRows, adCountsIn, addDays } from "../lib/reportPeriod";
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
-import { MarketBrief, AdsBrief } from "./ReportMarket";
+import { MarketBrief } from "./ReportMarket";
 
 /**
  * 보고 › 매일 보고 (2026-10-19, 위키 topics/보고-체계-설계.md).
@@ -440,7 +440,6 @@ function Report({ r, hist, rows, journals }) {
           <Sparkles size={16} className="mt-1 shrink-0 text-rose-700" />
           <div className="min-w-0">
             <p className="text-lg font-bold leading-snug text-stone-900">{r.headline || "숫자 보고 (코멘트는 못 썼어요)"}</p>
-            {r.comment?.length > 0 && r.market_take && <div className="mt-2 text-xs font-semibold text-stone-500">매출 흐름</div>}
             {r.comment?.length > 0 && (
               <ul className="mt-2 space-y-1 text-sm leading-relaxed text-stone-700">
                 {r.comment.map((c, i) => (
@@ -454,26 +453,10 @@ function Report({ r, hist, rows, journals }) {
             {r.note && <p className="mt-2 text-xs text-amber-700">{r.note}</p>}
           </div>
         </div>
-        {r.todo?.length > 0 && (
-          <div className="mt-3 rounded-xl bg-white/80 p-3 ring-1 ring-rose-100">
-            <div className="mb-1.5 flex items-center gap-1 text-xs font-semibold text-rose-800">
-              <ListTodo size={13} /> 오늘 할 일
-            </div>
-            <ol className="space-y-1 text-sm text-stone-800">
-              {r.todo.map((t, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="font-semibold text-rose-700 tabular-nums">{i + 1}</span>
-                  <span>{t}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
       </section>
 
-      {/* 10/22 — 시장(기온·트렌드) → 소싱·콘텐츠·판매·소재 → 광고(쇼만마) */}
+      {/* 10/24 세원: "간단 코멘트 · 기온 · 시장 흐름 빼고 다 없애" — 소싱·콘텐츠·판매·소재·광고 상황·오늘 할 일 칸은 뺐다 */}
       <MarketBrief r={r} />
-      <AdsBrief r={r} />
 
       <TodayRoutines journals={journals} />
 
@@ -678,7 +661,7 @@ export default function ReportPage({ online, rows }) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-xl font-bold text-stone-900">매일 보고</h2>
-          <p className="mt-0.5 text-sm text-stone-500">매일 아침 기온·뉴스·경쟁몰 신상·경쟁사 인스타를 모아 소싱·콘텐츠·판매·광고 소재까지 판단해 둬요. 광고는 쇼만마에 요청할 것으로.</p>
+          <p className="mt-0.5 text-sm text-stone-500">매일 아침 짧은 코멘트와 기온·시장 흐름(뉴스·경쟁몰 신상·경쟁사 인스타)을 정리해 둬요.</p>
         </div>
         {list.length > 0 && (
           <div className="flex items-center gap-1">

@@ -26,7 +26,6 @@ import {
   Newspaper,
   ScanSearch,
   Trophy,
-  BadgePercent,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -48,7 +47,8 @@ export const SECTIONS = [
           { key: "reports", label: "매일 보고", icon: Newspaper },
           { key: "tracker", label: "사입 트래커", icon: ScanSearch },
           // 10/22 세원 "제니어리랑 경쟁사들 이벤트도 계속 모니터링 — 누가 언제 뭘하는지" (poclo-cafe24/mall_events.py)
-          { key: "mallEvents", label: "경쟁몰 이벤트", icon: BadgePercent },
+          // 10/24 세원: "경쟁몰 이벤트는 내가 물어볼 때만 판단해 줘, 모으는 거 없애" → 메뉴에서 뺌(화면·poclo-cafe24/mall_events.py 는 남김 — 물어보면 한 번 돌려서 판단)
+          // { key: "mallEvents", label: "경쟁몰 이벤트", icon: BadgePercent }, (되살릴 땐 lucide BadgePercent 가져오기)
           // 10/19 밤 세원 "가나다라 다 만들어줘" — 소재 성적표(가·다) · 콘텐츠 트래커(나·라)
           { key: "creatives", label: "소재 성적표", icon: Trophy },
           { key: "contentTracker", label: "콘텐츠 트래커", icon: Clapperboard },
