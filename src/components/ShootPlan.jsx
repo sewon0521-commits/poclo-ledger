@@ -34,6 +34,8 @@ import { lookKinds, lookGroupOf, lookBest, bestPatch } from "../lib/lookStars";
 import { catsOf, mixOf, isShopCat } from "../lib/sourceMix";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
+import { HotReelsTab, MallBestTab, SourcingAccountsTab, PutSheet } from "./SourcingFeed";
+import { useSourcingReels, hotCount } from "../lib/sourcing";
 
 /**
  * 촬영 › 소싱 관리 — 10/12 '코디 촬영 관리'에서 이름 바꿈(세원: "사무실에 스튜디오가 생겨 수시로 촬영하니까 소싱 관리로, 촬영 → 소싱")
@@ -1867,8 +1869,12 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
   );
 }
 
-function SessionsTab({ sessions, d, codis, items, notes, onNotes, online }) {
-  const [open, setOpen] = useState(null);
+function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, openId, onOpened }) {
+  // openId = 다른 탭에서 '소싱에 담기' 뒤 '열어 보기' (10/24)
+  const [open, setOpen] = useState(() => (openId && sessions.items.find((s) => s.id === openId)) || null);
+  useEffect(() => {
+    if (openId) onOpened?.();
+  }, [openId, onOpened]);
   const today = dayKey();
   const all = sessions.items;
   const list = useMemo(() => {
@@ -2123,9 +2129,13 @@ function NotesTab({ notes, online }) {
 // ---------------------------------------------------------------- 화면
 
 // 쇼핑몰 BEST 컷은 10/4 부터 촬영 회차 안에 (세원: "목록에서는 지우고 촬영 회차 폴더 안으로")
+// 10/24 뜨는 릴스 · 경쟁몰 베스트 · 계정 (SourcingFeed.jsx — 세원의 소싱 2단계: 뜨는 콘텐츠의 룩 · 경쟁몰 베스트 → '소싱에 담기')
 const TABS = [
   ["sessions", "소싱 회차"],
+  ["reels", "뜨는 릴스"],
+  ["best", "경쟁몰 베스트"],
   ["notes", "쇼만마 코디 노트"],
+  ["accounts", "계정"],
 ];
 const TAB_KEY = "poclo_shoot_plan_tab";
 
@@ -2149,14 +2159,21 @@ export default function ShootPlan({ d, online }) {
     }
   };
   const sortedNotes = useMemo(() => [...notes.items].sort((a, b) => (b.on || "").localeCompare(a.on || "")), [notes.items]);
+  const reels = useSourcingReels(online);
+  const [put, setPut] = useState(null); // '소싱에 담기' — 어느 소싱에 담을지 고르는 창
+  const [putDone, setPutDone] = useState(null); // {sessionId, catName} — 담은 뒤 알림
+  const [openId, setOpenId] = useState(""); // 알림의 '열어 보기' → 소싱 회차 탭에서 그 소싱 창을 연다
   const msg = sessions.msg || notes.msg;
-  const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, notes: notes.items.length };
+  const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, notes: notes.items.length, reels: hotCount(reels.data) };
+  const doneSession = putDone && sessions.items.find((s) => s.id === putDone.sessionId);
 
   return (
     <div>
       <div className="mb-4">
         <h2 className="text-xl font-bold text-stone-900">소싱 관리</h2>
-        <p className="mt-0.5 text-sm text-stone-500">소싱마다 올라가는 날 날씨와 촬영 레퍼런스(콘텐츠·쇼핑몰·우리빨 비율 + 사진마다 메모·상품)를 한 폴더에. 쇼만마에서 들은 코디는 노트로.</p>
+        <p className="mt-0.5 text-sm text-stone-500">
+          뜨는 릴스·경쟁몰 베스트에서 고른 룩을 '소싱에 담기'로 소싱 회차에. 소싱마다 올라가는 날 날씨와 촬영 레퍼런스(콘텐츠·쇼핑몰·우리빨 비율 + 사진마다 메모·상품)를 한 폴더에. 쇼만마에서 들은 코디는 노트로.
+        </p>
       </div>
       {msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -2166,15 +2183,41 @@ export default function ShootPlan({ d, online }) {
           </button>
         </p>
       )}
-      <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+      {putDone && (
+        <p className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Check size={15} className="shrink-0" />
+            <span className="truncate">
+              {doneSession?.on ? `${md(doneSession.on)} 소싱` : "소싱"}에 담았어요{putDone.catName ? ` · ${putDone.catName}` : ""}
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setOpenId(putDone.sessionId);
+                setPutDone(null);
+                setTab("sessions");
+              }}
+              className="font-semibold underline"
+            >
+              열어 보기
+            </button>
+            <button type="button" onClick={() => setPutDone(null)} aria-label="닫기">
+              <X size={14} />
+            </button>
+          </span>
+        </p>
+      )}
+      <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 text-sm [scrollbar-width:none]">
         {TABS.map(([k, label]) => (
           <button
             key={k}
             type="button"
             onClick={() => setTab(k)}
-            className={"flex-1 rounded-lg py-2 font-medium " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+            className={"min-w-fit flex-1 rounded-lg px-3 py-2 font-medium whitespace-nowrap " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
           >
-            {label} {count[k] > 0 && <span className="text-stone-400">{count[k]}</span>}
+            {label} {count[k] > 0 && <span className={k === "reels" ? "text-rose-700" : "text-stone-400"}>{count[k]}</span>}
           </button>
         ))}
       </div>
@@ -2191,9 +2234,30 @@ export default function ShootPlan({ d, online }) {
           notes={sortedNotes}
           onNotes={() => setTab("notes")}
           online={online}
+          openId={openId}
+          onOpened={() => setOpenId("")}
         />
+      ) : tab === "reels" ? (
+        <HotReelsTab reels={reels} d={d} online={online} onPut={setPut} />
+      ) : tab === "best" ? (
+        <MallBestTab d={d} online={online} onPut={setPut} />
+      ) : tab === "accounts" ? (
+        <SourcingAccountsTab reels={reels} online={online} />
       ) : (
         <NotesTab notes={notes} online={online} />
+      )}
+      {put && (
+        <PutSheet
+          put={put}
+          d={d}
+          sessions={sessions}
+          online={online}
+          onClose={() => setPut(null)}
+          onDone={(r) => {
+            setPut(null);
+            setPutDone(r);
+          }}
+        />
       )}
     </div>
   );
