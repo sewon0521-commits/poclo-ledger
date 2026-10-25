@@ -20,7 +20,7 @@ import { Empty } from "./ui";
 // 보관함 사진 주소 (4시간) — 한 번 물어 못 받은 건 빈 값으로 남겨 다시 안 묻는다
 const SIGNED = new Map();
 const ASKING = new Set();
-function useSigned(keys, online) {
+export function useSigned(keys, online) {
   const [, bump] = useState(0);
   const sig = [...new Set(keys.filter(Boolean))].filter((k) => !SIGNED.has(k) && !ASKING.has(k)).join("|");
   useEffect(() => {
@@ -51,7 +51,7 @@ async function copyPhoto(key, online) {
 }
 
 /** 어디서 왔는지(from)가 같은 레퍼런스가 있나 — 카드의 '담음' */
-const sameFrom = (a, b) => !!a && !!b && a.type === b.type && ((a.code && a.code === b.code) || (a.url && a.url === b.url));
+export const sameFrom = (a, b) => !!a && !!b && a.type === b.type && ((a.code && a.code === b.code) || (a.url && a.url === b.url));
 
 const LAST_KEY = "poclo_src_session";
 const readLast = () => {
@@ -232,7 +232,68 @@ function PlanButton({ planned, onPlan }) {
 
 const reelCode = (url) => (String(url || "").match(/\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/) || [])[1] || "";
 
-function ReelCard({ x, src, done, onPut, dim, planned, onPlan }) {
+/**
+ * 카드의 '릴스 기획' — 릴스 기획 라이브러리에 이미 있는 릴스(같은 릴스 코드)는 '기획에 있음'(방금 담은 것은 서버 목록이 늦게 와도 바로).
+ * 뜨는 릴스 · 코디로 찾기가 같이 쓴다(from = 메모 앞머리).
+ */
+export function useReelPlan(reelKit, from) {
+  const [justPlanned, setJustPlanned] = useState(() => new Set());
+  const plannedCodes = useMemo(() => {
+    const s = new Set();
+    for (const it of reelKit?.reels || []) {
+      const c = reelCode(it.source?.url || it.meta?.url);
+      if (c) s.add(c);
+    }
+    return s;
+  }, [reelKit?.reels]);
+  const plannedOf = (x) => plannedCodes.has(x.code) || justPlanned.has(x.code);
+  const plan = reelKit?.save
+    ? (x) => async (analyze) => {
+        const now = new Date().toISOString();
+        const id = newId("r");
+        const who = x.mall && x.mall !== "크리에이터" ? x.mall : `@${x.handle}`;
+        await reelKit.save({
+          id,
+          title: `${analyze ? "분석" : "보관"} 대기 — @${x.handle}`,
+          source: { type: "link", url: x.url },
+          meta: { url: x.url },
+          memo: `${from} · @${x.handle} · 조회 ${countText(x.views)} · 댓글 ${countText(x.comments)} (댓글÷조회 ${pctText(x.r)})`,
+          shop: { name: who, url: `https://www.instagram.com/${x.handle}/` },
+          job: { status: "queued", at: now },
+          addedAt: now,
+          filled: [],
+        });
+        await reelKit.queue(id, "ref", analyze ? {} : { analyze: false });
+        setJustPlanned((s) => new Set(s).add(x.code));
+      }
+    : null;
+  return { plannedOf, plan };
+}
+
+/** 카드의 '소싱에 담기' → PutSheet 에 넘길 것 (뜨는 릴스 · 코디로 찾기) */
+export function putReel(x, src, online, onPut, extraMemo = "") {
+  onPut({
+    title: `${x.mall || "@" + x.handle} 릴스 · 댓글÷조회 ${pctText(x.r)}`,
+    src,
+    from: { type: "reel", code: x.code, url: x.url },
+    cat: "content",
+    shop: x.mall || "",
+    links: [{ id: newId("lk"), kind: "릴스", url: x.url }],
+    memo: (`@${x.handle} 릴스 ${x.takenAt ? md(x.takenAt) : ""} · 조회 ${countText(x.views)} · 댓글 ${countText(x.comments)} (${pctText(x.r)})`.replace(/\s+·/, " ·") + (extraMemo ? `\n${extraMemo}` : "")),
+    photo: async () => {
+      if (x.thumb) return copyPhoto(x.thumb, online);
+      if (x.img && isRemote && online) {
+        const [f] = await urlsToFiles([x.img]);
+        return f ? putPhoto(f, online) : null;
+      }
+      return null;
+    },
+    photoUrl: !(isRemote && online) ? src : "",
+  });
+}
+
+// x.why(코디로 찾기 — 왜 닮았는지 한 줄)가 있으면 캡션 대신 그것, badge 는 왼쪽 위(꼬리표가 없을 때)
+export function ReelCard({ x, src, done, onPut, dim, planned, onPlan, badge }) {
   const tag = TAGS[x.tag];
   return (
     <div className={"flex flex-col overflow-hidden rounded-xl border border-stone-200 bg-white " + (dim ? "opacity-75" : "")}>
@@ -244,10 +305,12 @@ function ReelCard({ x, src, done, onPut, dim, planned, onPlan }) {
             <Film size={28} />
           </span>
         )}
-        {tag && (
+        {tag ? (
           <span title={tag.tip} className={"absolute top-1.5 left-1.5 rounded px-1.5 py-0.5 text-[11px] font-bold shadow-sm " + tag.cls}>
             {tag.label}
           </span>
+        ) : (
+          badge
         )}
         {done && (
           <span className="absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-stone-700 shadow-sm">
@@ -268,7 +331,11 @@ function ReelCard({ x, src, done, onPut, dim, planned, onPlan }) {
         <div className="truncate text-[11px] text-stone-400">
           @{x.handle} · {agoText(x.takenAt)}
         </div>
-        {x.caption && <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-stone-500">{x.caption}</p>}
+        {x.why ? (
+          <p className="mt-1 rounded-lg bg-rose-50 px-2 py-1.5 text-[11px] leading-snug text-rose-900">{x.why}</p>
+        ) : (
+          x.caption && <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-stone-500">{x.caption}</p>
+        )}
         <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
           {onPlan ? (
             <PlanButton planned={planned} onPlan={onPlan} />
@@ -314,57 +381,8 @@ export function HotReelsTab({ reels, d, online, onPut, reelKit }) {
   const accounts = data?.accounts || [];
   const okN = accounts.filter((a) => a.ok).length;
 
-  // 릴스 기획 라이브러리에 이미 있는 릴스(같은 릴스 코드) — 방금 담은 것은 서버 목록이 늦게 와도 바로 '기획에 있음'
-  const [justPlanned, setJustPlanned] = useState(() => new Set());
-  const plannedCodes = useMemo(() => {
-    const s = new Set();
-    for (const it of reelKit?.reels || []) {
-      const c = reelCode(it.source?.url || it.meta?.url);
-      if (c) s.add(c);
-    }
-    return s;
-  }, [reelKit?.reels]);
-  const plannedOf = (x) => plannedCodes.has(x.code) || justPlanned.has(x.code);
-  const plan = reelKit?.save
-    ? (x) => async (analyze) => {
-        const now = new Date().toISOString();
-        const id = newId("r");
-        const who = x.mall && x.mall !== "크리에이터" ? x.mall : `@${x.handle}`;
-        await reelKit.save({
-          id,
-          title: `${analyze ? "분석" : "보관"} 대기 — @${x.handle}`,
-          source: { type: "link", url: x.url },
-          meta: { url: x.url },
-          memo: `소싱 관리 뜨는 릴스 · @${x.handle} · 조회 ${countText(x.views)} · 댓글 ${countText(x.comments)} (댓글÷조회 ${pctText(x.r)})`,
-          shop: { name: who, url: `https://www.instagram.com/${x.handle}/` },
-          job: { status: "queued", at: now },
-          addedAt: now,
-          filled: [],
-        });
-        await reelKit.queue(id, "ref", analyze ? {} : { analyze: false });
-        setJustPlanned((s) => new Set(s).add(x.code));
-      }
-    : null;
-
-  const put = (x) =>
-    onPut({
-      title: `${x.mall || "@" + x.handle} 릴스 · 댓글÷조회 ${pctText(x.r)}`,
-      src: srcOf(x),
-      from: { type: "reel", code: x.code, url: x.url },
-      cat: "content",
-      shop: x.mall || "",
-      links: [{ id: newId("lk"), kind: "릴스", url: x.url }],
-      memo: `@${x.handle} 릴스 ${x.takenAt ? md(x.takenAt) : ""} · 조회 ${countText(x.views)} · 댓글 ${countText(x.comments)} (${pctText(x.r)})`.replace(/\s+·/, " ·"),
-      photo: async () => {
-        if (x.thumb) return copyPhoto(x.thumb, online);
-        if (x.img && isRemote && online) {
-          const [f] = await urlsToFiles([x.img]);
-          return f ? putPhoto(f, online) : null;
-        }
-        return null;
-      },
-      photoUrl: !(isRemote && online) ? srcOf(x) : "",
-    });
+  const { plannedOf, plan } = useReelPlan(reelKit, "소싱 관리 뜨는 릴스");
+  const put = (x) => putReel(x, srcOf(x), online, onPut);
 
   if (!reels.loaded && !data) {
     return (

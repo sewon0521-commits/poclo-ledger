@@ -39,6 +39,7 @@ import StylingSheet from "./Styling";
 import { stylingLine } from "../lib/styling";
 import { useSourcingReels, hotCount } from "../lib/sourcing";
 import { SourcingMemoTab, MemoEditor } from "./SourcingMemo";
+import { LookFindTab } from "./LookFind";
 
 /**
  * 촬영 › 소싱 관리 — 10/12 '코디 촬영 관리'에서 이름 바꿈(세원: "사무실에 스튜디오가 생겨 수시로 촬영하니까 소싱 관리로, 촬영 → 소싱")
@@ -2082,10 +2083,12 @@ function NotesTab({ notes, online }) {
 // 쇼핑몰 BEST 컷은 10/4 부터 촬영 회차 안에 (세원: "목록에서는 지우고 촬영 회차 폴더 안으로")
 // 10/24 뜨는 릴스 · 경쟁몰 베스트 · 계정 (SourcingFeed.jsx — 세원의 소싱 2단계: 뜨는 콘텐츠의 룩 · 경쟁몰 베스트 → '소싱에 담기')
 // 10/25 메모 — 소싱 회차를 넘나드는 날짜별 노션식 메모(SourcingMemo.jsx)
+// 10/26 코디로 찾기 — 코디 사진과 닮은 괜찮은 릴스(LookFind.jsx · 사무실 PC look_find.py)
 const TABS = [
   ["sessions", "소싱 회차"],
   ["memo", "메모"],
   ["reels", "뜨는 릴스"],
+  ["look", "코디로 찾기"],
   ["best", "경쟁몰 베스트"],
   ["notes", "쇼만마 코디 노트"],
   ["accounts", "계정"],
@@ -2119,6 +2122,14 @@ export default function ShootPlan({ d, online, reelKit }) {
   const msg = sessions.msg || notes.msg;
   const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, notes: notes.items.length, reels: hotCount(reels.data) };
   const doneSession = putDone && sessions.items.find((s) => s.id === putDone.sessionId);
+  // 폰에서는 탭 줄이 옆으로 밀린다 — 고른 탭이 화면 밖이면 보이게(10/26 '코디로 찾기'가 일곱째 칸)
+  const tabsRef = useRef(null);
+  useEffect(() => {
+    const el = tabsRef.current;
+    const on = el?.querySelector("[data-on]");
+    if (!el || !on || el.scrollWidth <= el.clientWidth) return;
+    el.scrollLeft += on.getBoundingClientRect().left - el.getBoundingClientRect().left - (el.clientWidth - on.offsetWidth) / 2;
+  }, [tab]);
 
   return (
     <div>
@@ -2162,11 +2173,12 @@ export default function ShootPlan({ d, online, reelKit }) {
           </span>
         </p>
       )}
-      <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 text-sm [scrollbar-width:none]">
+      <div ref={tabsRef} className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 text-sm [scrollbar-width:none]">
         {TABS.map(([k, label]) => (
           <button
             key={k}
             type="button"
+            data-on={tab === k ? "" : undefined}
             onClick={() => setTab(k)}
             className={"min-w-fit flex-1 rounded-lg px-3 py-2 font-medium whitespace-nowrap " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
           >
@@ -2201,6 +2213,8 @@ export default function ShootPlan({ d, online, reelKit }) {
         />
       ) : tab === "reels" ? (
         <HotReelsTab reels={reels} d={d} online={online} onPut={setPut} reelKit={reelKit} />
+      ) : tab === "look" ? (
+        <LookFindTab d={d} online={online} onPut={setPut} reelKit={reelKit} />
       ) : tab === "best" ? (
         <MallBestTab d={d} online={online} onPut={setPut} />
       ) : tab === "accounts" ? (
