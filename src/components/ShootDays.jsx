@@ -430,10 +430,68 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
   );
 }
 
+// 촬영일 미정 코디 (10/25 세원: "신상 관리에서 코디 짜면 촬영 관리에서 바로 업뎃되게") — 신상 관리 코디는 촬영일이 '(선택)'이라
+// 비워 두면 촬영 관리에 안 나왔다. 촬영 전·촬영일 없는 코디를 맨 위에 모으고, 여기서 촬영일을 정하면 그날 카드로 들어간다.
+function UndatedCodis({ codis, d, onStyle }) {
+  const [busy, setBusy] = useState("");
+  if (!codis.length) return null;
+  const setDate = async (c, on) => {
+    if (!on) return;
+    setBusy(c.id);
+    try {
+      await d.saveCodis(upsert({ ...c, shootDate: on }));
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <section className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-3.5">
+      <div className="mb-2.5 flex flex-wrap items-baseline gap-x-2">
+        <h3 className="text-sm font-bold text-amber-900">촬영일 미정 코디 {codis.length}</h3>
+        <span className="text-xs text-amber-800/80">신상 관리에서 짠 코디가 바로 여기로 와요 · 촬영일을 정하면 그날 카드로 옮겨져요</span>
+      </div>
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        {codis.map((c) => {
+          const its = codiItems(c, d.items);
+          const line = stylingLine(c.styling, d.items);
+          return (
+            <div key={c.id} className="flex gap-2.5 rounded-xl border border-stone-200 bg-white p-2.5">
+              <button type="button" onClick={() => onStyle(c)} className="flex shrink-0 gap-1" title="스타일링 고르기">
+                {its.slice(0, 3).map((x) => (
+                  <Photo key={x.id} url={d.urls[x.photo] || x.photoUrl} className="aspect-[3/4] w-12 rounded-md" />
+                ))}
+              </button>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <button type="button" onClick={() => onStyle(c)} className="line-clamp-2 text-left text-[13px] leading-snug font-semibold text-stone-900 hover:text-rose-800">
+                  {codiName(c, d.items)}
+                </button>
+                <span className={"truncate text-[11px] " + (line ? "text-emerald-700" : "text-stone-400")}>{line ? `스타일링 · ${line}` : "스타일링 아직"}</span>
+                <label className="mt-auto flex items-center gap-1.5 text-[11px] text-stone-500">
+                  촬영일
+                  <input
+                    type="date"
+                    disabled={busy === c.id}
+                    onChange={(e) => setDate(c, e.target.value)}
+                    className="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-2 py-1 text-xs outline-none focus:border-rose-600"
+                  />
+                  {busy === c.id && <Loader2 size={12} className="animate-spin" />}
+                </label>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function ShootDays({ d, online }) {
   const days = useDays(online);
   const [open, setOpen] = useState(null); // 날짜 또는 기록 id
+  const [styling, setStyling] = useState(null); // 촬영일 미정 코디 id
   const today = dayKey();
+  const undated = useMemo(() => d.codis.filter((c) => !c.shootDate && !c.done), [d.codis]);
+  const liveStyling = styling && d.codis.find((c) => c.id === styling);
   // 촬영일 = 코디 촬영일 + 직접 만든 촬영
   const list = useMemo(() => {
     const m = new Map();
@@ -522,6 +580,7 @@ export default function ShootDays({ d, online }) {
           </button>
         </p>
       )}
+      <UndatedCodis codis={undated} d={d} onStyle={(c) => setStyling(c.id)} />
       {!list.up.length && !list.past.length ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
           <CalendarDays size={20} className="mx-auto mb-2 text-stone-300" />
@@ -550,6 +609,7 @@ export default function ShootDays({ d, online }) {
           onClose={() => setOpen(null)}
         />
       )}
+      {liveStyling && <StylingSheet codi={liveStyling} d={d} online={online} onClose={() => setStyling(null)} />}
     </div>
   );
 }
