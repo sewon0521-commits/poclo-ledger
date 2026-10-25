@@ -24,8 +24,7 @@ import {
   Link2,
   ExternalLink,
 } from "lucide-react";
-import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, codiName } from "../lib/shoot";
-import { CutFilter } from "./CutBits";
+import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, codiName } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stageName } from "../lib/sinsang";
@@ -33,8 +32,11 @@ import { BigSlides } from "./ContentBits";
 import { lookKinds, lookGroupOf, lookBest, bestPatch } from "../lib/lookStars";
 import { catsOf, mixOf, isShopCat } from "../lib/sourceMix";
 import { clipImages, filesOf } from "../lib/pasteImages";
-import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
+import { ordered } from "../lib/reelFolders";
 import { HotReelsTab, MallBestTab, SourcingAccountsTab, PutSheet } from "./SourcingFeed";
+import RefPick from "./RefPick";
+import StylingSheet from "./Styling";
+import { stylingLine } from "../lib/styling";
 import { useSourcingReels, hotCount } from "../lib/sourcing";
 
 /**
@@ -329,91 +331,6 @@ const dday = (d) => {
   const n = Math.round((new Date(d + "T00:00:00") - new Date(dayKey() + "T00:00:00")) / 86400000);
   return n === 0 ? "오늘" : n > 0 ? `D-${n}` : `${-n}일 전`;
 };
-
-// 예전 '옷 종류' 꼬리표 사진은 같은 이름 상위 목록으로 (촬영 레퍼런스와 같게)
-const withFolder = (r) => (r.folderId || r.folder ? r : { ...r, folder: (r.clothes || [])[0] || "" });
-
-/** 촬영 레퍼런스에서 사진 고르기 (10/6 세원: "코디 촬영 관리 폴더 만든 곳에서 촬영 레퍼런스에 있는 사진 레퍼런스를 픽할 수 있었으면") */
-function RefPick({ d, picked, onDone, onClose }) {
-  const [sel, setSel] = useState(picked);
-  const [folder, setFolder] = useState("");
-  const [cut, setCut] = useState("");
-  const [shop, setShop] = useState("");
-  const shops = shopsOf(d.tags, d.refs);
-  const inFolder = folder ? new Set(withChildren(folder, d.folders)) : null;
-  const refs = d.refs
-    .map(withFolder)
-    .filter((r) => (!inFolder || inFolder.has(folderIdOf(r, d.folders))) && hasCut(r, cut) && (!shop || r.shop === shop));
-  const flip = (id) => setSel((x) => (x.includes(id) ? x.filter((k) => k !== id) : [...x, id]));
-  return (
-    <div className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
-      <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className="sheet relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
-        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
-          <span className="font-semibold text-stone-900">촬영 레퍼런스에서 고르기 <span className="text-sm font-normal text-stone-400">{sel.length}장 골랐어요</span></span>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
-            <X size={20} />
-          </button>
-        </header>
-        <div className="shrink-0 space-y-2 border-b border-stone-100 px-4 py-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <select value={folder} onChange={(e) => setFolder(e.target.value)} className={FIELD + " max-w-xs py-1.5 text-sm"}>
-              <option value="">목록 전체</option>
-              {ordered(d.folders).map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.depth ? `${"　".repeat(f.depth)}└ ${f.name}` : f.name}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-stone-400">{refs.length}장</span>
-          </div>
-          {(d.tags?.cuts || []).length > 0 && <CutFilter tags={d.tags} value={cut} onChange={setCut} />}
-          {shops.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {["", ...shops].map((s) => (
-                <button
-                  key={s || "all"}
-                  type="button"
-                  onClick={() => setShop(s)}
-                  className={"rounded-full border px-2.5 py-0.5 text-xs " + (shop === s ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}
-                >
-                  {s || "쇼핑몰 전체"}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {refs.length ? (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-              {refs.map((r) => {
-                const on = sel.includes(r.id);
-                return (
-                  <button key={r.id} type="button" onClick={() => flip(r.id)} className={"relative block aspect-[3/4] overflow-hidden rounded-xl bg-stone-100 " + (on ? "ring-[3px] ring-rose-600" : "")}>
-                    {d.urls[r.photo] && <img src={d.urls[r.photo]} alt="" loading="lazy" className="h-full w-full object-cover" />}
-                    <span className={"absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border-2 " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-white bg-black/20 text-transparent")}>
-                      <Check size={14} />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="py-10 text-center text-sm text-stone-400">{d.refs.length ? "이 목록·컷에는 사진이 없어요." : "촬영 › 촬영 레퍼런스에 사진을 넣으면 여기서 골라요."}</p>
-          )}
-        </div>
-        <footer className="flex shrink-0 justify-end gap-2 border-t border-stone-200 px-4 py-2.5">
-          <button type="button" onClick={onClose} className="rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-600">
-            그만두기
-          </button>
-          <button type="button" onClick={() => onDone(sel)} className="rounded-xl bg-rose-700 px-5 py-2 text-sm font-semibold text-white">
-            {sel.length}장 담기
-          </button>
-        </footer>
-      </div>
-    </div>
-  );
-}
 
 const REF_FOLDER_KEY = "poclo_plan_ref_folder"; // 붙인 사진이 들어갈 촬영 레퍼런스 목록 (기기마다 기억)
 
@@ -1665,8 +1582,11 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
   };
   const uploads = s.uploads?.length ? s.uploads : [""];
   const w = useWeather([s.on, ...uploads]);
-  const dayCodis = codis.filter((c) => s.on && c.shootDate === s.on);
-  const nameOf = (id) => items.find((x) => x.id === id)?.name || "";
+  // 이날 코디 = 업로드 날짜가 이 소싱의 업로드 날짜와 같은 코디 (10/25 세원: "이날 코디로 나오는 게 업로드 날짜로 선택돼야") — 예전엔 촬영일 == 소싱일
+  const upDays = [...new Set(uploads.filter(Boolean))].sort();
+  const dayCodis = codis.filter((c) => c.uploadOn && upDays.includes(c.uploadOn));
+  const [styling, setStyling] = useState(null); // 코디를 누르면 스타일링 창
+  const liveStyling = styling && codis.find((c) => c.id === styling.id);
   const cats = catsOf(d.tags);
   // 예전 '쇼핑몰 BEST 컷' 칸 사진 → 촬영 레퍼런스(쇼핑몰 레퍼런스 + 그 쇼핑몰)로 (10/21 칸을 없애면서)
   const oldShops = (s.shops || []).filter((x) => (x.photos || []).length);
@@ -1788,7 +1708,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             }}
             online={online}
             onMsg={setMsg}
-            hot
+            hot={!styling}
             onHot={() => {}}
             cats={cats}
             onCats={(next) => d.saveTags((v) => ({ ...v, refCats: next }))}
@@ -1804,19 +1724,44 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
 
           <div className="rounded-xl border border-stone-200 p-3">
             <div className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-              <Shirt size={15} className="text-rose-700" /> 이날 코디 {dayCodis.length > 0 && <span className="font-normal text-stone-400">{dayCodis.length}개</span>}
+              <Shirt size={15} className="text-rose-700" /> 이날 코디 {dayCodis.length > 0 && <span className="font-normal text-stone-400">{dayCodis.length}개 · 누르면 스타일링</span>}
             </div>
-            {dayCodis.length ? (
-              <ul className="space-y-1 text-sm">
-                {dayCodis.map((c) => (
-                  <li key={c.id}>
-                    <b className="font-medium text-stone-900">{codiName(c, items)}</b>
-                    <span className="text-stone-500"> — {(c.itemIds || []).map(nameOf).filter(Boolean).join(" + ") || "상품 없음"}</span>
-                  </li>
-                ))}
-              </ul>
+            {!upDays.length ? (
+              <p className="text-xs text-stone-400">위에 업로드 날짜를 넣으면, 신상 관리 › 코디에서 그 날로 업로드 날짜를 정한 코디가 여기 떠요.</p>
             ) : (
-              <p className="text-xs text-stone-400">신상 관리 › 코디에서 촬영일을 {s.on ? md(s.on) : "이날"}로 정한 코디가 여기 떠요.</p>
+              <div className="space-y-2.5">
+                {upDays.map((u) => {
+                  const list = dayCodis.filter((c) => c.uploadOn === u);
+                  return (
+                    <div key={u}>
+                      <div className="mb-1 text-xs font-semibold text-stone-500">
+                        {md(u)} 업로드 · 코디 {list.length}
+                      </div>
+                      {list.length ? (
+                        <ul className="space-y-1">
+                          {list.map((c) => {
+                            const line = stylingLine(c.styling, items);
+                            return (
+                              <li key={c.id}>
+                                <button type="button" onClick={() => setStyling(c)} className="flex w-full items-start justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-rose-50">
+                                  <span className="min-w-0 text-sm">
+                                    <b className="font-medium text-stone-900">{codiName(c, items)}</b>
+                                    {c.shootDate && <span className="text-stone-400"> · {md(c.shootDate)} 촬영</span>}
+                                    <span className={"block truncate text-xs " + (line ? "text-rose-800" : "text-amber-700")}>{line || "스타일링 정하기 — 헤어 · 신발 · 악세서리"}</span>
+                                  </span>
+                                  <ChevronRight size={15} className="mt-0.5 shrink-0 text-stone-300" />
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <p className="px-2 text-xs text-stone-400">신상 관리 › 코디에서 업로드 날짜를 {md(u)}로 정한 코디가 여기 떠요.</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
 
@@ -1865,6 +1810,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
           </button>
         </footer>
       </div>
+      {liveStyling && <StylingSheet codi={liveStyling} d={d} online={online} onClose={() => setStyling(null)} />}
     </div>
   );
 }
@@ -1886,7 +1832,8 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, openId
   const cats = catsOf(d.tags);
   const card = (s) => {
     const mix = mixOf(s.refIds, s.refLooks, cats, "photo");
-    const nCodi = codis.filter((c) => s.on && c.shootDate === s.on).length;
+    const ups = (s.uploads || []).filter(Boolean);
+    const nCodi = codis.filter((c) => c.uploadOn && ups.includes(c.uploadOn)).length;
     return (
       <button key={s.id} type="button" onClick={() => setOpen(s)} className="rounded-2xl border border-stone-200 bg-white p-4 text-left transition hover:border-rose-300 hover:shadow-sm">
         <div className="flex items-start justify-between gap-2">

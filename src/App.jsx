@@ -487,11 +487,11 @@ pg === "home" ? (
                   onSaveReel={S.saveReel}
                   onSaveCarousel={S.saveCarousel}
                 />
-              ) : pg === "shoot" || pg === "shootRefs" || pg === "shootPlan" ? (
+              ) : pg === "shoot" || pg === "shootRefs" || pg === "shootPlan" || pg === "shootDays" ? (
                 <PricingCtx.Provider value={pricingKit}>
                   <ShootPage
                     key={pg}
-                    view={pg === "shootRefs" ? "refs" : pg === "shootPlan" ? "plan" : "list"}
+                    view={pg === "shootRefs" ? "refs" : pg === "shootPlan" ? "plan" : pg === "shootDays" ? "days" : "list"}
                     online={L.mode === "remote" && !!L.session}
                     vendors={vendors}
                     onVendor={L.saveVendor}

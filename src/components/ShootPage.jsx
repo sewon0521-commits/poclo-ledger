@@ -9,6 +9,7 @@ import { normalize, moveTo, DEFAULT_MSGS, shootsOf, withShoots, stageName, sourc
 import { dayKey, dayTitle } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
+import ShootDays from "./ShootDays";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
@@ -1008,8 +1009,8 @@ function RefsView({ d, online }) {
 
 // ---------------------------------------------------------------- 촬영 목록 — 코디
 
-/** 코디한 날 — 직접 정한 날(codiOn) → 없으면 코디를 만든 날(createdAt, 이 기기 시각) (10/14) */
-const codiDay = (c) => c?.codiOn || (c?.createdAt ? dayKey(new Date(c.createdAt)) : "");
+// 코디 날짜 (10/25 세원: "코디에 코디한 날을 없애고 촬영일, 업로드 날짜를 넣어야 할 것 같아") — shootDate(촬영일) · uploadOn(업로드 날짜).
+// 예전 codiOn(코디한 날, 10/14)은 데이터에 남겨 두고 안 쓴다. 소싱 관리 '이날 코디'는 업로드 날짜로, 촬영 관리는 촬영일로 묶는다.
 const CODI_STAGES = [
   ["pickup", "픽업 요청"],
   ["arrived", "입고·픽"],
@@ -1019,7 +1020,7 @@ const CODI_STAGES = [
 const chip = (on) => "shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap " + (on ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300");
 
 function CodiEdit({ codi, d, onClose }) {
-  const [c, setC] = useState({ name: "", itemIds: [], refIds: [], shootDate: "", memo: "", codiOn: codiDay(codi) || dayKey(), ...codi });
+  const [c, setC] = useState({ name: "", itemIds: [], refIds: [], shootDate: "", uploadOn: "", memo: "", ...codi });
   const [tab, setTab] = useState("items");
   const [folder, setFolder] = useState(null);
   const [cut, setCut] = useState("");
@@ -1078,15 +1079,15 @@ function CodiEdit({ codi, d, onClose }) {
           placeholder={codiAuto(c, d.items) ? `비우면 '${codiAuto(c, d.items)}'` : "코디 이름 — 비우면 상품 이름으로(상품 + 상품)"}
           className={FIELD}
         />
-        {/* 코디한 날(10/14 세원: "소싱한 날처럼 코디에도 날짜") — 코디 탭에서 날짜별로 본다 · 촬영일은 소싱 관리 '이날 코디'에 뜬다 */}
+        {/* 촬영일 · 업로드 날짜 (10/25) — 촬영일은 촬영 관리에, 업로드 날짜는 소싱 관리 '이날 코디'에 뜬다 */}
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-[11px] font-medium text-stone-500">
-            코디한 날
-            <input type="date" value={c.codiOn || ""} onChange={(e) => setC({ ...c, codiOn: e.target.value })} className={FIELD + " mt-0.5 py-1.5"} />
+            촬영일
+            <input type="date" value={c.shootDate || ""} onChange={(e) => setC({ ...c, shootDate: e.target.value })} className={FIELD + " mt-0.5 py-1.5"} />
           </label>
           <label className="block text-[11px] font-medium text-stone-500">
-            촬영일 (선택)
-            <input type="date" value={c.shootDate} onChange={(e) => setC({ ...c, shootDate: e.target.value })} className={FIELD + " mt-0.5 py-1.5"} />
+            업로드 날짜
+            <input type="date" value={c.uploadOn || ""} onChange={(e) => setC({ ...c, uploadOn: e.target.value })} className={FIELD + " mt-0.5 py-1.5"} />
           </label>
         </div>
         <input value={c.memo} onChange={(e) => setC({ ...c, memo: e.target.value })} placeholder="메모 — 장소·소품·찍을 컷" className={FIELD} />
@@ -1402,8 +1403,8 @@ function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
           )}
           {custom && auto && <span className="block truncate text-[11px] text-stone-400">{auto}</span>}
           <span className="block truncate text-[11px] text-stone-500">
-            {codiDay(c) && `${md(codiDay(c))} 코디 · `}상품 {its.length} · 참고 사진 {rs.length}
-            {c.shootDate && ` · ${md(c.shootDate)} 촬영`}
+            {c.shootDate ? `${md(c.shootDate)} 촬영` : "촬영일 미정"}
+            {c.uploadOn && ` · ${md(c.uploadOn)} 업로드`} · 상품 {its.length} · 참고 사진 {rs.length}
             {c.done && c.doneOn && ` · ${md(c.doneOn)} 완료`}
             {c.memo && ` · ${c.memo}`}
           </span>
@@ -1452,24 +1453,17 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
   // 촬영 전은 촬영 날짜가 가까운 것부터, 촬영 완료는 최근에 끝낸 것부터
   const todo = d.codis.filter((c) => !c.done).sort((a, b) => (a.shootDate || "9").localeCompare(b.shootDate || "9"));
   const doneList = d.codis.filter((c) => c.done).sort((a, b) => String(b.doneOn || b.shootDate || "").localeCompare(String(a.doneOn || a.shootDate || "")));
-  // 코디한 날 (10/14 세원: "소싱한 날처럼 코디란에도 날짜를") — 날짜를 누르면 그날 코디만, 고른 날 코디를 통째로 다른 날로
+  // 촬영일로 거르기 (10/25 — 예전 '코디한 날' 칩 자리). 촬영 전은 가까운 날부터, 촬영 완료는 최근부터, 촬영일 없는 코디는 '촬영일 없음'
   const [cDay, setCDay] = useState("");
-  const [cDayTo, setCDayTo] = useState("");
   const base = codiTab === "done" ? doneList : todo;
   const cDays = useMemo(() => {
     const m = new Map();
-    for (const c of base) if (codiDay(c)) m.set(codiDay(c), (m.get(codiDay(c)) || 0) + 1);
-    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-  }, [base]);
+    for (const c of base) m.set(c.shootDate || "none", (m.get(c.shootDate || "none") || 0) + 1);
+    const dated = [...m.entries()].filter(([k]) => k !== "none").sort((a, b) => (codiTab === "done" ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0])));
+    return m.has("none") ? [...dated, ["none", m.get("none")]] : dated;
+  }, [base, codiTab]);
   const cday = cDays.some(([k]) => k === cDay) ? cDay : "";
-  const codis = cday ? base.filter((c) => codiDay(c) === cday) : base;
-  const moveCodiDay = async (from, to) => {
-    if (!to || to === from) return;
-    const ids = base.filter((c) => codiDay(c) === from).map((c) => c.id);
-    await d.saveCodis((v) => ({ ...v, items: (v.items || []).map((c) => (ids.includes(c.id) ? { ...c, codiOn: to } : c)) }));
-    setCDay(to);
-    setCDayTo("");
-  };
+  const codis = cday ? base.filter((c) => (c.shootDate || "none") === cday) : base;
   const short = (k) => dayTitle(k).replace(/^(\d+)월 (\d+)일/, "$1/$2");
   /** 촬영 끝 — 색상 저장, 상품은 '등록' 단계로, 상품의 촬영 차수에도 찍은 색상 */
   const finishShot = async (c, cols) => {
@@ -1557,37 +1551,22 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
               </button>
             ))}
           </div>
-          {cDays.length > 0 && (
-            <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
-              <span className="shrink-0 text-xs font-medium text-stone-500">코디한 날</span>
-              {[["", "전체", base.length], ...cDays.map(([k, n]) => [k, short(k), n])].map(([k, label, n]) => (
+          {cDays.length > 1 && (
+            <div className="mb-3 flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              <span className="shrink-0 text-xs font-medium text-stone-500">촬영일</span>
+              {[["", "전체", base.length], ...cDays.map(([k, n]) => [k, k === "none" ? "촬영일 없음" : short(k), n])].map(([k, label, n]) => (
                 <button
                   key={k || "all"}
                   type="button"
-                  onClick={() => {
-                    setCDay(k);
-                    setCDayTo("");
-                  }}
+                  onClick={() => setCDay(k)}
                   aria-pressed={cday === k}
-                  title={k ? `${dayTitle(k)}에 만든 코디만` : "코디 전부"}
+                  title={k === "none" ? "촬영일을 아직 안 정한 코디" : k ? `${dayTitle(k)} 촬영 코디만` : "코디 전부"}
                   className={chip(cday === k)}
                 >
                   {label} <span className={cday === k ? "text-stone-300" : "text-stone-400"}>{n}</span>
                 </button>
               ))}
             </div>
-          )}
-          {cday && (
-            <label className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
-              {short(cday)} 코디 {codis.length}개의 날짜 바꾸기
-              <input type="date" value={cDayTo || cday} onChange={(e) => setCDayTo(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-800" />
-              {cDayTo && cDayTo !== cday && /^20\d\d-/.test(cDayTo) && (
-                <button type="button" onClick={() => moveCodiDay(cday, cDayTo)} className="rounded-lg bg-stone-800 px-2.5 py-1 font-semibold text-white">
-                  {short(cDayTo)}로 옮기기
-                </button>
-              )}
-              <span className="text-stone-400">하나만 바꾸려면 코디의 연필 → '코디한 날'</span>
-            </label>
           )}
           {codis.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
@@ -1655,6 +1634,8 @@ export default function ShootPage({ view, online, vendors = [], onVendor, dealt,
         <RefsView d={d} online={online} />
       ) : view === "plan" ? (
         <ShootPlan d={d} online={online} reelKit={reelKit} />
+      ) : view === "days" ? (
+        <ShootDays d={d} online={online} />
       ) : (
         <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
       )}

@@ -27,6 +27,7 @@ import {
   ScanSearch,
   Trophy,
   FileSignature,
+  CalendarCheck,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -124,6 +125,8 @@ export const SECTIONS = [
           // 10/4 세원: "코디 촬영 관리란 — 찍을 컷·영상, 쇼핑몰별 베스트컷, 날씨, 쇼만마 코디"
           // 10/12 세원: "스튜디오가 생겨 수시로 촬영하니까 코디 촬영 관리 → 소싱 관리"
           { key: "shootPlan", label: "소싱 관리", icon: ClipboardList },
+          // 10/25 세원: "소싱 관리랑 촬영 관리랑 따로 · 모델은 촬영 관리만" → 촬영일마다 코디·스타일링·시간·장소, 모델에게는 촬영 시트 링크(components/ShootDays.jsx)
+          { key: "shootDays", label: "촬영 관리", icon: CalendarCheck },
           // 10/25 세원: "모바일로 계약서 진행할 수 있게" — 테스트 촬영 전 모델이 폰으로 읽고 서명(components/ContractPage.jsx · SignPage.jsx)
           { key: "contracts", label: "모델 계약서", icon: FileSignature },
         ],

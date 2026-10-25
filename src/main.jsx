@@ -7,16 +7,25 @@ import App from "./App.jsx";
 import { installClickSound } from "./lib/clickSound";
 
 // 10/25 모델 계약서 — 모델이 받은 링크(#sign=<토큰>)는 로그인 없이 서명 화면만 (components/SignPage.jsx)
+// oxlint-disable-next-line react/only-export-components
 const SignPage = lazy(() => import("./components/SignPage.jsx"));
 const signing = /^#sign=/.test(window.location.hash);
+// 10/25 촬영 시트 — 모델이 받은 링크(#sheet=<토큰>)도 로그인 없이 그날 촬영 한 장만 (components/SheetPage.jsx)
+// oxlint-disable-next-line react/only-export-components
+const SheetPage = lazy(() => import("./components/SheetPage.jsx"));
+const sheet = /^#sheet=/.test(window.location.hash);
 
-if (!signing) installClickSound();
+if (!signing && !sheet) installClickSound();
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     {signing ? (
       <Suspense fallback={<div className="min-h-screen bg-stone-100" />}>
         <SignPage />
+      </Suspense>
+    ) : sheet ? (
+      <Suspense fallback={<div className="min-h-screen bg-stone-100" />}>
+        <SheetPage />
       </Suspense>
     ) : (
       <App />
