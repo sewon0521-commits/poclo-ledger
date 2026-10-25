@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, FileSignature, Loader2, Pencil, Plus, Printer, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, FileSignature, Loader2, Lock, Pencil, Plus, Printer, RefreshCw, Trash2 } from "lucide-react";
 import {
   DEFAULT_TEMPLATE,
   HOLES,
@@ -14,9 +14,12 @@ import {
   fillText,
   listContracts,
   removeContract,
+  revealRrn,
+  rrnReady,
   signLink,
   updateContract,
   usesText,
+  whoOf,
   wonText,
 } from "../lib/contract";
 import { changeKey, loadKey } from "../lib/shoot";
@@ -303,6 +306,69 @@ function LinkBox({ c }) {
   );
 }
 
+// 주민등록번호 — 평소엔 가린 번호, '신고용 보기'를 누르면 1분 동안만 전체(누를 때마다 서버에 누가·언제 남음)
+const SHOW_SEC = 60;
+function RrnBox({ c, online }) {
+  const [shown, setShown] = useState(null); // {rrn, log}
+  const [left, setLeft] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    if (!shown) return;
+    const t = setTimeout(() => (left <= 1 ? setShown(null) : setLeft(left - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [shown, left]);
+  if (!c.signed_at) return null;
+  if (!c.hasRrn)
+    return <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500 ring-1 ring-stone-200">주민등록번호 없이 서명한 계약서예요 — 원천징수 신고 전에 따로 받아야 해요.</p>;
+  const reveal = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await revealRrn(online, c.id);
+      if (!r?.rrn) return setErr("저장된 번호를 못 읽었어요");
+      setShown(r);
+      setLeft(SHOW_SEC);
+    } catch (e) {
+      setErr(e instanceof ContractError ? e.message : "못 읽었어요: " + (e.message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="rounded-xl border border-stone-200 bg-white p-3.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex items-center gap-1 text-sm font-semibold text-stone-800">
+          <Lock size={14} className="text-stone-400" /> 주민등록번호
+        </span>
+        <span className="font-mono text-sm tracking-wider text-stone-900 tabular-nums" data-rrn>
+          {shown ? shown.rrn : c.signed?.rrnMask || "******-*******"}
+        </span>
+        <span className="ml-auto flex gap-1.5">
+          {shown ? (
+            <>
+              <CopyBtn text={shown.rrn}>번호 복사</CopyBtn>
+              <button type="button" onClick={() => setShown(null)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-stone-300">
+                <EyeOff size={12} /> 가리기
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={reveal} disabled={busy} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800 disabled:opacity-50">
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} 신고용 보기
+            </button>
+          )}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-stone-400">
+        {shown
+          ? `${left}초 뒤 다시 가려져요 · 원천징수 신고에만 써 주세요. 본 기록: ${(shown.log || []).map((x) => `${whoOf(x.who)} ${signedAtText(x.at).replace(/^\d{4}년 /, "")}`).join(" · ")}`
+          : "암호화해 저장돼 있어요. '신고용 보기'를 누르면 1분 동안 전체가 보이고, 누가 언제 봤는지 남아요."}
+      </p>
+      {err && <p className="mt-1 text-xs text-rose-700">{err}</p>}
+    </section>
+  );
+}
+
 function ViewSheet({ c, online, onClose, onRemove, onSaved }) {
   const t = c.terms || {};
   return (
@@ -320,6 +386,7 @@ function ViewSheet({ c, online, onClose, onRemove, onSaved }) {
         {!c.signed_at && <LinkBox c={c} />}
         {!c.signed_at && <EditBox key={c.id + (t.editedAt || "")} c={c} online={online} onSaved={onSaved} />}
         {t.memo && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">메모: {t.memo}</p>}
+        <RrnBox key={"rrn" + c.id} c={c} online={online} />
         <ContractText terms={t} />
         <SignedBlock signed={c.signed} signedAt={c.signed_at} />
         <div className="flex justify-end">
@@ -388,10 +455,12 @@ function TemplateSheet({ tpl, onClose, onSave }) {
   );
 }
 
-function MissingSql() {
+function MissingSql({ rrn }) {
   return (
     <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-      <p className="font-semibold">계약서를 담을 표가 아직 없어요 — SQL 을 한 번 실행해 주세요</p>
+      <p className="font-semibold">
+        {rrn ? "주민등록번호 칸(암호화 저장)을 쓰려면 SQL 을 한 번 더 실행해 주세요 — 그 전엔 새 계약서를 만들 수 없어요" : "계약서를 담을 표가 아직 없어요 — SQL 을 한 번 실행해 주세요"}
+      </p>
       <ol className="mt-2 list-decimal space-y-1 pl-5 text-[13px]">
         <li>
           <a href={SQL_URL} target="_blank" rel="noreferrer" className="font-semibold text-rose-800 underline">
@@ -420,6 +489,7 @@ export default function ContractPage({ online }) {
   const [making, setMaking] = useState(false);
   const [view, setView] = useState(null);
   const [editTpl, setEditTpl] = useState(false);
+  const [rrnOk, setRrnOk] = useState(true);
 
   const load = async () => {
     try {
@@ -433,6 +503,7 @@ export default function ContractPage({ online }) {
   };
   useEffect(() => {
     load();
+    rrnReady(online).then(setRrnOk);
     loadKey(TEMPLATE_KEY, online, null)
       .then((v) => v?.body && setTpl({ ...DEFAULT_TEMPLATE, ...v }))
       .catch(() => {});
@@ -467,20 +538,20 @@ export default function ContractPage({ online }) {
           <h2 className="flex items-center gap-1.5 text-xl font-bold text-stone-900">
             <FileSignature size={20} /> 모델 계약서
           </h2>
-          <p className="mt-0.5 text-sm text-stone-500">계약서를 만들어 링크를 DM 으로 보내면, 모델이 폰에서 읽고 서명해요. 주민등록번호는 받지 않아요.</p>
+          <p className="mt-0.5 text-sm text-stone-500">계약서를 만들어 링크를 DM 으로 보내면, 모델이 폰에서 읽고 서명해요. 주민등록번호(3.3% 신고용)는 암호화해 저장하고 &apos;신고용 보기&apos;에서만 전체가 보여요.</p>
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={() => setEditTpl(true)} className="flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:border-stone-300">
             <Pencil size={14} /> 문구 틀
           </button>
-          <button type="button" onClick={() => setMaking(true)} disabled={missing} className="flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:bg-stone-300">
+          <button type="button" onClick={() => setMaking(true)} disabled={missing || !rrnOk} className="flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-800 disabled:bg-stone-300">
             <Plus size={15} /> 계약서 만들기
           </button>
         </div>
       </div>
 
       {!isRemote || !online ? <p className="rounded-lg bg-stone-100 px-3 py-2 text-xs text-stone-500">이 기기에만 저장하는 모드예요 — 시험용. 모델 링크는 이 브라우저에서만 열려요.</p> : null}
-      {missing && <MissingSql />}
+      {missing ? <MissingSql /> : !rrnOk && <MissingSql rrn />}
       {err && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{err}</p>}
 
       <div className="flex items-center gap-2">
@@ -525,6 +596,7 @@ export default function ContractPage({ online }) {
                       {dateText(t.date)} {t.time} · {wonText(t.wage)}/시간 · 얼굴 {t.face === "off" ? "비노출" : "노출 가능"}
                     </div>
                     <div className="truncate text-[11px] text-stone-400">
+                      {c.signed?.rrnMask ? `주민 ${c.signed.rrnMask} · ` : ""}
                       {usesText(t)}
                       {t.memo ? ` · ${t.memo}` : ""}
                     </div>

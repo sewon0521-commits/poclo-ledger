@@ -26,9 +26,11 @@ export function ContractText({ terms }) {
   );
 }
 
+// 주민등록번호는 가린 것(rrnMask)만 — 전체 번호는 ERP '신고용 보기'에서만(lib/contract.js 머리말). 예전(주민번호 없이) 서명은 줄을 안 그린다.
 export const signedRows = (s) => [
   ["이름", s.name],
   ["생년월일", s.birth],
+  ...(s.rrnMask ? [["주민등록번호", s.rrnMask]] : []),
   ["연락처", s.phone],
   ["은행", s.bank],
   ["계좌번호", s.account],

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Download, Loader2 } from "lucide-react";
-import { ContractError, PRIVACY, getByToken, signByToken, tokenOfHash } from "../lib/contract";
+import { Check, Download, Eye, EyeOff, Loader2 } from "lucide-react";
+import { ContractError, PRIVACY, PRIVACY_OLD, getByToken, maskRrn, rrnFrontOf, rrnProblem, signByToken, tokenOfHash } from "../lib/contract";
 import { ContractText, SignedBlock, drawContractImage, signedAtText } from "./ContractDoc";
 import HangulInput from "./HangulInput";
 import SignPad from "./SignPad";
 
 // 모델이 폰으로 여는 서명 화면 — 로그인 없음. main.jsx 가 주소가 #sign=<토큰> 이면 App 대신 이것만 그린다.
-// 읽기 → 정보(주민번호는 안 받음) → 동의 3개 → 손가락 서명 → 제출(contract_sign, 한 번만) → 끝 화면 · 이미지로 저장.
+// 읽기 → 정보(+주민등록번호 — 원천징수 신고용, 10/25) → 동의 3개 → 손가락 서명 → 제출(contract_sign, 한 번만) → 끝 화면 · 이미지로 저장.
+// 주민번호는 화면 상태에만 잠깐 두고 contract_sign 의 p_rrn 으로만 보낸다(signed·사본 이미지엔 가린 번호만). 보낸 뒤 바로 지운다.
+// 서버가 아직 준비 전(rrnReady 없음 — SQL 전)이면 예전처럼 주민번호 칸 없이.
 
 const BANKS = ["국민", "신한", "우리", "하나", "농협", "기업", "카카오뱅크", "토스뱅크", "케이뱅크", "새마을금고", "우체국", "SC제일", "부산", "대구", "수협", "신협"];
 const F = "w-full rounded-xl border border-stone-300 bg-white px-3.5 py-3 text-base outline-none focus:border-rose-600";
@@ -102,12 +104,15 @@ export default function SignPage() {
   const [state, setState] = useState(token ? "loading" : "notfound");
   const [data, setData] = useState(null);
   const [f, setF] = useState({ name: "", birth: "", phone: "", bank: "", account: "", holder: "" });
+  const [rrn, setRrn] = useState({ front: "", back: "" });
+  const [showBack, setShowBack] = useState(false);
   const [agree, setAgree] = useState({ terms: false, use: false, privacy: false });
   const [hasSign, setHasSign] = useState(false);
   const [err, setErr] = useState("");
   const [sending, setSending] = useState(false);
   const pad = useRef(null);
   const top = useRef(null);
+  const backRef = useRef(null);
 
   useEffect(() => {
     document.title = "포클로 계약서";
@@ -175,25 +180,41 @@ export default function SignPage() {
     setErr("");
     setF((x) => ({ ...x, [k]: v }));
   };
+  // 생년월일을 다 적으면 주민번호 앞자리가 비어 있을 때만 채워 준다
+  const setBirth = (v) => {
+    set("birth")(v);
+    const front = rrnFrontOf(v);
+    if (front) setRrn((x) => (x.front ? x : { ...x, front }));
+  };
+  const setFront = (v) => {
+    setErr("");
+    const d = v.replace(/\D/g, "").slice(0, 6);
+    setRrn((x) => ({ ...x, front: d }));
+    if (d.length === 6 && rrn.front.length < 6) backRef.current?.focus();
+  };
   const flip = (next) => {
     setErr("");
     setAgree(next);
   };
+  const needRrn = !!data.rrnReady;
+  const rrnD = rrn.front + rrn.back;
+  const rrnErr = needRrn ? rrnProblem(rrnD, okBirth(f.birth) ? f.birth : "") : "";
   const allAgree = agree.terms && agree.use && agree.privacy;
   const missing = [
     !f.name.trim() && "이름",
     !okBirth(f.birth) && "생년월일",
+    needRrn && rrnD.length < 13 && "주민등록번호",
     !okPhone(f.phone) && "연락처",
     !f.bank.trim() && "은행",
     f.account.replace(/\D/g, "").length < 8 && "계좌번호",
     !f.holder.trim() && "예금주",
   ].filter(Boolean);
-  const ready = !missing.length && allAgree && hasSign;
+  const ready = !missing.length && !rrnErr && allAgree && hasSign;
 
   const submit = async () => {
     setErr("");
     if (!ready) {
-      setErr(missing.length ? `${missing.join(" · ")}을(를) 확인해 주세요` : !allAgree ? "동의 세 가지를 모두 체크해 주세요" : "서명 칸에 서명해 주세요");
+      setErr(missing.length ? `${missing.join(" · ")}을(를) 확인해 주세요` : rrnErr ? rrnErr : !allAgree ? "동의 세 가지를 모두 체크해 주세요" : "서명 칸에 서명해 주세요");
       return;
     }
     const sign = pad.current?.toPng();
@@ -211,8 +232,10 @@ export default function SignPage() {
       ua: navigator.userAgent.slice(0, 160),
     };
     try {
-      const r = await signByToken(token, signed);
-      setData({ ...data, signed: { ...signed, at: r?.signed_at }, signed_at: r?.signed_at || new Date().toISOString(), _sent: true });
+      const r = await signByToken(token, signed, needRrn ? rrnD : null);
+      const rrnMask = needRrn ? r?.rrnMask || maskRrn(rrnD) : undefined;
+      setRrn({ front: "", back: "" });
+      setData({ ...data, signed: { ...signed, ...(rrnMask ? { rrnMask } : {}), at: r?.signed_at }, signed_at: r?.signed_at || new Date().toISOString(), _sent: true });
       setState("signed");
       window.scrollTo({ top: 0 });
     } catch (e) {
@@ -246,8 +269,55 @@ export default function SignPage() {
           <input value={f.name} onChange={(e) => set("name")(e.target.value)} autoComplete="name" className={F} />
         </Field>
         <Field label="생년월일" hint="예: 2002-05-21">
-          <input value={f.birth} onChange={(e) => set("birth")(fmtBirth(e.target.value))} inputMode="numeric" placeholder="YYYY-MM-DD" className={F} />
+          <input value={f.birth} onChange={(e) => setBirth(fmtBirth(e.target.value))} inputMode="numeric" placeholder="YYYY-MM-DD" className={F} />
         </Field>
+        {needRrn && (
+          <div>
+            <span className="mb-1 flex items-baseline justify-between text-sm font-semibold text-stone-800">
+              주민등록번호
+              <span className="text-xs font-normal text-stone-400">원천징수 신고용 · 암호화해 저장</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                value={rrn.front}
+                onChange={(e) => setFront(e.target.value)}
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={6}
+                placeholder="앞 6자리"
+                aria-label="주민등록번호 앞 6자리"
+                className={F + " min-w-0 flex-1 tabular-nums tracking-wider"}
+              />
+              <span className="text-stone-400">-</span>
+              <div className="relative min-w-0 flex-1">
+                <input
+                  ref={backRef}
+                  type={showBack ? "text" : "password"}
+                  value={rrn.back}
+                  onChange={(e) => {
+                    setErr("");
+                    setRrn((x) => ({ ...x, back: e.target.value.replace(/\D/g, "").slice(0, 7) }));
+                  }}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={7}
+                  placeholder="뒤 7자리"
+                  aria-label="주민등록번호 뒤 7자리"
+                  className={F + " pr-10 tabular-nums tracking-wider"}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowBack(!showBack)}
+                  aria-label={showBack ? "뒷자리 가리기" : "뒷자리 보기"}
+                  className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-lg p-1.5 text-stone-400 hover:text-stone-700"
+                >
+                  {showBack ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
+            </div>
+            {rrnD.length === 13 && rrnErr && <p className="mt-1 text-xs font-medium text-rose-700">{rrnErr}</p>}
+          </div>
+        )}
         <Field label="연락처">
           <input value={f.phone} onChange={(e) => set("phone")(fmtPhone(e.target.value))} inputMode="tel" autoComplete="tel" placeholder="010-0000-0000" className={F} />
         </Field>
@@ -267,7 +337,11 @@ export default function SignPage() {
             <HangulInput value={f.holder} onChange={set("holder")} className={F} />
           </div>
         </Field>
-        <p className="text-xs text-stone-500">주민등록번호는 여기서 받지 않아요. 보수를 보내 드릴 때 원천징수 신고에 필요한 만큼만 따로 안내드릴게요.</p>
+        <p className="text-xs text-stone-500">
+          {needRrn
+            ? "주민등록번호는 보수의 3.3% 원천징수 신고에만 써요. 암호화해 저장하고, 포클로 담당자만 신고할 때 볼 수 있어요. 신분증 사진은 받지 않아요."
+            : "주민등록번호는 여기서 받지 않아요. 보수를 보내 드릴 때 원천징수 신고에 필요한 만큼만 따로 안내드릴게요."}
+        </p>
       </Card>
 
       <Card>
@@ -283,10 +357,10 @@ export default function SignPage() {
           촬영물을 위 범위에서 쓰는 것에 동의해요 <span className="text-rose-700">(필수)</span>
         </Agree>
         <Agree on={agree.privacy} onToggle={() => flip({ ...agree, privacy: !agree.privacy })}>
-          개인정보 수집·이용에 동의해요 <span className="text-rose-700">(필수)</span>
+          개인정보{needRrn ? "(주민등록번호 포함)" : ""} 수집·이용에 동의해요 <span className="text-rose-700">(필수)</span>
         </Agree>
-        <dl className="mt-1 ml-8 grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 rounded-xl bg-stone-50 p-3 text-xs text-stone-600">
-          {PRIVACY.map(([k, v]) => (
+        <dl className="mt-1 ml-8 grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 rounded-xl bg-stone-50 p-3 text-xs text-stone-600">
+          {(needRrn ? PRIVACY : PRIVACY_OLD).map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="font-semibold text-stone-500">{k}</dt>
               <dd>{v}</dd>
