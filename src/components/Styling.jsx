@@ -201,7 +201,6 @@ export default function StylingSheet({ codi, d, online, onClose }) {
   const [editOpts, setEditOpts] = useState(""); // "hair" | "acc"
   const [pick, setPick] = useState(false);
   const [big, setBig] = useState(null);
-  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [pending, setPending] = useState([]);
   // 코디 사진(10/25 세원: "참고 사진 위에 코디 사진 — 우리가 직접 벽걸이에 걸은 사진") — 촬영 레퍼런스엔 안 담고 이 코디에만(st.codiPhotos = 보관 이름)
@@ -300,23 +299,52 @@ export default function StylingSheet({ codi, d, online, onClose }) {
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
   }, []);
-  const save = async () => {
-    setBusy(true);
-    try {
-      const clean = { ...st, memo: (st.memo || "").trim() };
-      await d.saveCodis(upsert({ ...codi, styling: clean }));
-      onClose();
-    } catch (e) {
-      setMsg(e.message || "저장하지 못했어요.");
-    } finally {
-      setBusy(false);
-    }
+  // 알아서 저장 (10/25 세원: "스타일링 저장 안 눌러도 알아서 저장되게") — 고르고 0.6초 뒤, 창을 닫을 때 남은 것은 바로.
+  // 코디의 styling 칸만 고친다(다른 칸은 그사이 신상 관리에서 바뀌었을 수 있어서).
+  const [saveSt, setSaveSt] = useState("idle"); // idle · wait · saving · saved · error
+  const latest = useRef(st);
+  const dirty = useRef(false);
+  const base = useRef(JSON.stringify(st)); // 마지막으로 저장한(또는 연) 내용 — 같으면 안 저장
+  const timer = useRef(null);
+  const flushRef = useRef(null);
+  useEffect(() => {
+    flushRef.current = async () => {
+      clearTimeout(timer.current);
+      if (!dirty.current) return;
+      dirty.current = false;
+      const s = latest.current;
+      setSaveSt("saving");
+      try {
+        await d.saveCodis(upsert({ id: codi.id, styling: { ...s, memo: (s.memo || "").trim() } }));
+        base.current = JSON.stringify(s);
+        setSaveSt(dirty.current ? "wait" : "saved");
+      } catch (e) {
+        dirty.current = true;
+        setSaveSt("error");
+        setMsg(e.message || "저장하지 못했어요.");
+      }
+    };
+  });
+  useEffect(() => {
+    latest.current = st;
+    if (JSON.stringify(st) === base.current) return;
+    dirty.current = true;
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    setSaveSt("wait");
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => flushRef.current?.(), 600);
+  }, [st]);
+  // 창이 닫히면(다른 화면으로 가도) 남은 것 저장
+  useEffect(() => () => dirty.current && flushRef.current?.(), []);
+  const close = () => {
+    flushRef.current?.();
+    onClose();
   };
   const its = codiItems(codi, d.items);
   const refs = (st.refIds || []).map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
   return (
-    <Sheet onClose={onClose} wide>
-      <SheetHead title="스타일링" onClose={onClose} />
+    <Sheet onClose={close} wide>
+      <SheetHead title="스타일링" onClose={close} />
       <div
         className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4"
         onDragOver={(e) => e.preventDefault()}
@@ -445,12 +473,26 @@ export default function StylingSheet({ codi, d, online, onClose }) {
           </p>
         )}
       </div>
-      <footer className="flex shrink-0 justify-end gap-2 border-t border-stone-200 p-3">
-        <button type="button" onClick={onClose} className="rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-medium text-stone-600">
-          그만두기
-        </button>
-        <button type="button" disabled={busy} onClick={save} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300">
-          {busy && <Loader2 size={14} className="animate-spin" />} 스타일링 저장
+      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-stone-200 p-3">
+        <span className="flex items-center gap-1.5 text-xs" aria-live="polite">
+          {saveSt === "saving" || saveSt === "wait" ? (
+            <>
+              <Loader2 size={13} className="animate-spin text-stone-400" /> <span className="text-stone-500">저장하는 중…</span>
+            </>
+          ) : saveSt === "saved" ? (
+            <>
+              <Check size={13} className="text-emerald-600" /> <span className="text-emerald-700">저장됐어요</span>
+            </>
+          ) : saveSt === "error" ? (
+            <button type="button" onClick={() => ((dirty.current = true), flushRef.current?.())} className="font-semibold text-rose-700 underline">
+              저장 못 했어요 · 다시 저장
+            </button>
+          ) : (
+            <span className="text-stone-400">고르면 알아서 저장돼요</span>
+          )}
+        </span>
+        <button type="button" onClick={close} className="rounded-xl bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white">
+          닫기
         </button>
       </footer>
       {pick && (
