@@ -486,11 +486,59 @@ function Guide() {
               <li>· 3일 넘게 10위 안에 버티는 상품은 검증된 스테디 → 색·기장 바꿔 가져오기</li>
               <li>· '가장 많은 가격대'와 우리 판매가 구간을 맞춰 보기</li>
             </ul>
-            <p className="pt-1 text-[11px] text-stone-400">NEW = 비교한 날 베스트에 없던 상품(새로 넣은 몰은 빼고) · ▲ = 순위 오름 · MADE = 자체제작 · 사입 신호순 = NEW → 여러 몰 품목 → 순위</p>
+            <p className="pt-1 text-[11px] text-stone-400">순위 = 그 몰 BEST 분류에 진열된 순서 · NEW = 비교한 날 베스트에 없던 상품(새로 넣었거나 읽는 곳을 바꾼 몰은 빼고) · ▲ = 순위 오름 · MADE = 자체제작 · 사입 신호순 = NEW → 여러 몰 품목 → 순위</p>
           </div>
         </div>
       )}
     </section>
+  );
+}
+
+/** 베스트 페이지 주소 — 누르면 그 페이지, '바꾸기'로 BEST 분류 주소를 붙여 넣는다(첫 화면 묶음으로 읽던 몰은 묶음 설정이 풀린다) */
+function BestUrl({ m, busy, onSet }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState("");
+  const shown = (m.best || m.host).replace(/^https?:\/\//, "") + (m.section ? ` · '${m.section}' 묶음` : "");
+  if (edit)
+    return (
+      <span className="mt-1 flex items-center gap-1">
+        <input
+          value={v}
+          autoFocus
+          onChange={(e) => setV(e.target.value)}
+          placeholder="BEST 분류 페이지 주소"
+          className="min-w-0 flex-1 rounded-md border border-stone-300 px-2 py-0.5 text-[11px] outline-none focus:border-rose-600"
+        />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            try {
+              const u = new URL(/^https?:\/\//.test(v.trim()) ? v.trim() : "https://" + v.trim());
+              if (u.host.replace(/^www\./, "") === m.host.replace(/^www\./, "")) onSet(u.href);
+            } catch {
+              /* 주소가 아니면 그대로 둔다 */
+            }
+            setEdit(false);
+          }}
+          className="rounded-md bg-rose-700 px-2 py-0.5 text-[11px] text-white"
+        >
+          넣기
+        </button>
+        <button type="button" onClick={() => setEdit(false)} className="rounded-md px-1.5 py-0.5 text-[11px] text-stone-500 hover:bg-stone-100">
+          취소
+        </button>
+      </span>
+    );
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-stone-400">
+      <a href={m.best || `https://${m.host}/`} target="_blank" rel="noreferrer" className="min-w-0 truncate hover:text-rose-700">
+        {shown}
+      </a>
+      <button type="button" onClick={() => setEdit(true)} className="shrink-0 underline decoration-dotted hover:text-rose-700">
+        바꾸기
+      </button>
+    </span>
   );
 }
 
@@ -585,11 +633,13 @@ function MallSheet({ online, conf, snap, onClose }) {
 
   const on = list.filter((m) => !m.off);
   const off = list.filter((m) => m.off);
+  // 10/26 세원: "순위는 BEST 카테고리만" — 수집기가 읽은 분류 이름(cat)을 같이 보여 준다. BEST 가 아니면 노랗게
   const statusOf = (h) => {
     const m = snap?.malls?.[h];
     if (!m) return ["아직 안 모음", "text-stone-400"];
     if (m.error) return ["못 읽음", "text-amber-700"];
-    return [`${m.items.length}개`, "text-stone-500"];
+    if (m.notBest) return [`${m.items.length}개 · '${m.cat || "?"}' — BEST 분류가 아니에요`, "text-amber-700"];
+    return [`${m.items.length}개${m.cat ? ` · ${m.section ? "첫 화면 " : ""}'${m.cat}'` : ""}`, "text-stone-500"];
   };
 
   return (
@@ -628,9 +678,7 @@ function MallSheet({ online, conf, snap, onClose }) {
                     <li key={m.host} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
                       <span className="min-w-0 flex-1">
                         <span className="text-sm font-semibold text-stone-900">{m.name}</span> <span className={"text-[11px] " + tone}>{st}</span>
-                        <a href={m.best || `https://${m.host}/`} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-stone-400 hover:text-rose-700">
-                          {(m.best || m.host).replace(/^https?:\/\//, "")}
-                        </a>
+                        <BestUrl m={m} busy={busy} onSet={(best) => patch(m.host, { best, section: undefined }, `${m.name} 은(는) 내일 아침부터 새 주소로 모아요 — 그날은 순위 비교를 쉬어요.`)} />
                         <AdPage m={m} busy={busy} onSet={(fbPage) => patch(m.host, { fbPage, fbPageName: "" }, fbPage ? `${m.name} 광고 페이지를 넣었어요 — 내일 아침부터 광고를 모아요.` : "")} />
                       </span>
                       <select value={m.style} disabled={busy} onChange={(e) => patch(m.host, { style: e.target.value })} className="rounded-md border border-stone-200 bg-white px-1.5 py-1 text-xs text-stone-600">

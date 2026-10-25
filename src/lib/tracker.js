@@ -107,7 +107,7 @@ export const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new
 
 /**
  * 두 기록 비교 → 상품 줄 [{…item, mall, host, style, cat, band, was, gone}]
- * was = 기준일 순위(없으면 null = 새로 들어옴). 기준일에 그 몰 기록이 없으면(몰을 새로 넣었음) known=false — NEW 로 세지 않는다.
+ * was = 기준일 순위(없으면 null = 새로 들어옴). 기준일에 그 몰 기록이 없거나(몰을 새로 넣었음) 읽는 곳이 달랐으면 known=false — NEW 로 세지 않는다.
  * conf = 지금 몰 목록(스타일을 바꿨으면 그걸로)
  */
 export function compareSnaps(cur, base, conf = {}) {
@@ -118,7 +118,9 @@ export function compareSnaps(cur, base, conf = {}) {
     const name = conf[host]?.name || m.name;
     if (conf[host]?.off) continue;
     const b = base?.malls?.[host];
-    const known = !!b?.items?.length;
+    // 10/26 읽는 곳(BEST 주소·첫 화면 묶음)이 바뀐 날은 다른 목록끼리 비교하게 돼서 전부 NEW 로 보인다 → 그 몰은 비교를 쉰다
+    const sameList = !b?.best || !m.best || (b.best === m.best && (b.section || "") === (m.section || ""));
+    const known = !!b?.items?.length && sameList;
     const was = new Map((b?.items || []).map((x) => [x.id, x.rank]));
     for (const it of m.items || []) {
       out.push({ ...it, mall: name, host, style, cat: catOf(it.name), band: priceBand(it.price), made: isMade(it.name), was: known ? (was.get(it.id) ?? null) : undefined, known });

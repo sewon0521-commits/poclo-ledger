@@ -20,6 +20,9 @@ import { meWho } from "../lib/calendar";
  *
  * 10/26 세원: "촬영 관리도 마찬가지로" → 같은 부품(MemoTab)을 촬영 관리 › 메모(settings 'shoot_memo', kind 'shoot')와
  *   촬영 창 메모(촬영일의 memo 칸, kind 'day')가 같이 쓴다. 찾기는 그 화면의 회차·촬영일 메모도 같이(others).
+ *
+ * 10/26 세원: "소싱 관리에서 쇼만마 코디 노트, 메모 지워 줘. 내가 말한 메모는 소싱 회차 내 메모였어."
+ *   → 소싱 관리 › 메모 탭(SourcingMemoTab, sourcing_memo — 적힌 것 없었음)을 뺐다. 회차 창 메모(kind 'session')는 그대로.
  */
 
 export const MEMO_KEY = "sourcing_memo";
@@ -151,19 +154,6 @@ function Snippet({ text, q }) {
 }
 
 // ---------------------------------------------------------------- 메모 탭
-
-export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
-  return (
-    <MemoTab
-      storeKey={MEMO_KEY}
-      kind="memo"
-      online={online}
-      others={sessions.map((x) => ({ id: x.id, on: x.on || "", title: x.title, memo: x.memo }))}
-      otherLabel="소싱 회차"
-      onOpenOther={onOpenSession}
-    />
-  );
-}
 
 /** 날짜별 노션식 메모 한 장 — storeKey(settings) · kind(소제목 칩) · others(찾기에 같이 나올 다른 메모 [{id, on, title, memo}]) */
 export function MemoTab({ storeKey, kind, online, others = [], otherLabel = "", onOpenOther }) {

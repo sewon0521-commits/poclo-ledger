@@ -8,7 +8,6 @@ import {
   Check,
   ChevronRight,
   Pencil,
-  CalendarDays,
   Sun,
   Cloud,
   CloudRain,
@@ -16,7 +15,6 @@ import {
   CloudSun,
   CloudFog,
   CloudLightning,
-  Megaphone,
   Shirt,
   Images,
   Star,
@@ -24,7 +22,7 @@ import {
   Link2,
   ExternalLink,
 } from "lucide-react";
-import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, photoUrls, codiName } from "../lib/shoot";
+import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, codiName } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stageName } from "../lib/sinsang";
@@ -38,7 +36,7 @@ import RefPick from "./RefPick";
 import StylingSheet from "./Styling";
 import { stylingLine } from "../lib/styling";
 import { useSourcingReels, hotCount } from "../lib/sourcing";
-import { SourcingMemoTab, MemoEditor } from "./SourcingMemo";
+import { MemoEditor } from "./SourcingMemo";
 import { LookFindTab } from "./LookFind";
 
 /**
@@ -52,16 +50,17 @@ import { LookFindTab } from "./LookFind";
  *   "'+ 룩 적기'를 없애고 콘텐츠 레퍼런스·쇼핑몰 레퍼런스·우리빨로 나누고, 위에 바로 이번 소싱이 몇 %인지" (lib/sourceMix.js)
  *   → 회차 창 맨 위가 촬영 레퍼런스(비율 바 + 사진마다 분류·메모). 찍을 컷·영상 칸은 뺐다(예전 데이터 cuts·videos 는 그대로 남아 있음).
  *
- * 탭 둘 (settings 키):
- *   촬영 회차      shoot_sessions  [{id, on, title, place, uploads:[날짜], refIds, refLooks:{레퍼런스 id: {cat, memo, itemIds, groups, best}}, shops:[{id,name,url,photos}], sellNote, memo}]
+ * settings 키:
+ *   소싱 회차      shoot_sessions  [{id, on, title, place, uploads:[날짜], refIds, refLooks:{레퍼런스 id: {cat, memo, itemIds, groups, best}}, shops:[{id,name,url,photos}], sellNote, memo}]
  *                  shops = 예전 쇼핑몰 BEST 컷 (10/4~10/21). 10/21 칸을 없애고 촬영 레퍼런스의 '쇼핑몰 레퍼런스' + 쇼핑몰 고르기로 대신 —
  *                  사진이 남아 있는 회차는 창에서 '촬영 레퍼런스로 옮기기'. 예전 탭 키 shop_best 는 10/4 에 비었다.
- *   쇼만마 코디 노트 shomanma_notes  [{id, on, text, photos:[]}]
+ *   (쇼만마 코디 노트 shomanma_notes · 메모 탭 sourcing_memo — 10/26 세원 "소싱 관리에서 쇼만마 코디 노트, 메모 지워 줘.
+ *    내가 말한 메모는 소싱 회차 안 메모였어" → 탭 둘 다 뺌. 둘 다 서버에 적힌 게 없었다)
  * 날씨는 Open-Meteo(무료·키 없음, 서울) — 16일 안은 예보, 그 뒤는 작년 같은 날. 기온별 옷차림은 흔히 쓰는 표로 짐작만 한다.
  * 사진은 신상 관리와 같은 보관함(reels/shoot/…), 이 기기 저장 모드면 이 기기에.
  */
 
-const KEYS = { sessions: "shoot_sessions", notes: "shomanma_notes" };
+const KEYS = { sessions: "shoot_sessions" };
 
 // ---------------------------------------------------------------- 저장 (서버 최신을 읽어 한 줄만 바꿔 쓰기)
 
@@ -99,123 +98,6 @@ function useList(key, online) {
     [key, online],
   );
   return { items, loaded, msg, setMsg, save: (it) => change(upsert(it)), drop: (id) => change(remove(id)), change };
-}
-
-// ---------------------------------------------------------------- 사진
-
-const LOCAL = "poclo_shoot_plan_photos";
-const URLS = new Map(); // 보관 키 → {url, exp}
-const readLocal = () => {
-  try {
-    return JSON.parse(localStorage.getItem(LOCAL) || "{}");
-  } catch {
-    return {};
-  }
-};
-function shrinkData(file, edge = 1000) {
-  return new Promise((resolve, reject) => {
-    const u = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const k = Math.min(1, edge / Math.max(img.naturalWidth, img.naturalHeight));
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.naturalWidth * k);
-      c.height = Math.round(img.naturalHeight * k);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(u);
-      resolve(c.toDataURL("image/jpeg", 0.8));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(u);
-      reject(new Error("사진을 열지 못했어요."));
-    };
-    img.src = u;
-  });
-}
-async function savePhotos(files, online) {
-  const out = [];
-  for (const f of [...files].filter((x) => x.type.startsWith("image/"))) {
-    const key = await putPhoto(f, online);
-    if (key) {
-      // 서명 주소를 다시 받기 전에도 바로 보이게 — 붙여넣은 그 사진을 그대로 보여 준다
-      URLS.set(key, { url: URL.createObjectURL(f), exp: Date.now() + 3 * 3600 * 1000 });
-      out.push(key);
-      continue;
-    }
-    const k = `local/${newId("p")}`;
-    const m = readLocal();
-    m[k] = await shrinkData(f);
-    localStorage.setItem(LOCAL, JSON.stringify(m));
-    out.push(k);
-  }
-  return out;
-}
-function usePhotoUrls(keys, online) {
-  const sig = [...new Set(keys)].join("|");
-  const [urls, setUrls] = useState({});
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const ks = sig ? sig.split("|") : [];
-      const out = {};
-      const need = [];
-      const loc = readLocal();
-      for (const k of ks) {
-        if (k.startsWith("local/")) out[k] = loc[k] || null;
-        else if (URLS.get(k)?.exp > Date.now()) out[k] = URLS.get(k).url;
-        else need.push(k);
-      }
-      for (let i = 0; i < need.length; i += 100) {
-        const got = await photoUrls(need.slice(i, i + 100), online);
-        for (const [k, u] of Object.entries(got)) {
-          URLS.set(k, { url: u, exp: Date.now() + 3 * 3600 * 1000 });
-          out[k] = u;
-        }
-      }
-      if (alive) setUrls(out);
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [sig, online]);
-  return urls;
-}
-
-/** 사진 칸 — 누르면 전체 화면(확대), × 빼기 */
-function PhotoGrid({ keys, urls, onRemove, size = "md", pending = [] }) {
-  const [view, setView] = useState(null);
-  if (!keys.length && !pending.length) return null;
-  const cols = size === "sm" ? "grid-cols-4 sm:grid-cols-6" : "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6";
-  return (
-    <>
-      <div className={"grid gap-2 " + cols}>
-        {keys.map((k, i) => (
-          <span key={k} className="group relative">
-            <button type="button" onClick={() => setView(i)} className="block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
-              {urls[k] ? <img src={urls[k]} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Loader2 size={14} className="m-auto mt-[45%] animate-spin text-stone-300" />}
-            </button>
-            {onRemove && (
-              <button
-                type="button"
-                onClick={() => window.confirm("이 사진을 뺄까요?") && onRemove(k)}
-                aria-label="사진 빼기"
-                className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 max-sm:opacity-80"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </span>
-        ))}
-        {pending.map((u) => (
-          <span key={u} className="relative block aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">
-            <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
-            <Loader2 size={18} className="absolute inset-0 m-auto animate-spin text-white drop-shadow" />
-          </span>
-        ))}
-      </div>
-      {view != null && <BigSlides urls={keys.map((k) => urls[k] || "")} start={view} onClose={() => setView(null)} />}
-    </>
-  );
 }
 
 // ---------------------------------------------------------------- 날씨 (Open-Meteo, 서울)
@@ -1561,7 +1443,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   );
 }
 
-function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClose, onNotes, online }) {
+function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, online }) {
   const [msg, setMsg] = useState("");
   const [s, setS] = useState(session);
   const latest = useRef(s);
@@ -1767,27 +1649,6 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             )}
           </div>
 
-          {notes.length > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
-                  <Megaphone size={14} /> 최근 쇼만마 코디 노트
-                </span>
-                <button type="button" onClick={onNotes} className="text-xs text-amber-800 hover:underline">
-                  전부 보기
-                </button>
-              </div>
-              <ul className="space-y-1.5 text-sm text-amber-950">
-                {notes.slice(0, 3).map((n) => (
-                  <li key={n.id} className="line-clamp-3 whitespace-pre-line">
-                    <span className="mr-1.5 text-xs text-amber-700">{md(n.on)}</span>
-                    {n.text}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {/* 10/25 세원: "소싱 회차 창 안의 메모 칸(준비물·모델·소품·동선)도 같은 노션식 편집기로 — 예전에 적어 둔 메모는 그대로" (SourcingMemo.jsx) */}
           <div>
             <div className="mb-1 text-xs font-medium text-stone-500">메모</div>
@@ -1820,7 +1681,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
   );
 }
 
-function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, openId, onOpened }) {
+function SessionsTab({ sessions, d, codis, items, online, openId, onOpened }) {
   // openId = 다른 탭에서 '소싱에 담기' 뒤 '열어 보기' (10/24)
   const [open, setOpen] = useState(() => (openId && sessions.items.find((s) => s.id === openId)) || null);
   useEffect(() => {
@@ -1906,7 +1767,7 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, openId
           {list.past.length > 0 && (
             <>
               <div className="mt-5 mb-2 text-xs font-semibold text-stone-400">지난 소싱</div>
-              <div className="grid gap-3 opacity-80 sm:grid-cols-2 lg:grid-cols-3">{list.past.map(card)}</div>
+              <div className="grid grid-cols-1 gap-3 opacity-80 sm:grid-cols-2 lg:grid-cols-3">{list.past.map(card)}</div>
             </>
           )}
         </>
@@ -1918,161 +1779,11 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, openId
           d={d}
           codis={codis}
           items={items}
-          notes={notes}
           onSave={sessions.save}
           onRemove={sessions.drop}
           online={online}
           onClose={() => setOpen(null)}
-          onNotes={() => {
-            setOpen(null);
-            onNotes();
-          }}
         />
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- 쇼만마 코디 노트
-
-function NotesTab({ notes, online }) {
-  const [draft, setDraft] = useState({ on: dayKey(), text: "", photos: [] });
-  const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState([]);
-  const [edit, setEdit] = useState(null);
-  const file = useRef(null);
-  const sorted = useMemo(() => [...notes.items].sort((a, b) => (b.on || "").localeCompare(a.on || "") || (b.createdAt || "").localeCompare(a.createdAt || "")), [notes.items]);
-  const urls = usePhotoUrls([...draft.photos, ...sorted.flatMap((n) => n.photos || [])], online);
-  const attach = async (clip) => {
-    setBusy(true);
-    const files = await filesOf(clip);
-    const previews = files.map((f) => URL.createObjectURL(f));
-    setPending((p) => [...p, ...previews]);
-    try {
-      const keys = await savePhotos(files, online);
-      setDraft((d) => ({ ...d, photos: [...d.photos, ...keys] }));
-    } catch (e) {
-      notes.setMsg(e.message || "사진을 올리지 못했어요.");
-    }
-    setPending((p) => p.filter((u) => !previews.includes(u)));
-    setBusy(false);
-  };
-  // 글 칸 밖에서 Ctrl+V 해도 새 노트에 붙는다
-  useEffect(() => {
-    const onPaste = (e) => {
-      if (e.target.closest?.("input, textarea")) return;
-      const clip = clipImages(e.clipboardData);
-      if (!clip.files.length && !clip.urls.length) return;
-      e.preventDefault();
-      attach(clip);
-    };
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div className="space-y-4">
-      <div
-        className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          const clip = clipImages(e.dataTransfer);
-          if (!clip.files.length && !clip.urls.length) return;
-          e.preventDefault();
-          attach(clip);
-        }}
-      >
-        <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-amber-900">
-          <Megaphone size={15} /> 쇼만마에서 들은 코디 · 지금 뜨는 것 정리
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input type="date" value={draft.on} onChange={(e) => setDraft({ ...draft, on: e.target.value })} className={FIELD + " w-40 py-1.5 text-sm"} />
-          <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-900">
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />} 사진
-          </button>
-          <input ref={file} type="file" accept="image/*" multiple hidden onChange={(e) => (attach({ files: [...e.target.files], urls: [] }), (e.target.value = ""))} />
-        </div>
-        <textarea
-          value={draft.text}
-          onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-          onPaste={(e) => {
-            // 글과 같이 복사한 건 글로 두고, 사진만 왔을 때 사진으로
-            const clip = clipImages(e.clipboardData);
-            const text = e.clipboardData.getData("text/plain").trim();
-            if (!clip.files.length && !(clip.urls.length && (!text || clip.urls.includes(text)))) return;
-            e.preventDefault();
-            attach(clip);
-          }}
-          placeholder={"예:\n- 지금 뜨는 코디: 셔츠 + 니트 베스트 레이어드, 와이드 데님\n- 이번 주 찍어라: 트렌치 + 롱스커트, 앉은 컷 많이\n- 피할 것: 반팔 단독 착장\n(사진은 복사해서 Ctrl+V)"}
-          className={FIELD + " mt-2 h-32 resize-y bg-white text-sm"}
-        />
-        {(draft.photos.length > 0 || pending.length > 0) && (
-          <div className="mt-2">
-            <PhotoGrid keys={draft.photos} urls={urls} size="sm" pending={pending} onRemove={(k) => setDraft({ ...draft, photos: draft.photos.filter((x) => x !== k) })} />
-          </div>
-        )}
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            disabled={!draft.text.trim() && !draft.photos.length}
-            onClick={async () => {
-              await notes.save({ id: newId("sn"), on: draft.on, text: draft.text.trim(), photos: draft.photos, createdAt: new Date().toISOString() });
-              setDraft({ on: dayKey(), text: "", photos: [] });
-            }}
-            className="rounded-xl bg-amber-600 px-5 py-2 text-sm font-semibold text-white disabled:bg-stone-300"
-          >
-            노트에 넣기
-          </button>
-        </div>
-      </div>
-
-      {sorted.length === 0 ? (
-        <p className="text-center text-sm text-stone-400">아직 넣은 노트가 없어요.</p>
-      ) : (
-        sorted.map((n) => (
-          <article key={n.id} className="rounded-2xl border border-stone-200 bg-white p-4">
-            <header className="mb-1.5 flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-sm font-semibold text-stone-900">
-                <CalendarDays size={14} className="text-amber-600" /> {n.on ? `${md(n.on)} (${"일월화수목금토"[new Date(n.on + "T00:00:00").getDay()]})` : "날짜 없음"}
-              </span>
-              <span className="flex items-center gap-1">
-                <button type="button" onClick={() => setEdit(edit?.id === n.id ? null : { ...n })} className="rounded p-1 text-stone-400 hover:text-stone-700" aria-label="고치기">
-                  <Pencil size={13} />
-                </button>
-                <button type="button" onClick={() => window.confirm("이 노트를 지울까요?") && notes.drop(n.id)} className="rounded p-1 text-stone-400 hover:text-rose-700" aria-label="지우기">
-                  <Trash2 size={13} />
-                </button>
-              </span>
-            </header>
-            {edit?.id === n.id ? (
-              <div className="space-y-1.5">
-                <input type="date" value={edit.on || ""} onChange={(e) => setEdit({ ...edit, on: e.target.value })} className={FIELD + " w-40 py-1.5 text-sm"} />
-                <textarea value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} className={FIELD + " h-32 resize-y text-sm"} />
-                <span className="flex justify-end gap-1.5">
-                  <button type="button" onClick={() => setEdit(null)} className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600">
-                    그만두기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await notes.save(edit);
-                      setEdit(null);
-                    }}
-                    className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white"
-                  >
-                    저장
-                  </button>
-                </span>
-              </div>
-            ) : (
-              n.text && <p className="text-sm leading-relaxed whitespace-pre-line text-stone-800">{n.text}</p>
-            )}
-            {(n.photos || []).length > 0 && (
-              <div className="mt-2">
-                <PhotoGrid keys={n.photos} urls={urls} size="sm" onRemove={(k) => notes.save({ ...n, photos: n.photos.filter((x) => x !== k) })} />
-              </div>
-            )}
-          </article>
-        ))
       )}
     </div>
   );
@@ -2082,22 +1793,19 @@ function NotesTab({ notes, online }) {
 
 // 쇼핑몰 BEST 컷은 10/4 부터 촬영 회차 안에 (세원: "목록에서는 지우고 촬영 회차 폴더 안으로")
 // 10/24 뜨는 릴스 · 경쟁몰 베스트 · 계정 (SourcingFeed.jsx — 세원의 소싱 2단계: 뜨는 콘텐츠의 룩 · 경쟁몰 베스트 → '소싱에 담기')
-// 10/25 메모 — 소싱 회차를 넘나드는 날짜별 노션식 메모(SourcingMemo.jsx)
 // 10/26 코디로 찾기 — 코디 사진과 닮은 괜찮은 릴스(LookFind.jsx · 사무실 PC look_find.py)
+// 10/26 메모 탭(10/25)·쇼만마 코디 노트 탭 뺌 — 세원이 말한 메모는 소싱 회차 창 안 메모(그건 노션식 그대로)
 const TABS = [
   ["sessions", "소싱 회차"],
-  ["memo", "메모"],
   ["reels", "뜨는 릴스"],
   ["look", "코디로 찾기"],
   ["best", "경쟁몰 베스트"],
-  ["notes", "쇼만마 코디 노트"],
   ["accounts", "계정"],
 ];
 const TAB_KEY = "poclo_shoot_plan_tab";
 
 export default function ShootPlan({ d, online, reelKit }) {
   const sessions = useList(KEYS.sessions, online);
-  const notes = useList(KEYS.notes, online);
   const [tab, setTabState] = useState(() => {
     try {
       const t = localStorage.getItem(TAB_KEY);
@@ -2114,13 +1822,12 @@ export default function ShootPlan({ d, online, reelKit }) {
       /* 기억 못 해도 된다 */
     }
   };
-  const sortedNotes = useMemo(() => [...notes.items].sort((a, b) => (b.on || "").localeCompare(a.on || "")), [notes.items]);
   const reels = useSourcingReels(online);
   const [put, setPut] = useState(null); // '소싱에 담기' — 어느 소싱에 담을지 고르는 창
   const [putDone, setPutDone] = useState(null); // {sessionId, catName} — 담은 뒤 알림
   const [openId, setOpenId] = useState(""); // 알림의 '열어 보기' → 소싱 회차 탭에서 그 소싱 창을 연다
-  const msg = sessions.msg || notes.msg;
-  const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, notes: notes.items.length, reels: hotCount(reels.data) };
+  const msg = sessions.msg;
+  const count = { sessions: sessions.items.filter((s) => !s.on || s.on >= dayKey()).length, reels: hotCount(reels.data) };
   const doneSession = putDone && sessions.items.find((s) => s.id === putDone.sessionId);
   // 폰에서는 탭 줄이 옆으로 밀린다 — 고른 탭이 화면 밖이면 보이게(10/26 '코디로 찾기'가 일곱째 칸)
   const tabsRef = useRef(null);
@@ -2136,13 +1843,13 @@ export default function ShootPlan({ d, online, reelKit }) {
       <div className="mb-4">
         <h2 className="text-xl font-bold text-stone-900">소싱 관리</h2>
         <p className="mt-0.5 text-sm text-stone-500">
-          뜨는 릴스·경쟁몰 베스트에서 고른 룩을 '소싱에 담기'로 소싱 회차에. 소싱마다 올라가는 날 날씨와 촬영 레퍼런스(콘텐츠·쇼핑몰·우리빨 비율 + 사진마다 메모·상품)를 한 폴더에. 쇼만마에서 들은 코디는 노트로.
+          뜨는 릴스·경쟁몰 베스트에서 고른 룩을 '소싱에 담기'로 소싱 회차에. 소싱마다 올라가는 날 날씨와 촬영 레퍼런스(콘텐츠·쇼핑몰·우리빨 비율 + 사진마다 메모·상품)를 한 폴더에. 코디 사진으로 닮은 릴스도 찾아요.
         </p>
       </div>
       {msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {msg}
-          <button type="button" onClick={() => [sessions, notes].forEach((x) => x.setMsg(""))} aria-label="닫기">
+          <button type="button" onClick={() => sessions.setMsg("")} aria-label="닫기">
             <X size={14} />
           </button>
         </p>
@@ -2186,7 +1893,7 @@ export default function ShootPlan({ d, online, reelKit }) {
           </button>
         ))}
       </div>
-      {!(sessions.loaded && notes.loaded) ? (
+      {!sessions.loaded ? (
         <div className="flex h-60 items-center justify-center text-stone-300">
           <Loader2 size={20} className="animate-spin" />
         </div>
@@ -2196,20 +1903,9 @@ export default function ShootPlan({ d, online, reelKit }) {
           d={d}
           codis={d.codis}
           items={d.items}
-          notes={sortedNotes}
-          onNotes={() => setTab("notes")}
           online={online}
           openId={openId}
           onOpened={() => setOpenId("")}
-        />
-      ) : tab === "memo" ? (
-        <SourcingMemoTab
-          online={online}
-          sessions={sessions.items}
-          onOpenSession={(id) => {
-            setOpenId(id);
-            setTab("sessions");
-          }}
         />
       ) : tab === "reels" ? (
         <HotReelsTab reels={reels} d={d} online={online} onPut={setPut} reelKit={reelKit} />
@@ -2217,10 +1913,8 @@ export default function ShootPlan({ d, online, reelKit }) {
         <LookFindTab d={d} online={online} onPut={setPut} reelKit={reelKit} />
       ) : tab === "best" ? (
         <MallBestTab d={d} online={online} onPut={setPut} />
-      ) : tab === "accounts" ? (
-        <SourcingAccountsTab reels={reels} online={online} />
       ) : (
-        <NotesTab notes={notes} online={online} />
+        <SourcingAccountsTab reels={reels} online={online} />
       )}
       {put && (
         <PutSheet
