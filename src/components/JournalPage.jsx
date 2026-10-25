@@ -25,7 +25,8 @@ import {
   Trash2,
   Info,
 } from "lucide-react";
-import { putPhoto, photoUrls } from "../lib/shoot";
+import { photoUrls } from "../lib/shoot";
+import { PHOTO_URLS, localPhoto, addPhoto, photoUrlOf } from "../lib/notePhotos";
 import { Viewer } from "./ShootBits";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal, routinesOn, weekdayOf, WEEKDAYS } from "../lib/journal";
@@ -351,56 +352,7 @@ function unfold(next, view) {
 
 // ---------------------------------------------------------------- 사진 (10/3 세원: "업무일지 사진 첨부 가능하게")
 const JournalOnline = createContext(false);
-const LOCAL_PHOTOS = "poclo_journal_photos";
-const PHOTO_URLS = new Map(); // 보관 키 → {url, exp} (서명은 4시간)
-function localPhoto(k) {
-  try {
-    return JSON.parse(localStorage.getItem(LOCAL_PHOTOS) || "{}")[k] || null;
-  } catch {
-    return null;
-  }
-}
-function shrink(file, edge) {
-  return new Promise((resolve, reject) => {
-    const u = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const k = Math.min(1, edge / Math.max(img.naturalWidth, img.naturalHeight));
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.naturalWidth * k);
-      c.height = Math.round(img.naturalHeight * k);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(u);
-      resolve(c.toDataURL("image/jpeg", 0.8));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(u);
-      reject(new Error("사진을 열지 못했어요."));
-    };
-    img.src = u;
-  });
-}
-/** 사진 한 장 보관 → 키. 공유 장부면 Storage(reels/shoot/…), 이 기기 저장이면 이 기기에 */
-async function addPhoto(file, online) {
-  const key = await putPhoto(file, online);
-  if (key) return key;
-  const data = await shrink(file, 900);
-  const k = `local/${newId("p")}`;
-  const m = JSON.parse(localStorage.getItem(LOCAL_PHOTOS) || "{}");
-  m[k] = data;
-  localStorage.setItem(LOCAL_PHOTOS, JSON.stringify(m));
-  return k;
-}
-/** 보관 키 → 보이는 주소 (노션식 편집기의 사진 블록) */
-async function photoUrlOf(k, online) {
-  if (/^https?:/.test(k)) return k;
-  if (k.startsWith("local/")) return localPhoto(k);
-  const c = PHOTO_URLS.get(k);
-  if (c && c.exp > Date.now()) return c.url;
-  const got = await photoUrls([k], online);
-  if (got[k]) PHOTO_URLS.set(k, { url: got[k], exp: Date.now() + 3 * 3600 * 1000 });
-  return got[k] || "";
-}
+// 사진 보관·주소 풀기는 lib/notePhotos (10/25 소싱 관리 메모와 같이 쓰려고 떼어 냄)
 function usePhotoUrls(keys) {
   const online = useContext(JournalOnline);
   const sig = keys.join("|");

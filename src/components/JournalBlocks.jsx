@@ -103,6 +103,23 @@ const Arrows = Extension.create({
 const TIPTAP = { extensions: [Arrows], editorProps: { attributes: { spellcheck: "false" } } };
 
 const HEADS = ["오늘 한 일", "도매·거래처", "상품·촬영", "콘텐츠", "CS·배송", "메모·생각"];
+// 빈 칸에 뜨는 '오늘 틀로 시작' — heads 처럼 쓰는 곳(소싱 관리 메모 등)마다 바꿔 줄 수 있다
+const JOURNAL_TEMPLATE = {
+  label: "오늘 틀로 시작 — 오늘 한 일 · 메모·생각",
+  blocks: [
+    { type: "heading", props: { level: 3 }, content: "오늘 한 일" },
+    { type: "bulletListItem" },
+    { type: "heading", props: { level: 3 }, content: "메모·생각" },
+    { type: "paragraph" },
+  ],
+  focusAt: 1,
+};
+/** 소제목 이름들로 틀 만들기 — 소제목마다 점 한 줄, 커서는 첫 점 */
+export const headsTemplate = (label, heads) => ({
+  label,
+  blocks: heads.flatMap((h) => [{ type: "heading", props: { level: 3 }, content: h }, { type: "bulletListItem" }]),
+  focusAt: 1,
+});
 const nowText = () => {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} `;
@@ -211,12 +228,13 @@ function useKeys(editor, onDone) {
 
 // ---------------------------------------------------------------- 하루 글
 
-export function NoteEditor({ initial, onSave, upload, resolve, compact }) {
+/** heads·template·placeholder 를 안 주면 업무일지 그대로. 소싱 관리 메모(10/25)는 소제목·틀·안내 글만 바꿔 쓴다 */
+export function NoteEditor({ initial, onSave, upload, resolve, compact, heads = HEADS, template: tpl = JOURNAL_TEMPLATE, placeholder }) {
   const [start] = useState(() => textToBlocks(initial));
   const editor = useCreateBlockNote(
     {
       schema: NOTE_SCHEMA,
-      dictionary: NOTE_DICT,
+      dictionary: placeholder ? dict({ default: "글을 쓰거나 '/' 를 눌러 블록을 골라요", emptyDocument: placeholder }) : NOTE_DICT,
       initialContent: start.length ? start : undefined,
       uploadFile: async (file) => `photo:${await upload(file)}`,
       resolveFileUrl: async (url) => (url.startsWith("photo:") ? (await resolve(url.slice(6))) || "" : url),
@@ -281,17 +299,8 @@ export function NoteEditor({ initial, onSave, upload, resolve, compact }) {
     if (last) editor.setTextCursorPosition(last, "end");
     editor.focus();
   };
-  // 틀 넣고 커서는 '오늘 한 일' 아래 점으로
-  const template = () =>
-    put(
-      [
-        { type: "heading", props: { level: 3 }, content: "오늘 한 일" },
-        { type: "bulletListItem" },
-        { type: "heading", props: { level: 3 }, content: "메모·생각" },
-        { type: "paragraph" },
-      ],
-      1,
-    );
+  // 틀 넣고 커서는 첫 소제목 아래 점으로
+  const template = () => put(tpl.blocks, tpl.focusAt ?? 1);
   const addPhotos = async (files) => {
     const list = [...(files || [])].filter((f) => f.type.startsWith("image/"));
     if (!list.length) return;
@@ -313,7 +322,7 @@ export function NoteEditor({ initial, onSave, upload, resolve, compact }) {
     <div className={"poclo-bn" + (compact ? " compact" : "")}>
       {/* 소제목·지금 시각·사진 — 폰에서도 누르기 쉽게 위에 */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-stone-100 px-4 py-2 [scrollbar-width:none]">
-        {HEADS.map((h) => (
+        {heads.map((h) => (
           <button
             key={h}
             type="button"
@@ -362,7 +371,7 @@ export function NoteEditor({ initial, onSave, upload, resolve, compact }) {
             onClick={template}
             className="absolute top-14 left-11 z-10 flex items-center gap-1.5 rounded-lg border border-dashed border-rose-300 bg-rose-50/70 px-2.5 py-1 text-xs font-medium text-rose-800 hover:bg-rose-50"
           >
-            <Sparkles size={12} /> 오늘 틀로 시작 — 오늘 한 일 · 메모·생각
+            <Sparkles size={12} /> {tpl.label}
           </button>
         )}
         <BlockNoteView editor={editor} theme={THEME} onChange={onChange} formattingToolbar={false} sideMenu={false} emojiPicker={false} className="min-h-[11rem]">

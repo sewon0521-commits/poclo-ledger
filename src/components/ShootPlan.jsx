@@ -38,6 +38,7 @@ import RefPick from "./RefPick";
 import StylingSheet from "./Styling";
 import { stylingLine } from "../lib/styling";
 import { useSourcingReels, hotCount } from "../lib/sourcing";
+import { SourcingMemoTab, MemoEditor } from "./SourcingMemo";
 
 /**
  * 촬영 › 소싱 관리 — 10/12 '코디 촬영 관리'에서 이름 바꿈(세원: "사무실에 스튜디오가 생겨 수시로 촬영하니까 소싱 관리로, 촬영 → 소싱")
@@ -1786,10 +1787,13 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
             </div>
           )}
 
-          <label className="block text-xs font-medium text-stone-500">
-            메모
-            <textarea value={s.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="준비물 · 모델 · 소품 · 동선 등" className={FIELD + " mt-1 h-20 resize-y text-sm"} />
-          </label>
+          {/* 10/25 세원: "소싱 회차 창 안의 메모 칸(준비물·모델·소품·동선)도 같은 노션식 편집기로 — 예전에 적어 둔 메모는 그대로" (SourcingMemo.jsx) */}
+          <div>
+            <div className="mb-1 text-xs font-medium text-stone-500">메모</div>
+            <div className="rounded-xl border border-stone-200 bg-white">
+              <MemoEditor key={session.id} initial={session.memo || ""} onSave={(t) => set({ memo: t })} online={online} kind="session" compact />
+            </div>
+          </div>
         </div>
         <footer className="flex shrink-0 items-center justify-between border-t border-stone-200 px-4 py-2.5">
           <button
@@ -2077,8 +2081,10 @@ function NotesTab({ notes, online }) {
 
 // 쇼핑몰 BEST 컷은 10/4 부터 촬영 회차 안에 (세원: "목록에서는 지우고 촬영 회차 폴더 안으로")
 // 10/24 뜨는 릴스 · 경쟁몰 베스트 · 계정 (SourcingFeed.jsx — 세원의 소싱 2단계: 뜨는 콘텐츠의 룩 · 경쟁몰 베스트 → '소싱에 담기')
+// 10/25 메모 — 소싱 회차를 넘나드는 날짜별 노션식 메모(SourcingMemo.jsx)
 const TABS = [
   ["sessions", "소싱 회차"],
+  ["memo", "메모"],
   ["reels", "뜨는 릴스"],
   ["best", "경쟁몰 베스트"],
   ["notes", "쇼만마 코디 노트"],
@@ -2183,6 +2189,15 @@ export default function ShootPlan({ d, online, reelKit }) {
           online={online}
           openId={openId}
           onOpened={() => setOpenId("")}
+        />
+      ) : tab === "memo" ? (
+        <SourcingMemoTab
+          online={online}
+          sessions={sessions.items}
+          onOpenSession={(id) => {
+            setOpenId(id);
+            setTab("sessions");
+          }}
         />
       ) : tab === "reels" ? (
         <HotReelsTab reels={reels} d={d} online={online} onPut={setPut} reelKit={reelKit} />
