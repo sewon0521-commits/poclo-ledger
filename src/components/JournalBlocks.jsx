@@ -229,7 +229,7 @@ function useKeys(editor, onDone) {
 // ---------------------------------------------------------------- 하루 글
 
 /** heads·template·placeholder 를 안 주면 업무일지 그대로. 소싱 관리 메모(10/25)는 소제목·틀·안내 글만 바꿔 쓴다 */
-export function NoteEditor({ initial, onSave, upload, resolve, compact, heads = HEADS, template: tpl = JOURNAL_TEMPLATE, placeholder }) {
+export function NoteEditor({ initial, onSave, upload, resolve, compact, heads = HEADS, template: tpl = JOURNAL_TEMPLATE, placeholder, inlineTemplate }) {
   const [start] = useState(() => textToBlocks(initial));
   const editor = useCreateBlockNote(
     {
@@ -363,8 +363,21 @@ export function NoteEditor({ initial, onSave, upload, resolve, compact, heads = 
           {state === "saving" ? "저장 중…" : state === "saved" ? "저장됨" : state === "error" ? <span className="text-rose-600">저장 못 함</span> : ""}
         </span>
       </div>
+      {/* 메모 칸(소싱·촬영)은 '틀로 시작'을 글 위 한 줄로 — 폰에서 안내 글이 두 줄로 꺾이면 겹쳐서 (10/26) */}
+      {inlineTemplate && empty && (
+        <div className="px-4 pt-2.5">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={template}
+            className="flex items-center gap-1.5 rounded-lg border border-dashed border-rose-300 bg-rose-50/70 px-2.5 py-1 text-xs font-medium text-rose-800 hover:bg-rose-50"
+          >
+            <Sparkles size={12} /> {tpl.label}
+          </button>
+        </div>
+      )}
       <div className="relative py-3" onKeyDownCapture={onKey}>
-        {empty && (
+        {empty && !inlineTemplate && (
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}

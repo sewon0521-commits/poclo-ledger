@@ -1639,7 +1639,7 @@ function SessionSheet({ session, d, codis, items, notes, onSave, onRemove, onClo
         </header>
         <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain p-4">
           {/* 10/21 세원: "소싱일·장소는 없애고 그 자리에 업로드 날짜·날씨(소싱일·업로드)·이 날씨에 팔릴 옷을 위로" — 그 아래가 제일 중요한 촬영 레퍼런스 */}
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="min-w-0 space-y-2">
             <div>
               <div className="mb-1 text-xs font-medium text-stone-500">업로드 날짜 — 이날 올라가요</div>
@@ -1901,7 +1901,7 @@ function SessionsTab({ sessions, d, codis, items, notes, onNotes, online, openId
         </p>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{list.up.map(card)}</div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{list.up.map(card)}</div>
           {list.past.length > 0 && (
             <>
               <div className="mt-5 mb-2 text-xs font-semibold text-stone-400">지난 소싱</div>

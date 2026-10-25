@@ -17,12 +17,18 @@ import { meWho } from "../lib/calendar";
  *   다른 기기에서 바뀌면(방송·4초 확인) 쓰고 있지 않을 때만 칸을 새로 그린다.
  * 소싱 회차 메모는 회차의 memo 칸 그대로(같은 글 모양) — MemoEditor kind="session".
  * 편집기는 업무일지 것(JournalBlocks NoteEditor)을 소제목 칩·틀·안내 글만 바꿔 쓴다. 이 화면을 열 때만 받는다.
+ *
+ * 10/26 세원: "촬영 관리도 마찬가지로" → 같은 부품(MemoTab)을 촬영 관리 › 메모(settings 'shoot_memo', kind 'shoot')와
+ *   촬영 창 메모(촬영일의 memo 칸, kind 'day')가 같이 쓴다. 찾기는 그 화면의 회차·촬영일 메모도 같이(others).
  */
 
 export const MEMO_KEY = "sourcing_memo";
+export const SHOOT_MEMO_KEY = "shoot_memo";
 
 const MEMO_HEADS = ["거래처", "신마 검색어", "트렌드·생각", "소싱할 것"];
 const SESSION_HEADS = ["준비물", "모델", "소품", "동선"];
+const SHOOT_HEADS = ["스튜디오", "모델", "소품", "컷 아이디어"];
+const DAY_HEADS = ["스튜디오 예약·결제", "준비물", "동선"];
 const tplOf = (label, heads) => ({
   label,
   blocks: heads.flatMap((h) => [{ type: "heading", props: { level: 3 }, content: h }, { type: "bulletListItem" }]),
@@ -31,13 +37,23 @@ const tplOf = (label, heads) => ({
 const KINDS = {
   memo: {
     heads: MEMO_HEADS,
-    template: tplOf("틀로 시작 — 거래처 · 신마 검색어 · 트렌드·생각 · 소싱할 것", MEMO_HEADS),
-    placeholder: "거래처 메모 · 신마 검색어 · 이번 주 트렌드 생각 — '/' 로 제목·체크박스·사진",
+    template: tplOf("틀로 시작 (위 소제목 4개)", MEMO_HEADS),
+    placeholder: "거래처 · 검색어 · 트렌드 생각",
   },
   session: {
     heads: SESSION_HEADS,
-    template: tplOf("틀로 시작 — 준비물 · 모델 · 소품 · 동선", SESSION_HEADS),
-    placeholder: "준비물 · 모델 · 소품 · 동선 등 — '/' 로 제목·체크박스·사진",
+    template: tplOf("틀로 시작 (위 소제목 4개)", SESSION_HEADS),
+    placeholder: "준비물 · 모델 · 소품 · 동선",
+  },
+  shoot: {
+    heads: SHOOT_HEADS,
+    template: tplOf("틀로 시작 (위 소제목 4개)", SHOOT_HEADS),
+    placeholder: "스튜디오 · 모델 · 소품 · 컷",
+  },
+  day: {
+    heads: DAY_HEADS,
+    template: tplOf("틀로 시작 (위 소제목 3개)", DAY_HEADS),
+    placeholder: "예약·결제 · 준비물 · 동선",
   },
 };
 
@@ -94,6 +110,7 @@ export function MemoEditor({ initial, onSave, online, kind = "memo", compact }) 
         heads={k.heads}
         template={k.template}
         placeholder={k.placeholder}
+        inlineTemplate
       />
     </Suspense>
   );
@@ -136,6 +153,21 @@ function Snippet({ text, q }) {
 // ---------------------------------------------------------------- 메모 탭
 
 export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
+  return (
+    <MemoTab
+      storeKey={MEMO_KEY}
+      kind="memo"
+      online={online}
+      others={sessions.map((x) => ({ id: x.id, on: x.on || "", title: x.title, memo: x.memo }))}
+      otherLabel="소싱 회차"
+      onOpenOther={onOpenSession}
+    />
+  );
+}
+
+/** 날짜별 노션식 메모 한 장 — storeKey(settings) · kind(소제목 칩) · others(찾기에 같이 나올 다른 메모 [{id, on, title, memo}]) */
+export function MemoTab({ storeKey, kind, online, others = [], otherLabel = "", onOpenOther }) {
+  const MEMO_KEY = storeKey;
   const today = dayKey();
   const [days, setDays] = useState(() => {
     try {
@@ -171,7 +203,7 @@ export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
       setLoaded(true);
       setMsg("메모를 불러오지 못했어요 — " + (e.message || e));
     }
-  }, [online]);
+  }, [online, MEMO_KEY]);
 
   useEffect(() => {
     reload();
@@ -181,7 +213,7 @@ export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
       off();
       stop();
     };
-  }, [reload]);
+  }, [reload, MEMO_KEY]);
 
   // 날짜를 바꾸면 그날 글로 새 칸
   const go = (d) => {
@@ -213,7 +245,7 @@ export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
         throw e;
       }
     },
-    [online],
+    [online, MEMO_KEY],
   );
 
   const memoDays = useMemo(() => Object.keys(days).filter((k) => !isEmpty(days[k]?.text)).sort().reverse(), [days]);
@@ -225,11 +257,11 @@ export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
     const s = q.trim().toLowerCase();
     if (!s) return [];
     const mine = memoDays.filter((k) => plainOf(days[k].text).toLowerCase().includes(s)).map((k) => ({ type: "memo", key: k, on: k, text: days[k].text }));
-    const ses = sessions
+    const ses = others
       .filter((x) => x.memo && plainOf(x.memo).toLowerCase().includes(s))
-      .map((x) => ({ type: "session", key: x.id, on: x.on || "", title: x.title, text: x.memo }));
+      .map((x) => ({ type: "other", key: x.id, on: x.on || "", title: x.title, text: x.memo }));
     return [...mine, ...ses].sort((a, b) => (b.on || "").localeCompare(a.on || ""));
-  }, [q, memoDays, days, sessions]);
+  }, [q, memoDays, days, others]);
 
   return (
     <div className="space-y-3">
@@ -249,7 +281,7 @@ export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && setQ("")}
-          placeholder="메모 찾기 (소싱 회차 메모도 같이)"
+          placeholder={otherLabel ? `메모 찾기 (${otherLabel} 메모도 같이)` : "메모 찾기"}
           aria-label="메모 찾기"
           className="w-full rounded-xl border border-stone-200 bg-white py-2.5 pr-9 pl-9 text-sm outline-none focus:border-rose-600"
         />
@@ -283,15 +315,15 @@ export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
                       if (h.type === "memo") {
                         go(h.key);
                         setQ("");
-                      } else onOpenSession?.(h.key);
+                      } else onOpenOther?.(h.key);
                     }}
                     className="flex w-full gap-3 px-4 py-2.5 text-left hover:bg-stone-50"
                   >
                     <span className="w-24 shrink-0 text-xs text-stone-500">
-                      {h.type === "memo" ? dayTitle(h.on) : `${h.on ? md(h.on) + " " : ""}소싱 회차`}
+                      {h.type === "memo" ? dayTitle(h.on) : `${h.on ? md(h.on) + " " : ""}${otherLabel}`}
                     </span>
                     <span className="min-w-0 flex-1 text-sm leading-relaxed text-stone-700">
-                      {h.type === "session" && h.title && <b className="mr-1 font-semibold text-stone-800">{h.title}</b>}
+                      {h.type === "other" && h.title && <b className="mr-1 font-semibold text-stone-800">{h.title}</b>}
                       <Snippet text={h.text} q={q.trim()} />
                     </span>
                   </button>
@@ -371,7 +403,7 @@ export function SourcingMemoTab({ online, sessions = [], onOpenSession }) {
                 <Loader2 size={18} className="animate-spin" />
               </div>
             ) : (
-              <MemoEditor key={`${date}:${gen}`} initial={cur?.text || ""} onSave={(t) => save(date, t)} online={online} kind="memo" />
+              <MemoEditor key={`${date}:${gen}`} initial={cur?.text || ""} onSave={(t) => save(date, t)} online={online} kind={kind} />
             )}
           </section>
           <p className="px-1 text-[11px] leading-relaxed text-stone-400">

@@ -7,6 +7,7 @@ import { stylingLine } from "../lib/styling";
 import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError } from "../lib/shootSheet";
 import { Photo } from "./ShootBits";
 import StylingSheet from "./Styling";
+import { MemoTab, MemoEditor, SHOOT_MEMO_KEY } from "./SourcingMemo";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -16,6 +17,9 @@ import StylingSheet from "./Styling";
  * 촬영일 = 코디들의 촬영일(shoot_codis.shootDate) + 직접 만든 촬영(settings shoot_days).
  * settings shoot_days {items:[{id, on, time, place, models:[이름], modelNote, memo, cuts:[{id,text,done}], videos:[…], sheetToken, sheetAt, sheetClosed}]}
  *   한 날짜에 한 줄. 코디만 있는 날은 창을 열고 무언가 고칠 때 그 날짜 줄이 생긴다.
+ *
+ * 10/26 세원: "촬영 관리도 마찬가지로(소싱 관리처럼) 메모" → 탭 '촬영일 · 메모'. 메모 탭 = 날짜별 노션식 메모(settings shoot_memo, SourcingMemo.MemoTab),
+ *   촬영 창의 '메모(우리만 봐요)' 칸도 같은 편집기(kind 'day'). 예전 글 메모는 그대로 보인다.
  */
 
 const DAYS_KEY = "shoot_days";
@@ -181,7 +185,7 @@ function CodiRow({ c, d, onStyle }) {
   const its = codiItems(c, d.items);
   const line = stylingLine(c.styling, d.items);
   return (
-    <button type="button" onClick={onStyle} className="flex w-full gap-3 rounded-xl border border-stone-200 bg-white p-2.5 text-left hover:border-rose-300">
+    <button type="button" onClick={onStyle} className="flex w-full min-w-0 gap-3 rounded-xl border border-stone-200 bg-white p-2.5 text-left hover:border-rose-300">
       <span className="flex shrink-0 gap-1">
         {its.slice(0, 3).map((x) => (
           <Photo key={x.id} url={d.urls[x.photo] || x.photoUrl} className="aspect-[3/4] w-11 rounded-md" />
@@ -352,7 +356,7 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
           </button>
         </header>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4">
-          <div className="grid gap-2.5 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             <label className="block text-xs font-medium text-stone-500">
               촬영일
               <input type="date" value={s.on || ""} onChange={(e) => set({ on: e.target.value })} className={FIELD + " mt-1"} />
@@ -380,7 +384,7 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
               <Shirt size={15} className="text-rose-700" /> 그날 코디 {codis.length > 0 && <span className="font-normal text-stone-400">{codis.length}개 · 스타일링 {styled}/{codis.length}</span>}
             </div>
             {codis.length ? (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {codis.map((c) => (
                   <CodiRow key={c.id} c={c} d={d} onStyle={() => setStyling(c)} />
                 ))}
@@ -390,17 +394,19 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
             )}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <CheckList title="찍을 컷" list={s.cuts || []} onChange={(v) => set({ cuts: v })} placeholder="+ 컷 (예: 거울 셀카 전신) 엔터" />
             <CheckList title="찍을 영상" list={s.videos || []} onChange={(v) => set({ videos: v })} placeholder="+ 영상 (예: 10초 걷기) 엔터" />
           </div>
 
           <SheetLink day={s} set={set} codis={codis} d={d} online={online} />
 
-          <label className="block text-xs font-medium text-stone-500">
-            메모 (우리만 봐요)
-            <textarea value={s.memo || ""} onChange={(e) => set({ memo: e.target.value })} placeholder="스튜디오 예약·결제 · 준비물 · 동선" className={FIELD + " mt-1 h-20 resize-y"} />
-          </label>
+          <div>
+            <div className="mb-1 text-xs font-medium text-stone-500">메모 (우리만 봐요)</div>
+            <div className="rounded-xl border border-stone-200 bg-white">
+              <MemoEditor key={start.id} initial={start.memo || ""} onSave={(t) => set({ memo: t })} online={online} kind="day" compact />
+            </div>
+          </div>
         </div>
         <footer className="flex shrink-0 items-center justify-between border-t border-stone-200 px-4 py-2.5">
           {canRemove ? (
@@ -450,7 +456,7 @@ function UndatedCodis({ codis, d, onStyle }) {
         <h3 className="text-sm font-bold text-amber-900">촬영일 미정 코디 {codis.length}</h3>
         <span className="text-xs text-amber-800/80">신상 관리에서 짠 코디가 바로 여기로 와요 · 촬영일을 정하면 그날 카드로 옮겨져요</span>
       </div>
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
         {codis.map((c) => {
           const its = codiItems(c, d.items);
           const line = stylingLine(c.styling, d.items);
@@ -485,8 +491,25 @@ function UndatedCodis({ codis, d, onStyle }) {
   );
 }
 
+const TAB_KEY = "poclo_shoot_days_tab";
+
 export default function ShootDays({ d, online }) {
   const days = useDays(online);
+  const [tab, setTabState] = useState(() => {
+    try {
+      return localStorage.getItem(TAB_KEY) === "memo" ? "memo" : "days";
+    } catch {
+      return "days";
+    }
+  });
+  const setTab = (t) => {
+    setTabState(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
   const [open, setOpen] = useState(null); // 날짜 또는 기록 id
   const [styling, setStyling] = useState(null); // 촬영일 미정 코디 id
   const today = dayKey();
@@ -565,6 +588,7 @@ export default function ShootDays({ d, online }) {
             t.setDate(t.getDate() + 1);
             const x = blank(dayKey(t));
             days.save(x);
+            setTab("days");
             setOpen(x);
           }}
           className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
@@ -580,6 +604,37 @@ export default function ShootDays({ d, online }) {
           </button>
         </p>
       )}
+      <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+        {[
+          ["days", "촬영일"],
+          ["memo", "메모"],
+        ].map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={"flex-1 rounded-lg px-3 py-2 font-medium whitespace-nowrap " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "memo" ? (
+        <MemoTab
+          storeKey={SHOOT_MEMO_KEY}
+          kind="shoot"
+          online={online}
+          others={days.items.filter((x) => x.memo).map((x) => ({ id: x.id, on: x.on || "", title: x.on ? `${md(x.on)}(${wd(x.on)}) 촬영` : "날짜 미정 촬영", memo: x.memo }))}
+          otherLabel="촬영일"
+          onOpenOther={(id) => {
+            const rec = days.items.find((x) => x.id === id);
+            if (!rec) return;
+            setTab("days");
+            setOpen(rec);
+          }}
+        />
+      ) : (
+        <>
       <UndatedCodis codis={undated} d={d} onStyle={(c) => setStyling(c.id)} />
       {!list.up.length && !list.past.length ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
@@ -588,13 +643,15 @@ export default function ShootDays({ d, online }) {
         </p>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{list.up.map(card)}</div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{list.up.map(card)}</div>
           {list.past.length > 0 && (
             <>
               <div className="mt-5 mb-2 text-xs font-semibold text-stone-400">지난 촬영</div>
               <div className="grid gap-3 opacity-80 sm:grid-cols-2 lg:grid-cols-3">{list.past.map(card)}</div>
             </>
           )}
+        </>
+      )}
         </>
       )}
       {open && openDay && (
