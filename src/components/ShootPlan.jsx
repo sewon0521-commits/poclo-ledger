@@ -2139,7 +2139,7 @@ const TABS = [
 ];
 const TAB_KEY = "poclo_shoot_plan_tab";
 
-export default function ShootPlan({ d, online }) {
+export default function ShootPlan({ d, online, reelKit }) {
   const sessions = useList(KEYS.sessions, online);
   const notes = useList(KEYS.notes, online);
   const [tab, setTabState] = useState(() => {
@@ -2238,7 +2238,7 @@ export default function ShootPlan({ d, online }) {
           onOpened={() => setOpenId("")}
         />
       ) : tab === "reels" ? (
-        <HotReelsTab reels={reels} d={d} online={online} onPut={setPut} />
+        <HotReelsTab reels={reels} d={d} online={online} onPut={setPut} reelKit={reelKit} />
       ) : tab === "best" ? (
         <MallBestTab d={d} online={online} onPut={setPut} />
       ) : tab === "accounts" ? (

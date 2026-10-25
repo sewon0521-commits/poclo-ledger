@@ -488,7 +488,15 @@ pg === "home" ? (
                 />
               ) : pg === "shoot" || pg === "shootRefs" || pg === "shootPlan" ? (
                 <PricingCtx.Provider value={pricingKit}>
-                  <ShootPage key={pg} view={pg === "shootRefs" ? "refs" : pg === "shootPlan" ? "plan" : "list"} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} dealt={dealt} />
+                  <ShootPage
+                    key={pg}
+                    view={pg === "shootRefs" ? "refs" : pg === "shootPlan" ? "plan" : "list"}
+                    online={L.mode === "remote" && !!L.session}
+                    vendors={vendors}
+                    onVendor={L.saveVendor}
+                    dealt={dealt}
+                    reelKit={{ reels: S.reels, save: S.saveReel, queue: S.queueReel }}
+                  />
                 </PricingCtx.Provider>
               ) : pg === "invoiceReq" ? (
                 <InvoiceRequestPage tx={tx} vendors={vendors} online={L.mode === "remote" && !!L.session} onPatchTxs={L.patchTxs} onBreakdown={openBreakdown} />

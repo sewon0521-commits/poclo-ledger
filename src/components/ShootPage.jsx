@@ -1635,7 +1635,7 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
   );
 }
 
-export default function ShootPage({ view, online, vendors = [], onVendor, dealt }) {
+export default function ShootPage({ view, online, vendors = [], onVendor, dealt, reelKit }) {
   const d = useData(online);
   return (
     <div>
@@ -1654,7 +1654,7 @@ export default function ShootPage({ view, online, vendors = [], onVendor, dealt 
       ) : view === "refs" ? (
         <RefsView d={d} online={online} />
       ) : view === "plan" ? (
-        <ShootPlan d={d} online={online} />
+        <ShootPlan d={d} online={online} reelKit={reelKit} />
       ) : (
         <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
       )}

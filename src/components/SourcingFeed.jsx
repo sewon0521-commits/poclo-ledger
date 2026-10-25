@@ -180,7 +180,59 @@ const ScopeBtn = ({ on, onClick, children, title }) => (
   </button>
 );
 
-function ReelCard({ x, src, done, onPut, dim }) {
+// 10/25 세원: "뜨는 릴스에서 바로 릴스 기획으로 옮기는 버튼. 인스타 버튼은 없애고 — 썸네일 누르면 인스타로 가니까."
+// 계정 아카이브 '라이브러리에 담기'와 같은 길(릴스 항목 + 분석기 일감 ref). 보관만이면 Claude 를 안 부른다(돈 — 9/23 원칙).
+function PlanButton({ planned, onPlan }) {
+  const [ask, setAsk] = useState(false);
+  const [busy, setBusy] = useState("");
+  if (planned)
+    return (
+      <span title="콘텐츠 › 릴스 기획에 들어 있어요" className="flex min-w-[5.5rem] flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs font-semibold whitespace-nowrap text-emerald-800">
+        <Check size={11} /> 기획에 있음
+      </span>
+    );
+  const run = async (analyze) => {
+    setBusy(analyze ? "a" : "k");
+    try {
+      await onPlan(analyze);
+    } finally {
+      setBusy("");
+      setAsk(false);
+    }
+  };
+  if (!ask)
+    return (
+      <button
+        type="button"
+        onClick={() => setAsk(true)}
+        className="flex min-w-[5.5rem] flex-1 items-center justify-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-xs font-semibold whitespace-nowrap text-stone-700 hover:border-rose-300 hover:text-rose-800"
+      >
+        <Film size={11} /> 릴스 기획
+      </button>
+    );
+  return (
+    <div className="absolute inset-x-2.5 bottom-2.5 z-10 space-y-1 rounded-xl border border-stone-200 bg-white p-1.5 shadow-lg">
+      <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-stone-500">
+        릴스 기획에 담기
+        <button type="button" onClick={() => setAsk(false)} aria-label="닫기" className="rounded p-0.5 text-stone-400 hover:text-stone-700">
+          <X size={12} />
+        </button>
+      </div>
+      <button type="button" disabled={!!busy} onClick={() => run(false)} className="w-full rounded-lg border border-stone-300 px-2 py-1.5 text-left text-xs font-semibold text-stone-800 disabled:opacity-50">
+        {busy === "k" ? "담는 중…" : "보관만"}
+        <span className="block text-[10px] font-normal text-stone-400">영상만 · 무료</span>
+      </button>
+      <button type="button" disabled={!!busy} onClick={() => run(true)} className="w-full rounded-lg bg-rose-700 px-2 py-1.5 text-left text-xs font-semibold text-white disabled:bg-stone-300">
+        {busy === "a" ? "맡기는 중…" : "담고 분석까지"}
+        <span className="block text-[10px] font-normal text-rose-100">대본·구조 · 약 100~200원</span>
+      </button>
+    </div>
+  );
+}
+
+const reelCode = (url) => (String(url || "").match(/\/(?:reel|reels|p)\/([A-Za-z0-9_-]+)/) || [])[1] || "";
+
+function ReelCard({ x, src, done, onPut, dim, planned, onPlan }) {
   const tag = TAGS[x.tag];
   return (
     <div className={"flex flex-col overflow-hidden rounded-xl border border-stone-200 bg-white " + (dim ? "opacity-75" : "")}>
@@ -203,7 +255,7 @@ function ReelCard({ x, src, done, onPut, dim }) {
           </span>
         )}
       </a>
-      <div className="flex flex-1 flex-col gap-0.5 p-2.5">
+      <div className="relative flex flex-1 flex-col gap-0.5 p-2.5">
         <div className="flex items-baseline justify-between gap-2">
           <span className={"text-xl font-bold tracking-tight tabular-nums " + (dim ? "text-stone-700" : "text-rose-700")}>{pctText(x.r)}</span>
           <span className="text-[10px] text-stone-400">댓글÷조회</span>
@@ -217,14 +269,18 @@ function ReelCard({ x, src, done, onPut, dim }) {
           @{x.handle} · {agoText(x.takenAt)}
         </div>
         {x.caption && <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-stone-500">{x.caption}</p>}
-        <div className="mt-auto flex gap-1.5 pt-2">
-          <a href={x.url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
-            인스타 <ExternalLink size={11} />
-          </a>
+        <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
+          {onPlan ? (
+            <PlanButton planned={planned} onPlan={onPlan} />
+          ) : (
+            <a href={x.url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 rounded-lg border border-stone-200 px-2 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+              인스타 <ExternalLink size={11} />
+            </a>
+          )}
           <button
             type="button"
             onClick={onPut}
-            className={"flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold " + (done ? "border border-stone-200 text-stone-500 hover:border-rose-300" : "bg-rose-700 text-white hover:bg-rose-800")}
+            className={"flex min-w-[5.5rem] flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold whitespace-nowrap " + (done ? "border border-stone-200 text-stone-500 hover:border-rose-300" : "bg-rose-700 text-white hover:bg-rose-800")}
           >
             {done ? "다시 담기" : "소싱에 담기"}
           </button>
@@ -234,7 +290,7 @@ function ReelCard({ x, src, done, onPut, dim }) {
   );
 }
 
-export function HotReelsTab({ reels, d, online, onPut }) {
+export function HotReelsTab({ reels, d, online, onPut, reelKit }) {
   const [thr, setThrState] = useState(readThreshold);
   const [noEvent, setNoEvent] = useState(false);
   const [mall, setMall] = useState("");
@@ -257,6 +313,38 @@ export function HotReelsTab({ reels, d, online, onPut }) {
   const doneOf = (x) => d.refs.some((r) => sameFrom(r.from, { type: "reel", code: x.code, url: x.url }));
   const accounts = data?.accounts || [];
   const okN = accounts.filter((a) => a.ok).length;
+
+  // 릴스 기획 라이브러리에 이미 있는 릴스(같은 릴스 코드) — 방금 담은 것은 서버 목록이 늦게 와도 바로 '기획에 있음'
+  const [justPlanned, setJustPlanned] = useState(() => new Set());
+  const plannedCodes = useMemo(() => {
+    const s = new Set();
+    for (const it of reelKit?.reels || []) {
+      const c = reelCode(it.source?.url || it.meta?.url);
+      if (c) s.add(c);
+    }
+    return s;
+  }, [reelKit?.reels]);
+  const plannedOf = (x) => plannedCodes.has(x.code) || justPlanned.has(x.code);
+  const plan = reelKit?.save
+    ? (x) => async (analyze) => {
+        const now = new Date().toISOString();
+        const id = newId("r");
+        const who = x.mall && x.mall !== "크리에이터" ? x.mall : `@${x.handle}`;
+        await reelKit.save({
+          id,
+          title: `${analyze ? "분석" : "보관"} 대기 — @${x.handle}`,
+          source: { type: "link", url: x.url },
+          meta: { url: x.url },
+          memo: `소싱 관리 뜨는 릴스 · @${x.handle} · 조회 ${countText(x.views)} · 댓글 ${countText(x.comments)} (댓글÷조회 ${pctText(x.r)})`,
+          shop: { name: who, url: `https://www.instagram.com/${x.handle}/` },
+          job: { status: "queued", at: now },
+          addedAt: now,
+          filled: [],
+        });
+        await reelKit.queue(id, "ref", analyze ? {} : { analyze: false });
+        setJustPlanned((s) => new Set(s).add(x.code));
+      }
+    : null;
 
   const put = (x) =>
     onPut({
@@ -325,7 +413,7 @@ export function HotReelsTab({ reels, d, online, onPut }) {
       {over.length > 0 ? (
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {over.map((x) => (
-            <ReelCard key={x.code} x={x} src={srcOf(x)} done={doneOf(x)} onPut={() => put(x)} />
+            <ReelCard key={x.code} x={x} src={srcOf(x)} done={doneOf(x)} onPut={() => put(x)} planned={plannedOf(x)} onPlan={plan && plan(x)} />
           ))}
         </div>
       ) : (
@@ -338,7 +426,7 @@ export function HotReelsTab({ reels, d, online, onPut }) {
           <div className="border-b border-stone-200 pb-1 text-xs font-semibold text-stone-400">기준 아래 상위 {under.length}개 — 참고만</div>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {under.map((x) => (
-              <ReelCard key={x.code} x={x} src={srcOf(x)} done={doneOf(x)} onPut={() => put(x)} dim />
+              <ReelCard key={x.code} x={x} src={srcOf(x)} done={doneOf(x)} onPut={() => put(x)} planned={plannedOf(x)} onPlan={plan && plan(x)} dim />
             ))}
           </div>
         </section>
