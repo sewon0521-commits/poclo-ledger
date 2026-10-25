@@ -14,6 +14,7 @@
 import { isRemote, supabase } from "./supabase";
 import { newToken, callName, isMissing } from "./contract";
 import { codiItems, codiName, colorList, md } from "./shoot";
+import { PARTS } from "./styling";
 import { dayKey } from "./journal";
 
 const LOCAL = "poclo_shoot_sheets";
@@ -67,10 +68,11 @@ export async function buildSheet(day, codis, d, online) {
   for (const c of codis) {
     for (const x of its(c)) if (x.photo) keys.push(x.photo);
     const st = c.styling || {};
-    for (const s of [...(st.shoes || []), ...(st.bag || [])]) {
+    for (const s of PARTS.flatMap((p) => st[p.key] || [])) {
       const x = s.itemId && d.items.find((i) => i.id === s.itemId);
       if (x?.photo) keys.push(x.photo);
     }
+    for (const k of st.codiPhotos || []) if (!k.startsWith("data:")) keys.push(k);
     for (const r of refsOf([...(c.refIds || []), ...(st.refIds || [])])) keys.push(r.photo);
   }
   const signed = await longUrls(keys, online);
@@ -101,11 +103,12 @@ export async function buildSheet(day, codis, d, online) {
         items: its(c).map((x) => pickItem(x, c)),
         styling: {
           hair: st.hair || [],
-          shoes: (st.shoes || []).map(pickWear).filter(Boolean),
-          bag: (st.bag || []).map(pickWear).filter(Boolean),
+          ...Object.fromEntries(PARTS.map((p) => [p.key, (st[p.key] || []).map(pickWear).filter(Boolean)])),
           acc: st.acc || [],
           memo: st.memo || "",
         },
+        // 우리가 벽걸이에 걸어 찍은 이 코디 사진(10/25)
+        codiPhotos: (st.codiPhotos || []).map((k) => (k.startsWith("data:") ? k : urlOf(k))).filter(Boolean),
         refs: refsOf([...new Set([...(st.refIds || []), ...(c.refIds || [])])])
           .map((r) => urlOf(r.photo))
           .filter(Boolean),

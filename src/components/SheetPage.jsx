@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CalendarDays, Clock, Loader2, MapPin, Navigation } from "lucide-react";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
+import { PARTS } from "../lib/styling";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
 // 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄·코디(상품 이름·색상·사진)·스타일링·참고 사진.
@@ -40,12 +41,19 @@ function Tags({ label, list }) {
     <div className="flex items-start gap-2">
       <span className="w-14 shrink-0 pt-1 text-xs font-semibold text-stone-500">{label}</span>
       <span className="flex flex-wrap gap-1.5">
-        {list.map((t, i) => (
-          <span key={i} className="flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[13px] font-medium text-rose-900">
-            {t.photo && <img src={t.photo} alt="" className="h-5 w-5 rounded-full object-cover" />}
-            {t.text ?? t}
-          </span>
-        ))}
+        {list.map((t, i) =>
+          t.photo ? (
+            // 우리 상품에서 고른 것 — 사진을 크게(10/25 세원 "썸네일이 너무 작아")
+            <span key={i} className="w-20 text-[12px] leading-snug font-medium text-rose-900">
+              <img src={t.photo} alt="" loading="lazy" className="mb-1 aspect-[3/4] w-20 rounded-lg object-cover ring-1 ring-rose-100" />
+              <span className="line-clamp-2">{t.text}</span>
+            </span>
+          ) : (
+            <span key={i} className="flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[13px] font-medium text-rose-900">
+              {t.text ?? t}
+            </span>
+          ),
+        )}
       </span>
     </div>
   );
@@ -54,13 +62,25 @@ function Tags({ label, list }) {
 function CodiCard({ c, n, onBig }) {
   const st = c.styling || {};
   const photos = c.items.map((x) => x.photo).filter(Boolean);
-  const hasStyle = st.hair?.length || st.shoes?.length || st.bag?.length || st.acc?.length || st.memo;
+  const hasStyle = st.hair?.length || PARTS.some((p) => st[p.key]?.length) || st.acc?.length || st.memo;
+  const cps = c.codiPhotos || [];
   return (
     <Card className="space-y-3 !p-0 overflow-hidden">
       <div className="px-4 pt-4">
         <div className="text-xs font-semibold text-rose-700">코디 {n}</div>
         <h2 className="mt-0.5 text-[17px] leading-snug font-bold text-stone-900">{c.name}</h2>
       </div>
+      {cps.length > 0 && (
+        <div className="flex snap-x gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
+          {cps.map((u, i) => (
+            <button key={i} type="button" onClick={() => onBig(cps, i)} className={(cps.length > 1 ? "w-[85%]" : "w-full") + " shrink-0 snap-start"}>
+              <span className="block aspect-square overflow-hidden rounded-xl bg-stone-100">
+                <img src={u} alt="" loading="lazy" className="h-full w-full object-cover" />
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex snap-x gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
         {c.items.map((x, i) => (
           <button key={i} type="button" onClick={() => x.photo && onBig(photos, photos.indexOf(x.photo))} className="w-[46%] shrink-0 snap-start text-left">
@@ -73,8 +93,9 @@ function CodiCard({ c, n, onBig }) {
       {hasStyle ? (
         <div className="space-y-2 border-t border-stone-100 px-4 py-3">
           <Tags label="헤어" list={st.hair} />
-          <Tags label="신발" list={st.shoes} />
-          <Tags label="가방" list={st.bag} />
+          {PARTS.map((p) => (
+            <Tags key={p.key} label={p.label} list={st[p.key]} />
+          ))}
           <Tags label="악세서리" list={st.acc} />
           {st.memo && <p className="rounded-xl bg-stone-50 px-3 py-2 text-sm whitespace-pre-line text-stone-700">{st.memo}</p>}
         </div>
