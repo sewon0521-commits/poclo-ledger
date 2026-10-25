@@ -15,6 +15,7 @@ import {
   listContracts,
   removeContract,
   signLink,
+  updateContract,
   usesText,
   wonText,
 } from "../lib/contract";
@@ -96,9 +97,12 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [peek, setPeek] = useState(false);
+  // 이 계약서만 고친 본문 — null 이면 틀대로(위 칸이 바뀌면 같이 바뀜)
+  const [edited, setEdited] = useState(null);
   const set = (k) => (v) => setT((x) => ({ ...x, [k]: v }));
   const full = { ...t, title: tpl.title, bizName: biz.name || "포클로 POCLO", ceo: biz.ceo || "최지원" };
-  const text = fillText(tpl.body, full);
+  const filled = fillText(tpl.body, full);
+  const text = edited ?? filled;
   const ok = t.name.trim() && t.date && t.time && Number(t.wage) > 0;
 
   const make = async () => {
@@ -180,12 +184,18 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
         </label>
         <div className="rounded-xl border border-stone-200">
           <button type="button" onClick={() => setPeek(!peek)} className="flex w-full items-center justify-between px-3 py-2.5 text-sm font-semibold text-stone-700">
-            모델에게 보일 계약서 미리 보기 <span className="text-xs font-normal text-stone-400">{peek ? "접기" : "펼치기"}</span>
+            모델에게 보일 계약서 · 이 계약서만 고치기
+            <span className="text-xs font-normal text-stone-400">{edited != null ? "고쳤어요 · " : ""}{peek ? "접기" : "펼치기"}</span>
           </button>
           {peek && (
-            <div className="border-t border-stone-100 p-4">
-              <ContractText terms={{ title: tpl.title, text }} />
-            </div>
+            <TextEditor
+              text={text}
+              title={tpl.title}
+              edited={edited != null}
+              stale={edited != null && edited !== filled}
+              onChange={setEdited}
+              onReset={() => setEdited(null)}
+            />
           )}
         </div>
         {err === "missing" ? <MissingSql /> : err && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{err}</p>}
@@ -199,6 +209,74 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
         </button>
       </footer>
     </Sheet>
+  );
+}
+
+// 본문 고치기 — 왼쪽(폰은 위) 글 칸, 오른쪽(폰은 아래) 모델에게 보일 모양. '제N조'·'·' 규칙은 문구 틀과 같다.
+function TextEditor({ text, title, edited, onChange, onReset }) {
+  return (
+    <div className="space-y-2 border-t border-stone-100 p-3">
+      <p className="text-xs leading-relaxed text-stone-500">
+        여기서 고치면 <b>이 계약서에만</b> 들어가요(문구 틀은 그대로). &apos;제N조&apos; 로 시작하는 줄은 제목, &apos;·&apos; 로 시작하면 점.
+        {edited && " 고친 뒤에 위 칸(날짜·시급 등)을 바꾸면 본문엔 안 들어가요 — '틀대로 다시 채우기'를 누르세요."}
+      </p>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <textarea value={text} onChange={(e) => onChange(e.target.value)} rows={18} className={F + " text-[13px] leading-relaxed"} aria-label="계약서 본문" />
+        <div className="max-h-[28rem] overflow-y-auto rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200">
+          <ContractText terms={{ title, text }} />
+        </div>
+      </div>
+      {edited && (
+        <button type="button" onClick={onReset} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-stone-500 hover:text-rose-700">
+          틀대로 다시 채우기
+        </button>
+      )}
+    </div>
+  );
+}
+
+// 서명 전 계약서 고치기 — 본문만(링크는 그대로라 모델이 다시 열면 고친 내용이 보인다)
+function EditBox({ c, online, onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(c.terms?.text || "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  if (!open)
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
+        <Pencil size={12} /> 이 계약서 내용 고치기
+      </button>
+    );
+  return (
+    <div className="rounded-xl border border-rose-200">
+      <TextEditor text={text} title={c.terms?.title} edited={false} onChange={setText} onReset={() => {}} />
+      <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-3 py-2">
+        {msg && <span className="mr-auto text-xs text-rose-700">{msg}</span>}
+        <button type="button" onClick={() => setOpen(false)} className="rounded-lg px-3 py-1.5 text-xs text-stone-600">
+          그만두기
+        </button>
+        <button
+          type="button"
+          disabled={busy || !text.trim() || text === c.terms?.text}
+          onClick={async () => {
+            setBusy(true);
+            setMsg("");
+            try {
+              const r = await updateContract(online, c.id, { ...c.terms, text, editedAt: new Date().toISOString() });
+              onSaved(r);
+              setOpen(false);
+            } catch (e) {
+              setMsg(e.message || String(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-stone-300"
+        >
+          저장
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -225,7 +303,7 @@ function LinkBox({ c }) {
   );
 }
 
-function ViewSheet({ c, onClose, onRemove }) {
+function ViewSheet({ c, online, onClose, onRemove, onSaved }) {
   const t = c.terms || {};
   return (
     <Sheet onClose={onClose} wide>
@@ -240,6 +318,7 @@ function ViewSheet({ c, onClose, onRemove }) {
       />
       <div className="space-y-4 overflow-y-auto p-4">
         {!c.signed_at && <LinkBox c={c} />}
+        {!c.signed_at && <EditBox key={c.id + (t.editedAt || "")} c={c} online={online} onSaved={onSaved} />}
         {t.memo && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">메모: {t.memo}</p>}
         <ContractText terms={t} />
         <SignedBlock signed={c.signed} signedAt={c.signed_at} />
@@ -484,7 +563,18 @@ export default function ContractPage({ online }) {
           }}
         />
       )}
-      {view && <ViewSheet c={view} onClose={() => setView(null)} onRemove={remove} />}
+      {view && (
+        <ViewSheet
+          c={view}
+          online={online}
+          onClose={() => setView(null)}
+          onRemove={remove}
+          onSaved={(r) => {
+            setView(r);
+            setList((l) => (l || []).map((x) => (x.id === r.id ? r : x)));
+          }}
+        />
+      )}
       {editTpl && (
         <TemplateSheet
           tpl={tpl}

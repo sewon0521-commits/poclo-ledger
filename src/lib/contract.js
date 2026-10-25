@@ -34,12 +34,13 @@ export const DEFAULT_TEMPLATE = {
 
 제3조 (보수)
 · 시급 {시급} × 실제 촬영 시간
-· 사업소득 3.3%를 원천징수한 뒤, 촬영일로부터 7일 안에 모델이 적은 계좌로 보냅니다.
+· 사업소득 3.3%를 원천징수한 뒤, 촬영일로부터 3일 안에 모델이 적은 계좌로 보냅니다.
 · 원천징수 신고에 필요한 주민등록번호는 보수를 지급할 때 따로 안내해 받습니다.
 
 제4조 (촬영물 권리와 이용 범위)
 · 촬영한 사진·영상은 회사가 아래 범위에서 쓸 수 있습니다: {이용범위}
-· 이용 기간은 촬영일로부터 2년이며, 회사는 사진·영상을 보정·편집해 쓸 수 있습니다.
+· 이용 기간은 따로 정하지 않으며, 계약이 끝난 뒤에도 이미 올린 사진·영상은 계속 쓸 수 있습니다.
+· 회사는 사진·영상을 보정·편집해 쓸 수 있습니다.
 · 위 범위 밖에서 쓰려면 모델에게 따로 동의를 받습니다.
 
 제5조 (얼굴 노출)
@@ -160,6 +161,22 @@ export async function createContract(online, terms) {
   const { data, error } = await supabase.from("contracts").insert(row).select("*").single();
   if (error) throw isMissing(error) ? new ContractError("missing", "contracts 표가 아직 없어요") : error;
   return data;
+}
+
+/** ERP — 서명 전 계약서 내용 고치기(10/25 세원 "촬영 계약서 우리가 좀 편집할 수 있게"). 서명한 것은 못 고친다 */
+export async function updateContract(online, id, terms) {
+  if (!(isRemote && online)) {
+    const list = readLocal();
+    const i = list.findIndex((x) => x.id === id);
+    if (i < 0 || list[i].signed_at) throw new ContractError("signed", "이미 서명한 계약서는 고칠 수 없어요");
+    list[i] = { ...list[i], terms };
+    writeLocal(list);
+    return list[i];
+  }
+  const { data, error } = await supabase.from("contracts").update({ terms }).eq("id", id).is("signed_at", null).select("*");
+  if (error) throw error;
+  if (!data?.length) throw new ContractError("signed", "이미 서명한 계약서는 고칠 수 없어요");
+  return data[0];
 }
 
 export async function removeContract(online, id) {
