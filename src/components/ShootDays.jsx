@@ -7,7 +7,7 @@ import { stylingLine } from "../lib/styling";
 import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError } from "../lib/shootSheet";
 import { Photo } from "./ShootBits";
 import StylingSheet from "./Styling";
-import { MemoTab, MemoEditor, SHOOT_MEMO_KEY } from "./SourcingMemo";
+import { MemoEditor } from "./SourcingMemo";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -18,8 +18,8 @@ import { MemoTab, MemoEditor, SHOOT_MEMO_KEY } from "./SourcingMemo";
  * settings shoot_days {items:[{id, on, time, place, models:[이름], modelNote, memo, cuts:[{id,text,done}], videos:[…], sheetToken, sheetAt, sheetClosed}]}
  *   한 날짜에 한 줄. 코디만 있는 날은 창을 열고 무언가 고칠 때 그 날짜 줄이 생긴다.
  *
- * 10/26 세원: "촬영 관리도 마찬가지로(소싱 관리처럼) 메모" → 탭 '촬영일 · 메모'. 메모 탭 = 날짜별 노션식 메모(settings shoot_memo, SourcingMemo.MemoTab),
- *   촬영 창의 '메모(우리만 봐요)' 칸도 같은 편집기(kind 'day'). 예전 글 메모는 그대로 보인다.
+ * 10/26 세원: "촬영 관리도 마찬가지로(소싱 관리처럼) 메모" → 촬영 창의 '메모(우리만 봐요)' 칸을 노션식 편집기로(kind 'day'). 예전 글 메모는 그대로 보인다.
+ *   (같은 날 만든 '촬영일 · 메모' 탭은 세원 "촬영 관리도 빼, 어차피 안 쓸 것 같아"로 뺐다 — 세원이 말한 메모는 창 안 메모였다. shoot_memo 는 비어 있었음)
  */
 
 const DAYS_KEY = "shoot_days";
@@ -491,25 +491,8 @@ function UndatedCodis({ codis, d, onStyle }) {
   );
 }
 
-const TAB_KEY = "poclo_shoot_days_tab";
-
 export default function ShootDays({ d, online }) {
   const days = useDays(online);
-  const [tab, setTabState] = useState(() => {
-    try {
-      return localStorage.getItem(TAB_KEY) === "memo" ? "memo" : "days";
-    } catch {
-      return "days";
-    }
-  });
-  const setTab = (t) => {
-    setTabState(t);
-    try {
-      localStorage.setItem(TAB_KEY, t);
-    } catch {
-      /* 기억 못 해도 된다 */
-    }
-  };
   const [open, setOpen] = useState(null); // 날짜 또는 기록 id
   const [styling, setStyling] = useState(null); // 촬영일 미정 코디 id
   const today = dayKey();
@@ -588,7 +571,6 @@ export default function ShootDays({ d, online }) {
             t.setDate(t.getDate() + 1);
             const x = blank(dayKey(t));
             days.save(x);
-            setTab("days");
             setOpen(x);
           }}
           className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
@@ -604,37 +586,6 @@ export default function ShootDays({ d, online }) {
           </button>
         </p>
       )}
-      <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
-        {[
-          ["days", "촬영일"],
-          ["memo", "메모"],
-        ].map(([k, label]) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setTab(k)}
-            className={"flex-1 rounded-lg px-3 py-2 font-medium whitespace-nowrap " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {tab === "memo" ? (
-        <MemoTab
-          storeKey={SHOOT_MEMO_KEY}
-          kind="shoot"
-          online={online}
-          others={days.items.filter((x) => x.memo).map((x) => ({ id: x.id, on: x.on || "", title: x.on ? `${md(x.on)}(${wd(x.on)}) 촬영` : "날짜 미정 촬영", memo: x.memo }))}
-          otherLabel="촬영일"
-          onOpenOther={(id) => {
-            const rec = days.items.find((x) => x.id === id);
-            if (!rec) return;
-            setTab("days");
-            setOpen(rec);
-          }}
-        />
-      ) : (
-        <>
       <UndatedCodis codis={undated} d={d} onStyle={(c) => setStyling(c.id)} />
       {!list.up.length && !list.past.length ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
@@ -647,11 +598,9 @@ export default function ShootDays({ d, online }) {
           {list.past.length > 0 && (
             <>
               <div className="mt-5 mb-2 text-xs font-semibold text-stone-400">지난 촬영</div>
-              <div className="grid gap-3 opacity-80 sm:grid-cols-2 lg:grid-cols-3">{list.past.map(card)}</div>
+              <div className="grid grid-cols-1 gap-3 opacity-80 sm:grid-cols-2 lg:grid-cols-3">{list.past.map(card)}</div>
             </>
           )}
-        </>
-      )}
         </>
       )}
       {open && openDay && (
