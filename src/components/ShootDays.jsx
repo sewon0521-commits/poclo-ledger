@@ -15,8 +15,14 @@ import { MemoEditor } from "./SourcingMemo";
  *   모델에게는 계정 대신 '촬영 시트 링크'(lib/shootSheet.js — 고른 칸만 담은 스냅숏, 로그인 없이 #sheet=<토큰>).
  *
  * 촬영일 = 코디들의 촬영일(shoot_codis.shootDate) + 직접 만든 촬영(settings shoot_days).
- * settings shoot_days {items:[{id, on, time, place, models:[이름], modelNote, memo, cuts:[{id,text,done}], videos:[…], sheetToken, sheetAt, sheetClosed}]}
- *   한 날짜에 한 줄. 코디만 있는 날은 창을 열고 무언가 고칠 때 그 날짜 줄이 생긴다.
+ * settings shoot_days {items:[{id, on, time, place, models:[이름], modelNote, memo, cuts:[{id,text,done}], videos:[…], sheetToken, sheetAt, sheetClosed, createdAt}]}
+ *   코디만 있는 날은 창을 열고 무언가 고칠 때 그 날짜 줄이 생긴다.
+ *
+ * 10/26 같은 날 여러 촬영 — 세원: "같은 날 다른 모델을 쓸 수도 있어서, 10/28(수)에 황다현·이주현을 촬영하는데 이걸 나눠야 할 것 같아. 이런 날이 많지는 않겠지만."
+ *   → 촬영 한 줄 = 날짜 + 모델(들) + 시간 + 시트 링크. 같은 날 여러 줄이면 카드도 여러 개(예전엔 날짜마다 첫 줄만 보여서 둘째 줄이 숨었다).
+ *   코디는 shootDate 로 날짜에 붙고, 같은 날 촬영이 둘 이상이면 shoot_codis.shootId 로 어느 촬영인지 고른다(`shootOf`).
+ *   shootId 가 없거나 그날 촬영이 아니면 그날 **처음 만든 촬영**(createdAt) — 촬영이 하나뿐인 날은 예전과 똑같다.
+ *   촬영 시트 링크도 촬영마다 따로라 모델마다 자기 코디만 본다. 촬영 창 '같은 날 다른 모델 촬영 추가'로 만든다.
  *
  * 10/26 세원: "촬영 관리도 마찬가지로(소싱 관리처럼) 메모" → 촬영 창의 '메모(우리만 봐요)' 칸을 노션식 편집기로(kind 'day'). 예전 글 메모는 그대로 보인다.
  *   (같은 날 만든 '촬영일 · 메모' 탭은 세원 "촬영 관리도 빼, 어차피 안 쓸 것 같아"로 뺐다 — 세원이 말한 메모는 창 안 메모였다. shoot_memo 는 비어 있었음)
@@ -36,6 +42,24 @@ const timeText = (t) => {
   const [h, m] = t.split(":").map(Number);
   return `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}시${m ? ` ${m}분` : ""}`;
 };
+
+// ---------------------------------------------------------------- 같은 날 여러 촬영 (10/26)
+
+/** 그날 촬영들 — 처음 만든 순서 */
+const sameDay = (rows, on) => (on ? rows.filter((x) => x.on === on).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "") || a.id.localeCompare(b.id)) : []);
+/** 코디가 어느 촬영인지 — shootId 가 그날 촬영이면 그것, 아니면 그날 처음 만든 촬영(없으면 null) */
+const shootOf = (c, rows) => {
+  const list = sameDay(rows, c.shootDate);
+  return list.find((r) => r.id === c.shootId) || list[0] || null;
+};
+/** 이 촬영의 코디 — rows 에 이 촬영이 없으면(아직 저장 전인 날) 그날 코디 전부 */
+const codisOf = (row, codis, rows) => {
+  const dayCodis = codis.filter((c) => row.on && c.shootDate === row.on);
+  if (!rows.some((r) => r.id === row.id)) return sameDay(rows, row.on).length ? [] : dayCodis;
+  return dayCodis.filter((c) => shootOf(c, rows)?.id === row.id);
+};
+/** '황다현 · 오후 12시' */
+const shootLabel = (r) => [(r.models || []).filter(Boolean).join(", ") || "모델 미정", timeText(r.time)].filter(Boolean).join(" · ");
 
 async function copyText(text) {
   try {
@@ -180,11 +204,11 @@ function Models({ value = [], onChange }) {
   );
 }
 
-/** 그날 코디 카드 — 누르면 스타일링 */
-function CodiRow({ c, d, onStyle }) {
+/** 그날 코디 카드 — 누르면 스타일링. 같은 날 촬영이 둘 이상이면(rows) 아래에 '누구 촬영' 고르기 */
+function CodiRow({ c, d, onStyle, rows, onMove }) {
   const its = codiItems(c, d.items);
   const line = stylingLine(c.styling, d.items);
-  return (
+  const card = (
     <button type="button" onClick={onStyle} className="flex w-full min-w-0 gap-3 rounded-xl border border-stone-200 bg-white p-2.5 text-left hover:border-rose-300">
       <span className="flex shrink-0 gap-1">
         {its.slice(0, 3).map((x) => (
@@ -201,6 +225,26 @@ function CodiRow({ c, d, onStyle }) {
         {c.uploadOn && <span className="block text-[11px] text-stone-400">{md(c.uploadOn)} 업로드</span>}
       </span>
     </button>
+  );
+  if (!(rows?.length > 1)) return card;
+  return (
+    <div className="min-w-0">
+      {card}
+      <label className="mt-1 flex min-w-0 items-center gap-1.5 px-1 text-[11px] text-stone-500">
+        <Users size={12} className="shrink-0 text-stone-400" /> 누구 촬영
+        <select
+          value={shootOf(c, rows)?.id || ""}
+          onChange={(e) => onMove(c, e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-stone-200 bg-white px-1.5 py-1 text-xs text-stone-700 outline-none focus:border-rose-500"
+        >
+          {rows.map((r) => (
+            <option key={r.id} value={r.id}>
+              {shootLabel(r)}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
   );
 }
 
@@ -315,8 +359,8 @@ function SheetLink({ day, set, codis, d, online }) {
   );
 }
 
-/** 촬영 창 — 고치는 대로 저장 */
-function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove }) {
+/** 촬영 창 — 고치는 대로 저장. rows = 촬영 전체(같은 날 다른 촬영 찾기), onOpen = 다른 촬영 열기, onAddSibling = 같은 날 새 촬영 */
+function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose, onOpen, onAddSibling, canRemove }) {
   const [s, setS] = useState(start);
   const latest = useRef(s);
   const timer = useRef(null);
@@ -337,7 +381,22 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, 500);
   };
-  const codis = d.codis.filter((c) => s.on && c.shootDate === s.on);
+  // 이 창에서 고친 것(아직 저장 전)까지 넣은 촬영 목록
+  const all = rows.some((r) => r.id === s.id) ? rows.map((r) => (r.id === s.id ? s : r)) : rows;
+  const codis = codisOf(s, d.codis, all);
+  const dayRows = sameDay(all, s.on);
+  const siblings = dayRows.filter((r) => r.id !== s.id);
+  const others = siblings.length ? d.codis.filter((c) => s.on && c.shootDate === s.on && !codis.includes(c)) : [];
+  const [showOthers, setShowOthers] = useState(false);
+  const moveCodi = (c, rowId) => d.saveCodis(upsert({ ...c, shootId: rowId }));
+  const addSibling = () => {
+    // 이 촬영이 아직 저장 전이면(코디만 있던 날) 먼저 저장 — 안 그러면 그날 코디가 전부 새 촬영으로 간다
+    if (!rows.some((r) => r.id === s.id)) {
+      saved.current = JSON.stringify(latest.current);
+      onSave(latest.current);
+    } else flush();
+    onAddSibling(latest.current);
+  };
   const styled = codis.filter((c) => stylingLine(c.styling, d.items)).length;
   const live = styling && d.codis.find((c) => c.id === styling.id);
   return (
@@ -347,7 +406,9 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
         <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
           <div className="min-w-0">
             <div className="text-lg font-bold text-stone-900">
-              {s.on ? `${md(s.on)}(${wd(s.on)}) 촬영` : "날짜 미정"} {s.on && <span className="ml-1 text-sm font-semibold text-rose-700">{dday(s.on)}</span>}
+              {s.on ? `${md(s.on)}(${wd(s.on)}) 촬영` : "날짜 미정"}
+              {siblings.length > 0 && <span className="text-rose-800"> · {(s.models || []).filter(Boolean).join(", ") || "모델 미정"}</span>}{" "}
+              {s.on && <span className="ml-1 text-sm font-semibold text-rose-700">{dday(s.on)}</span>}
             </div>
             <p className="text-xs text-stone-400">고치는 대로 저장돼요</p>
           </div>
@@ -374,6 +435,33 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
             <div className="mb-1 text-xs font-medium text-stone-500">모델</div>
             <Models value={s.models || []} onChange={(v) => set({ models: v })} />
           </div>
+          {s.on && (
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-stone-50 px-3 py-2 text-xs">
+              {siblings.length > 0 ? (
+                <>
+                  <span className="font-medium text-stone-500">같은 날 다른 촬영</span>
+                  {siblings.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        flush();
+                        onOpen(r);
+                      }}
+                      className="flex items-center gap-1 rounded-full border border-stone-200 bg-white px-2.5 py-1 font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800"
+                    >
+                      <Users size={11} /> {shootLabel(r)}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <span className="text-stone-400">같은 날 다른 모델도 찍으면 촬영을 나눠요 — 코디·시트 링크가 모델마다 따로</span>
+              )}
+              <button type="button" onClick={addSibling} className="flex items-center gap-1 rounded-full border border-dashed border-rose-300 px-2.5 py-1 font-semibold text-rose-700 hover:bg-rose-50">
+                <Plus size={11} /> 같은 날 다른 모델 촬영
+              </button>
+            </div>
+          )}
           <label className="block text-xs font-medium text-stone-500">
             모델에게 한 줄 — 촬영 시트에 같이 가요
             <input value={s.modelNote || ""} onChange={(e) => set({ modelNote: e.target.value })} placeholder="예: 화장은 가볍게, 머리끈·누드톤 속옷 챙겨 주세요" className={FIELD + " mt-1"} />
@@ -381,16 +469,33 @@ function DaySheet({ day: start, d, online, onSave, onRemove, onClose, canRemove 
 
           <div className="rounded-xl border border-stone-200 p-3">
             <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-              <Shirt size={15} className="text-rose-700" /> 그날 코디 {codis.length > 0 && <span className="font-normal text-stone-400">{codis.length}개 · 스타일링 {styled}/{codis.length}</span>}
+              <Shirt size={15} className="text-rose-700" /> {siblings.length ? "이 촬영 코디" : "그날 코디"}{" "}
+              {codis.length > 0 && <span className="font-normal text-stone-400">{codis.length}개 · 스타일링 {styled}/{codis.length}</span>}
             </div>
             {codis.length ? (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {codis.map((c) => (
-                  <CodiRow key={c.id} c={c} d={d} onStyle={() => setStyling(c)} />
+                  <CodiRow key={c.id} c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} />
                 ))}
               </div>
+            ) : siblings.length ? (
+              <p className="text-xs text-stone-400">아직 이 촬영 코디가 없어요 — 아래 '같은 날 다른 촬영 코디'에서 '누구 촬영'을 이 촬영으로 바꿔요.</p>
             ) : (
               <p className="text-xs text-stone-400">신상 관리 › 코디에서 촬영일을 {s.on ? md(s.on) : "이날"}로 정한 코디가 여기 떠요. 누르면 헤어·신발·악세서리를 골라요.</p>
+            )}
+            {others.length > 0 && (
+              <div className="mt-3 border-t border-stone-100 pt-2.5">
+                <button type="button" onClick={() => setShowOthers(!showOthers)} className="text-xs font-semibold text-stone-500 hover:text-rose-800">
+                  같은 날 다른 촬영 코디 {others.length}개 {showOthers ? "접기" : "보기"}
+                </button>
+                {showOthers && (
+                  <div className="mt-2 grid grid-cols-1 gap-2 opacity-90 sm:grid-cols-2">
+                    {others.map((c) => (
+                      <CodiRow key={c.id} c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} />
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -498,23 +603,32 @@ export default function ShootDays({ d, online }) {
   const today = dayKey();
   const undated = useMemo(() => d.codis.filter((c) => !c.shootDate && !c.done), [d.codis]);
   const liveStyling = styling && d.codis.find((c) => c.id === styling);
-  // 촬영일 = 코디 촬영일 + 직접 만든 촬영
+  // 촬영일 = 직접 만든 촬영(같은 날 여러 개면 카드도 여러 개 — 10/26) + 촬영이 아직 없는 코디 촬영일
   const list = useMemo(() => {
-    const m = new Map();
-    for (const x of days.items) if (x.on && !m.has(x.on)) m.set(x.on, x);
-    for (const c of d.codis) if (c.shootDate && !m.has(c.shootDate)) m.set(c.shootDate, null);
-    const rows = [...m.entries()].map(([on, rec]) => ({ on, rec, codis: d.codis.filter((c) => c.shootDate === on) }));
-    const noDate = days.items.filter((x) => !x.on).map((rec) => ({ on: "", rec, codis: [] }));
-    const up = [...noDate, ...rows.filter((r) => r.on >= today).sort((a, b) => a.on.localeCompare(b.on))];
-    const past = rows.filter((r) => r.on < today).sort((a, b) => b.on.localeCompare(a.on));
+    const rows = days.items.filter((x) => x.on).map((rec) => ({ on: rec.on, rec, codis: codisOf(rec, d.codis, days.items), n: sameDay(days.items, rec.on).length }));
+    const had = new Set(rows.map((r) => r.on));
+    for (const on of new Set(d.codis.map((c) => c.shootDate).filter(Boolean))) if (!had.has(on)) rows.push({ on, rec: null, codis: d.codis.filter((c) => c.shootDate === on), n: 1 });
+    const byTime = (a, b) => (a.rec?.time || "99").localeCompare(b.rec?.time || "99") || (a.rec?.createdAt || "").localeCompare(b.rec?.createdAt || "");
+    const noDate = days.items.filter((x) => !x.on).map((rec) => ({ on: "", rec, codis: [], n: 1 }));
+    const up = [...noDate, ...rows.filter((r) => r.on >= today).sort((a, b) => a.on.localeCompare(b.on) || byTime(a, b))];
+    const past = rows.filter((r) => r.on < today).sort((a, b) => b.on.localeCompare(a.on) || byTime(a, b));
     return { up, past };
   }, [days.items, d.codis, today]);
   const blank = (on) => ({ id: newId("sd"), on, time: "12:00", place: STUDIO, models: [], modelNote: "", memo: "", cuts: [], videos: [], createdAt: new Date().toISOString() });
   const openDay = open && (days.items.find((x) => x.id === open.id) || open);
+  // 같은 날 다른 모델 촬영 — 시간은 비워 두고 장소는 그대로
+  const addSibling = (from) => {
+    const x = { ...blank(from.on), time: "", place: from.place || STUDIO };
+    days.save(x);
+    setOpen(x);
+  };
 
   const card = (r) => {
     const rec = r.rec || {};
     const styled = r.codis.filter((c) => stylingLine(c.styling, d.items)).length;
+    const who = (rec.models || []).filter(Boolean).join(", ");
+    // 같은 날 같은 모델 촬영이 또 있으면(잘못 두 번 만든 것일 수 있음) 알려 준다
+    const dup = r.rec && r.n > 1 && who && days.items.some((x) => x.id !== rec.id && x.on === r.on && (x.models || []).filter(Boolean).join(", ") === who);
     return (
       <button
         key={rec.id || r.on}
@@ -523,7 +637,10 @@ export default function ShootDays({ d, online }) {
         className="rounded-2xl border border-stone-200 bg-white p-4 text-left transition hover:border-rose-300 hover:shadow-sm"
       >
         <div className="flex items-start justify-between gap-2">
-          <span className="text-lg font-bold text-stone-900 tabular-nums">{r.on ? `${md(r.on)}(${wd(r.on)}) 촬영` : "날짜 미정"}</span>
+          <span className="min-w-0 text-lg font-bold text-stone-900 tabular-nums">
+            {r.on ? `${md(r.on)}(${wd(r.on)}) 촬영` : "날짜 미정"}
+            {r.n > 1 && <span className="block truncate text-sm font-semibold text-rose-800">{who || "모델 미정"} · 같은 날 {r.n}팀</span>}
+          </span>
           {r.on && <span className={"shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold " + (r.on === today ? "bg-rose-700 text-white" : r.on > today ? "bg-rose-50 text-rose-800" : "bg-stone-100 text-stone-500")}>{dday(r.on)}</span>}
         </div>
         <div className="mt-1.5 space-y-0.5 text-xs text-stone-600">
@@ -553,6 +670,7 @@ export default function ShootDays({ d, online }) {
           {r.codis.length > 0 && <span className={styled < r.codis.length ? "text-amber-700" : "text-emerald-700"}>스타일링 {styled}/{r.codis.length}</span>}
           {rec.sheetToken && <span className={"flex items-center gap-0.5 " + (rec.sheetClosed ? "text-stone-400" : "text-rose-700")}>{rec.sheetClosed ? <Lock size={11} /> : <Link2 size={11} />} 시트 {rec.sheetClosed ? "닫힘" : "보냄"}</span>}
         </div>
+        {dup && <div className="mt-1.5 text-[11px] text-amber-700">같은 날 {who} 촬영이 또 있어요 — 잘못 두 번 만든 거면 하나는 지워 주세요</div>}
       </button>
     );
   };
@@ -609,6 +727,9 @@ export default function ShootDays({ d, online }) {
           day={openDay}
           d={d}
           online={online}
+          rows={days.items}
+          onOpen={(r) => setOpen(r)}
+          onAddSibling={addSibling}
           canRemove={days.items.some((x) => x.id === openDay.id)}
           onSave={days.save}
           onRemove={days.drop}
