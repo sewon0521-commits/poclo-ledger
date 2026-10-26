@@ -515,6 +515,22 @@ window.__pocloStore = async function (o) {
       });
       return best;
     };
+    // 거래처 이름 칸에서 위로 React 화면 정보(fiber)를 따라가며 매장 번호(wsIdx · storeIdx …)를 찾는다
+    var storeIdOf = function (el) {
+      for (var e = el, i = 0; e && i < 8; e = e.parentElement, i++) {
+        var fk = Object.keys(e).filter(function (k) {
+          return k.indexOf("__reactFiber") === 0;
+        })[0];
+        for (var fb = fk ? e[fk] : null, j = 0; fb && j < 12; fb = fb.return, j++) {
+          var pr = fb.memoizedProps;
+          if (!pr || typeof pr !== "object") continue;
+          for (var kk in pr) {
+            if (/^(ws|store|wholesale)_?(idx|id|no|seq)$/i.test(kk) && /^\d{2,9}$/.test(String(pr[kk]))) return String(pr[kk]);
+          }
+        }
+      }
+      return "";
+    };
     var nameEl = null;
     if (vendor) {
       var cands = leafIn(document, [vendor], scope);
@@ -532,6 +548,15 @@ window.__pocloStore = async function (o) {
     }
     var href = a ? a.href : "";
     if (href && (/^javascript:|#$/.test(href) || href === location.href)) href = "";
+    // 10/26 실제 신마(세원 크롬으로 확인): 거래처 칸은 링크가 아니라 onClick 이 window.open('/store/<매장번호>', '_blank') —
+    // 숨은 틀 안에서 누르면 새 탭 열기가 막혀 아무 일도 없었다('매장 화면이 안 떴어요'). 거래처 칸 React props 의 wsIdx 가 매장 번호다.
+    if (!href && nameEl) {
+      var sid = storeIdOf(nameEl);
+      if (sid) {
+        href = location.origin + "/store/" + sid;
+        probe.how = "wsIdx";
+      }
+    }
     probe.vendor = o.vendor || "";
     probe.name = nameEl ? nameEl.tagName + "." + String(nameEl.className || "").slice(0, 60) : "";
     probe.href = href;
@@ -583,7 +608,25 @@ window.__pocloStore = async function (o) {
       } catch (e) {
         void e;
       }
-      (inner.closest("a,button,[role=button]") || inner).click();
+      // 틀 안의 매장 번호가 읽히면 그 주소로, 아니면 이름을 누르되 새 탭 열기(window.open)를 붙잡아 그 주소로 (10/26)
+      var opened = storeIdOf(inner) ? location.origin + "/store/" + storeIdOf(inner) : "";
+      if (!opened) {
+        try {
+          f.contentWindow.open = function (u) {
+            opened = String(u || "");
+            return { focus: function () {}, closed: true };
+          };
+        } catch (e) {
+          void e;
+        }
+        (inner.closest("a,button,[role=button]") || inner).click();
+        await sleep(300);
+      }
+      if (opened) {
+        probe.how = probe.how || "새 탭 주소 붙잡음";
+        f.contentWindow.location.href = new URL(opened, location.href).href;
+        await sleep(300);
+      }
       // 매장 화면으로 넘어갈 때까지 (뒤에 깔린 목록이 이미 그 매장이면 창만 닫히고 주소는 그대로일 수 있다)
       for (var w5 = 0; w5 < 20; w5++) {
         await sleep(150);
