@@ -27,6 +27,7 @@ import {
 import { extractFrames } from "../lib/video";
 import { readScript, adaptScript, fillTemplate, splitTemplate, restructureReel, stampOf, readCloseness, saveCloseness, reelAngles, angleOf } from "../lib/reels";
 import LookPicker from "./LookPicker";
+import MoreCards, { useLimit } from "./MoreCards";
 import BaseScript, { ClosenessPick } from "./BaseScript";
 import AngleBox from "./AngleBox";
 import { emptyLook } from "../lib/looks";
@@ -1617,6 +1618,9 @@ export default function ReelsPage({
     const rest = list.filter((i) => !failed(i));
     return [...list.filter(failed), ...rest.filter((i) => i.best).sort((a, b) => (b.bestAt || "").localeCompare(a.bestAt || "")), ...rest.filter((i) => !i.best)];
   }, [items, q, sel, folders, bestOnly, tagOnly, failOnly, dupOnly, dupMap]);
+  // 10/26 카드를 한 번에 다 그리지 않는다(라이브러리 267개) — 36개씩, 아래로 내리면 더(MoreCards.jsx). 썸네일도 그리는 것만 받는다
+  const [limit, more] = useLimit(36, [q, sel, bestOnly, tagOnly, failOnly, dupOnly].join("|"));
+  const visible = useMemo(() => shown.slice(0, limit), [shown, limit]);
 
   // 썸네일 주소는 서명이 붙어 있어 오래 못 쓴다. 화면에 보이는 것만 그때그때 받아 온다.
   // 분석기가 썸네일을 새로 만들면 thumbAt 이 바뀌므로 그걸 열쇠에 넣는다.
@@ -1624,7 +1628,7 @@ export default function ReelsPage({
   // 10/2 세원: "레퍼런스를 많이 모았는지 썸네일이 잘 안 떠" — 예전엔 한 장씩 차례로·처음 40개만 받았다.
   // 이제 보이는 카드 전부를 100장씩 한 번에 서명하고, 받은 주소는 이 기기에 3시간 남겨 다시 열 때 바로 뜨게(서명은 4시간).
   useEffect(() => {
-    const want = shown.filter((it) => thumbs[thumbKey(it)] === undefined);
+    const want = visible.filter((it) => thumbs[thumbKey(it)] === undefined);
     if (!want.length) return;
     let alive = true;
     (async () => {
@@ -1649,7 +1653,7 @@ export default function ReelsPage({
     return () => {
       alive = false;
     };
-  }, [shown, fileUrls, thumbs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, fileUrls, thumbs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openItem = async (item) => {
     setOpen(item);
@@ -1990,7 +1994,7 @@ export default function ReelsPage({
         />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {shown.map((it) => (
+          {visible.map((it) => (
             <Card
               key={it.id}
               item={it}
@@ -2019,6 +2023,7 @@ export default function ReelsPage({
               onTag={(key, b) => onSave({ ...it, ...tagPatch(key, b) })}
             />
           ))}
+          {shown.length > limit && <MoreCards left={shown.length - limit} onMore={more} />}
         </div>
       )}
       </>

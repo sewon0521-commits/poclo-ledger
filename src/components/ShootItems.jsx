@@ -1,4 +1,5 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import MoreCards, { useLimit } from "./MoreCards";
 import { Plus, Search, Loader2, ImagePlus, Link2, Trash2, Check, ExternalLink, PackageCheck, Undo2, MousePointerClick, Send, AlertTriangle, X, Pencil, MessageCircle, Copy, CalendarPlus, Ruler, ChevronRight, Star } from "lucide-react";
 import { FIELD, md, won, upsert, remove, putPhoto, loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { starsOf, starLabel } from "../lib/lookStars";
@@ -1821,6 +1822,19 @@ function ClipGuide({ onClose }) {
 
 const TABS = [...STAGES.map(([k, label]) => [k, label]), ["drop", "보류·드랍"], ["returns", "반납·결제 예정"], ["returned", "반납 완료"], ["trash", "휴지통"]];
 
+// 카드는 한 번에 PAGE 개씩 (10/26 — 폰에서 탭 바꿀 때 1.3~1.6초 멈추던 것). 묶음을 차례로 채우다 limit 에서 자른다
+const PAGE = 30;
+const cut = (groups, limit) => {
+  let left = limit;
+  const out = [];
+  for (const g of groups) {
+    if (left <= 0) break;
+    const list = g.list.slice(0, left);
+    left -= list.length;
+    out.push(list.length === g.list.length ? g : { ...g, list });
+  }
+  return out;
+};
 // 별표 상품만 볼 때 묶는 순서 (10/21 세원: "신상 관리에서 별표 상품 누르면 요청, 입고·픽 다 보여 줄 수 있어?") — 탭과 상관없이 한 화면에
 const STAR_STAGES = ["request", "arrived", "pick", "shot", "back", "drop"];
 
@@ -1931,8 +1945,12 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const shortTitle = (k) => dayTitle(k).replace(/^(\d+)월 (\d+)일/, "$1/$2");
 
   const weekAgo = shiftDay(today, -6);
+  // 10/26 세원: "ERP 에 정보가 쌓이니까 렉 걸리는 거 해결할 수 있는 방법은?" — 폰 속도로 재 보니 탭을 바꾸거나 찾기를 지울 때마다
+  // 그 탭 카드 100여 개(보류·드랍 130 · 입고·픽 112)를 다 그려 1.3~1.6초 멈췄다 → 찾기는 입력을 먼저 받고(dq) 목록은 뒤에서,
+  // 카드는 PAGE 개씩만 그리고 아래로 내리면 더(MoreCards). 묶음 제목의 개수는 전체 그대로.
+  const dq = useDeferredValue(q);
   const shown = useMemo(() => {
-    const n = q.trim().toLowerCase();
+    const n = dq.trim().toLowerCase();
     const hit = (x) => !n || `${x.name} ${x.vendor} ${x.place} ${x.memo || ""}`.toLowerCase().includes(n);
     if (starOnly)
       return items.filter((x) => stars.has(x.id) && !["done", "trash"].includes(x.stage) && !x.returnedOn && (!type || (x.type || "sample") === type) && (!kind || x.kind === kind) && hit(x));
@@ -1951,7 +1969,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!mateOf || tab !== "returns" || mateKey(x) === mateOf) &&
         hit(x),
     );
-  }, [items, tab, type, kind, q, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf, starOnly, stars]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, tab, type, kind, dq, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf, starOnly, stars]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [limit, more] = useLimit(PAGE, [tab, type, kind, dq, weekOnly, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf, starOnly].join("|"));
 
   // 같은 거래처에 같이 반납할 것 (10/15 세원: "니트홀릭 1번 제품을 포장하는데 니트홀릭 상품을 2개 더 포장해야 되는데, 거래처 찾기에서 또 쳐서 확인해야 돼 —
   // 1번 포장하면서 알 수 있게, 옆에 쪼그맣게 안 거슬리게") — 반납·결제 예정에 있는 같은 거래처 상품(다른 기한 묶음 것도). 누르면 그 거래처만.
@@ -2317,7 +2336,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         </p>
       ) : (
         <div className="space-y-4">
-          {groups.map((g) => (
+          {(starOnly ? groups : cut(groups, limit)).map((g) => (
             <section key={g.id || g.title || "all"} id={g.id} className="scroll-mt-4">
               {g.title && (
                 <h3 className={"mb-1.5 flex flex-wrap items-baseline gap-x-2 px-1 text-sm font-semibold " + (g.tone || "text-stone-700")}>
@@ -2343,6 +2362,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
               </div>
             </section>
           ))}
+          {!starOnly && shown.length > limit && <MoreCards left={shown.length - limit} onMore={more} />}
         </div>
       )}
 
