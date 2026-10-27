@@ -585,7 +585,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
     const old = linked;
     const rec = onVendor(data);
     const place = (p) => (!p || p === old.address ? rec.address : p);
-    await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (it.vendorId === rec.id ? { ...it, vendor: rec.name, place: place(it.place) } : it)) }));
+    d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (it.vendorId === rec.id ? { ...it, vendor: rec.name, place: place(it.place) } : it)) }));
     set({ vendor: rec.name, place: place(x.place) });
     setVendorEdit(false);
   };
@@ -606,21 +606,20 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
       setBusy(false);
     }
   };
-  const save = async () => {
+  // 10/27 세원: "신상 관리에서 저장이 바로 안 눌려" — 판매가 목록 저장 → 상품 목록 저장(1.2MB 를 읽고 다시 씀)이 다 끝날 때까지 창을 안 닫아서
+  // 누른 게 안 먹은 것처럼 보였다. 화면은 saveItems 가 바로 바꾸니(서버는 뒤에서) 창은 누르자마자 닫고, 실패하면 위에 알림.
+  const save = () => {
     let next = { ...x, settle: null, id: x.id || newId("i"), createdAt: x.createdAt || new Date().toISOString() };
     // 판매가를 정했으면 돈 › 판매가 목록에도 (같은 줄이 있으면 숫자만 고침)
     const ch = kit ? pricingChange(x, kit.items) : null;
     if (ch) {
       const id = ch.id || newId("p");
-      try {
-        if (ch.patch) await kit.save({ ...ch.patch, id });
-        next = { ...next, pricingId: id };
-      } catch (e) {
-        d.setMsg(`판매가 목록에 담지 못했어요 (${e.message || "다시 시도해 주세요"}). 상품은 저장했어요.`);
-      }
+      next = { ...next, pricingId: id };
+      if (ch.patch) Promise.resolve(kit.save({ ...ch.patch, id })).catch((e) => d.setMsg(`판매가 목록에 담지 못했어요 (${e.message || "다시 시도해 주세요"}). 상품은 저장했어요.`));
     }
-    await d.saveItems(upsert(next));
+    // 창을 먼저 닫아 그리고, 목록 다시 그리기·저장은 그다음 차례에 — 누른 느낌이 바로 오게
     onClose();
+    requestAnimationFrame(() => setTimeout(() => d.saveItems(upsert(next)), 0));
   };
   const putNotes = (notes) => {
     set({ notes });
@@ -1064,7 +1063,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
             type="button"
             onClick={async () => {
               if (!window.confirm("이 상품을 지울까요?")) return;
-              await d.saveItems(remove(x.id));
+              d.saveItems(remove(x.id));
               onClose();
             }}
             className="flex items-center gap-1 text-xs text-stone-400 hover:text-rose-600"
@@ -1931,7 +1930,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   // 고른 날 상품을 통째로 다른 날로 (10/12 세원: "소싱한 날도 변경할 수 있게") — 요청 단계 상품만
   const moveDay = async (from, to) => {
     if (!to || to === from) return;
-    await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (normalize(it).stage === "request" && sourcedOf(it) === from ? { ...it, sourcedOn: to } : it)) }));
+    d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (normalize(it).stage === "request" && sourcedOf(it) === from ? { ...it, sourcedOn: to } : it)) }));
     setSrcDay(to);
     setDayTo("");
   };
@@ -2054,12 +2053,13 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
     const targets = [x, ...(all ? items.filter((y) => y.id !== x.id && same(y)) : [])];
     const ids = targets.map((t) => t.id);
     const why = reasons.length || note ? refusalText({ reasons, note }) : "";
-    await d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (ids.includes(it.id) ? { ...it, stage: "drop", refused: true, refusedOn: today, refusedWhy: why } : it)) }));
-    await d.saveRefusals((v) => ({
+    // 창은 바로 닫고 저장은 뒤에서 (10/27 — 저장 끝날 때까지 기다리느라 단추가 안 눌린 것처럼 보였다)
+    setRefuseFor(null);
+    d.saveItems((val) => ({ ...val, items: (val.items || []).map((it) => (ids.includes(it.id) ? { ...it, stage: "drop", refused: true, refusedOn: today, refusedWhy: why } : it)) }));
+    d.saveRefusals((v) => ({
       ...v,
       items: [{ id: newId("r"), itemIds: ids, vendorId: x.vendorId || "", vendor: x.vendor || "", scope, reasons, note, on: today, item: targets.map((t) => t.name).join(", ") }, ...(v.items || [])],
     }));
-    setRefuseFor(null);
   };
 
   // '카톡 글 복사' — 누르는 그 자리에서 복사를 시작하고(브라우저는 누른 순간에만 복사를 허락한다) 확인 창을 연다
@@ -2374,7 +2374,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           url={srcOf(measureFor, d.urls)}
           onClose={() => setMeasureFor(null)}
           onSave={async (measure) => {
-            await d.saveItems(upsert({ id: measureFor.id, measure }));
+            d.saveItems(upsert({ id: measureFor.id, measure }));
             setMeasureFor(null);
           }}
         />
