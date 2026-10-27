@@ -259,6 +259,7 @@ function CodiRow({ c, d, onStyle, rows, onMove }) {
 // ---------------------------------------------------------------- 모델에게 보낼 가이드 (10/27)
 // 세원: "촬영 창에 '모델에게 보낼 가이드' 칸 — 가이드 사진 여러 장(Ctrl+V·끌어다 놓기·고르기, 저장소가 1GB 넘었으니 긴 변 1600px jpg),
 //   레퍼런스 링크 여러 개(이름 + 주소). 촬영 시트에 '영상 가이드'로 코디 위에, 사진은 누르면 크게. '내용 새로 보내기' 하면 같이."
+// 10/27 세원: "순서를 코디 → 가이드로" · "레퍼런스가 인스타 릴스·게시물이면 단추 대신 시트 안에서 바로 영상" → SheetPage.GuideCard·IgEmbed
 // 촬영 줄에 guidePhotos:[보관 키] · guideLinks:[{id, name, url}]. 세로로 아주 긴 안내 이미지는 폭 1080 까지만 줄인다(putPhoto tallWidth — 글씨가 읽히게).
 // 이 기기 저장 모드면 사진은 작은 data URL 로(시험용).
 
@@ -402,7 +403,7 @@ function GuideBox({ s, set, online }) {
         <span className="flex items-center gap-1.5">
           <Film size={15} className="text-rose-700" /> 모델에게 보낼 가이드
         </span>
-        <span className="text-xs font-normal text-stone-400">시트 맨 위 '영상 가이드'</span>
+        <span className="text-xs font-normal text-stone-400">시트 코디 아래 '영상 가이드' · 인스타 링크는 시트 안 영상으로</span>
       </div>
       <p className="mb-2 text-xs text-stone-500">가이드 사진 · 레퍼런스 링크 — 이 칸에 마우스를 올리고 Ctrl+V, 끌어다 놓기, 사진 고르기. 바꾼 뒤엔 시트에서 '내용 새로 보내기'.</p>
       {(photos.length > 0 || pending.length > 0) && (

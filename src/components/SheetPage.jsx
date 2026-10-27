@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CalendarDays, Clock, ExternalLink, Film, Loader2, MapPin, Navigation } from "lucide-react";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
-// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄·영상 가이드·코디 순서대로 코디 사진·메모(10/27~).
+// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄 → 코디 순서대로 코디 사진·메모 → 영상 가이드(10/27~).
+// 10/27 세원: "순서를 코디 → 가이드로" — 처음엔 가이드가 코디 위였다.
 
 const timeText = (t) => {
   if (!t) return "";
@@ -56,7 +57,57 @@ const hostOf = (u) => {
   }
 };
 
-/** 영상 가이드 (10/27) — 촬영 창 '모델에게 보낼 가이드'. 사진은 폭 가득(세로로 긴 안내 이미지도 읽히게), 누르면 크게. 링크는 새 탭 */
+/** 인스타 릴스·게시물 주소 → 공식 임베드 주소 (아니면 "") — instagram.com/reel/ID · /reels/ID · /p/ID · /tv/ID · /계정/reel/ID */
+const IG_RE = /^https?:\/\/(?:www\.)?instagram\.com\/(?:[\w.]+\/)?(reels?|p|tv)\/([A-Za-z0-9_-]+)/i;
+const igEmbedOf = (u) => {
+  const m = String(u || "").match(IG_RE);
+  return m ? `https://www.instagram.com/${m[1].toLowerCase() === "reels" ? "reel" : m[1].toLowerCase()}/${m[2]}/embed/` : "";
+};
+
+/**
+ * 인스타 공식 임베드 (10/27 세원: "레퍼런스가 인스타면 단추 대신 영상이 시트 안에서 바로") — 영상은 받지 않고 임베드만.
+ * 인스타 틀이 그려진 뒤 필요한 높이를 postMessage {type:"MEASURE", details:{height}} 로 알려 준다 → 그 높이로(세로 영상이 잘리지 않게).
+ * 그 전엔 폭으로 어림(영상 칸 4:5 + 위 계정 줄·아래 좋아요 줄 약 190px).
+ * 인스타가 임베드 재생을 막은 릴스는 누르면 인스타로 넘어간다 → 아래 '인스타에서 보기'도 늘 단다.
+ */
+function IgEmbed({ src, title }) {
+  const ref = useRef(null);
+  const [h, setH] = useState(0);
+  useLayoutEffect(() => {
+    const w = ref.current?.clientWidth || 358;
+    setH((v) => v || Math.round(w * 1.25 + 190));
+  }, []);
+  useEffect(() => {
+    const on = (e) => {
+      if (e.origin !== "https://www.instagram.com" || e.source !== ref.current?.contentWindow) return;
+      try {
+        const d = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+        const n = Number(d?.type === "MEASURE" && d.details?.height);
+        if (n > 100) setH(Math.ceil(n));
+      } catch {
+        /* 인스타가 보낸 다른 신호 */
+      }
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, []);
+  return (
+    <iframe
+      ref={ref}
+      src={src}
+      title={title || "인스타 레퍼런스 영상"}
+      loading="lazy"
+      scrolling="no"
+      allowFullScreen
+      allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+      style={{ height: h || undefined }}
+      className="block w-full border-0 bg-white"
+    />
+  );
+}
+
+/** 영상 가이드 (10/27) — 촬영 창 '모델에게 보낼 가이드'. 사진은 폭 가득(세로로 긴 안내 이미지도 읽히게), 누르면 크게.
+ *  레퍼런스는 적은 순서대로 다 펼쳐서(모델이 내려가면서 보고 따라 하게) — 인스타 릴스·게시물은 시트 안 영상, 그 밖 링크는 새 탭 단추 */
 function GuideCard({ g, onBig }) {
   const photos = g?.photos || [];
   const links = g?.links || [];
@@ -72,17 +123,30 @@ function GuideCard({ g, onBig }) {
         </button>
       ))}
       {links.length > 0 && (
-        <div className="space-y-1.5">
+        <div className="space-y-4 pt-1">
           <div className="text-xs font-semibold text-stone-500">레퍼런스</div>
-          {links.map((l, i) => (
-            <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl border border-stone-200 px-3 py-2.5 text-sm hover:border-rose-300">
-              <ExternalLink size={15} className="shrink-0 text-rose-700" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-semibold text-stone-900">{l.name || hostOf(l.url)}</span>
-                {l.name && <span className="block truncate text-xs text-stone-400">{hostOf(l.url)}</span>}
-              </span>
-            </a>
-          ))}
+          {links.map((l, i) => {
+            const ig = igEmbedOf(l.url);
+            return ig ? (
+              <section key={i} className="space-y-2">
+                {l.name && <h3 className="text-[15px] leading-snug font-bold text-stone-900">{l.name}</h3>}
+                <div className="-mx-4 overflow-hidden border-y border-stone-200 sm:mx-0 sm:rounded-xl sm:border">
+                  <IgEmbed src={ig} title={l.name} />
+                </div>
+                <a href={l.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 underline-offset-2 hover:text-rose-700 hover:underline">
+                  <ExternalLink size={12} /> 인스타에서 보기
+                </a>
+              </section>
+            ) : (
+              <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl border border-stone-200 px-3 py-2.5 text-sm hover:border-rose-300">
+                <ExternalLink size={15} className="shrink-0 text-rose-700" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-semibold text-stone-900">{l.name || hostOf(l.url)}</span>
+                  {l.name && <span className="block truncate text-xs text-stone-400">{hostOf(l.url)}</span>}
+                </span>
+              </a>
+            );
+          })}
         </div>
       )}
     </Card>
@@ -206,13 +270,13 @@ export default function SheetPage() {
         )}
       </Card>
 
-      <GuideCard g={s.guide} onBig={(urls, at) => setBig({ urls, at })} />
-
       {s.codis?.length ? (
         s.codis.map((c, i) => <CodiCard key={i} c={c} n={i + 1} v={s.v || 1} onBig={(urls, at) => setBig({ urls, at })} />)
       ) : (
         <Card className="py-8 text-center text-sm text-stone-500">찍을 코디는 정해지는 대로 알려 드릴게요.</Card>
       )}
+
+      <GuideCard g={s.guide} onBig={(urls, at) => setBig({ urls, at })} />
 
       <p className="px-1 pb-6 text-center text-xs text-stone-400">
         궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
