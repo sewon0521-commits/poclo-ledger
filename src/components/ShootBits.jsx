@@ -1,8 +1,61 @@
 import { useEffect, useState } from "react";
-import { Camera, X } from "lucide-react";
+import { Camera, Check, X } from "lucide-react";
 import { SlideViewer } from "./ContentBits";
+import { newId } from "../lib/id";
 
 // 촬영 갈래(촬영 레퍼런스 · 신상 관리 · 코디)가 같이 쓰는 조각.
+
+/**
+ * 체크 목록 — 찍을 컷 · 찍을 영상 [{id, text, done}]. 적고 엔터로 더하기, 네모 눌러 끝냄, × 빼기.
+ * 10/27 세원: "촬영 관리에 찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" — 예전엔 촬영(날짜)에 하나, 이제 코디마다(스타일링 창 맨 위). extra = 제목 줄 오른쪽 단추 자리.
+ */
+export function CheckList({ title, list = [], onChange, placeholder, extra }) {
+  const [typed, setTyped] = useState("");
+  const add = () => {
+    const v = typed.trim();
+    if (v) onChange([...list, { id: newId("k"), text: v, done: false }]);
+    setTyped("");
+  };
+  const done = list.filter((x) => x.done).length;
+  return (
+    <div className="rounded-xl border border-stone-200 p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2 text-sm font-semibold text-stone-800">
+        {title}
+        <span className="flex items-center gap-2">
+          {extra}
+          {list.length > 0 && <span className="text-xs font-normal text-stone-400">{done}/{list.length}</span>}
+        </span>
+      </div>
+      <ul className="space-y-1">
+        {list.map((x) => (
+          <li key={x.id} className="group flex items-start gap-2">
+            <button
+              type="button"
+              onClick={() => onChange(list.map((y) => (y.id === x.id ? { ...y, done: !y.done } : y)))}
+              aria-pressed={x.done}
+              aria-label={x.done ? "끝낸 것 풀기" : "끝냄"}
+              className={"mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 " + (x.done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 bg-white")}
+            >
+              {x.done && <Check size={12} strokeWidth={3} />}
+            </button>
+            <span className={"min-w-0 flex-1 text-sm leading-snug break-words " + (x.done ? "text-stone-400 line-through" : "text-stone-800")}>{x.text}</span>
+            <button type="button" onClick={() => onChange(list.filter((y) => y.id !== x.id))} aria-label="빼기" className="p-1 text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-700 max-sm:opacity-100">
+              <X size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <input
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.preventDefault(), add())}
+        onBlur={add}
+        placeholder={placeholder}
+        className="mt-1.5 w-full rounded-lg border border-dashed border-stone-300 px-2.5 py-1.5 text-sm outline-none focus:border-rose-400"
+      />
+    </div>
+  );
+}
 
 export function Sheet({ onClose, children, wide, xwide }) {
   useEffect(() => {

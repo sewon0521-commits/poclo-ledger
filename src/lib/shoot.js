@@ -35,6 +35,16 @@ export const shopsOf = (tags, refs) => [...new Set([...(tags?.shops || []), ...(
 
 export const FIELD = "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-rose-600";
 export const md = (d) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : "");
+/** 링크 칸 — https:// 없이 적어도 붙여 준다, 주소가 아니면 "" */
+export const fixUrl = (u) => {
+  const t = String(u || "").trim();
+  if (!t) return "";
+  try {
+    return new URL(/^https?:\/\//i.test(t) ? t : "https://" + t).href;
+  } catch {
+    return "";
+  }
+};
 export const won = (n) => (Number(n) ? Number(n).toLocaleString("ko-KR") + "원" : "");
 
 const local = (key) => `poclo_${key}`;

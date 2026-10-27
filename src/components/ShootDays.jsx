@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Check, Clock, Copy, ExternalLink, Film, ImagePlus, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
-import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, putPhoto, photoUrls } from "../lib/shoot";
+import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, putPhoto, photoUrls, fixUrl } from "../lib/shoot";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stylingLine } from "../lib/styling";
 import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError, PREP_PARTS, hasPrep } from "../lib/shootSheet";
-import { Photo } from "./ShootBits";
+import { Photo, CheckList } from "./ShootBits";
 import StylingSheet from "./Styling";
 import { MemoEditor } from "./SourcingMemo";
 import { useSort, reorder, Grip } from "./CutBits";
@@ -138,51 +138,6 @@ function useDays(online) {
   return { items, msg, setMsg, save: (it) => change(upsert(it)), drop: (id) => change(remove(id)) };
 }
 
-/** 체크 목록 — 찍을 컷 · 찍을 영상 */
-function CheckList({ title, list = [], onChange, placeholder }) {
-  const [typed, setTyped] = useState("");
-  const add = () => {
-    const v = typed.trim();
-    if (v) onChange([...list, { id: newId("k"), text: v, done: false }]);
-    setTyped("");
-  };
-  const done = list.filter((x) => x.done).length;
-  return (
-    <div className="rounded-xl border border-stone-200 p-3">
-      <div className="mb-1.5 flex items-center justify-between text-sm font-semibold text-stone-800">
-        {title}
-        {list.length > 0 && <span className="text-xs font-normal text-stone-400">{done}/{list.length}</span>}
-      </div>
-      <ul className="space-y-1">
-        {list.map((x) => (
-          <li key={x.id} className="group flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onChange(list.map((y) => (y.id === x.id ? { ...y, done: !y.done } : y)))}
-              aria-pressed={x.done}
-              className={"flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 " + (x.done ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 bg-white")}
-            >
-              {x.done && <Check size={12} strokeWidth={3} />}
-            </button>
-            <span className={"min-w-0 flex-1 text-sm " + (x.done ? "text-stone-400 line-through" : "text-stone-800")}>{x.text}</span>
-            <button type="button" onClick={() => onChange(list.filter((y) => y.id !== x.id))} aria-label="빼기" className="p-1 text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-700 max-sm:opacity-100">
-              <X size={13} />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <input
-        value={typed}
-        onChange={(e) => setTyped(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.preventDefault(), add())}
-        onBlur={add}
-        placeholder={placeholder}
-        className="mt-1.5 w-full rounded-lg border border-dashed border-stone-300 px-2.5 py-1.5 text-sm outline-none focus:border-rose-400"
-      />
-    </div>
-  );
-}
-
 /** 모델 이름 칩 — 적고 엔터 */
 function Models({ value = [], onChange }) {
   const [typed, setTyped] = useState("");
@@ -217,6 +172,9 @@ function Models({ value = [], onChange }) {
 function CodiRow({ c, d, onStyle, rows, onMove }) {
   const its = codiItems(c, d.items);
   const line = stylingLine(c.styling, d.items);
+  // 이 코디의 찍을 컷 · 영상 (10/27) — 끝낸 수 / 전체
+  const cnt = (l) => (l?.length ? `${l.filter((x) => x.done).length}/${l.length}` : "");
+  const tally = [cnt(c.styling?.cuts) && `컷 ${cnt(c.styling.cuts)}`, cnt(c.styling?.videos) && `영상 ${cnt(c.styling.videos)}`].filter(Boolean).join(" · ");
   const card = (
     <button type="button" onClick={onStyle} className="flex w-full min-w-0 gap-3 rounded-xl border border-stone-200 bg-white p-2.5 text-left hover:border-rose-300">
       <span className="flex shrink-0 gap-1">
@@ -231,6 +189,7 @@ function CodiRow({ c, d, onStyle, rows, onMove }) {
         ) : (
           <span className="mt-0.5 block text-xs text-amber-700">스타일링 정하기 — 헤어 · 신발 · 악세서리</span>
         )}
+        {tally && <span className="mt-0.5 block text-[11px] font-medium text-stone-500">{tally}</span>}
         {c.uploadOn && <span className="block text-[11px] text-stone-400">{md(c.uploadOn)} 업로드</span>}
       </span>
     </button>
@@ -287,15 +246,6 @@ async function guidePhoto(file, online) {
     URL.revokeObjectURL(url);
   }
 }
-const fixUrl = (u) => {
-  const t = String(u || "").trim();
-  if (!t) return "";
-  try {
-    return new URL(/^https?:\/\//i.test(t) ? t : "https://" + t).href;
-  } catch {
-    return "";
-  }
-};
 const hostOf = (u) => {
   try {
     return new URL(u).host.replace(/^www\./, "");
@@ -782,10 +732,19 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
             )}
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <CheckList title="찍을 컷" list={s.cuts || []} onChange={(v) => set({ cuts: v })} placeholder="+ 컷 (예: 거울 셀카 전신) 엔터" />
-            <CheckList title="찍을 영상" list={s.videos || []} onChange={(v) => set({ videos: v })} placeholder="+ 영상 (예: 10초 걷기) 엔터" />
-          </div>
+          {/* 10/27 세원: "찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" — 이제 코디마다(코디를 누르면 스타일링 창 맨 위).
+              예전에 촬영 전체로 적어 둔 것만 아래에 남겨 보여 준다(지우면 사라짐). */}
+          {((s.cuts || []).length > 0 || (s.videos || []).length > 0) && (
+            <div className="space-y-2 rounded-xl bg-stone-50 p-3">
+              <p className="text-xs text-stone-500">
+                <b className="font-semibold text-stone-700">예전에 촬영 전체로 적은 찍을 컷 · 영상</b> — 이제는 코디마다 적어요(코디를 누르면 스타일링 창 맨 위). 다 옮겼으면 지워도 돼요.
+              </p>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {(s.cuts || []).length > 0 && <CheckList title="찍을 컷 (촬영 전체)" list={s.cuts} onChange={(v) => set({ cuts: v })} placeholder="+ 컷 엔터" />}
+                {(s.videos || []).length > 0 && <CheckList title="찍을 영상 (촬영 전체)" list={s.videos} onChange={(v) => set({ videos: v })} placeholder="+ 영상 엔터" />}
+              </div>
+            </div>
+          )}
 
           <SheetLink day={s} set={set} codis={codis} d={d} online={online} />
 

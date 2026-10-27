@@ -1,20 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ImagePlus, Loader2, Pencil, X } from "lucide-react";
-import { FIELD, md, codiName, codiItems, loadKey, changeKey, upsert, putPhoto, photoUrls } from "../lib/shoot";
+import { Check, ExternalLink, Film, ImagePlus, Loader2, Pencil, X } from "lucide-react";
+import { FIELD, md, codiName, codiItems, loadKey, changeKey, upsert, putPhoto, photoUrls, fixUrl } from "../lib/shoot";
 import { normalize } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
-import { Sheet, SheetHead, Photo } from "./ShootBits";
+import { Sheet, SheetHead, Photo, CheckList } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
+import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import RefPick from "./RefPick";
 import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING, PARTS, partHas } from "../lib/styling";
 
 /**
  * 코디 스타일링 (10/25) — 세원: "이날 코디에 해당 칸이 뜨면 눌러서 이 코디에 헤어는 어떻게 할지, 신발, 악세서리(반지, 목걸이 등)는
  * 어떤 걸 할지 등등 고를 수 있게."
- * 코디에 styling {hair:[..], shoes:[{itemId}|{text}], bag:[…], acc:[..], memo, refIds:[촬영 레퍼런스 id]}.
+ * 코디에 styling {cuts, videos, hair:[..], shoes:[{itemId}|{text}], bag:[…], acc:[..], memo, codiPhotos, refIds:[촬영 레퍼런스 id], refVideos} (lib/styling EMPTY_STYLING).
  * 헤어·악세서리 칩 목록은 settings styling_opts {hair, acc} — 칩 줄 끝 '고치기'에서 더하고 뺀다.
- * 촬영 관리(그날 코디) · 소싱 관리(이날 코디) 둘 다 여기로 연다. 모델에게 가는 촬영 시트에도 이 내용이 들어간다(lib/shootSheet.js).
+ * 촬영 관리(그날 코디) · 소싱 관리(이날 코디) 둘 다 여기로 연다. 모델에게 가는 촬영 시트엔 코디 사진 · 메모만 간다(lib/shootSheet.js).
+ *
+ * 10/27 세원: "촬영 관리에 찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각 만들어 주고 스타일링 맨 위에. 참고 사진 말고 영상도 넣어 주고 그것도 위로 올려 주되
+ *   찍을 컷, 찍을 영상 밑에. 헤어, 악세 선택하는 게 마지막으로." → 창 순서: 코디 → 찍을 컷 · 찍을 영상 → 참고 사진 → 참고 영상 → 코디 사진 → 메모 → 헤어 → 신발·가방·목걸이·반지·양말.
  */
 
 /** 이 기기 저장 모드용 — 사진을 긴 변 600px JPEG 글자로 */
@@ -182,6 +186,102 @@ function WearPick({ d, value, onChange, part, placeholder }) {
   );
 }
 
+const hostOf = (u) => {
+  try {
+    return new URL(u).host.replace(/^www\./, "");
+  } catch {
+    return u;
+  }
+};
+
+/**
+ * 참고 영상 (10/27 세원: "참고 사진 말고 영상도 넣어 주고") — 영상 주소(인스타 릴스 등) + 이름, 영상 파일은 받지 않는다(저장소가 꽉 차서).
+ * 인스타 릴스·게시물은 '보기'를 누르면 이 창 안에서 바로 재생(공식 임베드), 다른 주소는 새 탭. 주소 칸에 붙여넣으면 바로 들어간다.
+ */
+function RefVideos({ list, onChange }) {
+  const [url, setUrl] = useState("");
+  const [name, setName] = useState("");
+  const [err, setErr] = useState("");
+  const [open, setOpen] = useState(() => new Set());
+  const add = (raw = url) => {
+    const u = fixUrl(raw);
+    if (!u) return setErr("주소를 다시 확인해 주세요 (예: instagram.com/reel/…).");
+    setErr("");
+    if (!list.some((x) => x.url === u)) {
+      const id = newId("rv");
+      onChange([...list, { id, name: name.trim(), url: u }]);
+      if (igEmbedOf(u)) setOpen((s) => new Set(s).add(id)); // 방금 넣은 건 바로 보이게
+    }
+    setUrl("");
+    setName("");
+  };
+  const flip = (id) =>
+    setOpen((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  return (
+    <div className="space-y-2">
+      {list.map((v, i) => {
+        const ig = igEmbedOf(v.url);
+        const on = open.has(v.id);
+        return (
+          <div key={v.id} className="overflow-hidden rounded-xl border border-stone-200">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <Film size={15} className="shrink-0 text-rose-700" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-stone-900">{v.name || `참고 영상 ${i + 1}`}</span>
+                <span className="block truncate text-[11px] text-stone-400">{hostOf(v.url)}</span>
+              </span>
+              {ig && (
+                <button type="button" onClick={() => flip(v.id)} aria-expanded={on} className={"shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold " + (on ? "border-stone-300 text-stone-600" : "border-rose-300 text-rose-700 hover:bg-rose-50")}>
+                  {on ? "접기" : "보기"}
+                </button>
+              )}
+              <a href={v.url} target="_blank" rel="noopener noreferrer" aria-label="새 탭에서 열기" className="shrink-0 p-1 text-stone-400 hover:text-rose-700">
+                <ExternalLink size={14} />
+              </a>
+              <button type="button" onClick={() => onChange(list.filter((x) => x.id !== v.id))} aria-label="영상 빼기" className="shrink-0 p-1 text-stone-300 hover:text-rose-700">
+                <X size={14} />
+              </button>
+            </div>
+            {ig && on && (
+              <div className="border-t border-stone-200 bg-stone-50">
+                <div className="mx-auto max-w-[360px]">
+                  <IgEmbed src={ig} title={v.name} />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <div className="flex flex-wrap gap-2">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 (예: 걸어오는 핏)" className={FIELD + " w-40 flex-none max-sm:w-full"} />
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.preventDefault(), add())}
+          onPaste={(e) => {
+            const t = (e.clipboardData.getData("text/plain") || "").trim();
+            if (/^(https?:\/\/)?(www\.)?[\w-]+(\.[\w-]+)+\/\S*$/i.test(t)) {
+              e.preventDefault();
+              add(t);
+            }
+          }}
+          placeholder="영상 주소 붙여넣기 (인스타 릴스 등)"
+          className={FIELD + " min-w-0 flex-1"}
+        />
+        <button type="button" onClick={() => add()} className="shrink-0 rounded-lg bg-stone-800 px-3.5 text-xs font-semibold text-white">
+          넣기
+        </button>
+      </div>
+      {err && <p className="text-xs text-rose-700">{err}</p>}
+    </div>
+  );
+}
+
 function Section({ title, hint, children, ...rest }) {
   return (
     <section className="space-y-2" {...rest}>
@@ -341,6 +441,18 @@ export default function StylingSheet({ codi, d, online, onClose }) {
     onClose();
   };
   const its = codiItems(codi, d.items);
+  // 같은 날 다른 코디의 찍을 컷 · 영상 — 이 코디 칸이 비어 있을 때 '다른 코디 것 가져오기'(코디마다 같은 영상을 찍는 날이 많아서)
+  const sibs = codi.shootDate ? d.codis.filter((c) => c.id !== codi.id && c.shootDate === codi.shootDate) : [];
+  const copyBtn = (k) => {
+    if ((st[k] || []).length) return null;
+    const src = sibs.map((c) => c.styling?.[k] || []).sort((a, b) => b.length - a.length)[0] || [];
+    if (!src.length) return null;
+    return (
+      <button type="button" onClick={() => set(k)(src.map((x) => ({ id: newId("k"), text: x.text, done: false })))} className="rounded-full border border-dashed border-rose-300 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50">
+        다른 코디 것 가져오기 ({src.length})
+      </button>
+    );
+  };
   const refs = (st.refIds || []).map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
   return (
     <Sheet onClose={close} wide>
@@ -366,67 +478,11 @@ export default function StylingSheet({ codi, d, online, onClose }) {
           </div>
         </div>
 
-        <Section title="헤어" hint="여러 개 골라도 돼요">
-          {editOpts === "hair" ? (
-            <OptsEditor title="헤어" list={opts.hair} onSave={(l) => saveOpts("hair", l)} onClose={() => setEditOpts("")} />
-          ) : (
-            <ChipPick opts={opts.hair} value={st.hair || []} onChange={set("hair")} placeholder="직접 (예: 앞머리 내림)" onEditOpts={() => setEditOpts("hair")} />
-          )}
-        </Section>
-        {PARTS.map((p) => (
-          <Section key={p.key} title={p.label} hint={p.hint}>
-            <WearPick d={d} part={p} value={st[p.key] || []} onChange={set(p.key)} placeholder={p.place} />
-          </Section>
-        ))}
-        {(st.acc || []).length > 0 && (
-          <Section title="예전에 고른 악세서리" hint="눌러서 빼기 — 이제는 위 칸으로 골라요">
-            <div className="flex flex-wrap gap-1.5">
-              {st.acc.map((t) => (
-                <button key={t} type="button" onClick={() => set("acc")(st.acc.filter((x) => x !== t))} className="flex items-center gap-1 rounded-full border border-dashed border-stone-300 px-3 py-1.5 text-xs text-stone-600">
-                  {t} <X size={11} />
-                </button>
-              ))}
-            </div>
-          </Section>
-        )}
-        <Section title="메모" hint="모델에게 보내는 촬영 시트에도 같이 가요">
-          <textarea value={st.memo || ""} onChange={(e) => set("memo")(e.target.value)} placeholder="예: 셔츠 단추 두 개 풀기 · 소매 한 번 걷기" className={FIELD + " h-20 resize-y"} />
-        </Section>
-        <Section
-          title="코디 사진"
-          hint="벽걸이에 걸어 둔 이 코디 사진 · 캡처 Ctrl+V · 끌어다 놓기"
-          onMouseEnter={() => (target.current = "codi")}
-          onPointerDown={() => (target.current = "codi")}
-        >
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {(st.codiPhotos || []).map((k, i) => (
-              <span key={k} className="group relative">
-                <button type="button" onClick={() => setBigCodi(i)} className="block aspect-square w-full overflow-hidden rounded-xl bg-stone-100">
-                  {codiUrl(k) && <img src={codiUrl(k)} alt="" loading="lazy" className="h-full w-full object-cover" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => set("codiPhotos")((st.codiPhotos || []).filter((x) => x !== k))}
-                  aria-label="사진 빼기"
-                  className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 group-hover:opacity-100 max-sm:opacity-80"
-                >
-                  <X size={14} />
-                </button>
-              </span>
-            ))}
-            {codiPending.map((u) => (
-              <span key={u} className="relative block aspect-square overflow-hidden rounded-xl bg-stone-100">
-                <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
-                <Loader2 size={18} className="absolute inset-0 m-auto animate-spin text-white" />
-              </span>
-            ))}
-            <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-stone-300 text-xs text-stone-500 hover:border-rose-300 hover:text-rose-700">
-              <ImagePlus size={20} /> 코디 사진 넣기
-              <span className="text-[10px] text-stone-400">고르기 · Ctrl+V · 끌어다 놓기</span>
-              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => (addCodiFiles(e.target.files), (e.target.value = ""))} />
-            </label>
-          </div>
-        </Section>
+        {/* 10/27 이 코디의 찍을 컷 · 찍을 영상 — 예전엔 촬영(날짜)에 하나였다. 비어 있으면 같은 날 다른 코디 것을 가져올 수 있다 */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <CheckList title="찍을 컷" list={st.cuts || []} onChange={set("cuts")} placeholder="+ 컷 (예: 창가 전신 정면) 엔터" extra={copyBtn("cuts")} />
+          <CheckList title="찍을 영상" list={st.videos || []} onChange={set("videos")} placeholder="+ 영상 (예: 거울셀카 걸어오기) 엔터" extra={copyBtn("videos")} />
+        </div>
         <Section
           title="참고 사진"
           hint="레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기"
@@ -464,6 +520,70 @@ export default function StylingSheet({ codi, d, online, onClose }) {
             </label>
           </div>
         </Section>
+        <Section title="참고 영상" hint="인스타 릴스 주소 붙여넣기 · '보기'로 여기서 바로 재생">
+          <RefVideos list={st.refVideos || []} onChange={set("refVideos")} />
+        </Section>
+        <Section
+          title="코디 사진"
+          hint="벽걸이에 걸어 둔 이 코디 사진 · 캡처 Ctrl+V · 끌어다 놓기 · 모델 시트에 가요"
+          onMouseEnter={() => (target.current = "codi")}
+          onPointerDown={() => (target.current = "codi")}
+        >
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            {(st.codiPhotos || []).map((k, i) => (
+              <span key={k} className="group relative">
+                <button type="button" onClick={() => setBigCodi(i)} className="block aspect-square w-full overflow-hidden rounded-xl bg-stone-100">
+                  {codiUrl(k) && <img src={codiUrl(k)} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => set("codiPhotos")((st.codiPhotos || []).filter((x) => x !== k))}
+                  aria-label="사진 빼기"
+                  className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 group-hover:opacity-100 max-sm:opacity-80"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            ))}
+            {codiPending.map((u) => (
+              <span key={u} className="relative block aspect-square overflow-hidden rounded-xl bg-stone-100">
+                <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
+                <Loader2 size={18} className="absolute inset-0 m-auto animate-spin text-white" />
+              </span>
+            ))}
+            <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-stone-300 text-xs text-stone-500 hover:border-rose-300 hover:text-rose-700">
+              <ImagePlus size={20} /> 코디 사진 넣기
+              <span className="text-[10px] text-stone-400">고르기 · Ctrl+V · 끌어다 놓기</span>
+              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => (addCodiFiles(e.target.files), (e.target.value = ""))} />
+            </label>
+          </div>
+        </Section>
+        <Section title="메모" hint="모델에게 보내는 촬영 시트에 코디 사진과 같이 가요">
+          <textarea value={st.memo || ""} onChange={(e) => set("memo")(e.target.value)} placeholder="예: 셔츠 단추 두 개 풀기 · 소매 한 번 걷기" className={FIELD + " h-20 resize-y"} />
+        </Section>
+        <Section title="헤어" hint="여러 개 골라도 돼요">
+          {editOpts === "hair" ? (
+            <OptsEditor title="헤어" list={opts.hair} onSave={(l) => saveOpts("hair", l)} onClose={() => setEditOpts("")} />
+          ) : (
+            <ChipPick opts={opts.hair} value={st.hair || []} onChange={set("hair")} placeholder="직접 (예: 앞머리 내림)" onEditOpts={() => setEditOpts("hair")} />
+          )}
+        </Section>
+        {PARTS.map((p) => (
+          <Section key={p.key} title={p.label} hint={p.hint}>
+            <WearPick d={d} part={p} value={st[p.key] || []} onChange={set(p.key)} placeholder={p.place} />
+          </Section>
+        ))}
+        {(st.acc || []).length > 0 && (
+          <Section title="예전에 고른 악세서리" hint="눌러서 빼기 — 이제는 위 칸으로 골라요">
+            <div className="flex flex-wrap gap-1.5">
+              {st.acc.map((t) => (
+                <button key={t} type="button" onClick={() => set("acc")(st.acc.filter((x) => x !== t))} className="flex items-center gap-1 rounded-full border border-dashed border-stone-300 px-3 py-1.5 text-xs text-stone-600">
+                  {t} <X size={11} />
+                </button>
+              ))}
+            </div>
+          </Section>
+        )}
         {msg && (
           <p className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
             {msg}
