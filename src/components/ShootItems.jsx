@@ -5,7 +5,7 @@ import { FIELD, md, won, upsert, remove, putPhoto, loadKey, onSettingsChange, wa
 import { starsOf, starLabel } from "../lib/lookStars";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
-import { sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount } from "../lib/sinsang";
+import { sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -617,9 +617,21 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
       next = { ...next, pricingId: id };
       if (ch.patch) Promise.resolve(kit.save({ ...ch.patch, id })).catch((e) => d.setMsg(`판매가 목록에 담지 못했어요 (${e.message || "다시 시도해 주세요"}). 상품은 저장했어요.`));
     }
+    // 있던 상품은 이 창에서 바뀐 칸만 쓴다 — 통째로 쓰면 창을 연 뒤 다른 데서 바꾼 것(입고 완료 등)을 예전 값으로 되돌린다 (10/27)
+    const write = item.id ? { id: next.id, ...changedOf(next, { ...EMPTY, ...item }) } : next;
     // 창을 먼저 닫아 그리고, 목록 다시 그리기·저장은 그다음 차례에 — 누른 느낌이 바로 오게
     onClose();
-    requestAnimationFrame(() => setTimeout(() => d.saveItems(upsert(next)), 0));
+    if (!item.id || Object.keys(write).length > 1) {
+      // 보통은 한 번 그린 뒤(requestAnimationFrame), 다른 탭으로 가 버려서 그리기가 멈춰도 0.1초 안엔 저장 시작
+      let started = false;
+      const run = () => {
+        if (started) return;
+        started = true;
+        d.saveItems(upsert(write));
+      };
+      requestAnimationFrame(() => setTimeout(run, 0));
+      setTimeout(run, 100);
+    }
   };
   const putNotes = (notes) => {
     set({ notes });
@@ -2043,7 +2055,10 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   const patch = (x) => (p) => {
     // '요청으로 되돌리기' — 잘못 누른 것이니 그 거절 기록도 지운다
     if (x.refused && p.refused === false) d.saveRefusals((v) => ({ ...v, items: (v.items || []).filter((r) => !(r.itemIds || []).includes(x.id)) }));
-    return d.saveItems(upsert({ id: x.id, ...p }));
+    // 바뀐 칸만 (단계 옮기기는 moveTo 가 상품 전체를 돌려줘서 — 통째로 쓰면 다른 데서 고친 걸 되돌린다, 10/27)
+    const ch = changedOf({ ...x, ...p }, x);
+    if (!Object.keys(ch).length) return Promise.resolve();
+    return d.saveItems(upsert({ id: x.id, ...ch }));
   };
 
   // '안 됨' — 상품(과 고르면 같은 거래처의 다른 요청 상품)을 보류·드랍으로, 이유는 거래처 기록으로

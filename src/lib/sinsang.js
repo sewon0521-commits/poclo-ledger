@@ -120,6 +120,17 @@ export function paidLabel(p) {
 }
 
 /** 단계를 옮길 때 같이 적는 것 — 날짜는 그때 오늘로 */
+/**
+ * 바뀐 칸만 (10/27 세원: "입고 완료를 눌러도 계속 요청으로 돌아오는 버그") — 단계 옮기기·상품 창 저장이 상품을 **통째로** 써서,
+ * 다른 화면(지원 폰 · 열어 둔 상품 창)에 남은 예전 값이 나중에 저장되면 방금 바꾼 단계를 되돌렸다. 저장은 이걸로 바뀐 칸만.
+ */
+export const changedOf = (next, prev) =>
+  Object.fromEntries(
+    Object.keys({ ...prev, ...next })
+      .filter((k) => JSON.stringify(next[k]) !== JSON.stringify(prev[k]))
+      .map((k) => [k, next[k]]),
+  );
+
 export function moveTo(x, stage, today = dayKey()) {
   const p = { stage };
   // backFrom: 어디서 반납 등록했나 — 취소하면 그 단계로 (10/20 촬영 탭에서도 반납 등록)

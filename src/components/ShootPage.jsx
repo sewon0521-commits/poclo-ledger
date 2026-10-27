@@ -11,6 +11,7 @@ import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
 import ShootDays from "./ShootDays";
 import { clipImages, filesOf } from "../lib/pasteImages";
+import { queueChange, withPending, usePending } from "../lib/saveQueue";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
 /**
@@ -28,6 +29,10 @@ import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders"
 // 이제 받은 것을 이 탭에 들고 있다가(없으면 이 기기 사본) 바로 보여 주고, 60초가 지났을 때만 뒤에서 새로 읽는다.
 // 그 사이 상대가 고친 건 방송·4초 확인(onSettingsChange·watchKeys)이 그 키만 받아 온다. 사진 주소도 들고 있는다.
 const MEM = { at: 0, d: null, urls: {} };
+// 이 기기 사본은 마지막으로 서버에서 읽은 지 30분 안일 때만 먼저 보여 준다 (10/27 세원: "새로고침하면 예전에 진행했던 게 갑자기 떠" —
+// 며칠 묵은 사본이 먼저 보였다가 서버 것으로 바뀌었다). 그보다 오래되면 서버에서 받을 때까지 '불러오는 중'.
+const LOADED_AT = "poclo_shoot_loaded_at";
+const COPY_FRESH = 30 * 60 * 1000;
 const cachedKey = (k, fb) => {
   try {
     return JSON.parse(localStorage.getItem("poclo_" + k) || "null") || fb;
@@ -37,6 +42,13 @@ const cachedKey = (k, fb) => {
 };
 function firstData() {
   if (MEM.d) return MEM.d;
+  let at = 0;
+  try {
+    at = Number(localStorage.getItem(LOADED_AT)) || 0;
+  } catch {
+    /* 없으면 오래된 것으로 */
+  }
+  if (Date.now() - at > COPY_FRESH) return null;
   const it = cachedKey("shoot_items", null);
   if (!it) return null;
   return {
@@ -85,7 +97,8 @@ function useData(online) {
         loadKey("shoot_msg", online, DEFAULT_MSGS),
         loadKey("sample_refusals", online),
       ]);
-      setRefusals(r.items || []);
+      // 서버 값 위에 아직 저장 중인 변경을 얹는다 (lib/saveQueue — 저장 중에 새로 읽어도 예전 상태가 안 뜨게)
+      setRefusals(withPending("sample_refusals", r).items || []);
       setMsgs({ ...DEFAULT_MSGS, ...m });
       let fs = f.items || [];
       if (!fs.length) {
@@ -94,11 +107,16 @@ function useData(online) {
         await changeKey("shoot_folders", online, (v) => ((v.items || []).length ? v : { items: fs }));
       }
       setFolders(fs);
-      setItems(a.items || []);
-      setCodis(b.items || []);
-      setRefs(c.items || []);
+      setItems(withPending("shoot_items", a).items || []);
+      setCodis(withPending("shoot_codis", b).items || []);
+      setRefs(withPending("shoot_refs", c).items || []);
       setTags({ ...DEFAULT_TAGS, ...t });
       MEM.at = Date.now();
+      try {
+        localStorage.setItem(LOADED_AT, String(MEM.at));
+      } catch {
+        /* 기억 못 해도 된다 */
+      }
     } catch {
       setMsg("촬영 목록을 불러오지 못했어요. 인터넷을 확인해 주세요.");
     } finally {
@@ -122,7 +140,7 @@ function useData(online) {
     const again = (key) => {
       if (!sets[key]) return;
       loadKey(key, online)
-        .then((v) => sets[key](v.items || []))
+        .then((v) => sets[key](withPending(key, v).items || []))
         .catch(() => {});
     };
     const off = onSettingsChange(again);
@@ -152,6 +170,7 @@ function useData(online) {
   }, [keys, urls, online]);
 
   // 누르면 내 화면은 바로 바뀌고(서버를 기다리지 않는다), 저장이 끝나면 서버 최신(상대가 그새 고친 것 포함)으로 맞춘다
+  // 10/27: 서버 저장은 키마다 줄을 세워 모아서 한 번에(lib/saveQueue), 맞출 때도 아직 저장 중인 변경을 얹는다 — 예전 상태가 잠깐 뜨던 것
   const save = (key, set) => async (fn) => {
     set((cur) => {
       try {
@@ -161,12 +180,12 @@ function useData(online) {
       }
     });
     try {
-      const next = await changeKey(key, online, fn);
-      set(next.items || []);
+      const next = await queueChange(key, online, fn);
+      set(withPending(key, next).items || []);
     } catch (e) {
       setMsg(e.message || "저장하지 못했어요.");
       loadKey(key, online)
-        .then((v) => set(v.items || []))
+        .then((v) => set(withPending(key, v).items || []))
         .catch(() => {});
     }
   };
@@ -1616,8 +1635,15 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
 
 export default function ShootPage({ view, online, vendors = [], onVendor, dealt, reelKit }) {
   const d = useData(online);
+  const saving = usePending();
   return (
     <div>
+      {/* 서버 저장이 남아 있으면 작게 (10/27 — 저장은 뒤에서 하니, 끝나기 전에 새로고침·창 닫기 하지 않게. 그땐 브라우저도 한 번 묻는다) */}
+      {saving > 0 && (
+        <div role="status" className="pointer-events-none fixed bottom-4 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-stone-900/85 px-3.5 py-1.5 text-xs font-medium text-white shadow-lg md:left-auto md:right-24 md:translate-x-0">
+          <Loader2 size={12} className="animate-spin" /> 저장 중{saving > 1 ? ` · ${saving}개` : ""}
+        </div>
+      )}
       {d.msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {d.msg}
