@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, Check, Clock, Copy, ExternalLink, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
-import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems } from "../lib/shoot";
+import { CalendarDays, Check, Clock, Copy, ExternalLink, Film, ImagePlus, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
+import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, putPhoto, photoUrls } from "../lib/shoot";
+import { clipImages, filesOf } from "../lib/pasteImages";
+import { BigSlides } from "./ContentBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stylingLine } from "../lib/styling";
@@ -254,6 +256,228 @@ function CodiRow({ c, d, onStyle, rows, onMove }) {
   );
 }
 
+// ---------------------------------------------------------------- 모델에게 보낼 가이드 (10/27)
+// 세원: "촬영 창에 '모델에게 보낼 가이드' 칸 — 가이드 사진 여러 장(Ctrl+V·끌어다 놓기·고르기, 저장소가 1GB 넘었으니 긴 변 1600px jpg),
+//   레퍼런스 링크 여러 개(이름 + 주소). 촬영 시트에 '영상 가이드'로 코디 위에, 사진은 누르면 크게. '내용 새로 보내기' 하면 같이."
+// 촬영 줄에 guidePhotos:[보관 키] · guideLinks:[{id, name, url}]. 세로로 아주 긴 안내 이미지는 폭 1080 까지만 줄인다(putPhoto tallWidth — 글씨가 읽히게).
+// 이 기기 저장 모드면 사진은 작은 data URL 로(시험용).
+
+const GUIDE_URLS = new Map(); // 보관 키 → 서명 주소(4시간) · 이 탭에서만
+async function guidePhoto(file, online) {
+  const key = await putPhoto(file, online, { edge: 1600, tallWidth: 1080 });
+  if (key) return key;
+  // 이 기기 저장 모드 — 작게 data URL
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, bad) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = bad;
+      i.src = url;
+    });
+    const s = Math.min(1, 600 / img.naturalWidth);
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * s);
+    c.height = Math.round(img.naturalHeight * s);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.7);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+const fixUrl = (u) => {
+  const t = String(u || "").trim();
+  if (!t) return "";
+  try {
+    return new URL(/^https?:\/\//i.test(t) ? t : "https://" + t).href;
+  } catch {
+    return "";
+  }
+};
+const hostOf = (u) => {
+  try {
+    return new URL(u).host.replace(/^www\./, "");
+  } catch {
+    return u;
+  }
+};
+
+function GuideBox({ s, set, online }) {
+  const photos = useMemo(() => s.guidePhotos || [], [s.guidePhotos]);
+  const links = s.guideLinks || [];
+  const [urls, setUrls] = useState({});
+  const [pending, setPending] = useState([]); // 올리는 중 미리 보기
+  const [err, setErr] = useState("");
+  const [big, setBig] = useState(null);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const boxRef = useRef(null);
+  const hot = useRef(false);
+  const fileRef = useRef(null);
+  const latest = useRef(photos);
+  useEffect(() => {
+    latest.current = photos;
+  }, [photos]);
+
+  // 서명 주소 — 없는 것만
+  const sig = photos.filter((k) => !k.startsWith("data:") && !GUIDE_URLS.has(k)).join("|");
+  useEffect(() => {
+    const want = sig ? sig.split("|") : [];
+    if (!want.length) return;
+    let alive = true;
+    photoUrls(want, online)
+      .then((m) => {
+        for (const k of want) GUIDE_URLS.set(k, m[k] || "");
+        if (alive) setUrls((u) => ({ ...u, ...m }));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [sig, online]);
+  const src = (k) => (k.startsWith("data:") ? k : urls[k] || GUIDE_URLS.get(k) || "");
+
+  const add = async (files) => {
+    const imgs = [...files].filter((f) => f.type?.startsWith("image/"));
+    if (!imgs.length) return;
+    setErr("");
+    const previews = imgs.map((f) => URL.createObjectURL(f));
+    setPending((p) => [...p, ...previews]);
+    for (let i = 0; i < imgs.length; i++) {
+      try {
+        const k = await guidePhoto(imgs[i], online);
+        if (!k.startsWith("data:")) GUIDE_URLS.set(k, previews[i]); // 서명 주소 받기 전에도 바로 보이게
+        latest.current = [...latest.current, k];
+        set({ guidePhotos: latest.current });
+      } catch (e) {
+        setErr(e.message || "사진을 넣지 못했어요.");
+      }
+      setPending((p) => p.filter((u) => u !== previews[i]));
+    }
+  };
+
+  // Ctrl+V — 이 칸에 마우스를 올렸거나 이 칸을 눌렀을 때만(글 칸 안 붙여넣기는 안 가로챈다)
+  useEffect(() => {
+    const onPaste = (e) => {
+      const inBox = boxRef.current && boxRef.current.contains(document.activeElement);
+      if (!hot.current && !inBox) return;
+      const t = e.target;
+      if (t?.closest?.("input, textarea, [contenteditable=true]")) return;
+      const c = clipImages(e.clipboardData);
+      if (!c.files.length && !c.urls.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      filesOf(c).then(add);
+    };
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addLink = () => {
+    const u = fixUrl(url);
+    if (!u) {
+      setErr("주소를 다시 확인해 주세요 (예: instagram.com/reel/…).");
+      return;
+    }
+    set({ guideLinks: [...links, { id: newId("gl"), name: name.trim(), url: u }] });
+    setName("");
+    setUrl("");
+    setErr("");
+  };
+
+  return (
+    <div
+      ref={boxRef}
+      tabIndex={-1}
+      onMouseEnter={() => (hot.current = true)}
+      onMouseLeave={() => (hot.current = false)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        filesOf(clipImages(e.dataTransfer)).then(add);
+      }}
+      className="rounded-xl border border-stone-200 p-3 outline-none focus-within:border-rose-300"
+    >
+      <div className="mb-1 flex items-center justify-between gap-2 text-sm font-semibold text-stone-800">
+        <span className="flex items-center gap-1.5">
+          <Film size={15} className="text-rose-700" /> 모델에게 보낼 가이드
+        </span>
+        <span className="text-xs font-normal text-stone-400">시트 맨 위 '영상 가이드'</span>
+      </div>
+      <p className="mb-2 text-xs text-stone-500">가이드 사진 · 레퍼런스 링크 — 이 칸에 마우스를 올리고 Ctrl+V, 끌어다 놓기, 사진 고르기. 바꾼 뒤엔 시트에서 '내용 새로 보내기'.</p>
+      {(photos.length > 0 || pending.length > 0) && (
+        <div className="mb-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+          {photos.map((k, i) => (
+            <span key={k.slice(0, 80) + i} className="group relative shrink-0">
+              <button type="button" onClick={() => setBig(i)} className="block h-28 w-20 overflow-hidden rounded-lg bg-stone-100" aria-label="크게 보기">
+                {src(k) && <img src={src(k)} alt="" className="h-full w-full object-cover object-top" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => window.confirm("이 가이드 사진을 뺄까요?") && set({ guidePhotos: photos.filter((_, j) => j !== i) })}
+                aria-label="사진 빼기"
+                className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 group-hover:opacity-100 max-sm:opacity-80"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          {pending.map((u) => (
+            <span key={u} className="relative block h-28 w-20 shrink-0 overflow-hidden rounded-lg bg-stone-100">
+              <img src={u} alt="" className="h-full w-full object-cover object-top opacity-60" />
+              <Loader2 size={16} className="absolute inset-0 m-auto animate-spin text-white drop-shadow" />
+            </span>
+          ))}
+        </div>
+      )}
+      <button type="button" onClick={() => fileRef.current?.click()} className="mb-2 flex items-center gap-1 rounded-lg border border-dashed border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-600 hover:border-rose-300 hover:text-rose-800">
+        <ImagePlus size={13} /> 가이드 사진 고르기
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          add(e.target.files || []);
+          e.target.value = "";
+        }}
+      />
+      {links.length > 0 && (
+        <ul className="mb-2 space-y-1">
+          {links.map((l) => (
+            <li key={l.id} className="flex min-w-0 items-center gap-1.5 rounded-lg bg-stone-50 px-2.5 py-1.5 text-xs">
+              <Link2 size={12} className="shrink-0 text-stone-400" />
+              <a href={l.url} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate font-medium text-stone-800 hover:text-rose-800">
+                {l.name || hostOf(l.url)} <span className="font-normal text-stone-400">{l.name ? hostOf(l.url) : ""}</span>
+              </a>
+              <button type="button" onClick={() => set({ guideLinks: links.filter((x) => x.id !== l.id) })} aria-label="링크 빼기" className="shrink-0 p-0.5 text-stone-400 hover:text-rose-700">
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="레퍼런스 이름 (예: 거울셀카 걷기)" className="min-w-0 flex-1 basis-36 rounded-lg border border-stone-300 px-2.5 py-1.5 text-xs outline-none focus:border-rose-600" />
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (e.preventDefault(), addLink())}
+          placeholder="주소 (instagram.com/reel/…)"
+          className="min-w-0 flex-[2] basis-48 rounded-lg border border-stone-300 px-2.5 py-1.5 text-xs outline-none focus:border-rose-600"
+        />
+        <button type="button" onClick={addLink} disabled={!url.trim()} className="flex items-center gap-1 rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-stone-300">
+          <Plus size={12} /> 링크
+        </button>
+      </div>
+      {err && <p className="mt-1.5 text-xs text-rose-700">{err}</p>}
+      {big != null && <BigSlides urls={photos.map(src)} start={big} onClose={() => setBig(null)} />}
+    </div>
+  );
+}
+
 /** 모델에게 보낼 촬영 시트 링크 */
 function SheetLink({ day, set, codis, d, online }) {
   const [busy, setBusy] = useState("");
@@ -474,6 +698,7 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
             모델에게 한 줄 — 촬영 시트에 같이 가요
             <input value={s.modelNote || ""} onChange={(e) => set({ modelNote: e.target.value })} placeholder="예: 화장은 가볍게, 머리끈·누드톤 속옷 챙겨 주세요" className={FIELD + " mt-1"} />
           </label>
+          <GuideBox s={s} set={set} online={online} />
 
           <div className="rounded-xl border border-stone-200 p-3">
             <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-stone-800">

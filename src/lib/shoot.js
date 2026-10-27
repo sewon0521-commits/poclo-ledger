@@ -164,7 +164,9 @@ export const upsert = (item) => (v) => {
 export const remove = (id) => (v) => ({ ...v, items: (v.items || []).filter((x) => x.id !== id) });
 
 /** 사진 줄여서 보관 → 보관 이름 */
-export async function putPhoto(file, online) {
+// opt.edge = 긴 변(기본 1400) · opt.tallWidth = 세로로 아주 긴 안내 이미지(높이 > 폭 × 2.5)는 긴 변 대신 폭만 이만큼까지
+//   (10/27 촬영 가이드 1080×5564 — 긴 변 1600 으로 줄이면 폭 311px 이라 글씨를 못 읽는다)
+export async function putPhoto(file, online, opt = {}) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((resolve, reject) => {
@@ -173,7 +175,8 @@ export async function putPhoto(file, online) {
       i.onerror = () => reject(new Error(`${file.name || "사진"} 을(를) 열지 못했어요.`));
       i.src = url;
     });
-    const s = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
+    const tall = opt.tallWidth && img.naturalHeight > img.naturalWidth * 2.5;
+    const s = tall ? Math.min(1, opt.tallWidth / img.naturalWidth) : Math.min(1, (opt.edge || 1400) / Math.max(img.naturalWidth, img.naturalHeight));
     const c = document.createElement("canvas");
     c.width = Math.round(img.naturalWidth * s);
     c.height = Math.round(img.naturalHeight * s);

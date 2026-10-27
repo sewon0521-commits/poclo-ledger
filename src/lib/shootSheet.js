@@ -4,7 +4,7 @@
 //   모델(로그인 없음) — main.jsx 가 #sheet= 이면 App 대신 SheetPage 만 그린다.
 //
 // 시트 = 스냅숏: 링크를 만들거나 '내용 새로 보내기'를 누를 때 그날 내용만 골라 저장한다 —
-//   날짜 · 시각 · 장소 · 모델에게 한 줄 · 코디 순서대로(촬영 창에서 끌어 정한 순서) [코디 사진 · 메모].
+//   날짜 · 시각 · 장소 · 모델에게 한 줄 · 영상 가이드(사진 · 레퍼런스 링크, 10/27) · 코디 순서대로(촬영 창에서 끌어 정한 순서) [코디 사진 · 메모].
 //   10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" →
 //     상품(이름·색·사진) · 스타일링 칩 · 참고 사진은 넣지 않는다. 메모 = 스타일링 창 '메모'(모델 시트용 칸). 코디 이름은 직접 지은 것만(자동 이름 = 상품 이름이라 뺀다).
 //   ⛔ 도매가 · 판매가 · 거래처 · 위치 · 신마 링크 · 내부 메모는 절대 넣지 않는다(고른 칸만 넣는다).
@@ -65,8 +65,9 @@ async function longUrls(keys, online) {
 export async function buildSheet(day, codis, d, online) {
   const keys = [];
   for (const c of codis) for (const k of c.styling?.codiPhotos || []) if (!k.startsWith("data:")) keys.push(k);
+  for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
-  const urlOf = (k) => (k && (signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
+  const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
   return {
     on: day.on || "",
     time: day.time || "",
@@ -74,6 +75,11 @@ export async function buildSheet(day, codis, d, online) {
     models: (day.models || []).filter(Boolean),
     note: day.modelNote || "",
     v: 2, // 10/27 — 코디 사진 + 메모만 (SheetPage 가 예전 v1 시트도 같은 모양으로 그린다)
+    // 10/27 모델에게 보낼 가이드 — 시트 맨 위 '영상 가이드'(사진은 7일 서명 주소, 링크는 이름 + 주소)
+    guide: {
+      photos: (day.guidePhotos || []).map(urlOf).filter(Boolean),
+      links: (day.guideLinks || []).filter((l) => /^https?:\/\//i.test(l.url || "")).map((l) => ({ name: (l.name || "").trim(), url: l.url })),
+    },
     codis: codis.map((c) => {
       const st = c.styling || {};
       return {

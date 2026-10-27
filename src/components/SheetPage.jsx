@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, Clock, Loader2, MapPin, Navigation } from "lucide-react";
+import { CalendarDays, Clock, ExternalLink, Film, Loader2, MapPin, Navigation } from "lucide-react";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
-// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄·코디 순서대로 코디 사진·메모(10/27~).
+// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄·영상 가이드·코디 순서대로 코디 사진·메모(10/27~).
 
 const timeText = (t) => {
   if (!t) return "";
@@ -34,6 +34,61 @@ function Shell({ children }) {
 }
 const Card = ({ children, className = "" }) => <section className={"rounded-2xl bg-white p-4 shadow-sm ring-1 ring-stone-200 sm:p-5 " + className}>{children}</section>;
 
+/** 글 안의 주소를 누를 수 있게 (10/27 세원: "'모델에게 한 줄' 안의 링크도 누를 수 있게") — 새 탭 */
+const URL_RE = /(https?:\/\/[^\s<>"']+|(?:www\.)?(?:instagram\.com|youtu\.be|youtube\.com|naver\.me|tiktok\.com)\/[^\s<>"']*)/gi;
+function Linked({ text }) {
+  const parts = String(text || "").split(URL_RE);
+  return parts.map((p, i) => {
+    if (i % 2 === 0) return p;
+    const href = /^https?:\/\//i.test(p) ? p.replace(/[).,!?]+$/, "") : "https://" + p.replace(/[).,!?]+$/, "");
+    return (
+      <a key={i} href={href} target="_blank" rel="noopener noreferrer" className="font-medium break-all text-rose-700 underline underline-offset-2">
+        {p}
+      </a>
+    );
+  });
+}
+const hostOf = (u) => {
+  try {
+    return new URL(u).host.replace(/^www\./, "");
+  } catch {
+    return u;
+  }
+};
+
+/** 영상 가이드 (10/27) — 촬영 창 '모델에게 보낼 가이드'. 사진은 폭 가득(세로로 긴 안내 이미지도 읽히게), 누르면 크게. 링크는 새 탭 */
+function GuideCard({ g, onBig }) {
+  const photos = g?.photos || [];
+  const links = g?.links || [];
+  if (!photos.length && !links.length) return null;
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center gap-1.5 text-base font-bold text-stone-900">
+        <Film size={18} className="text-rose-700" /> 영상 가이드
+      </div>
+      {photos.map((u, i) => (
+        <button key={i} type="button" onClick={() => onBig(photos, i)} className="block w-full overflow-hidden rounded-xl bg-stone-100" aria-label="가이드 크게 보기">
+          <img src={u} alt="" loading="lazy" className="h-auto w-full" />
+        </button>
+      ))}
+      {links.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-xs font-semibold text-stone-500">레퍼런스</div>
+          {links.map((l, i) => (
+            <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl border border-stone-200 px-3 py-2.5 text-sm hover:border-rose-300">
+              <ExternalLink size={15} className="shrink-0 text-rose-700" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-semibold text-stone-900">{l.name || hostOf(l.url)}</span>
+                {l.name && <span className="block truncate text-xs text-stone-400">{hostOf(l.url)}</span>}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // 10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" —
 // 코디 번호 · (직접 지은 이름) · 코디 사진 · 메모만. 예전(v1) 시트에 든 상품·스타일링 칩·참고 사진도 안 그린다(이름은 자동 = 상품 이름이라 v1 은 숨김).
 function CodiCard({ c, n, v, onBig }) {
@@ -59,7 +114,13 @@ function CodiCard({ c, n, v, onBig }) {
       ) : (
         <p className="mx-4 rounded-xl bg-stone-50 px-3 py-6 text-center text-sm text-stone-400">코디 사진은 촬영 날 보여 드릴게요</p>
       )}
-      {memo ? <p className="mx-4 mb-4 rounded-xl bg-stone-50 px-3 py-2.5 text-sm whitespace-pre-line text-stone-700">{memo}</p> : <div className="pb-1" />}
+      {memo ? (
+        <p className="mx-4 mb-4 rounded-xl bg-stone-50 px-3 py-2.5 text-sm whitespace-pre-line text-stone-700">
+          <Linked text={memo} />
+        </p>
+      ) : (
+        <div className="pb-1" />
+      )}
     </Card>
   );
 }
@@ -138,8 +199,14 @@ export default function SheetPage() {
             </a>
           )}
         </div>
-        {s.note && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm whitespace-pre-line text-rose-900">{s.note}</p>}
+        {s.note && (
+          <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm whitespace-pre-line text-rose-900">
+            <Linked text={s.note} />
+          </p>
+        )}
       </Card>
+
+      <GuideCard g={s.guide} onBig={(urls, at) => setBig({ urls, at })} />
 
       {s.codis?.length ? (
         s.codis.map((c, i) => <CodiCard key={i} c={c} n={i + 1} v={s.v || 1} onBig={(urls, at) => setBig({ urls, at })} />)
