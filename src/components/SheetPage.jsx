@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import { CalendarDays, Clock, Loader2, MapPin, Navigation } from "lucide-react";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
-import { PARTS } from "../lib/styling";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
-// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄·코디(상품 이름·색상·사진)·스타일링·참고 사진.
+// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄·코디 순서대로 코디 사진·메모(10/27~).
 
 const timeText = (t) => {
   if (!t) return "";
@@ -35,42 +34,19 @@ function Shell({ children }) {
 }
 const Card = ({ children, className = "" }) => <section className={"rounded-2xl bg-white p-4 shadow-sm ring-1 ring-stone-200 sm:p-5 " + className}>{children}</section>;
 
-function Tags({ label, list }) {
-  if (!list?.length) return null;
-  return (
-    <div className="flex items-start gap-2">
-      <span className="w-14 shrink-0 pt-1 text-xs font-semibold text-stone-500">{label}</span>
-      <span className="flex flex-wrap gap-1.5">
-        {list.map((t, i) =>
-          t.photo ? (
-            // 우리 상품에서 고른 것 — 사진을 크게(10/25 세원 "썸네일이 너무 작아")
-            <span key={i} className="w-20 text-[12px] leading-snug font-medium text-rose-900">
-              <img src={t.photo} alt="" loading="lazy" className="mb-1 aspect-[3/4] w-20 rounded-lg object-cover ring-1 ring-rose-100" />
-              <span className="line-clamp-2">{t.text}</span>
-            </span>
-          ) : (
-            <span key={i} className="flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[13px] font-medium text-rose-900">
-              {t.text ?? t}
-            </span>
-          ),
-        )}
-      </span>
-    </div>
-  );
-}
-
-function CodiCard({ c, n, onBig }) {
-  const st = c.styling || {};
-  const photos = c.items.map((x) => x.photo).filter(Boolean);
-  const hasStyle = st.hair?.length || PARTS.some((p) => st[p.key]?.length) || st.acc?.length || st.memo;
+// 10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" —
+// 코디 번호 · (직접 지은 이름) · 코디 사진 · 메모만. 예전(v1) 시트에 든 상품·스타일링 칩·참고 사진도 안 그린다(이름은 자동 = 상품 이름이라 v1 은 숨김).
+function CodiCard({ c, n, v, onBig }) {
   const cps = c.codiPhotos || [];
+  const memo = (c.memo ?? c.styling?.memo ?? "").trim();
+  const name = v >= 2 ? c.name : "";
   return (
     <Card className="space-y-3 !p-0 overflow-hidden">
       <div className="px-4 pt-4">
         <div className="text-xs font-semibold text-rose-700">코디 {n}</div>
-        <h2 className="mt-0.5 text-[17px] leading-snug font-bold text-stone-900">{c.name}</h2>
+        {name && <h2 className="mt-0.5 text-[17px] leading-snug font-bold text-stone-900">{name}</h2>}
       </div>
-      {cps.length > 0 && (
+      {cps.length > 0 ? (
         <div className="flex snap-x gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
           {cps.map((u, i) => (
             <button key={i} type="button" onClick={() => onBig(cps, i)} className={(cps.length > 1 ? "w-[85%]" : "w-full") + " shrink-0 snap-start"}>
@@ -80,38 +56,10 @@ function CodiCard({ c, n, onBig }) {
             </button>
           ))}
         </div>
+      ) : (
+        <p className="mx-4 rounded-xl bg-stone-50 px-3 py-6 text-center text-sm text-stone-400">코디 사진은 촬영 날 보여 드릴게요</p>
       )}
-      <div className="flex snap-x gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-        {c.items.map((x, i) => (
-          <button key={i} type="button" onClick={() => x.photo && onBig(photos, photos.indexOf(x.photo))} className="w-[46%] shrink-0 snap-start text-left">
-            <span className="block aspect-[3/4] overflow-hidden rounded-xl bg-stone-100">{x.photo && <img src={x.photo} alt="" loading="lazy" className="h-full w-full object-cover" />}</span>
-            <span className="mt-1.5 block text-sm font-semibold text-stone-900">{x.name}</span>
-            {x.color && <span className="block text-xs text-stone-500">{x.color}</span>}
-          </button>
-        ))}
-      </div>
-      {hasStyle ? (
-        <div className="space-y-2 border-t border-stone-100 px-4 py-3">
-          <Tags label="헤어" list={st.hair} />
-          {PARTS.map((p) => (
-            <Tags key={p.key} label={p.label} list={st[p.key]} />
-          ))}
-          <Tags label="악세서리" list={st.acc} />
-          {st.memo && <p className="rounded-xl bg-stone-50 px-3 py-2 text-sm whitespace-pre-line text-stone-700">{st.memo}</p>}
-        </div>
-      ) : null}
-      {c.refs?.length > 0 && (
-        <div className="border-t border-stone-100 px-4 py-3">
-          <div className="mb-2 text-xs font-semibold text-stone-500">이런 느낌으로 찍어요</div>
-          <div className="grid grid-cols-4 gap-1.5">
-            {c.refs.map((u, i) => (
-              <button key={i} type="button" onClick={() => onBig(c.refs, i)} className="block aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">
-                <img src={u} alt="" loading="lazy" className="h-full w-full object-cover" />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {memo ? <p className="mx-4 mb-4 rounded-xl bg-stone-50 px-3 py-2.5 text-sm whitespace-pre-line text-stone-700">{memo}</p> : <div className="pb-1" />}
     </Card>
   );
 }
@@ -194,7 +142,7 @@ export default function SheetPage() {
       </Card>
 
       {s.codis?.length ? (
-        s.codis.map((c, i) => <CodiCard key={i} c={c} n={i + 1} onBig={(urls, at) => setBig({ urls, at })} />)
+        s.codis.map((c, i) => <CodiCard key={i} c={c} n={i + 1} v={s.v || 1} onBig={(urls, at) => setBig({ urls, at })} />)
       ) : (
         <Card className="py-8 text-center text-sm text-stone-500">찍을 코디는 정해지는 대로 알려 드릴게요.</Card>
       )}

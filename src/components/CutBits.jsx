@@ -116,7 +116,7 @@ export function CutPicker({ tags, value = [], onChange, onAdd }) {
  * HTML 드래그는 폰에서 안 돼서 포인터로 직접 — 끄는 줄은 손가락을 따라오고, 나머지 줄은 비켜 준다.
  * onMove(from, to) 는 놓았을 때 한 번. 줄 높이가 달라도(세부 컷이 든 줄) 된다.
  */
-function useSort(onMove, disabled) {
+export function useSort(onMove, disabled) {
   const [drag, setDrag] = useState(null); // {from, to, dy, h}
   const rows = useRef([]);
   const start = (e, i) => {
@@ -162,14 +162,14 @@ function useSort(onMove, disabled) {
   return { start, styleOf, ref, dragging: drag?.from ?? -1 };
 }
 
-const reorder = (list, from, to) => {
+export const reorder = (list, from, to) => {
   const next = [...list];
   const [x] = next.splice(from, 1);
   next.splice(to, 0, x);
   return next;
 };
 
-function Grip({ onPointerDown, disabled, small }) {
+export function Grip({ onPointerDown, disabled, small }) {
   return (
     <span
       role="button"

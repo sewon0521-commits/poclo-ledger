@@ -8,6 +8,7 @@ import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, S
 import { Photo } from "./ShootBits";
 import StylingSheet from "./Styling";
 import { MemoEditor } from "./SourcingMemo";
+import { useSort, reorder, Grip } from "./CutBits";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -60,6 +61,11 @@ const codisOf = (row, codis, rows) => {
 };
 /** '황다현 · 오후 12시' */
 const shootLabel = (r) => [(r.models || []).filter(Boolean).join(", ") || "모델 미정", timeText(r.time)].filter(Boolean).join(" · ");
+/** 촬영의 코디 순서(10/27) — codiOrder 에 있는 건 그 순서, 없는 건(새로 붙은 코디) 원래 순서대로 뒤에 */
+const inOrder = (codis, order = []) => {
+  const at = new Map(order.map((id, i) => [id, i]));
+  return codis.map((c, i) => [c, at.has(c.id) ? at.get(c.id) : order.length + i]).sort((a, b) => a[1] - b[1]).map(([c]) => c);
+};
 
 async function copyText(text) {
   try {
@@ -286,7 +292,7 @@ function SheetLink({ day, set, codis, d, online }) {
         <Link2 size={15} className="text-rose-700" /> 모델에게 보낼 촬영 시트
       </div>
       <p className="mb-2 text-xs text-stone-500">
-        모델은 로그인 없이 이 날 시간·장소·코디·스타일링·참고 사진만 봐요. 도매가·판매가·거래처·내부 메모는 안 들어가요.
+        모델은 로그인 없이 이 날 시간·장소와 코디마다 <b>코디 사진 · 메모</b>(스타일링 창에서 넣은 것)만 봐요. 상품·가격·거래처는 안 들어가요.
       </p>
       {err === "missing" ? (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -383,7 +389,9 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
   };
   // 이 창에서 고친 것(아직 저장 전)까지 넣은 촬영 목록
   const all = rows.some((r) => r.id === s.id) ? rows.map((r) => (r.id === s.id ? s : r)) : rows;
-  const codis = codisOf(s, d.codis, all);
+  // 10/27 세원: "촬영 관리에서 이 촬영 코디 순서를 변경하게" — 손잡이(⋮⋮)로 끌어 옮기면 s.codiOrder, 시트 링크도 이 순서
+  const codis = inOrder(codisOf(s, d.codis, all), s.codiOrder);
+  const sort = useSort((from, to) => set({ codiOrder: reorder(codis.map((c) => c.id), from, to) }));
   const dayRows = sameDay(all, s.on);
   const siblings = dayRows.filter((r) => r.id !== s.id);
   const others = siblings.length ? d.codis.filter((c) => s.on && c.shootDate === s.on && !codis.includes(c)) : [];
@@ -473,9 +481,23 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
               {codis.length > 0 && <span className="font-normal text-stone-400">{codis.length}개 · 스타일링 {styled}/{codis.length}</span>}
             </div>
             {codis.length ? (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {codis.map((c) => (
-                  <CodiRow key={c.id} c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} />
+              <div className="space-y-2">
+                {codis.length > 1 && <p className="text-[11px] text-stone-400">왼쪽 ⋮⋮ 를 끌어 찍는 순서를 바꿔요 — 모델 시트도 이 순서예요</p>}
+                {codis.map((c, i) => (
+                  <div
+                    key={c.id}
+                    ref={sort.ref(i)}
+                    style={sort.styleOf(i)}
+                    className={"flex min-w-0 items-start gap-1.5 bg-white " + (sort.dragging === i ? "rounded-xl shadow-lg ring-1 ring-stone-200" : "")}
+                  >
+                    <div className="flex w-7 shrink-0 flex-col items-center gap-0.5 pt-2">
+                      <span className="text-xs font-bold text-rose-700 tabular-nums">{i + 1}</span>
+                      {codis.length > 1 && <Grip onPointerDown={(e) => sort.start(e, i)} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <CodiRow c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} />
+                    </div>
+                  </div>
                 ))}
               </div>
             ) : siblings.length ? (
@@ -661,7 +683,7 @@ export default function ShootDays({ d, online }) {
           )}
         </div>
         <div className="mt-2.5 flex gap-1 overflow-hidden">
-          {r.codis.slice(0, 4).flatMap((c) => codiItems(c, d.items).slice(0, 1)).map((x) => (
+          {inOrder(r.codis, rec.codiOrder).slice(0, 4).flatMap((c) => codiItems(c, d.items).slice(0, 1)).map((x) => (
             <Photo key={x.id} url={d.urls[x.photo] || x.photoUrl} className="aspect-[3/4] w-10 shrink-0 rounded-md" />
           ))}
         </div>

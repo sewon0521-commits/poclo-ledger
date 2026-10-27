@@ -4,17 +4,18 @@
 //   모델(로그인 없음) — main.jsx 가 #sheet= 이면 App 대신 SheetPage 만 그린다.
 //
 // 시트 = 스냅숏: 링크를 만들거나 '내용 새로 보내기'를 누를 때 그날 내용만 골라 저장한다 —
-//   날짜 · 시각 · 장소 · 모델에게 한 줄 · 코디 순서대로 [코디 이름 · 상품(이름 · 색상 · 사진) · 스타일링 · 참고 사진].
-//   ⛔ 도매가 · 판매가 · 거래처 · 위치 · 신마 링크 · 내부 메모는 절대 넣지 않는다(pick 함수가 고른 칸만 넣는다).
-//   사진은 보관함이 비공개라 서명 주소(7일), 신마 사진은 주소 그대로. 7일이 지나면 '내용 새로 보내기'로 다시 서명.
+//   날짜 · 시각 · 장소 · 모델에게 한 줄 · 코디 순서대로(촬영 창에서 끌어 정한 순서) [코디 사진 · 메모].
+//   10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" →
+//     상품(이름·색·사진) · 스타일링 칩 · 참고 사진은 넣지 않는다. 메모 = 스타일링 창 '메모'(모델 시트용 칸). 코디 이름은 직접 지은 것만(자동 이름 = 상품 이름이라 뺀다).
+//   ⛔ 도매가 · 판매가 · 거래처 · 위치 · 신마 링크 · 내부 메모는 절대 넣지 않는다(고른 칸만 넣는다).
+//   사진은 보관함이 비공개라 서명 주소(7일). 7일이 지나면 '내용 새로 보내기'로 다시 서명.
 //
 // 저장 (공유 장부): Supabase 표 shoot_sheets {id, token, data, closed, updated_at, created_at}
 //   로그인한 사람은 표를 그대로, 모델(anon)은 SECURITY DEFINER 함수 sheet_get(토큰)만(닫힌 건 null). SQL 은 supabase/shoot_sheets.sql.
 //   이 기기 저장 모드(VITE_SUPABASE_URL 없음)는 localStorage 'poclo_shoot_sheets' 로 같은 동작(시험용).
 import { isRemote, supabase } from "./supabase";
 import { newToken, callName, isMissing } from "./contract";
-import { codiItems, codiName, colorList, md } from "./shoot";
-import { PARTS } from "./styling";
+import { NONAME, md } from "./shoot";
 import { dayKey } from "./journal";
 
 const LOCAL = "poclo_shoot_sheets";
@@ -62,56 +63,24 @@ async function longUrls(keys, online) {
  * 이 기기 저장 모드면 사진은 화면에 이미 있는 주소(d.urls)를 쓴다.
  */
 export async function buildSheet(day, codis, d, online) {
-  const its = (c) => codiItems(c, d.items);
-  const refsOf = (ids) => (ids || []).map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
   const keys = [];
-  for (const c of codis) {
-    for (const x of its(c)) if (x.photo) keys.push(x.photo);
-    const st = c.styling || {};
-    for (const s of PARTS.flatMap((p) => st[p.key] || [])) {
-      const x = s.itemId && d.items.find((i) => i.id === s.itemId);
-      if (x?.photo) keys.push(x.photo);
-    }
-    for (const k of st.codiPhotos || []) if (!k.startsWith("data:")) keys.push(k);
-    for (const r of refsOf([...(c.refIds || []), ...(st.refIds || [])])) keys.push(r.photo);
-  }
+  for (const c of codis) for (const k of c.styling?.codiPhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
-  const urlOf = (k, fallback) => (k && (signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || fallback || "";
-  const pickItem = (x, c) => ({
-    name: x.name || "",
-    color: (c.colors?.[x.id] || []).join(", ") || colorList(x).join(", "),
-    photo: urlOf(x.photo, x.photoUrl),
-  });
-  const pickWear = (s) => {
-    if (!s) return null;
-    if (s.itemId) {
-      const x = d.items.find((i) => i.id === s.itemId);
-      return x ? { text: x.name || "", photo: urlOf(x.photo, x.photoUrl) } : null;
-    }
-    return s.text ? { text: s.text } : null;
-  };
+  const urlOf = (k) => (k && (signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
   return {
     on: day.on || "",
     time: day.time || "",
     place: day.place || "",
     models: (day.models || []).filter(Boolean),
     note: day.modelNote || "",
+    v: 2, // 10/27 — 코디 사진 + 메모만 (SheetPage 가 예전 v1 시트도 같은 모양으로 그린다)
     codis: codis.map((c) => {
       const st = c.styling || {};
       return {
-        name: codiName(c, d.items),
-        items: its(c).map((x) => pickItem(x, c)),
-        styling: {
-          hair: st.hair || [],
-          ...Object.fromEntries(PARTS.map((p) => [p.key, (st[p.key] || []).map(pickWear).filter(Boolean)])),
-          acc: st.acc || [],
-          memo: st.memo || "",
-        },
+        name: c.name && c.name !== NONAME ? c.name : "",
         // 우리가 벽걸이에 걸어 찍은 이 코디 사진(10/25)
         codiPhotos: (st.codiPhotos || []).map((k) => (k.startsWith("data:") ? k : urlOf(k))).filter(Boolean),
-        refs: refsOf([...new Set([...(st.refIds || []), ...(c.refIds || [])])])
-          .map((r) => urlOf(r.photo))
-          .filter(Boolean),
+        memo: (st.memo || "").trim(),
       };
     }),
     madeAt: new Date().toISOString(),
