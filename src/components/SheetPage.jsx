@@ -107,9 +107,11 @@ function IgEmbed({ src, title }) {
   );
 }
 
-/** 영상 가이드 (10/27) — 촬영 창 '모델에게 보낼 가이드'. 사진은 폭 가득(세로로 긴 안내 이미지도 읽히게), 누르면 크게.
+/** 영상 가이드 (10/27) — 촬영 창 '모델에게 보낼 가이드'. 사진은 폭 가득(세로로 긴 안내 이미지도 읽히게).
+ *  10/27 세원: "영상 가이드 안 눌리게. 그래도 전체적으로는 키울 수 있게" — 누르면 뜨던 크게 보기를 뺐다(세로로 아주 긴 이미지가 화면 높이에 맞춰 작게 떠서 오히려 안 보였다).
+ *  키우기는 페이지째 두 손가락으로 벌려서(화면 설정에 확대 막기 없음 — index.html viewport).
  *  레퍼런스는 적은 순서대로 다 펼쳐서(모델이 내려가면서 보고 따라 하게) — 인스타 릴스·게시물은 시트 안 영상, 그 밖 링크는 새 탭 단추 */
-function GuideCard({ g, onBig }) {
+function GuideCard({ g }) {
   const photos = g?.photos || [];
   const links = g?.links || [];
   if (!photos.length && !links.length) return null;
@@ -119,10 +121,11 @@ function GuideCard({ g, onBig }) {
         <Film size={18} className="text-rose-700" /> 영상 가이드
       </div>
       {photos.map((u, i) => (
-        <button key={i} type="button" onClick={() => onBig(photos, i)} className="block w-full overflow-hidden rounded-xl bg-stone-100" aria-label="가이드 크게 보기">
-          <img src={u} alt="" loading="lazy" className="h-auto w-full" />
-        </button>
+        <div key={i} className="overflow-hidden rounded-xl bg-stone-100">
+          <img src={u} alt="촬영 영상 가이드" loading="lazy" className="block h-auto w-full" />
+        </div>
       ))}
+      {photos.length > 0 && <p className="-mt-1 text-center text-xs text-stone-400">글씨가 작으면 두 손가락으로 벌려 크게 봐 주세요</p>}
       {links.length > 0 && (
         <div className="space-y-4 pt-1">
           <div className="text-xs font-semibold text-stone-500">레퍼런스</div>
@@ -304,7 +307,7 @@ export default function SheetPage() {
         <Card className="py-8 text-center text-sm text-stone-500">찍을 코디는 정해지는 대로 알려 드릴게요.</Card>
       )}
 
-      <GuideCard g={s.guide} onBig={(urls, at) => setBig({ urls, at })} />
+      <GuideCard g={s.guide} />
 
       <p className="px-1 pb-6 text-center text-xs text-stone-400">
         궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
