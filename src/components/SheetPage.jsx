@@ -200,11 +200,12 @@ function CodiCard({ c, n, v, onBig }) {
         {name && <h2 className="mt-0.5 text-[17px] leading-snug font-bold text-stone-900">{name}</h2>}
       </div>
       {cps.length > 0 ? (
-        <div className="flex snap-x gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
+        // 10/27 세원: "코디는 정방형 말고 다 보이게 원본으로" — 자르지 않고 사진 비율 그대로(예전엔 정사각형으로 잘랐다)
+        <div className="flex snap-x items-start gap-2 overflow-x-auto px-4 [scrollbar-width:none]">
           {cps.map((u, i) => (
             <button key={i} type="button" onClick={() => onBig(cps, i)} className={(cps.length > 1 ? "w-[85%]" : "w-full") + " shrink-0 snap-start"}>
-              <span className="block aspect-square overflow-hidden rounded-xl bg-stone-100">
-                <img src={u} alt="" loading="lazy" className="h-full w-full object-cover" />
+              <span className="block overflow-hidden rounded-xl bg-stone-100">
+                <img src={u} alt="" loading="lazy" className="block h-auto w-full" />
               </span>
             </button>
           ))}
