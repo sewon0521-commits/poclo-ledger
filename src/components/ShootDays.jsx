@@ -6,7 +6,7 @@ import { BigSlides } from "./ContentBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stylingLine } from "../lib/styling";
-import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError } from "../lib/shootSheet";
+import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError, PREP_PARTS, hasPrep } from "../lib/shootSheet";
 import { Photo } from "./ShootBits";
 import StylingSheet from "./Styling";
 import { MemoEditor } from "./SourcingMemo";
@@ -18,7 +18,8 @@ import { useSort, reorder, Grip } from "./CutBits";
  *   모델에게는 계정 대신 '촬영 시트 링크'(lib/shootSheet.js — 고른 칸만 담은 스냅숏, 로그인 없이 #sheet=<토큰>).
  *
  * 촬영일 = 코디들의 촬영일(shoot_codis.shootDate) + 직접 만든 촬영(settings shoot_days).
- * settings shoot_days {items:[{id, on, time, place, models:[이름], modelNote, memo, cuts:[{id,text,done}], videos:[…], sheetToken, sheetAt, sheetClosed, createdAt}]}
+ * settings shoot_days {items:[{id, on, time, place, models:[이름], modelNote, prep:{bring, ask, info}, memo, cuts:[{id,text,done}], videos:[…], sheetToken, sheetAt, sheetClosed, createdAt}]}
+ *   modelNote = 모델에게 전할 말의 인사 한 줄(예전 '모델에게 한 줄') · prep = 준비하실 것 / 미리 알려 주세요 / 참고해 주세요(10/27, 한 줄에 하나씩)
  *   코디만 있는 날은 창을 열고 무언가 고칠 때 그 날짜 줄이 생긴다.
  *
  * 10/26 같은 날 여러 촬영 — 세원: "같은 날 다른 모델을 쓸 수도 있어서, 10/28(수)에 황다현·이주현을 촬영하는데 이걸 나눠야 할 것 같아. 이런 날이 많지는 않겠지만."
@@ -399,8 +400,8 @@ function GuideBox({ s, set, online }) {
       }}
       className="rounded-xl border border-stone-200 p-3 outline-none focus-within:border-rose-300"
     >
-      <div className="mb-1 flex items-center justify-between gap-2 text-sm font-semibold text-stone-800">
-        <span className="flex items-center gap-1.5">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm font-semibold text-stone-800">
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
           <Film size={15} className="text-rose-700" /> 모델에게 보낼 가이드
         </span>
         <span className="text-xs font-normal text-stone-400">시트 코디 아래 '영상 가이드' · 인스타 링크는 시트 안 영상으로</span>
@@ -590,6 +591,43 @@ function SheetLink({ day, set, codis, d, online }) {
   );
 }
 
+/**
+ * 모델에게 전할 말 (10/27) — 세원: "준비하실 것 · 미리 알려 주세요 · 참고해 주세요는 내가 적는 걸로 따로 빼서 코디 바로 위에. 모델에게 한 줄을 내가 말한 걸로 바꾸는 거지."
+ * 인사 한 줄(modelNote — 예전 '모델에게 한 줄') + 세 칸(prep {bring, ask, info}, 한 줄에 하나씩 → 시트에서 점 목록). 비어 있으면 지난 촬영 것을 불러올 수 있다(매번 비슷해서).
+ */
+function ModelPrep({ s, set, rows }) {
+  const empty = !hasPrep(s);
+  const prev = empty
+    ? rows.filter((r) => r.id !== s.id && hasPrep(r)).sort((a, b) => (b.on || "").localeCompare(a.on || "") || (b.createdAt || "").localeCompare(a.createdAt || ""))[0]
+    : null;
+  const put = (k, v) => set({ prep: { ...(s.prep || {}), [k]: v } });
+  return (
+    <div className="rounded-xl border border-stone-200 p-3">
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-sm font-semibold text-stone-800">모델에게 전할 말</span>
+        <span className="text-xs text-stone-400">촬영 시트 코디 바로 위에 가요 · 한 줄에 하나씩 적으면 점 목록</span>
+        {prev && (
+          <button type="button" onClick={() => set({ prep: { ...prev.prep } })} className="ml-auto rounded-full border border-dashed border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50">
+            지난 촬영({md(prev.on)}{(prev.models || []).filter(Boolean).length ? ` · ${prev.models.filter(Boolean).join(", ")}` : ""}) 내용 불러오기
+          </button>
+        )}
+      </div>
+      <label className="block text-xs font-medium text-stone-500">
+        인사 한 줄 (선택)
+        <input value={s.modelNote || ""} onChange={(e) => set({ modelNote: e.target.value })} placeholder="예: 28일 찍을 코디예요! 궁금한 점은 DM 주세요" className={FIELD + " mt-1"} />
+      </label>
+      <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        {PREP_PARTS.map((p) => (
+          <label key={p.k} className="block text-xs font-medium text-stone-500">
+            {p.title}
+            <textarea value={s.prep?.[p.k] || ""} onChange={(e) => put(p.k, e.target.value)} placeholder={p.hint} rows={4} className={FIELD + " mt-1 resize-y leading-relaxed"} />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 촬영 창 — 고치는 대로 저장. rows = 촬영 전체(같은 날 다른 촬영 찾기), onOpen = 다른 촬영 열기, onAddSibling = 같은 날 새 촬영 */
 function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose, onOpen, onAddSibling, canRemove }) {
   const [s, setS] = useState(start);
@@ -695,10 +733,7 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
               </button>
             </div>
           )}
-          <label className="block text-xs font-medium text-stone-500">
-            모델에게 한 줄 — 촬영 시트에 같이 가요
-            <input value={s.modelNote || ""} onChange={(e) => set({ modelNote: e.target.value })} placeholder="예: 화장은 가볍게, 머리끈·누드톤 속옷 챙겨 주세요" className={FIELD + " mt-1"} />
-          </label>
+          <ModelPrep s={s} set={set} rows={rows} />
           <GuideBox s={s} set={set} online={online} />
 
           <div className="rounded-xl border border-stone-200 p-3">

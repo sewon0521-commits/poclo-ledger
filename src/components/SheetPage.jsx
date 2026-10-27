@@ -4,8 +4,9 @@ import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSh
 import { BigSlides } from "./ContentBits";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
-// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소·모델에게 한 줄 → 코디 순서대로 코디 사진·메모 → 영상 가이드(10/27~).
-// 10/27 세원: "순서를 코디 → 가이드로" — 처음엔 가이드가 코디 위였다.
+// 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소 → 모델에게 전할 말(인사 한 줄 + 준비하실 것 · 미리 알려 주세요 · 참고해 주세요)
+// → 코디 순서대로 코디 사진·메모 → 영상 가이드(10/27~).
+// 10/27 세원: "순서를 코디 → 가이드로" — 처음엔 가이드가 코디 위였다. 같은 날 "준비하실 것 … 은 내가 적는 걸로 따로 빼서 코디 바로 위에"(예전엔 가이드 이미지 안).
 
 const timeText = (t) => {
   if (!t) return "";
@@ -153,6 +154,36 @@ function GuideCard({ g, onBig }) {
   );
 }
 
+/** 모델에게 전할 말 (10/27) — 인사 한 줄(예전 '모델에게 한 줄') + 준비하실 것 · 미리 알려 주세요 · 참고해 주세요. 코디 바로 위 */
+function PrepCard({ note, prep }) {
+  const parts = (prep || []).filter((p) => p.items?.length);
+  if (!note && !parts.length) return null;
+  return (
+    <Card className="space-y-4">
+      {note && (
+        <p className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm whitespace-pre-line text-rose-900">
+          <Linked text={note} />
+        </p>
+      )}
+      {parts.map((p, i) => (
+        <section key={i} className={i ? "border-t border-stone-200 pt-4" : ""}>
+          <h2 className="mb-2 text-[17px] font-bold text-stone-900">{p.title}</h2>
+          <ul className="space-y-1.5">
+            {p.items.map((t, j) => (
+              <li key={j} className="flex gap-2.5 text-[15px] leading-relaxed text-stone-800">
+                <span className={"mt-[0.65em] h-1.5 w-1.5 shrink-0 rounded-full " + (p.title === "준비하실 것" ? "bg-rose-700/70" : "bg-stone-600")} />
+                <span className="min-w-0 break-words">
+                  <Linked text={t} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </Card>
+  );
+}
+
 // 10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" —
 // 코디 번호 · (직접 지은 이름) · 코디 사진 · 메모만. 예전(v1) 시트에 든 상품·스타일링 칩·참고 사진도 안 그린다(이름은 자동 = 상품 이름이라 v1 은 숨김).
 function CodiCard({ c, n, v, onBig }) {
@@ -263,12 +294,9 @@ export default function SheetPage() {
             </a>
           )}
         </div>
-        {s.note && (
-          <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm whitespace-pre-line text-rose-900">
-            <Linked text={s.note} />
-          </p>
-        )}
       </Card>
+
+      <PrepCard note={s.note} prep={s.prep} />
 
       {s.codis?.length ? (
         s.codis.map((c, i) => <CodiCard key={i} c={c} n={i + 1} v={s.v || 1} onBig={(urls, at) => setBig({ urls, at })} />)

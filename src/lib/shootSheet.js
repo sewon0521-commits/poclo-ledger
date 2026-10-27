@@ -4,7 +4,8 @@
 //   모델(로그인 없음) — main.jsx 가 #sheet= 이면 App 대신 SheetPage 만 그린다.
 //
 // 시트 = 스냅숏: 링크를 만들거나 '내용 새로 보내기'를 누를 때 그날 내용만 골라 저장한다 —
-//   날짜 · 시각 · 장소 · 모델에게 한 줄 · 영상 가이드(사진 · 레퍼런스 링크, 10/27) · 코디 순서대로(촬영 창에서 끌어 정한 순서) [코디 사진 · 메모].
+//   날짜 · 시각 · 장소 · 모델에게 전할 말(인사 한 줄 + 준비하실 것 · 미리 알려 주세요 · 참고해 주세요, 10/27) · 영상 가이드(사진 · 레퍼런스 링크, 10/27) ·
+//   코디 순서대로(촬영 창에서 끌어 정한 순서) [코디 사진 · 메모]. 시트 화면 순서는 SheetPage(첫 카드 → 전할 말 → 코디 → 영상 가이드).
 //   10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" →
 //     상품(이름·색·사진) · 스타일링 칩 · 참고 사진은 넣지 않는다. 메모 = 스타일링 창 '메모'(모델 시트용 칸). 코디 이름은 직접 지은 것만(자동 이름 = 상품 이름이라 뺀다).
 //   ⛔ 도매가 · 판매가 · 거래처 · 위치 · 신마 링크 · 내부 메모는 절대 넣지 않는다(고른 칸만 넣는다).
@@ -36,6 +37,23 @@ export function sheetDm(name, token, on, today) {
   const when = on === tomorrow ? "내일" : on === today ? "오늘" : dayLabel(on);
   return `${callName(name)}! ${when} 촬영 시트예요 ☺️\n시간·장소랑 찍을 코디 미리 봐 주세요 💗\n${sheetLink(token)}`;
 }
+
+// ------------------------------------------------------------ 모델에게 전할 말 (10/27)
+// 세원: "촬영 영상 가이드만 냅두고 준비하실 것 · 미리 알려 주세요 · 참고해 주세요는 내가 적는 걸로 따로 빼서 코디 바로 위에. 모델에게 한 줄을 내가 말한 걸로 바꾸는 거지."
+// 처음엔 이 세 칸이 가이드 이미지 맨 아래에 그려져 있었다. 이제 촬영 줄 prep {bring, ask, info}(한 줄에 하나씩) — 시트엔 [{title, items}](빈 칸은 뺌).
+// 예전 '모델에게 한 줄'(modelNote → 시트 note)은 이 칸 맨 위 인사말로 남는다.
+export const PREP_PARTS = [
+  { k: "bring", title: "준비하실 것", hint: "예: 기본 메이크업\n스킨톤 속옷, 니플패치나 오프숄더용 브라" },
+  { k: "ask", title: "미리 알려 주세요", hint: "예: 차 가지고 오시나요? 주차 필요 여부를 알려 주세요" },
+  { k: "info", title: "참고해 주세요", hint: "예: 옷·신발은 저희가 준비해요" },
+];
+/** 한 줄에 하나 — 앞에 붙인 - • * 1. 은 뗀다 */
+export const prepLines = (t) =>
+  String(t || "")
+    .split("\n")
+    .map((l) => l.replace(/^\s*(?:[-•*]|\d+[.)])\s+/, "").trim())
+    .filter(Boolean);
+export const hasPrep = (day) => PREP_PARTS.some((p) => prepLines(day?.prep?.[p.k]).length > 0);
 
 export class SheetError extends Error {
   constructor(code, message) {
@@ -74,6 +92,8 @@ export async function buildSheet(day, codis, d, online) {
     place: day.place || "",
     models: (day.models || []).filter(Boolean),
     note: day.modelNote || "",
+    // 10/27 모델에게 전할 말 — 준비하실 것 · 미리 알려 주세요 · 참고해 주세요 (시트에선 코디 바로 위)
+    prep: PREP_PARTS.map((p) => ({ title: p.title, items: prepLines(day.prep?.[p.k]) })).filter((x) => x.items.length),
     v: 2, // 10/27 — 코디 사진 + 메모만 (SheetPage 가 예전 v1 시트도 같은 모양으로 그린다)
     // 10/27 모델에게 보낼 가이드 — 시트 맨 위 '영상 가이드'(사진은 7일 서명 주소, 링크는 이름 + 주소)
     guide: {
