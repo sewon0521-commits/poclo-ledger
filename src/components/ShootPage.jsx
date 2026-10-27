@@ -1039,6 +1039,8 @@ const CODI_STAGES = [
   ["arrived", "입고·픽"],
   ["pick", "촬영"],
   ["shot", "등록"],
+  // 10/27 세원: "코디 만들기에 업데이트 완료까지 포함해줘" — 잘 팔린 상품 아더컬러·재촬영. 코디·촬영 끝은 업데이트 완료 상품의 단계를 안 되돌린다(request·arrived·pick 만 옮김).
+  ["done", "업데이트 완료"],
 ];
 const chip = (on) => "shrink-0 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap " + (on ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300");
 
@@ -1199,7 +1201,8 @@ function CodiEdit({ codi, d, onClose }) {
               {q ? `'${q}'에 맞는 상품이 고른 단계에 없어요.` : "고른 단계·종류에 상품이 없어요. 위 칩을 바꿔 보세요."}
               {elsewhere.length > 0 && (
                 <span className="mt-1 block text-xs text-amber-700">
-                  다른 단계에 {elsewhere.length}개 있어요 ({[...new Set(elsewhere.map((x) => (x.stage === "request" ? "요청(픽업 전)" : stageName(x.stage))))].join(" · ")}) — 코디에 넣으려면 그 상품을 먼저 입고·픽으로
+                  다른 단계에 {elsewhere.length}개 있어요 ({[...new Set(elsewhere.map((x) => (x.stage === "request" ? "요청(픽업 전)" : stageName(x.stage))))].join(" · ")}) —{" "}
+                  {elsewhere.every((x) => CODI_STAGES.some(([k]) => k === stageOf(x))) ? "위 '단계'에서 켜면 보여요" : "코디에 넣으려면 그 상품을 먼저 입고·픽으로"}
                 </span>
               )}
             </p>
