@@ -105,13 +105,16 @@ export async function loadKey(key, online, fallback = { items: [] }) {
   }
   const { data, error } = await supabase.from("settings").select("value, updated_at").eq("key", key).maybeSingle();
   if (error) throw error;
-  if (data?.updated_at) seen[key] = data.updated_at;
+  // 읽기를 보낸 사이에 내가 더 새로 썼으면(답이 늦게 옴) 마지막 시각·이 기기 사본을 예전 값으로 되돌리지 않는다 (10/27)
+  const older = data?.updated_at && seen[key] && Date.parse(data.updated_at) < Date.parse(seen[key]);
+  if (data?.updated_at && !older) seen[key] = data.updated_at;
   const v = data?.value || fallback;
-  try {
-    localStorage.setItem(local(key), JSON.stringify(v));
-  } catch {
-    /* 가득 참 — 서버엔 있다 */
-  }
+  if (!older)
+    try {
+      localStorage.setItem(local(key), JSON.stringify(v));
+    } catch {
+      /* 가득 참 — 서버엔 있다 */
+    }
   return v;
 }
 

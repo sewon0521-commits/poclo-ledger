@@ -17,6 +17,13 @@ import { changeKey } from "./shoot";
 const Q = {}; // key → { waiting: [{fn, done, fail}], inflight: [...], run: Promise|null }
 const listeners = new Set();
 
+// 저장 표시 (10/27 세원: "반납·결제 예정도 계속 되돌아와") — 변경을 넣을 때·저장이 끝날 때마다 하나씩 올린다.
+// 서버를 다시 읽기 시작할 때 이 값을 기억해 두고, 답이 왔을 때 값이 바뀌었으면 그 답은 버린다:
+// 읽기를 보낸 뒤에 내가 누르고 저장까지 끝났으면, 늦게 온 답은 누르기 전 값이라 화면을 되돌린다(화면은 저장이 끝난 값으로 이미 맞춰져 있다).
+const marks = {};
+const bump = (key) => (marks[key] = (marks[key] || 0) + 1);
+export const saveMark = (key) => marks[key] || 0;
+
 export const pendingCount = () => Object.values(Q).reduce((n, q) => n + q.waiting.length + q.inflight.length, 0);
 const notify = () => {
   const n = pendingCount();
@@ -43,6 +50,7 @@ export function withPending(key, value) {
 export function queueChange(key, online, fn, fallback) {
   const q = (Q[key] ||= { waiting: [], inflight: [], run: null });
   const p = new Promise((done, fail) => q.waiting.push({ fn, done, fail }));
+  bump(key);
   notify();
   if (!q.run) q.run = drain(key, online, fallback);
   return p;
@@ -58,10 +66,12 @@ async function drain(key, online, fallback) {
       try {
         const next = await changeKey(key, online, (v) => applyAll(batch.map((x) => x.fn), v), fallback);
         q.inflight = [];
+        bump(key);
         notify();
         batch.forEach((x) => x.done(next));
       } catch (e) {
         q.inflight = [];
+        bump(key);
         notify();
         batch.forEach((x) => x.fail(e));
       }

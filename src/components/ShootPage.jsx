@@ -11,7 +11,7 @@ import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
 import ShootDays from "./ShootDays";
 import { clipImages, filesOf } from "../lib/pasteImages";
-import { queueChange, withPending, usePending } from "../lib/saveQueue";
+import { queueChange, withPending, usePending, saveMark } from "../lib/saveQueue";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
 
 /**
@@ -87,6 +87,9 @@ function useData(online) {
       setLoaded(true);
       return;
     }
+    // 읽는 동안 내가 저장한 키는 그 답을 버린다(누르기 전 값이라 되돌린다 — lib/saveQueue '저장 표시')
+    const m0 = Object.fromEntries(["shoot_items", "shoot_codis", "shoot_refs", "sample_refusals"].map((k) => [k, saveMark(k)]));
+    const fresh = (k) => saveMark(k) === m0[k];
     try {
       const [a, b, c, t, f, m, r] = await Promise.all([
         loadKey("shoot_items", online),
@@ -98,7 +101,7 @@ function useData(online) {
         loadKey("sample_refusals", online),
       ]);
       // 서버 값 위에 아직 저장 중인 변경을 얹는다 (lib/saveQueue — 저장 중에 새로 읽어도 예전 상태가 안 뜨게)
-      setRefusals(withPending("sample_refusals", r).items || []);
+      if (fresh("sample_refusals")) setRefusals(withPending("sample_refusals", r).items || []);
       setMsgs({ ...DEFAULT_MSGS, ...m });
       let fs = f.items || [];
       if (!fs.length) {
@@ -107,9 +110,9 @@ function useData(online) {
         await changeKey("shoot_folders", online, (v) => ((v.items || []).length ? v : { items: fs }));
       }
       setFolders(fs);
-      setItems(withPending("shoot_items", a).items || []);
-      setCodis(withPending("shoot_codis", b).items || []);
-      setRefs(withPending("shoot_refs", c).items || []);
+      if (fresh("shoot_items")) setItems(withPending("shoot_items", a).items || []);
+      if (fresh("shoot_codis")) setCodis(withPending("shoot_codis", b).items || []);
+      if (fresh("shoot_refs")) setRefs(withPending("shoot_refs", c).items || []);
       setTags({ ...DEFAULT_TAGS, ...t });
       MEM.at = Date.now();
       try {
@@ -139,8 +142,9 @@ function useData(online) {
     const sets = { shoot_items: setItems, shoot_codis: setCodis, shoot_refs: setRefs, sample_refusals: setRefusals };
     const again = (key) => {
       if (!sets[key]) return;
+      const m0 = saveMark(key);
       loadKey(key, online)
-        .then((v) => sets[key](withPending(key, v).items || []))
+        .then((v) => saveMark(key) === m0 && sets[key](withPending(key, v).items || []))
         .catch(() => {});
     };
     const off = onSettingsChange(again);
