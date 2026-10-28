@@ -28,6 +28,7 @@ import {
   Trophy,
   FileSignature,
   CalendarCheck,
+  Users,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -74,6 +75,15 @@ export const SECTIONS = [
           // 10/13 세원: CS 자동화 영상·PDF — "포클로 일 칸에 CS 관리를 할 수 있는 칸"
           // 10/16 세원: "카톡·톡톡 같은 걸 못 읽으면 그냥 안 하는 게 낫다" → 메뉴에서 숨김(화면·코드는 남김, 다시 쓰려면 이 줄 주석만 풀면 됨)
           // { key: "cs", label: "CS 관리", icon: Headset },
+        ],
+      },
+      {
+        // 10/28 세원: "모델 계약서 일 칸으로 옮겨 주고 거기서 파트타이머 관리도 — 프리랜서 시급 관리, 계좌는 모델 계약서에서, 시급·3.3% 다 반영"
+        group: "사람",
+        items: [
+          { key: "parttime", label: "파트타이머 관리", icon: Users },
+          // 10/25 세원: "모바일로 계약서 진행할 수 있게" — 모델이 폰으로 읽고 서명(components/ContractPage.jsx · SignPage.jsx). 10/28 촬영 갈래 → 일 갈래로
+          { key: "contracts", label: "모델 계약서", icon: FileSignature },
         ],
       },
     ],
@@ -127,8 +137,6 @@ export const SECTIONS = [
           { key: "shootPlan", label: "소싱 관리", icon: ClipboardList },
           // 10/25 세원: "소싱 관리랑 촬영 관리랑 따로 · 모델은 촬영 관리만" → 촬영일마다 코디·스타일링·시간·장소, 모델에게는 촬영 시트 링크(components/ShootDays.jsx)
           { key: "shootDays", label: "촬영 관리", icon: CalendarCheck },
-          // 10/25 세원: "모바일로 계약서 진행할 수 있게" — 테스트 촬영 전 모델이 폰으로 읽고 서명(components/ContractPage.jsx · SignPage.jsx)
-          { key: "contracts", label: "모델 계약서", icon: FileSignature },
         ],
       },
     ],

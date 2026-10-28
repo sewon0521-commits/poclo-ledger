@@ -28,7 +28,8 @@ import { ContractText, SignedBlock, printContract, signedAtText } from "./Contra
 import { Sheet, SheetHead } from "./ShootBits";
 import { Empty } from "./ui";
 
-// 촬영 › 모델 계약서 (10/25) — 계약 만들기 → 링크·DM 문구 복사 → 모델이 폰에서 서명 → '서명 완료'. 설명은 lib/contract.js 머리말.
+// 일 › 모델 계약서 (10/25, 10/28 촬영 갈래에서 옮김) — 계약 만들기 → 링크·DM 문구 복사 → 모델이 폰에서 서명 → '서명 완료'. 설명은 lib/contract.js 머리말.
+// 서명한 사람은 일 › 파트타이머 관리에 저절로 들어간다(계좌·연락처·시급 — lib/partTime.js).
 
 const F = "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-rose-600";
 const SQL_URL = "https://supabase.com/dashboard/project/prbsdwmlnigpjcfkvivd/sql/new";
@@ -307,8 +308,9 @@ function LinkBox({ c }) {
 }
 
 // 주민등록번호 — 평소엔 가린 번호, '신고용 보기'를 누르면 1분 동안만 전체(누를 때마다 서버에 누가·언제 남음)
+// compact = 파트타이머 관리에서 — 보기 전 설명 줄을 뺀다
 const SHOW_SEC = 60;
-function RrnBox({ c, online }) {
+export function RrnBox({ c, online, compact }) {
   const [shown, setShown] = useState(null); // {rrn, log}
   const [left, setLeft] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -359,11 +361,13 @@ function RrnBox({ c, online }) {
           )}
         </span>
       </div>
+      {(shown || !compact) && (
       <p className="mt-1.5 text-[11px] leading-relaxed text-stone-400">
         {shown
           ? `${left}초 뒤 다시 가려져요 · 원천징수 신고에만 써 주세요. 본 기록: ${(shown.log || []).map((x) => `${whoOf(x.who)} ${signedAtText(x.at).replace(/^\d{4}년 /, "")}`).join(" · ")}`
           : "암호화해 저장돼 있어요. '신고용 보기'를 누르면 1분 동안 전체가 보이고, 누가 언제 봤는지 남아요."}
       </p>
+      )}
       {err && <p className="mt-1 text-xs text-rose-700">{err}</p>}
     </section>
   );
@@ -479,7 +483,7 @@ function MissingSql({ rrn }) {
 
 // ------------------------------------------------------------ 화면
 
-export default function ContractPage({ online }) {
+export default function ContractPage({ online, onPage }) {
   const [list, setList] = useState(null);
   const [missing, setMissing] = useState(false);
   const [err, setErr] = useState("");
@@ -539,6 +543,11 @@ export default function ContractPage({ online }) {
             <FileSignature size={20} /> 모델 계약서
           </h2>
           <p className="mt-0.5 text-sm text-stone-500">계약서를 만들어 링크를 DM 으로 보내면, 모델이 폰에서 읽고 서명해요. 주민등록번호(3.3% 신고용)는 암호화해 저장하고 &apos;신고용 보기&apos;에서만 전체가 보여요.</p>
+          {onPage && (
+            <button type="button" onClick={() => onPage("parttime")} className="mt-1 text-xs font-semibold text-rose-700 hover:text-rose-900">
+              서명한 사람은 파트타이머 관리에 저절로 들어가요 — 근무 시간 · 시급 · 3.3% 지급은 거기서 ›
+            </button>
+          )}
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={() => setEditTpl(true)} className="flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:border-stone-300">

@@ -31,6 +31,7 @@ import SoOrderPage from "./components/SoOrderPage";
 import CsPage from "./components/CsPage";
 import MusicPage from "./components/MusicPage";
 import ContractPage from "./components/ContractPage";
+import PartTimePage from "./components/PartTimePage";
 import ReelsPage from "./components/ReelsPage";
 import CarouselPage from "./components/CarouselPage";
 import AccountsPage from "./components/AccountsPage";
@@ -550,7 +551,9 @@ pg === "home" ? (
               ) : pg === "music" ? (
                 <MusicPage online={L.mode === "remote" && !!L.session} />
               ) : pg === "contracts" ? (
-                <ContractPage online={L.mode === "remote" && !!L.session} />
+                <ContractPage online={L.mode === "remote" && !!L.session} onPage={go} />
+              ) : pg === "parttime" ? (
+                <PartTimePage online={L.mode === "remote" && !!L.session} onPage={go} />
               ) : pg === "soOrder" ? (
                 <SoOrderPage tx={tx} vendors={vendors} pricing={S.pricing} online={L.mode === "remote" && !!L.session} />
               ) : pg === "cs" ? (
