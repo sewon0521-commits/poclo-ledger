@@ -79,8 +79,9 @@ export function GuideText({ text }) {
         const pad = { paddingLeft: `${Math.max(0, b.depth - (b.type === "flow" ? 1 : 0)) * 0.9}rem` };
         if (b.type === "head")
           return b.depth === 0 ? (
+            // 머리 알약은 포클로ERP 빨강 — 10/29 세원: "아우터 X·O 빨간색, 밑에 영상 표시(검정)랑 헷갈려"
             <div key={i} className={i ? "pt-3" : ""}>
-              <span className="inline-flex rounded-full bg-stone-900 px-3 py-1 text-xs font-bold text-white">{b.text}</span>
+              <span className="inline-flex rounded-full bg-rose-700 px-3 py-1 text-xs font-bold text-white">{b.text}</span>
             </div>
           ) : (
             <div key={i} style={pad} className="pt-1 text-sm font-bold text-stone-900">
