@@ -10,7 +10,7 @@ import { useSegmentLoop } from "../lib/useSegmentLoop";
 
 /**
  * 참고 영상 장면 (10/29) — 스타일링 창 '참고 영상'. 콘텐츠 › 릴스 기획 라이브러리에서 영상을 고르고(폴더 · BEST · 찾기),
- * 볼 부분만 잘라(구간만 저장 — 파일은 그대로) 코디에 담는다. 담은 장면을 누르면 그 구간만 계속 반복. 모델 촬영 시트에도 간다.
+ * 볼 부분만 잘라(구간만 저장 — 파일은 그대로) 코디에 담는다. 담은 장면을 누르면 그 구간만 계속 반복. 촬영 때 우리가 보는 것(모델 시트엔 안 감 — 10/29 저녁 v4).
  * 자세한 규칙은 lib/refClips.js 머리말.
  */
 
@@ -229,7 +229,7 @@ function ClipEditor({ reel, online, init, onSave, onBack, backLabel }) {
               </div>
             )}
             <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-stone-600">모델에게 한 줄 (선택)</span>
+              <span className="mb-1 block text-xs font-semibold text-stone-600">이 장면 메모 (선택)</span>
               <input value={note} onChange={(ev) => setNote(ev.target.value)} placeholder="예: 이렇게 거울 쪽으로 걸어오기" className={FIELD} />
             </label>
           </div>

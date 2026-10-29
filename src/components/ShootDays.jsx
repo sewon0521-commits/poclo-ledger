@@ -478,7 +478,7 @@ function SheetLink({ day, set, codis, d, online }) {
         <Link2 size={15} className="text-rose-700" /> 모델에게 보낼 촬영 시트
       </div>
       <p className="mb-2 text-xs text-stone-500">
-        모델은 로그인 없이 이 날 시간·장소와 코디마다 <b>메모 · 참고 영상(자른 장면) · 참고 사진</b>(스타일링 창에서 넣은 것)만 봐요. 코디 사진·상품·가격·거래처는 안 들어가요.
+        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 영상 가이드</b>만 봐요. 코디·참고 사진·참고 영상·상품·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
       </p>
       {err === "missing" ? (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -724,7 +724,7 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
             ) : siblings.length ? (
               <p className="text-xs text-stone-400">아직 이 촬영 코디가 없어요 — 아래 '같은 날 다른 촬영 코디'에서 '누구 촬영'을 이 촬영으로 바꿔요.</p>
             ) : (
-              <p className="text-xs text-stone-400">신상 관리 › 코디에서 촬영일을 {s.on ? md(s.on) : "이날"}로 정한 코디가 여기 떠요. 누르면 헤어·신발·악세서리를 골라요.</p>
+              <p className="text-xs text-stone-400">촬영 › 코디에서 촬영일을 {s.on ? md(s.on) : "이날"}로 정한 코디가 여기 떠요. 누르면 헤어·신발·악세서리를 골라요.</p>
             )}
             {others.length > 0 && (
               <div className="mt-3 border-t border-stone-100 pt-2.5">
@@ -960,7 +960,7 @@ export default function ShootDays({ d, online }) {
       {!list.up.length && !list.past.length ? (
         <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-12 text-center text-sm text-stone-400">
           <CalendarDays size={20} className="mx-auto mb-2 text-stone-300" />
-          신상 관리 › 코디에서 촬영일을 정하거나 '새 촬영'을 누르면 여기에 촬영일이 생겨요.
+          촬영 › 코디에서 촬영일을 정하거나 '새 촬영'을 누르면 여기에 촬영일이 생겨요.
         </p>
       ) : (
         <>

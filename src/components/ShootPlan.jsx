@@ -1611,7 +1611,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
               <Shirt size={15} className="text-rose-700" /> 이날 코디 {dayCodis.length > 0 && <span className="font-normal text-stone-400">{dayCodis.length}개 · 누르면 스타일링</span>}
             </div>
             {!upDays.length ? (
-              <p className="text-xs text-stone-400">위에 업로드 날짜를 넣으면, 신상 관리 › 코디에서 그 날로 업로드 날짜를 정한 코디가 여기 떠요.</p>
+              <p className="text-xs text-stone-400">위에 업로드 날짜를 넣으면, 촬영 › 코디에서 그 날로 업로드 날짜를 정한 코디가 여기 떠요.</p>
             ) : (
               <div className="space-y-2.5">
                 {upDays.map((u) => {
@@ -1640,7 +1640,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
                           })}
                         </ul>
                       ) : (
-                        <p className="px-2 text-xs text-stone-400">신상 관리 › 코디에서 업로드 날짜를 {md(u)}로 정한 코디가 여기 떠요.</p>
+                        <p className="px-2 text-xs text-stone-400">촬영 › 코디에서 업로드 날짜를 {md(u)}로 정한 코디가 여기 떠요.</p>
                       )}
                     </div>
                   );

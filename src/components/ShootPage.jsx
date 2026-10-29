@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette, Columns2 } from "lucide-react";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Check, CalendarDays, FolderInput, Store, Crop, Search, Copy, Palette, Columns2 } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, onSettingsChange, watchKeys, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName, codiItems } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
@@ -1508,11 +1508,11 @@ function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
   );
 }
 
-// only = "codis" — 촬영 › 코디(10/29): 신상 관리 '코디' 탭만 따로 연 화면. 창 나누기로 왼쪽 신상 관리(상품) · 오른쪽 코디처럼 나란히 본다.
+// 신상 관리(상품) · 촬영 › 코디(only = "codis") — 10/29 세원: "신상 관리에서 상품, 코디 창 나누기로 보고 싶은데" → 코디를 따로 연 화면,
+// 같은 날 "코디 나눠졌으면 그냥 신상 관리에서 코디 없애 줘" → 신상 관리의 상품|코디 탭을 없앴다(신상 관리 = 상품만). 창 나누기로 왼쪽 상품 · 오른쪽 코디.
 // onOther(k) = 반대쪽 칸에 k 화면 열기(App — 넓은 화면만), openPages = 지금 두 칸에 열린 화면(이미 열린 건 단추를 숨긴다)
 function ListView({ d, online, vendors, onVendor, dealt, only = "", onOther, openPages = [] }) {
-  const [tabSel, setTab] = useState("items");
-  const tab = only || tabSel;
+  const tab = only || "items";
   const [codiEdit, setCodiEdit] = useState(null);
   const [show, setShow] = useState(null);
   const [shot, setShot] = useState(null); // 촬영 색상 고르기 {c, finish}
@@ -1573,7 +1573,9 @@ function ListView({ d, online, vendors, onVendor, dealt, only = "", onOther, ope
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-stone-900">{only ? "코디" : "신상 관리"}</h2>
           <p className="mt-0.5 text-sm text-stone-500">
-            {only ? "신상 관리 '코디' 탭과 같은 곳이에요 — 창을 나눠 상품을 보면서 코디를 짜요." : "샘플·사입 요청부터 입고, 픽, 촬영, 상품등록, 반납·결제까지 상품 한 장이 단계를 옮겨 다녀요."}
+            {only
+              ? "상의 + 하의 같은 상품 묶음 · 촬영일 · 촬영 끝. 넓은 화면에선 '상품 옆에 열기'로 신상 관리를 보면서 짜요."
+              : "샘플·사입 요청부터 입고, 픽, 촬영, 상품등록, 반납·결제까지 상품 한 장이 단계를 옮겨 다녀요. 코디는 촬영 › 코디."}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -1581,10 +1583,7 @@ function ListView({ d, online, vendors, onVendor, dealt, only = "", onOther, ope
           {onOther && !openPages.includes(only ? "shoot" : "shootCodis") && (
             <button
               type="button"
-              onClick={() => {
-                if (!only) setTab("items");
-                onOther(only ? "shoot" : "shootCodis");
-              }}
+              onClick={() => onOther(only ? "shoot" : "shootCodis")}
               title={only ? "신상 관리(상품)를 옆 칸에 열어요" : "코디를 오른쪽 칸에 열어요 — 왼쪽은 상품"}
               className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800"
             >
@@ -1598,19 +1597,6 @@ function ListView({ d, online, vendors, onVendor, dealt, only = "", onOther, ope
           )}
         </div>
       </div>
-
-      {!only && (
-        <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
-          {[
-            ["items", `상품 ${d.items.length}`, Shirt],
-            ["codis", `코디 ${d.codis.filter((c) => !c.done).length}`, Images],
-          ].map(([k, label, Icon]) => (
-            <button key={k} type="button" onClick={() => setTab(k)} className={"flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 font-medium " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
-              <Icon size={15} /> {label}
-            </button>
-          ))}
-        </div>
-      )}
 
       {tab === "items" ? (
         <Pipeline d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />

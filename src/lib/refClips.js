@@ -6,7 +6,7 @@
 // 코디 styling.clips [{id, reelId, start, end, note, ver, at}] — 릴스 기획(settings reels)의 보관 영상(Storage reels/<reelId>)에서 고른 구간(초).
 // ⛔ 영상 파일은 자르지도 복사하지도 않는다(저장소가 한도를 넘음 — 10/15). 구간만 적어 두고, 재생할 때 그 구간만 되풀이한다(LoopClip).
 // end 0 = 영상 끝까지. ver = 고를 때 그 릴스의 trim.at — 사무실 PC 가 릴스 영상 앞뒤를 잘라 덮으면 바뀌고, 그러면 구간이 어긋났을 수 있다고 알린다.
-// 모델 시트(lib/shootSheet v3)엔 이 구간 + 7일 서명 주소가 간다.
+// 같은 날 저녁 세원: "참고 영상은 우리 보면서 찍으려고 한 거여서 모델한테 굳이 안 보여 줘도" → 모델 시트엔 안 간다(lib/shootSheet v4). 촬영 때 우리가 ERP 에서 본다.
 import { createContext } from "react";
 import { photoUrls } from "./shoot";
 

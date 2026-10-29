@@ -7,7 +7,7 @@ import LoopClip, { ClipBig } from "./LoopClip";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
 // 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소 → 모델에게 전할 말(인사 한 줄 + 준비하실 것 · 미리 알려 주세요 · 참고해 주세요)
-// → 코디 순서대로 [메모 · 참고 영상(누르면 그 장면만 반복) · 참고 사진 · 인스타 레퍼런스](v3, 10/29 — 예전 v2 는 코디 사진·메모) → 영상 가이드(10/27~).
+// → 영상 가이드(10/27~). v4(10/29 저녁~)는 코디 칸이 없다. 예전 링크: v3 = 코디마다 메모 · 참고 영상 · 참고 사진, v2 = 코디 사진 · 메모(그대로 그린다).
 // 10/27 세원: "순서를 코디 → 가이드로" — 처음엔 가이드가 코디 위였다. 같은 날 "준비하실 것 … 은 내가 적는 걸로 따로 빼서 코디 바로 위에"(예전엔 가이드 이미지 안).
 
 const timeText = (t) => {
@@ -325,7 +325,8 @@ export default function SheetPage() {
 
       <PrepCard note={s.note} prep={s.prep} />
 
-      {s.codis?.length ? (
+      {/* v4(10/29 저녁~): 코디 칸 없음 — 세원 "참고 영상은 우리 보면서 찍으려고 한 거, 코디는 찍을 때 우리가 디렉". 예전 v1~v3 링크는 예전 모양 그대로 */}
+      {(s.v || 1) >= 4 ? null : s.codis?.length ? (
         s.codis.map((c, i) =>
           (s.v || 1) >= 3 ? (
             <CodiCardV3 key={i} c={c} n={i + 1} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />
@@ -341,7 +342,11 @@ export default function SheetPage() {
 
       <p className="px-1 pb-6 text-center text-xs text-stone-400">
         궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
-        {until && <span className="mt-1 block">사진{(s.v || 1) >= 3 ? "·영상" : ""}은 {until.getMonth() + 1}/{until.getDate()}까지 보여요</span>}
+        {until && ((s.v || 1) < 4 || s.guide?.photos?.length > 0) && (
+          <span className="mt-1 block">
+            {(s.v || 1) >= 4 ? "가이드 사진" : (s.v || 1) >= 3 ? "사진·영상" : "사진"}은 {until.getMonth() + 1}/{until.getDate()}까지 보여요
+          </span>
+        )}
       </p>
       {big && <BigSlides urls={big.urls} start={Math.max(0, big.at)} onClose={() => setBig(null)} />}
       {clipBig && <ClipBig clips={clipBig.clips} at={clipBig.at} onClose={() => setClipBig(null)} />}
