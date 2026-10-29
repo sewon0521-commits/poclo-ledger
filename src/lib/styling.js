@@ -9,7 +9,8 @@ export const DEFAULT_OPTS = {
   acc: ["반지", "목걸이", "귀걸이", "팔찌", "시계", "헤어핀", "벨트", "양말", "스타킹"],
 };
 // 10/27 cuts · videos = 이 코디의 찍을 컷 · 찍을 영상 [{id, text, done}](예전엔 촬영 줄에 하나) · refVideos = 참고 영상 [{id, name, url}](인스타는 창 안에서 임베드로)
-export const EMPTY_STYLING = { cuts: [], videos: [], hair: [], shoes: [], bag: [], necklace: [], ring: [], socks: [], acc: [], memo: "", codiPhotos: [], refIds: [], refVideos: [] };
+// 10/29 clips = 릴스 기획에서 잘라 온 장면 [{id, reelId, start, end, note, ver, at}] (lib/refClips.js)
+export const EMPTY_STYLING = { cuts: [], videos: [], hair: [], shoes: [], bag: [], necklace: [], ring: [], socks: [], acc: [], memo: "", codiPhotos: [], refIds: [], refVideos: [], clips: [] };
 
 // 신상 관리 상품에서 고를 칸. 가방·목걸이·반지·양말은 **상품 이름**으로 가린다 —
 // 신상 관리 종류(kind)가 틀린 상품이 있어서(10/25 '노스경량패딩'이 신발·잡화, '벤또 파우치'가 상의) 종류로 가리면 엉뚱한 게 섞인다.

@@ -174,7 +174,17 @@ function CodiRow({ c, d, onStyle, rows, onMove }) {
   const line = stylingLine(c.styling, d.items);
   // 이 코디의 찍을 컷 · 영상 (10/27) — 끝낸 수 / 전체
   const cnt = (l) => (l?.length ? `${l.filter((x) => x.done).length}/${l.length}` : "");
-  const tally = [cnt(c.styling?.cuts) && `컷 ${cnt(c.styling.cuts)}`, cnt(c.styling?.videos) && `영상 ${cnt(c.styling.videos)}`].filter(Boolean).join(" · ");
+  // 10/29 모델 시트에 가는 참고 영상(자른 장면 + 인스타 주소) · 참고 사진 수
+  const nVid = (c.styling?.clips?.length || 0) + (c.styling?.refVideos?.length || 0);
+  const nPic = new Set([...(c.styling?.refIds || []), ...(c.refIds || [])]).size;
+  const tally = [
+    cnt(c.styling?.cuts) && `컷 ${cnt(c.styling.cuts)}`,
+    cnt(c.styling?.videos) && `영상 ${cnt(c.styling.videos)}`,
+    nVid && `참고 영상 ${nVid}`,
+    nPic && `참고 사진 ${nPic}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const card = (
     <button type="button" onClick={onStyle} className="flex w-full min-w-0 gap-3 rounded-xl border border-stone-200 bg-white p-2.5 text-left hover:border-rose-300">
       <span className="flex shrink-0 gap-1">
@@ -468,7 +478,7 @@ function SheetLink({ day, set, codis, d, online }) {
         <Link2 size={15} className="text-rose-700" /> 모델에게 보낼 촬영 시트
       </div>
       <p className="mb-2 text-xs text-stone-500">
-        모델은 로그인 없이 이 날 시간·장소와 코디마다 <b>코디 사진 · 메모</b>(스타일링 창에서 넣은 것)만 봐요. 상품·가격·거래처는 안 들어가요.
+        모델은 로그인 없이 이 날 시간·장소와 코디마다 <b>메모 · 참고 영상(자른 장면) · 참고 사진</b>(스타일링 창에서 넣은 것)만 봐요. 코디 사진·상품·가격·거래처는 안 들어가요.
       </p>
       {err === "missing" ? (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">

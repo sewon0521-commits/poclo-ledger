@@ -5,7 +5,9 @@
 //
 // 시트 = 스냅숏: 링크를 만들거나 '내용 새로 보내기'를 누를 때 그날 내용만 골라 저장한다 —
 //   날짜 · 시각 · 장소 · 모델에게 전할 말(인사 한 줄 + 준비하실 것 · 미리 알려 주세요 · 참고해 주세요, 10/27) · 영상 가이드(사진 · 레퍼런스 링크, 10/27) ·
-//   코디 순서대로(촬영 창에서 끌어 정한 순서) [코디 사진 · 메모]. 시트 화면 순서는 SheetPage(첫 카드 → 전할 말 → 코디 → 영상 가이드).
+//   코디 순서대로(촬영 창에서 끌어 정한 순서) [메모 · 참고 영상 장면 · 참고 사진 · 인스타 레퍼런스]. 시트 화면 순서는 SheetPage(첫 카드 → 전할 말 → 코디 → 영상 가이드).
+//   10/29 세원(이주현 촬영 뒤): "모델에게 보낼 시트 중에서 코디는 필요 없을 것 같아. 모델은 입히는 옷만 그냥 입거든. 대신 사진 레퍼런스, 영상 레퍼런스가 정말 중요해." →
+//     v3: 코디 사진은 빼고 스타일링 창의 참고 사진(+ 코디 만들기 때 고른 참고 사진) · 참고 영상(릴스 기획에서 자른 장면 — 구간만, 누르면 그 장면만 반복) · 인스타 주소 레퍼런스.
 //   10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" →
 //     상품(이름·색·사진) · 스타일링 칩 · 참고 사진은 넣지 않는다. 메모 = 스타일링 창 '메모'(모델 시트용 칸). 코디 이름은 직접 지은 것만(자동 이름 = 상품 이름이라 뺀다).
 //   ⛔ 도매가 · 판매가 · 거래처 · 위치 · 신마 링크 · 내부 메모는 절대 넣지 않는다(고른 칸만 넣는다).
@@ -17,6 +19,7 @@
 import { isRemote, supabase } from "./supabase";
 import { newToken, callName, isMissing } from "./contract";
 import { NONAME, md } from "./shoot";
+import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
 
 const LOCAL = "poclo_shoot_sheets";
@@ -35,7 +38,7 @@ export function sheetDm(name, token, on, today) {
   t.setDate(t.getDate() + 1);
   const tomorrow = dayKey(t);
   const when = on === tomorrow ? "내일" : on === today ? "오늘" : dayLabel(on);
-  return `${callName(name)}! ${when} 촬영 시트예요 ☺️\n시간·장소랑 찍을 코디 미리 봐 주세요 💗\n${sheetLink(token)}`;
+  return `${callName(name)}! ${when} 촬영 시트예요 ☺️\n시간·장소랑 참고 사진·영상 미리 봐 주세요 💗\n${sheetLink(token)}`;
 }
 
 // ------------------------------------------------------------ 모델에게 전할 말 (10/27)
@@ -81,8 +84,14 @@ async function longUrls(keys, online) {
  * 이 기기 저장 모드면 사진은 화면에 이미 있는 주소(d.urls)를 쓴다.
  */
 export async function buildSheet(day, codis, d, online) {
+  // 코디마다 참고 사진 = 스타일링 창 참고 사진 + 코디 만들기 때 고른 참고 사진(촬영 레퍼런스 id, 겹치면 한 번)
+  const refPhotos = (c) =>
+    [...new Set([...(c.styling?.refIds || []), ...(c.refIds || [])])].map((id) => d.refs.find((r) => r.id === id)?.photo).filter(Boolean);
   const keys = [];
-  for (const c of codis) for (const k of c.styling?.codiPhotos || []) if (!k.startsWith("data:")) keys.push(k);
+  for (const c of codis) {
+    for (const k of refPhotos(c)) if (!k.startsWith("data:")) keys.push(k);
+    for (const cl of c.styling?.clips || []) keys.push(videoKey(cl.reelId), thumbKey(cl.reelId));
+  }
   for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
   const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
@@ -94,7 +103,7 @@ export async function buildSheet(day, codis, d, online) {
     note: day.modelNote || "",
     // 10/27 모델에게 전할 말 — 준비하실 것 · 미리 알려 주세요 · 참고해 주세요 (시트에선 코디 바로 위)
     prep: PREP_PARTS.map((p) => ({ title: p.title, items: prepLines(day.prep?.[p.k]) })).filter((x) => x.items.length),
-    v: 2, // 10/27 — 코디 사진 + 메모만 (SheetPage 가 예전 v1 시트도 같은 모양으로 그린다)
+    v: 3, // 10/29 — 메모 · 참고 영상 · 참고 사진 · 링크 (v2 = 코디 사진 + 메모 — 이미 보낸 v1·v2 시트는 SheetPage 가 예전 모양 그대로 그린다)
     // 10/27 모델에게 보낼 가이드 — 시트 맨 위 '영상 가이드'(사진은 7일 서명 주소, 링크는 이름 + 주소)
     guide: {
       photos: (day.guidePhotos || []).map(urlOf).filter(Boolean),
@@ -104,9 +113,11 @@ export async function buildSheet(day, codis, d, online) {
       const st = c.styling || {};
       return {
         name: c.name && c.name !== NONAME ? c.name : "",
-        // 우리가 벽걸이에 걸어 찍은 이 코디 사진(10/25)
-        codiPhotos: (st.codiPhotos || []).map((k) => (k.startsWith("data:") ? k : urlOf(k))).filter(Boolean),
         memo: (st.memo || "").trim(),
+        // 10/29 참고 영상 — 릴스 기획 영상에서 고른 구간(파일은 그대로, 7일 서명 주소). 릴스 제목은 안 넣는다(우리끼리 붙인 이름이라) — 모델에게 한 줄(note)만
+        clips: (st.clips || []).map((cl) => ({ src: urlOf(videoKey(cl.reelId)), poster: urlOf(thumbKey(cl.reelId)), start: cl.start || 0, end: cl.end || 0, note: (cl.note || "").trim() })),
+        photos: refPhotos(c).map(urlOf).filter(Boolean),
+        links: (st.refVideos || []).filter((l) => /^https?:\/\//i.test(l.url || "")).map((l) => ({ name: (l.name || "").trim(), url: l.url })),
       };
     }),
     madeAt: new Date().toISOString(),

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, Clock, ExternalLink, Film, Loader2, MapPin, Navigation } from "lucide-react";
+import { CalendarDays, Clock, ExternalLink, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat } from "lucide-react";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
+import LoopClip, { ClipBig } from "./LoopClip";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
 // 내용은 ERP 가 고른 칸만 담은 스냅숏(lib/shootSheet.js) — 날짜·시각·장소 → 모델에게 전할 말(인사 한 줄 + 준비하실 것 · 미리 알려 주세요 · 참고해 주세요)
-// → 코디 순서대로 코디 사진·메모 → 영상 가이드(10/27~).
+// → 코디 순서대로 [메모 · 참고 영상(누르면 그 장면만 반복) · 참고 사진 · 인스타 레퍼런스](v3, 10/29 — 예전 v2 는 코디 사진·메모) → 영상 가이드(10/27~).
 // 10/27 세원: "순서를 코디 → 가이드로" — 처음엔 가이드가 코디 위였다. 같은 날 "준비하실 것 … 은 내가 적는 걸로 따로 빼서 코디 바로 위에"(예전엔 가이드 이미지 안).
 
 const timeText = (t) => {
@@ -63,6 +64,32 @@ const hostOf = (u) => {
  *  10/27 세원: "영상 가이드 안 눌리게. 그래도 전체적으로는 키울 수 있게" — 누르면 뜨던 크게 보기를 뺐다(세로로 아주 긴 이미지가 화면 높이에 맞춰 작게 떠서 오히려 안 보였다).
  *  키우기는 페이지째 두 손가락으로 벌려서(화면 설정에 확대 막기 없음 — index.html viewport).
  *  레퍼런스는 적은 순서대로 다 펼쳐서(모델이 내려가면서 보고 따라 하게) — 인스타 릴스·게시물은 시트 안 영상, 그 밖 링크는 새 탭 단추 */
+/** 레퍼런스 링크 — 인스타 릴스·게시물은 시트 안 영상(공식 임베드), 그 밖 링크는 새 탭 단추. 영상 가이드 · 코디 카드(v3) 같이 쓴다 */
+function RefLinks({ links }) {
+  return links.map((l, i) => {
+    const ig = igEmbedOf(l.url);
+    return ig ? (
+      <section key={i} className="space-y-2">
+        {l.name && <h3 className="text-[15px] leading-snug font-bold text-stone-900">{l.name}</h3>}
+        <div className="-mx-4 overflow-hidden border-y border-stone-200 sm:mx-0 sm:rounded-xl sm:border">
+          <IgEmbed src={ig} title={l.name} />
+        </div>
+        <a href={l.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 underline-offset-2 hover:text-rose-700 hover:underline">
+          <ExternalLink size={12} /> 인스타에서 보기
+        </a>
+      </section>
+    ) : (
+      <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl border border-stone-200 px-3 py-2.5 text-sm hover:border-rose-300">
+        <ExternalLink size={15} className="shrink-0 text-rose-700" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-semibold text-stone-900">{l.name || hostOf(l.url)}</span>
+          {l.name && <span className="block truncate text-xs text-stone-400">{hostOf(l.url)}</span>}
+        </span>
+      </a>
+    );
+  });
+}
+
 function GuideCard({ g }) {
   const photos = g?.photos || [];
   const links = g?.links || [];
@@ -81,29 +108,72 @@ function GuideCard({ g }) {
       {links.length > 0 && (
         <div className="space-y-4 pt-1">
           <div className="text-xs font-semibold text-stone-500">레퍼런스</div>
-          {links.map((l, i) => {
-            const ig = igEmbedOf(l.url);
-            return ig ? (
-              <section key={i} className="space-y-2">
-                {l.name && <h3 className="text-[15px] leading-snug font-bold text-stone-900">{l.name}</h3>}
-                <div className="-mx-4 overflow-hidden border-y border-stone-200 sm:mx-0 sm:rounded-xl sm:border">
-                  <IgEmbed src={ig} title={l.name} />
-                </div>
-                <a href={l.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 underline-offset-2 hover:text-rose-700 hover:underline">
-                  <ExternalLink size={12} /> 인스타에서 보기
-                </a>
-              </section>
-            ) : (
-              <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl border border-stone-200 px-3 py-2.5 text-sm hover:border-rose-300">
-                <ExternalLink size={15} className="shrink-0 text-rose-700" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold text-stone-900">{l.name || hostOf(l.url)}</span>
-                  {l.name && <span className="block truncate text-xs text-stone-400">{hostOf(l.url)}</span>}
-                </span>
-              </a>
-            );
-          })}
+          <RefLinks links={links} />
         </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * 코디 카드 v3 (10/29 세원: "모델에게 보낼 시트 중에서 코디는 필요 없을 것 같아. 모델은 입히는 옷만 그냥 입거든. 대신 사진 레퍼런스, 영상 레퍼런스가 정말 중요해.")
+ * 코디 번호 · (직접 지은 이름) · 메모 → 참고 영상(릴스에서 자른 장면 — 누르면 그 장면만 반복, 크게 보기) → 참고 사진(누르면 크게) → 인스타 레퍼런스.
+ */
+function CodiCardV3({ c, n, onBig, onClip }) {
+  const clips = c.clips || [];
+  const photos = c.photos || [];
+  const links = c.links || [];
+  const memo = (c.memo || "").trim();
+  return (
+    <Card className="space-y-4">
+      <div>
+        <div className="text-xs font-semibold text-rose-700">코디 {n}</div>
+        {c.name && <h2 className="mt-0.5 text-[17px] leading-snug font-bold text-stone-900">{c.name}</h2>}
+      </div>
+      {memo && (
+        <p className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm whitespace-pre-line text-stone-700">
+          <Linked text={memo} />
+        </p>
+      )}
+      {clips.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-stone-900">
+              <Repeat size={15} className="text-rose-700" /> 이렇게 찍어요
+            </h3>
+            <span className="text-[11px] text-stone-400">누르면 그 장면만 계속 반복돼요</span>
+          </div>
+          <div className={clips.length === 1 ? "mx-auto max-w-[16rem]" : "grid grid-cols-2 gap-2.5"}>
+            {clips.map((k, i) => (
+              <figure key={i} className="min-w-0">
+                <LoopClip src={k.src} poster={k.poster} start={k.start} end={k.end} label={k.note || `참고 영상 ${i + 1}`} onBig={k.src ? () => onClip(clips, i) : undefined} className="aspect-[9/16] w-full rounded-xl" />
+                {k.note && <figcaption className="mt-1.5 text-[13px] leading-snug font-medium text-stone-800">{k.note}</figcaption>}
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
+      {photos.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-stone-900">
+            <ImageIcon size={15} className="text-rose-700" /> 참고 사진
+          </h3>
+          <div className="grid grid-cols-3 gap-1.5">
+            {photos.map((u, i) => (
+              <button key={i} type="button" onClick={() => onBig(photos, i)} className="block aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">
+                <img src={u} alt="" loading="lazy" className="h-full w-full object-cover" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      {links.length > 0 && (
+        <div className="space-y-4">
+          <RefLinks links={links} />
+        </div>
+      )}
+      {!clips.length && !photos.length && !links.length && !memo && (
+        <p className="rounded-xl bg-stone-50 px-3 py-6 text-center text-sm text-stone-400">참고 사진·영상은 촬영 날 보여 드릴게요</p>
       )}
     </Card>
   );
@@ -181,6 +251,7 @@ export default function SheetPage() {
   const [state, setState] = useState(token ? "loading" : "notfound");
   const [sheet, setSheet] = useState(null);
   const [big, setBig] = useState(null);
+  const [clipBig, setClipBig] = useState(null);
   useEffect(() => {
     if (!token) return;
     let alive = true;
@@ -255,7 +326,13 @@ export default function SheetPage() {
       <PrepCard note={s.note} prep={s.prep} />
 
       {s.codis?.length ? (
-        s.codis.map((c, i) => <CodiCard key={i} c={c} n={i + 1} v={s.v || 1} onBig={(urls, at) => setBig({ urls, at })} />)
+        s.codis.map((c, i) =>
+          (s.v || 1) >= 3 ? (
+            <CodiCardV3 key={i} c={c} n={i + 1} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />
+          ) : (
+            <CodiCard key={i} c={c} n={i + 1} v={s.v || 1} onBig={(urls, at) => setBig({ urls, at })} />
+          ),
+        )
       ) : (
         <Card className="py-8 text-center text-sm text-stone-500">찍을 코디는 정해지는 대로 알려 드릴게요.</Card>
       )}
@@ -264,9 +341,10 @@ export default function SheetPage() {
 
       <p className="px-1 pb-6 text-center text-xs text-stone-400">
         궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
-        {until && <span className="mt-1 block">사진은 {until.getMonth() + 1}/{until.getDate()}까지 보여요</span>}
+        {until && <span className="mt-1 block">사진{(s.v || 1) >= 3 ? "·영상" : ""}은 {until.getMonth() + 1}/{until.getDate()}까지 보여요</span>}
       </p>
       {big && <BigSlides urls={big.urls} start={Math.max(0, big.at)} onClose={() => setBig(null)} />}
+      {clipBig && <ClipBig clips={clipBig.clips} at={clipBig.at} onClose={() => setClipBig(null)} />}
     </Shell>
   );
 }

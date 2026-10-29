@@ -8,6 +8,7 @@ import { Sheet, SheetHead, Photo, CheckList } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import RefPick from "./RefPick";
+import { RefClipsBox } from "./RefClips";
 import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING, PARTS, partHas } from "../lib/styling";
 
 /**
@@ -15,7 +16,8 @@ import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING, PARTS, partHas } from "../lib/st
  * 어떤 걸 할지 등등 고를 수 있게."
  * 코디에 styling {cuts, videos, hair:[..], shoes:[{itemId}|{text}], bag:[…], acc:[..], memo, codiPhotos, refIds:[촬영 레퍼런스 id], refVideos} (lib/styling EMPTY_STYLING).
  * 헤어·악세서리 칩 목록은 settings styling_opts {hair, acc} — 칩 줄 끝 '고치기'에서 더하고 뺀다.
- * 촬영 관리(그날 코디) · 소싱 관리(이날 코디) 둘 다 여기로 연다. 모델에게 가는 촬영 시트엔 코디 사진 · 메모만 간다(lib/shootSheet.js).
+ * 촬영 관리(그날 코디) · 소싱 관리(이날 코디) 둘 다 여기로 연다. 모델에게 가는 촬영 시트엔 메모 · 참고 사진 · 참고 영상이 간다(lib/shootSheet.js v3 —
+ * 10/29 세원 "시트에 코디는 필요 없을 것 같아, 사진·영상 레퍼런스가 정말 중요해". 코디 사진은 우리끼리만).
  *
  * 10/27 세원: "촬영 관리에 찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각 만들어 주고 스타일링 맨 위에. 참고 사진 말고 영상도 넣어 주고 그것도 위로 올려 주되
  *   찍을 컷, 찍을 영상 밑에. 헤어, 악세 선택하는 게 마지막으로." → 창 순서: 코디 → 찍을 컷 · 찍을 영상 → 참고 사진 → 참고 영상 → 코디 사진 → 메모 → 헤어 → 신발·가방·목걸이·반지·양말.
@@ -195,7 +197,8 @@ const hostOf = (u) => {
 };
 
 /**
- * 참고 영상 (10/27 세원: "참고 사진 말고 영상도 넣어 주고") — 영상 주소(인스타 릴스 등) + 이름, 영상 파일은 받지 않는다(저장소가 꽉 차서).
+ * 참고 영상 링크 (10/27 세원: "참고 사진 말고 영상도 넣어 주고") — 영상 주소(인스타 릴스 등) + 이름, 영상 파일은 받지 않는다(저장소가 꽉 차서).
+ * 10/29 부터는 릴스 기획에서 장면을 잘라 오는 칸(RefClipsBox)이 먼저고, 이건 그 아래 '인스타 주소로 넣기'. 모델 시트에도 간다(인스타는 시트 안 영상).
  * 인스타 릴스·게시물은 '보기'를 누르면 이 창 안에서 바로 재생(공식 임베드), 다른 주소는 새 탭. 주소 칸에 붙여넣으면 바로 들어간다.
  */
 function RefVideos({ list, onChange }) {
@@ -485,7 +488,7 @@ export default function StylingSheet({ codi, d, online, onClose }) {
         </div>
         <Section
           title="참고 사진"
-          hint="레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기"
+          hint="레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기 · 모델 시트에 가요"
           onMouseEnter={() => (target.current = "ref")}
           onPointerDown={() => (target.current = "ref")}
         >
@@ -520,12 +523,17 @@ export default function StylingSheet({ codi, d, online, onClose }) {
             </label>
           </div>
         </Section>
-        <Section title="참고 영상" hint="인스타 릴스 주소 붙여넣기 · '보기'로 여기서 바로 재생">
-          <RefVideos list={st.refVideos || []} onChange={set("refVideos")} />
+        {/* 10/29 릴스 기획에서 장면 가져오기 — 볼 부분만 잘라(구간만 저장) 누르면 그 장면만 반복. 아래는 예전처럼 인스타 주소로 넣기 */}
+        <Section title="참고 영상" hint="릴스 기획에서 가져와 볼 부분만 자르기 · 누르면 그 장면만 반복 · 모델 시트에 가요">
+          <RefClipsBox list={st.clips || []} onChange={set("clips")} online={online} />
+          <details className="group rounded-xl border border-stone-200 px-3 py-2" open={(st.refVideos || []).length > 0}>
+            <summary className="cursor-pointer text-xs font-semibold text-stone-500 select-none group-open:mb-2">인스타 주소로 넣기 {(st.refVideos || []).length > 0 && `· ${st.refVideos.length}개`}</summary>
+            <RefVideos list={st.refVideos || []} onChange={set("refVideos")} />
+          </details>
         </Section>
         <Section
           title="코디 사진"
-          hint="벽걸이에 걸어 둔 이 코디 사진 · 캡처 Ctrl+V · 끌어다 놓기 · 모델 시트에 가요"
+          hint="벽걸이에 걸어 둔 이 코디 사진 · 캡처 Ctrl+V · 끌어다 놓기 · 우리끼리 보는 것(모델 시트엔 안 가요)"
           onMouseEnter={() => (target.current = "codi")}
           onPointerDown={() => (target.current = "codi")}
         >
@@ -558,7 +566,7 @@ export default function StylingSheet({ codi, d, online, onClose }) {
             </label>
           </div>
         </Section>
-        <Section title="메모" hint="모델에게 보내는 촬영 시트에 코디 사진과 같이 가요">
+        <Section title="메모" hint="모델 촬영 시트에 참고 사진·영상과 같이 가요">
           <textarea value={st.memo || ""} onChange={(e) => set("memo")(e.target.value)} placeholder="예: 셔츠 단추 두 개 풀기 · 소매 한 번 걷기" className={FIELD + " h-20 resize-y"} />
         </Section>
         <Section title="헤어" hint="여러 개 골라도 돼요">

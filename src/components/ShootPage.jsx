@@ -13,6 +13,7 @@ import ShootDays from "./ShootDays";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { queueChange, withPending, usePending, saveMark } from "../lib/saveQueue";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
+import { ReelKitCtx } from "../lib/refClips";
 
 /**
  * 촬영 갈래 (2026-09-30) — lib/shoot.js 머리말 참고.
@@ -1643,7 +1644,9 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
 export default function ShootPage({ view, online, vendors = [], onVendor, dealt, reelKit }) {
   const d = useData(online);
   const saving = usePending();
+  // 10/29 스타일링 창이 릴스 기획 라이브러리에서 참고 영상을 고른다 (RefClips.jsx)
   return (
+    <ReelKitCtx.Provider value={reelKit || null}>
     <div>
       {/* 서버 저장이 남아 있으면 작게 (10/27 — 저장은 뒤에서 하니, 끝나기 전에 새로고침·창 닫기 하지 않게. 그땐 브라우저도 한 번 묻는다) */}
       {saving > 0 && (
@@ -1673,6 +1676,7 @@ export default function ShootPage({ view, online, vendors = [], onVendor, dealt,
         <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
       )}
     </div>
+    </ReelKitCtx.Provider>
   );
 }
 

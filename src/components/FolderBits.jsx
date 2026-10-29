@@ -59,13 +59,15 @@ export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnl
             </Chip>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="flex shrink-0 items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
-        >
-          <Pencil size={12} /> 카테고리 편집
-        </button>
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex shrink-0 items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
+          >
+            <Pencil size={12} /> 카테고리 편집
+          </button>
+        )}
       </div>
 
       {rows.map(([label, parent], lv) => (

@@ -497,7 +497,7 @@ pg === "home" ? (
                     vendors={vendors}
                     onVendor={L.saveVendor}
                     dealt={dealt}
-                    reelKit={{ reels: S.reels, save: S.saveReel, queue: S.queueReel }}
+                    reelKit={{ reels: S.reels, folders: S.reelFolders, save: S.saveReel, queue: S.queueReel }}
                   />
                 </PricingCtx.Provider>
               ) : pg === "invoiceReq" ? (
