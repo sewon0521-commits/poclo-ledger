@@ -472,7 +472,7 @@ function SheetLink({ day, set, codis, d, online }) {
         <Link2 size={15} className="text-rose-700" /> 모델에게 보낼 촬영 시트
       </div>
       <p className="mb-2 text-xs text-stone-500">
-        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 촬영 기본 가이드 · 영상 가이드</b>만 봐요. 코디·참고 사진·참고 영상·상품·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
+        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 찍을 코디(작은 상품 사진) · 촬영 기본 가이드 · 영상 가이드</b>만 봐요. 코디 사진·참고 사진·참고 영상·상품 이름·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
       </p>
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white px-2.5 py-1.5 text-xs ring-1 ring-stone-200">
         <BookOpen size={13} className="shrink-0 text-rose-700" />
@@ -484,6 +484,13 @@ function SheetLink({ day, set, codis, d, online }) {
         </button>
       </div>
       {guideOpen && <ModelGuideSheet online={online} onClose={() => setGuideOpen(false)} />}
+      {/* 10/29 밤 찍을 코디 미리 보기 — 코디마다 상품 사진을 아주 작게 줄여서(거래처 워터마크 안 읽히게). 이름·가격·거래처는 안 감 */}
+      <label className="mb-2 flex cursor-pointer items-start gap-2 rounded-lg bg-white px-2.5 py-1.5 text-xs text-stone-600 ring-1 ring-stone-200">
+        <input type="checkbox" checked={day.sheetPeek !== false} onChange={(e) => set({ sheetPeek: e.target.checked })} className="mt-0.5 accent-rose-700" />
+        <span>
+          <b className="font-semibold text-stone-800">찍을 코디 미리 보기</b> 같이 보내기 — 코디마다 상품 사진만 작게(이름·가격·거래처 없이, 확대해도 워터마크 안 읽히게)
+        </span>
+      </label>
       {err === "missing" ? (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
           촬영 시트 준비가 아직 안 됐어요 — Supabase SQL 을 한 번 실행해 주세요:{" "}

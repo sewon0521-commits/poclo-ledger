@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, CalendarDays, Clock, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat } from "lucide-react";
+import { BookOpen, CalendarDays, Clock, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
 import { GuideSections, RefLinks } from "./BaseGuide";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
@@ -144,6 +144,36 @@ function CodiCardV3({ c, n, onBig, onClip }) {
       {!clips.length && !photos.length && !links.length && !memo && (
         <p className="rounded-xl bg-stone-50 px-3 py-6 text-center text-sm text-stone-400">참고 사진·영상은 촬영 날 보여 드릴게요</p>
       )}
+    </Card>
+  );
+}
+
+/**
+ * 찍을 코디 미리 보기 (10/29 밤 세원: "대충 요런 코디 찍는다는 것도 보여 주고 싶은데, 우리가 촬영해서 보내는 건 안 하고 신마 썸네일 작게")
+ * 코디마다 상품 사진 한 줄 — 파일 자체가 작은 사진(긴 변 128px, lib/shootSheet peekOf)이라 확대해도 거래처 워터마크가 안 읽힌다. 눌러도 안 커진다.
+ */
+function PeekCard({ peek }) {
+  if (!peek?.length) return null;
+  return (
+    <Card className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+        <div className="flex items-center gap-1.5 text-base font-bold text-stone-900">
+          <Shirt size={18} className="text-rose-700" /> 찍을 코디
+        </div>
+        <span className="text-xs text-stone-400">대략 이런 옷이에요 · 촬영 때 바뀔 수 있어요</span>
+      </div>
+      <ul className="space-y-2.5">
+        {peek.map((photos, i) => (
+          <li key={i} className="flex items-center gap-3">
+            <span className="w-11 shrink-0 text-xs font-semibold text-rose-700">코디 {i + 1}</span>
+            <span className="flex min-w-0 flex-wrap gap-1.5">
+              {photos.map((u, k) => (
+                <img key={k} src={u} alt="" className="h-16 w-12 rounded-md bg-stone-100 object-cover" />
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }
@@ -293,6 +323,8 @@ export default function SheetPage() {
       </Card>
 
       <PrepCard note={s.note} prep={s.prep} />
+
+      <PeekCard peek={s.peek} />
 
       {/* 10/29 촬영 기본 가이드 — 모든 촬영 공통(동선 · 찍을 영상 · 포즈 …), ERP 촬영 관리 '모델 기본 가이드'에서 쌓아 간다 */}
       {s.base?.length > 0 && (

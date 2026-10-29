@@ -23,7 +23,7 @@
 //   이 기기 저장 모드(VITE_SUPABASE_URL 없음)는 localStorage 'poclo_shoot_sheets' 로 같은 동작(시험용).
 import { isRemote, supabase } from "./supabase";
 import { newToken, callName, isMissing } from "./contract";
-import { md, loadKey } from "./shoot";
+import { md, loadKey, codiItems, photoUrls } from "./shoot";
 import { GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "./modelGuide";
 import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
@@ -85,6 +85,58 @@ async function longUrls(keys, online) {
   return out;
 }
 
+// ------------------------------------------------------------ 찍을 코디 미리 보기 (10/29 밤)
+// 세원: "대충 요런 코디 찍는다는 것도 보여 주고 싶긴 한데, 우리가 촬영해서 보내 주는 건 안 할라고 — 기존 신마 썸네일 좀 작게 해서?"
+// → 코디마다 상품 사진(신상 관리 대표 사진)을 **긴 변 128px 로 줄인 사진 자체**(data URL)로 넣는다 — 화면에서만 작게가 아니라 파일이 작아서
+//   모델이 확대해도 신마 사진의 거래처 워터마크가 안 읽히고, 신마 주소·오래 사는 서명 주소도 안 나간다. 상품 이름·가격·거래처는 안 넣는다.
+const PEEK_W = 96;
+async function tinyPhoto(src) {
+  try {
+    const blob = src instanceof Blob ? src : await (await fetch(src)).blob();
+    if (!blob.type.startsWith("image/")) return "";
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement("canvas");
+    c.width = PEEK_W;
+    c.height = Math.round((bmp.height * PEEK_W) / bmp.width);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.72);
+  } catch {
+    return "";
+  }
+}
+/** 코디마다 [작은 사진…] — 입는 순서(이너·상의·아우터·하의…), 코디당 6장까지 */
+async function peekOf(codis, d, online) {
+  const its = codis.map((c) => codiItems(c, d.items).slice(0, 6));
+  const keys = [...new Set(its.flat().map((x) => x.photo).filter((k) => k && !k.startsWith("data:") && !d.urls[k]))];
+  const more = keys.length ? await photoUrls(keys, online).catch(() => ({})) : {};
+  const srcOf = (x) => {
+    if (x.photo?.startsWith("data:")) return x.photo;
+    const u = (x.photo && (d.urls[x.photo] || more[x.photo])) || "";
+    if (u) return u;
+    // 우리 보관함에 없고 신마 주소만 있으면 서버가 대신 받아 준다(남의 사이트 사진은 브라우저가 직접 못 받아서 — api/img)
+    return x.photoUrl ? { proxy: x.photoUrl } : "";
+  };
+  return Promise.all(
+    its.map(async (list) =>
+      (
+        await Promise.all(
+          list.map(async (x) => {
+            const s = srcOf(x);
+            if (!s) return "";
+            if (typeof s === "string") return tinyPhoto(s);
+            try {
+              const r = await fetch("/api/img", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: s.proxy }) });
+              return r.ok ? tinyPhoto(await r.blob()) : "";
+            } catch {
+              return "";
+            }
+          }),
+        )
+      ).filter(Boolean),
+    ),
+  );
+}
+
 /**
  * 그날 시트 내용 — day = shoot_days 한 줄, codis = 그날 코디, d = 신상 관리 데이터(items·refs·urls)
  * 이 기기 저장 모드면 사진은 화면에 이미 있는 주소(d.urls)를 쓴다.
@@ -101,6 +153,8 @@ export async function buildSheet(day, codis, d, online) {
   for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
   const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
+  // 찍을 코디 미리 보기 — 촬영 창에서 끌 수 있다(day.sheetPeek === false). 사진이 하나도 없는 코디는 뺀다
+  const peek = day.sheetPeek === false ? [] : (await peekOf(codis, d, online)).filter((l) => l.length);
   return {
     on: day.on || "",
     time: day.time || "",
@@ -111,6 +165,7 @@ export async function buildSheet(day, codis, d, online) {
     prep: PREP_PARTS.map((p) => ({ title: p.title, items: prepLines(day.prep?.[p.k]) })).filter((x) => x.items.length),
     // 10/29 v4 — 코디 칸 없음(날짜·장소 · 전할 말 · 영상 가이드만). 이미 보낸 v1~v3 시트는 SheetPage 가 예전 모양 그대로 그린다
     v: 4,
+    peek, // 10/29 밤 찍을 코디 미리 보기 [[작은 사진 data URL…] 코디마다]
     // 10/29 촬영 기본 가이드(모든 촬영 공통 — 동선·찍을 영상·포즈…) — 글은 그대로, 시트(SheetPage → BaseGuide)가 번호 단계·사진/영상 표시로 그린다
     base: baseItems.map((x) => ({
       title: (x.title || "").trim(),
