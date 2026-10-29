@@ -488,16 +488,19 @@ pg === "home" ? (
                   onSaveReel={S.saveReel}
                   onSaveCarousel={S.saveCarousel}
                 />
-              ) : pg === "shoot" || pg === "shootRefs" || pg === "shootPlan" || pg === "shootDays" ? (
+              ) : pg === "shoot" || pg === "shootCodis" || pg === "shootRefs" || pg === "shootPlan" || pg === "shootDays" ? (
                 <PricingCtx.Provider value={pricingKit}>
                   <ShootPage
                     key={pg}
-                    view={pg === "shootRefs" ? "refs" : pg === "shootPlan" ? "plan" : pg === "shootDays" ? "days" : "list"}
+                    view={pg === "shootRefs" ? "refs" : pg === "shootPlan" ? "plan" : pg === "shootDays" ? "days" : pg === "shootCodis" ? "codis" : "list"}
                     online={L.mode === "remote" && !!L.session}
                     vendors={vendors}
                     onVendor={L.saveVendor}
                     dealt={dealt}
                     reelKit={{ reels: S.reels, folders: S.reelFolders, save: S.saveReel, queue: S.queueReel }}
+                    // 10/29 신상 관리(상품) ↔ 코디를 나란히 — '옆 창에 열기' 단추. 옆 창 안에서 누르면 반대쪽(왼쪽)에 연다. 넓은 화면만
+                    onOther={wide ? (k) => (go === goSide ? goMain(k) : openSide(k)) : undefined}
+                    openPages={showSplit ? [page, split.page] : [page]}
                   />
                 </PricingCtx.Provider>
               ) : pg === "invoiceReq" ? (

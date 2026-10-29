@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette } from "lucide-react";
+import { Plus, X, Loader2, ImagePlus, Trash2, Pencil, Images, Check, CalendarDays, Shirt, FolderInput, Store, Crop, Search, Copy, Palette, Columns2 } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, md, loadKey, changeKey, onSettingsChange, watchKeys, upsert, remove, putPhoto, photoUrls, shopsOf, hasCut, cutLabel, subsOf, CUT_SEP, NONAME, colorList, codiAuto, codiName, codiFileName, codiItems } from "../lib/shoot";
 import { CutFilter, CutPicker, CutEditor } from "./CutBits";
 import { newId } from "../lib/id";
@@ -63,8 +63,11 @@ function firstData() {
   };
 }
 
+const TAB_BUS = "poclo-shoot-tab"; // 같은 탭 칸끼리 저장 알리기 (10/29 창 나누기)
+
 function useData(online) {
   const [boot] = useState(firstData);
+  const [me] = useState(() => newId("p"));
   const [items, setItems] = useState(boot?.items || []);
   const [codis, setCodis] = useState(boot?.codis || []);
   const [refs, setRefs] = useState(boot?.refs || []);
@@ -156,6 +159,32 @@ function useData(online) {
     };
   }, [online]);
 
+  // 같은 탭의 다른 칸 (10/29 창 나누기 — 왼쪽 신상 관리 · 오른쪽 코디). 각 칸이 데이터를 따로 들고 있고, 방송은 내 탭 저장을 안 알려 준다 →
+  // 저장할 때 바꾸는 함수(누른 즉시)와 저장된 값(끝나면)을 탭 안에 알리고, 다른 칸이 받아 맞춘다(서버를 다시 안 읽는다).
+  useEffect(() => {
+    const lists = { shoot_items: setItems, shoot_codis: setCodis, shoot_refs: setRefs, sample_refusals: setRefusals };
+    const hear = (e) => {
+      const x = e.detail;
+      if (!x || x.from === me) return;
+      if (lists[x.key]) {
+        if (x.fn)
+          lists[x.key]((cur) => {
+            try {
+              return x.fn({ items: cur }).items || cur;
+            } catch {
+              return cur;
+            }
+          });
+        else if (x.items) lists[x.key](x.items);
+      } else if (x.key === "shoot_tags") setTags({ ...DEFAULT_TAGS, ...x.value });
+      else if (x.key === "shoot_msg") setMsgs({ ...DEFAULT_MSGS, ...x.value });
+      else if (x.key === "shoot_folders") setFolders(x.value?.items || []);
+    };
+    window.addEventListener(TAB_BUS, hear);
+    return () => window.removeEventListener(TAB_BUS, hear);
+  }, [me]);
+  const tell = (key, detail) => window.dispatchEvent(new CustomEvent(TAB_BUS, { detail: { key, from: me, ...detail } }));
+
   // 사진 주소 — 없는 것만 한 번에
   const keys = useMemo(
     () => [...new Set([...items.map((x) => x.photo), ...refs.map((x) => x.photo)].filter(Boolean))],
@@ -184,13 +213,20 @@ function useData(online) {
         return cur;
       }
     });
+    tell(key, { fn });
     try {
       const next = await queueChange(key, online, fn);
-      set(withPending(key, next).items || []);
+      const items = withPending(key, next).items || [];
+      set(items);
+      tell(key, { items });
     } catch (e) {
       setMsg(e.message || "저장하지 못했어요.");
       loadKey(key, online)
-        .then((v) => set(withPending(key, v).items || []))
+        .then((v) => {
+          const items = withPending(key, v).items || [];
+          set(items);
+          tell(key, { items }); // 다른 칸도 누르기 전으로
+        })
         .catch(() => {});
     }
   };
@@ -198,6 +234,7 @@ function useData(online) {
     try {
       const next = await changeKey("shoot_tags", online, fn, DEFAULT_TAGS);
       setTags({ ...DEFAULT_TAGS, ...next });
+      tell("shoot_tags", { value: next });
     } catch (e) {
       setMsg(e.message || "저장하지 못했어요.");
     }
@@ -223,7 +260,9 @@ function useData(online) {
     // 샘플 요청 글 틀 {first, again}
     saveMsgs: async (next) => {
       try {
-        setMsgs({ ...DEFAULT_MSGS, ...(await changeKey("shoot_msg", online, () => next, DEFAULT_MSGS)) });
+        const v = await changeKey("shoot_msg", online, () => next, DEFAULT_MSGS);
+        setMsgs({ ...DEFAULT_MSGS, ...v });
+        tell("shoot_msg", { value: v });
       } catch (e) {
         setMsg(e.message || "저장하지 못했어요.");
       }
@@ -234,6 +273,7 @@ function useData(online) {
       try {
         const next = await changeKey("shoot_folders", online, (v) => ({ ...v, items: op(v.items || []) }));
         setFolders(next.items || []);
+        tell("shoot_folders", { value: next });
       } catch (e) {
         setMsg(e.message || "목록을 저장하지 못했어요.");
       }
@@ -1468,8 +1508,11 @@ function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
   );
 }
 
-function ListView({ d, online, vendors, onVendor, dealt }) {
-  const [tab, setTab] = useState("items");
+// only = "codis" — 촬영 › 코디(10/29): 신상 관리 '코디' 탭만 따로 연 화면. 창 나누기로 왼쪽 신상 관리(상품) · 오른쪽 코디처럼 나란히 본다.
+// onOther(k) = 반대쪽 칸에 k 화면 열기(App — 넓은 화면만), openPages = 지금 두 칸에 열린 화면(이미 열린 건 단추를 숨긴다)
+function ListView({ d, online, vendors, onVendor, dealt, only = "", onOther, openPages = [] }) {
+  const [tabSel, setTab] = useState("items");
+  const tab = only || tabSel;
   const [codiEdit, setCodiEdit] = useState(null);
   const [show, setShow] = useState(null);
   const [shot, setShot] = useState(null); // 촬영 색상 고르기 {c, finish}
@@ -1526,28 +1569,48 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
 
   return (
     <div>
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-xl font-bold text-stone-900">신상 관리</h2>
-          <p className="mt-0.5 text-sm text-stone-500">샘플·사입 요청부터 입고, 픽, 촬영, 상품등록, 반납·결제까지 상품 한 장이 단계를 옮겨 다녀요.</p>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold text-stone-900">{only ? "코디" : "신상 관리"}</h2>
+          <p className="mt-0.5 text-sm text-stone-500">
+            {only ? "신상 관리 '코디' 탭과 같은 곳이에요 — 창을 나눠 상품을 보면서 코디를 짜요." : "샘플·사입 요청부터 입고, 픽, 촬영, 상품등록, 반납·결제까지 상품 한 장이 단계를 옮겨 다녀요."}
+          </p>
         </div>
-        {tab === "codis" && (
-          <button type="button" onClick={() => setCodiEdit({})} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
-            <Plus size={16} /> 코디 만들기
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {/* 10/29 세원: "신상 관리에서 상품, 코디 창 나누기로 보고 싶은데" — 반대쪽 칸에 코디(또는 상품)를 연다 */}
+          {onOther && !openPages.includes(only ? "shoot" : "shootCodis") && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!only) setTab("items");
+                onOther(only ? "shoot" : "shootCodis");
+              }}
+              title={only ? "신상 관리(상품)를 옆 칸에 열어요" : "코디를 오른쪽 칸에 열어요 — 왼쪽은 상품"}
+              className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800"
+            >
+              <Columns2 size={16} /> {only ? "상품 옆에 열기" : "코디 옆에 열기"}
+            </button>
+          )}
+          {tab === "codis" && (
+            <button type="button" onClick={() => setCodiEdit({})} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
+              <Plus size={16} /> 코디 만들기
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
-        {[
-          ["items", `상품 ${d.items.length}`, Shirt],
-          ["codis", `코디 ${d.codis.filter((c) => !c.done).length}`, Images],
-        ].map(([k, label, Icon]) => (
-          <button key={k} type="button" onClick={() => setTab(k)} className={"flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 font-medium " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
-            <Icon size={15} /> {label}
-          </button>
-        ))}
-      </div>
+      {!only && (
+        <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+          {[
+            ["items", `상품 ${d.items.length}`, Shirt],
+            ["codis", `코디 ${d.codis.filter((c) => !c.done).length}`, Images],
+          ].map(([k, label, Icon]) => (
+            <button key={k} type="button" onClick={() => setTab(k)} className={"flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 font-medium " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
+              <Icon size={15} /> {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === "items" ? (
         <Pipeline d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
@@ -1602,7 +1665,9 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
                 : "'코디 만들기'로 상의 + 하의 같은 상품 묶음에 참고 사진을 붙여 두면, 촬영 때 폰으로 한 장씩 넘겨 봐요."}
             </p>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            // 칸 수는 화면 폭이 아니라 이 칸 폭으로(@container, 10/29) — 창을 나눠 좁아지면 한 줄에 하나. 떠 있는 창은 이 안에 두지 않는다
+            <div className="@container">
+            <div className="grid gap-3 @2xl:grid-cols-2">
               {codis.map((c) => (
                 <CodiCard
                   key={c.id}
@@ -1615,6 +1680,7 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
                   onRename={(name) => d.saveCodis(upsert({ ...c, name }))}
                 />
               ))}
+            </div>
             </div>
           )}
         </>
@@ -1641,7 +1707,7 @@ function ListView({ d, online, vendors, onVendor, dealt }) {
   );
 }
 
-export default function ShootPage({ view, online, vendors = [], onVendor, dealt, reelKit }) {
+export default function ShootPage({ view, online, vendors = [], onVendor, dealt, reelKit, onOther, openPages = [] }) {
   const d = useData(online);
   const saving = usePending();
   // 10/29 스타일링 창이 릴스 기획 라이브러리에서 참고 영상을 고른다 (RefClips.jsx)
@@ -1673,7 +1739,7 @@ export default function ShootPage({ view, online, vendors = [], onVendor, dealt,
       ) : view === "days" ? (
         <ShootDays d={d} online={online} />
       ) : (
-        <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} />
+        <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} only={view === "codis" ? "codis" : ""} onOther={onOther} openPages={openPages} />
       )}
     </div>
     </ReelKitCtx.Provider>

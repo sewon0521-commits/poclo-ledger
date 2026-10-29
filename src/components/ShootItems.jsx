@@ -2370,10 +2370,13 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
                   )}
                 </h3>
               )}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                {g.list.map((x) => (
-                  <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={starOnly ? (x.stage === "back" ? "returns" : x.stage) : tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} mates={matesFor(x)} star={stars.get(x.id)} />
-                ))}
+              {/* 칸 수는 화면 폭이 아니라 이 칸 폭으로(@container, 10/29) — 창을 나눠 좁아져도 카드가 안 찌그러지게. 떠 있는 창은 이 안에 두지 않는다 */}
+              <div className="@container">
+                <div className="grid grid-cols-2 gap-2 @md:grid-cols-3 @xl:grid-cols-4 @2xl:grid-cols-5">
+                  {g.list.map((x) => (
+                    <ItemCard key={x.id} x={x} url={srcOf(x, d.urls)} today={today} tab={starOnly ? (x.stage === "back" ? "returns" : x.stage) : tab} onOpen={(o) => setEdit({ item: x, pay: !!o?.pay })} onPatch={patch(x)} onRefuse={() => setRefuseFor(x)} onExtend={() => setExtendFor(x)} onMeasure={() => setMeasureFor(x)} mates={matesFor(x)} star={stars.get(x.id)} />
+                  ))}
+                </div>
               </div>
             </section>
           ))}

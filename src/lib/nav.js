@@ -17,6 +17,7 @@ import {
   Radar,
   Camera,
   Images,
+  Layers,
   ClipboardList,
   Repeat,
   FileCheck,
@@ -131,6 +132,8 @@ export const SECTIONS = [
         group: "기본",
         items: [
           { key: "shoot", label: "신상 관리", icon: Camera },
+          // 10/29 세원: "신상 관리에서 상품, 코디 창 나누기로 보고 싶은데" — 신상 관리 '코디' 탭을 따로 열 수 있게(같은 화면은 두 칸에 못 열어서)
+          { key: "shootCodis", label: "코디", icon: Layers },
           { key: "shootRefs", label: "촬영 레퍼런스", icon: Images },
           // 10/4 세원: "코디 촬영 관리란 — 찍을 컷·영상, 쇼핑몰별 베스트컷, 날씨, 쇼만마 코디"
           // 10/12 세원: "스튜디오가 생겨 수시로 촬영하니까 코디 촬영 관리 → 소싱 관리"
