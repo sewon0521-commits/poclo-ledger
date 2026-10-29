@@ -30,6 +30,7 @@ import {
   FileSignature,
   CalendarCheck,
   Users,
+  CircleDashed,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -154,6 +155,8 @@ export const SECTIONS = [
         items: [
           { key: "reels", label: "릴스 기획", icon: Clapperboard },
           { key: "carousel", label: "캐러셀 기획", icon: GalleryHorizontal },
+          // 10/30 세원: "경쟁사들 스토리 캡쳐 넣는 란 — 캐러셀 기획 밑에, 경쟁사별로, 날짜별로. 멘트나 포즈 참고할 때"
+          { key: "stories", label: "경쟁사 스토리", icon: CircleDashed },
           { key: "accounts", label: "계정 아카이브", icon: Radar },
           // 10/6 세원: "저작권 없는 음악을 맨날 다운받고 지우고 — 저장하는 칸"
           { key: "music", label: "음악 보관함", icon: Music },

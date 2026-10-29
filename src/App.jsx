@@ -35,6 +35,7 @@ import PartTimePage from "./components/PartTimePage";
 import ReelsPage from "./components/ReelsPage";
 import CarouselPage from "./components/CarouselPage";
 import AccountsPage from "./components/AccountsPage";
+import StoriesPage from "./components/StoriesPage";
 import HomePage from "./components/HomePage";
 import Soon from "./components/Soon";
 import JournalPage, { JournalQuick } from "./components/JournalPage";
@@ -473,6 +474,8 @@ pg === "home" ? (
                   onQueue={S.queueReel}
                   onPoll={S.pollReels}
                 />
+              ) : pg === "stories" ? (
+                <StoriesPage online={L.mode === "remote" && !!L.session} accounts={S.accounts} />
               ) : pg === "accounts" ? (
                 <AccountsPage
                   accounts={S.accounts}
@@ -616,7 +619,7 @@ pg === "home" ? (
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}
-        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "soOrder" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : page === "home" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "stories" || page === "soOrder" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : page === "home" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
           <div className="mb-4 flex items-center justify-end gap-2">
             {wide && (
               <button
