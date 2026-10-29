@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, Clock, ExternalLink, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat } from "lucide-react";
+import { BookOpen, CalendarDays, Clock, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat } from "lucide-react";
+import { GuideSections, RefLinks } from "./BaseGuide";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
-import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import LoopClip, { ClipBig } from "./LoopClip";
 
 // 모델이 폰으로 여는 촬영 시트 — 로그인 없음. main.jsx 가 주소가 #sheet=<토큰> 이면 App 대신 이것만 그린다.
@@ -52,43 +52,12 @@ function Linked({ text }) {
     );
   });
 }
-const hostOf = (u) => {
-  try {
-    return new URL(u).host.replace(/^www\./, "");
-  } catch {
-    return u;
-  }
-};
 
 /** 영상 가이드 (10/27) — 촬영 창 '모델에게 보낼 가이드'. 사진은 폭 가득(세로로 긴 안내 이미지도 읽히게).
  *  10/27 세원: "영상 가이드 안 눌리게. 그래도 전체적으로는 키울 수 있게" — 누르면 뜨던 크게 보기를 뺐다(세로로 아주 긴 이미지가 화면 높이에 맞춰 작게 떠서 오히려 안 보였다).
  *  키우기는 페이지째 두 손가락으로 벌려서(화면 설정에 확대 막기 없음 — index.html viewport).
  *  레퍼런스는 적은 순서대로 다 펼쳐서(모델이 내려가면서 보고 따라 하게) — 인스타 릴스·게시물은 시트 안 영상, 그 밖 링크는 새 탭 단추 */
 /** 레퍼런스 링크 — 인스타 릴스·게시물은 시트 안 영상(공식 임베드), 그 밖 링크는 새 탭 단추. 영상 가이드 · 코디 카드(v3) 같이 쓴다 */
-function RefLinks({ links }) {
-  return links.map((l, i) => {
-    const ig = igEmbedOf(l.url);
-    return ig ? (
-      <section key={i} className="space-y-2">
-        {l.name && <h3 className="text-[15px] leading-snug font-bold text-stone-900">{l.name}</h3>}
-        <div className="-mx-4 overflow-hidden border-y border-stone-200 sm:mx-0 sm:rounded-xl sm:border">
-          <IgEmbed src={ig} title={l.name} />
-        </div>
-        <a href={l.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 underline-offset-2 hover:text-rose-700 hover:underline">
-          <ExternalLink size={12} /> 인스타에서 보기
-        </a>
-      </section>
-    ) : (
-      <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl border border-stone-200 px-3 py-2.5 text-sm hover:border-rose-300">
-        <ExternalLink size={15} className="shrink-0 text-rose-700" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-semibold text-stone-900">{l.name || hostOf(l.url)}</span>
-          {l.name && <span className="block truncate text-xs text-stone-400">{hostOf(l.url)}</span>}
-        </span>
-      </a>
-    );
-  });
-}
 
 function GuideCard({ g }) {
   const photos = g?.photos || [];
@@ -325,6 +294,16 @@ export default function SheetPage() {
 
       <PrepCard note={s.note} prep={s.prep} />
 
+      {/* 10/29 촬영 기본 가이드 — 모든 촬영 공통(동선 · 찍을 영상 · 포즈 …), ERP 촬영 관리 '모델 기본 가이드'에서 쌓아 간다 */}
+      {s.base?.length > 0 && (
+        <Card className="space-y-4">
+          <div className="flex items-center gap-1.5 text-base font-bold text-stone-900">
+            <BookOpen size={18} className="text-rose-700" /> 촬영 기본 가이드
+          </div>
+          <GuideSections items={s.base} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />
+        </Card>
+      )}
+
       {/* v4(10/29 저녁~): 코디 칸 없음 — 세원 "참고 영상은 우리 보면서 찍으려고 한 거, 코디는 찍을 때 우리가 디렉". 예전 v1~v3 링크는 예전 모양 그대로 */}
       {(s.v || 1) >= 4 ? null : s.codis?.length ? (
         s.codis.map((c, i) =>
@@ -342,7 +321,7 @@ export default function SheetPage() {
 
       <p className="px-1 pb-6 text-center text-xs text-stone-400">
         궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
-        {until && ((s.v || 1) < 4 || s.guide?.photos?.length > 0) && (
+        {until && ((s.v || 1) < 4 || s.guide?.photos?.length > 0 || s.base?.some((x) => x.photos?.length)) && (
           <span className="mt-1 block">
             {(s.v || 1) >= 4 ? "가이드 사진" : (s.v || 1) >= 3 ? "사진·영상" : "사진"}은 {until.getMonth() + 1}/{until.getDate()}까지 보여요
           </span>

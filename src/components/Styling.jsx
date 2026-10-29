@@ -343,20 +343,28 @@ export default function StylingSheet({ codi, d, online, onClose }) {
       setCodiPending((p) => p.filter((u) => !previews.includes(u)));
     }
   };
+  const [optsReady, setOptsReady] = useState(false);
   useEffect(() => {
     let alive = true;
     loadKey(OPTS_KEY, online, {})
-      .then((v) => alive && setOpts({ hair: v.hair?.length ? v.hair : DEFAULT_OPTS.hair, acc: v.acc?.length ? v.acc : DEFAULT_OPTS.acc }))
-      .catch(() => {});
+      .then((v) => alive && setOpts({ hair: v.hair?.length ? v.hair : DEFAULT_OPTS.hair, acc: v.acc?.length ? v.acc : DEFAULT_OPTS.acc, videos: Array.isArray(v.videos) ? v.videos : DEFAULT_OPTS.videos }))
+      .catch(() => {})
+      .finally(() => alive && setOptsReady(true));
     return () => {
       alive = false;
     };
   }, [online]);
+  // 10/29 기본 찍을 영상 — 코디를 처음 열 때 '찍을 영상'이 비어 있으면 기본 목록을 깔아 둔다(한 번만 — videosInit, 다 지우면 다시 안 깐다)
+  useEffect(() => {
+    if (!optsReady || codi.done) return;
+    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
+    setSt((x) => (x.videosInit || (x.videos || []).length || !opts.videos.length ? x : { ...x, videosInit: true, videos: opts.videos.map((text) => ({ id: newId("k"), text, done: false })) }));
+  }, [optsReady]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k) => (v) => setSt((x) => ({ ...x, [k]: v }));
   const saveOpts = async (k, list) => {
     try {
       const next = await changeKey(OPTS_KEY, online, (v) => ({ ...DEFAULT_OPTS, ...v, [k]: list }), {});
-      setOpts({ hair: next.hair, acc: next.acc });
+      setOpts({ hair: next.hair, acc: next.acc, videos: next.videos || DEFAULT_OPTS.videos });
       setEditOpts("");
     } catch (e) {
       setMsg(e.message || "칩을 저장하지 못했어요.");
@@ -484,8 +492,34 @@ export default function StylingSheet({ codi, d, online, onClose }) {
         {/* 10/27 이 코디의 찍을 컷 · 찍을 영상 — 예전엔 촬영(날짜)에 하나였다. 비어 있으면 같은 날 다른 코디 것을 가져올 수 있다 */}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <CheckList title="찍을 컷" list={st.cuts || []} onChange={set("cuts")} placeholder="+ 컷 (예: 창가 전신 정면) 엔터" extra={copyBtn("cuts")} />
-          <CheckList title="찍을 영상" list={st.videos || []} onChange={set("videos")} placeholder="+ 영상 (예: 거울셀카 걸어오기) 엔터" extra={copyBtn("videos")} />
+          <CheckList
+            title="찍을 영상"
+            list={st.videos || []}
+            onChange={set("videos")}
+            placeholder="+ 영상 (예: 거울셀카 걸어오기) 엔터"
+            extra={
+              <>
+                {copyBtn("videos")}
+                {/* 10/29 기본 영상 — 빠진 것만 넣기 · 기본 목록 고치기 */}
+                {(st.videos || []).length > 0 && opts.videos.some((t) => !(st.videos || []).some((x) => x.text === t)) && (
+                  <button
+                    type="button"
+                    onClick={() => set("videos")([...(st.videos || []), ...opts.videos.filter((t) => !(st.videos || []).some((x) => x.text === t)).map((text) => ({ id: newId("k"), text, done: false }))])}
+                    className="rounded-full border border-dashed border-rose-300 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                  >
+                    기본 영상 넣기
+                  </button>
+                )}
+                <button type="button" onClick={() => setEditOpts(editOpts === "videos" ? "" : "videos")} title="코디마다 처음부터 깔리는 기본 영상 고치기" className="flex items-center gap-0.5 text-[11px] font-normal text-stone-400 hover:text-rose-700">
+                  <Pencil size={11} /> 기본
+                </button>
+              </>
+            }
+          />
         </div>
+        {editOpts === "videos" && (
+          <OptsEditor title="기본 영상(코디마다 처음부터 깔림)" list={opts.videos} onSave={(l) => saveOpts("videos", l)} onClose={() => setEditOpts("")} />
+        )}
         <Section
           title="참고 사진"
           hint="레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기"

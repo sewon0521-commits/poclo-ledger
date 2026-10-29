@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, Check, Clock, Copy, ExternalLink, Film, ImagePlus, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
-import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, putPhoto, photoUrls, fixUrl } from "../lib/shoot";
+import { BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, ImagePlus, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
+import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, photoUrls, fixUrl } from "../lib/shoot";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
 import { newId } from "../lib/id";
@@ -11,6 +11,8 @@ import { Photo, CheckList } from "./ShootBits";
 import StylingSheet from "./Styling";
 import { MemoEditor } from "./SourcingMemo";
 import { useSort, reorder, Grip } from "./CutBits";
+import { guidePhoto, GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "../lib/modelGuide";
+import ModelGuideSheet from "./ModelGuideEditor";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -234,28 +236,7 @@ function CodiRow({ c, d, onStyle, rows, onMove }) {
 // 이 기기 저장 모드면 사진은 작은 data URL 로(시험용).
 
 const GUIDE_URLS = new Map(); // 보관 키 → 서명 주소(4시간) · 이 탭에서만
-async function guidePhoto(file, online) {
-  const key = await putPhoto(file, online, { edge: 1600, tallWidth: 1080 });
-  if (key) return key;
-  // 이 기기 저장 모드 — 작게 data URL
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise((ok, bad) => {
-      const i = new Image();
-      i.onload = () => ok(i);
-      i.onerror = bad;
-      i.src = url;
-    });
-    const s = Math.min(1, 600 / img.naturalWidth);
-    const c = document.createElement("canvas");
-    c.width = Math.round(img.naturalWidth * s);
-    c.height = Math.round(img.naturalHeight * s);
-    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    return c.toDataURL("image/jpeg", 0.7);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
+// 사진 보관(guidePhoto)은 lib/modelGuide.js — 모델 기본 가이드(10/29)와 같이 쓴다
 const hostOf = (u) => {
   try {
     return new URL(u).host.replace(/^www\./, "");
@@ -445,6 +426,19 @@ function SheetLink({ day, set, codis, d, online }) {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const today = dayKey();
+  // 10/29 모델 기본 가이드 — 모든 시트에 같이 간다. 몇 칸인지 보여 주고 여기서도 고친다
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideN, setGuideN] = useState(null);
+  useEffect(() => {
+    if (guideOpen) return;
+    let alive = true;
+    loadKey(GUIDE_KEY, online, null)
+      .then((v) => alive && setGuideN(filledItems(v ? v.items : DEFAULT_GUIDE.items).map((x) => (x.title || "").trim() || "제목 없는 칸")))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [guideOpen, online]);
   const run = async (what) => {
     setBusy(what);
     setErr("");
@@ -478,8 +472,18 @@ function SheetLink({ day, set, codis, d, online }) {
         <Link2 size={15} className="text-rose-700" /> 모델에게 보낼 촬영 시트
       </div>
       <p className="mb-2 text-xs text-stone-500">
-        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 영상 가이드</b>만 봐요. 코디·참고 사진·참고 영상·상품·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
+        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 촬영 기본 가이드 · 영상 가이드</b>만 봐요. 코디·참고 사진·참고 영상·상품·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
       </p>
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white px-2.5 py-1.5 text-xs ring-1 ring-stone-200">
+        <BookOpen size={13} className="shrink-0 text-rose-700" />
+        <span className="min-w-0 flex-1 text-stone-600">
+          촬영 기본 가이드{guideN ? (guideN.length ? ` ${guideN.length}칸 — ${guideN.join(" · ")}` : " — 비어 있어요") : ""}
+        </span>
+        <button type="button" onClick={() => setGuideOpen(true)} className="shrink-0 font-semibold text-rose-700 hover:underline">
+          고치기
+        </button>
+      </div>
+      {guideOpen && <ModelGuideSheet online={online} onClose={() => setGuideOpen(false)} />}
       {err === "missing" ? (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
           촬영 시트 준비가 아직 안 됐어요 — Supabase SQL 을 한 번 실행해 주세요:{" "}
@@ -852,6 +856,7 @@ export default function ShootDays({ d, online }) {
   const days = useDays(online);
   const [open, setOpen] = useState(null); // 날짜 또는 기록 id
   const [styling, setStyling] = useState(null); // 촬영일 미정 코디 id
+  const [guide, setGuide] = useState(false); // 모델 기본 가이드 고치기 창
   const today = dayKey();
   const undated = useMemo(() => d.codis.filter((c) => !c.shootDate && !c.done), [d.codis]);
   const liveStyling = styling && d.codis.find((c) => c.id === styling);
@@ -934,19 +939,25 @@ export default function ShootDays({ d, online }) {
           <h2 className="text-xl font-bold text-stone-900">촬영 관리</h2>
           <p className="mt-0.5 text-sm text-stone-500">촬영일마다 그날 코디 · 스타일링(헤어·신발·악세서리) · 시간·장소·모델. 모델에게는 로그인 없이 보는 촬영 시트 링크로 보내요.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            const t = new Date();
-            t.setDate(t.getDate() + 1);
-            const x = blank(dayKey(t));
-            days.save(x);
-            setOpen(x);
-          }}
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
-        >
-          <Plus size={16} /> 새 촬영
-        </button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {/* 10/29 모든 촬영 시트에 같이 가는 '촬영 기본 가이드'(동선 · 찍을 영상 · 포즈 …) */}
+          <button type="button" onClick={() => setGuide(true)} className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800">
+            <BookOpen size={16} /> 모델 기본 가이드
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const t = new Date();
+              t.setDate(t.getDate() + 1);
+              const x = blank(dayKey(t));
+              days.save(x);
+              setOpen(x);
+            }}
+            className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
+          >
+            <Plus size={16} /> 새 촬영
+          </button>
+        </div>
       </div>
       {days.msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -989,6 +1000,7 @@ export default function ShootDays({ d, online }) {
         />
       )}
       {liveStyling && <StylingSheet codi={liveStyling} d={d} online={online} onClose={() => setStyling(null)} />}
+      {guide && <ModelGuideSheet online={online} onClose={() => setGuide(false)} />}
     </div>
   );
 }

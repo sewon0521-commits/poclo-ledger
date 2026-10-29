@@ -11,6 +11,8 @@
 //   같은 날 세원: "모델에게 보낼 촬영 시트는 저번처럼 영상 가이드 해 주면 될 것 같고, 참고 영상은 우리 보면서 찍으려고 한 거여서 모델한테 굳이 안 보여 줘도 될 것 같아.
 //     우리가 직접 해당 코디 찍을 때 디렉하면 될 것 같아. 상품 특징 보고." → **v4: 코디 칸을 통째로 뺐다** — 날짜·시각·장소 · 모델에게 전할 말 · 영상 가이드만.
 //     스타일링 창의 참고 사진·참고 영상·메모는 촬영 때 우리가 보는 것(ERP 안에서만). 아래 '10/27 …코디 사진 + 메모만'은 v2 때 이야기.
+//   같은 날 세원: "기본 동선 같은 건 기본으로 깔아 두자 — 모델한테 보내는 기본 가이드(동선 · 찍을 영상 · 추구하는 것 · 포즈), 계속 쌓아 나가자" →
+//     v4 에 base(촬영 기본 가이드, settings model_guide — lib/modelGuide.js). 시트 순서: 첫 카드 → 전할 말 → 촬영 기본 가이드 → 영상 가이드.
 //   10/27 세원: "링크에 코디1 에 신상마켓 상품들 나오는데 그거 다 없애고 내가 첨부한 코디 사진 + 메모만" →
 //     상품(이름·색·사진) · 스타일링 칩 · 참고 사진은 넣지 않는다. 메모 = 스타일링 창 '메모'(모델 시트용 칸). 코디 이름은 직접 지은 것만(자동 이름 = 상품 이름이라 뺀다).
 //   ⛔ 도매가 · 판매가 · 거래처 · 위치 · 신마 링크 · 내부 메모는 절대 넣지 않는다(고른 칸만 넣는다).
@@ -21,7 +23,9 @@
 //   이 기기 저장 모드(VITE_SUPABASE_URL 없음)는 localStorage 'poclo_shoot_sheets' 로 같은 동작(시험용).
 import { isRemote, supabase } from "./supabase";
 import { newToken, callName, isMissing } from "./contract";
-import { md } from "./shoot";
+import { md, loadKey } from "./shoot";
+import { GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "./modelGuide";
+import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
 
 const LOCAL = "poclo_shoot_sheets";
@@ -86,7 +90,14 @@ async function longUrls(keys, online) {
  * 이 기기 저장 모드면 사진은 화면에 이미 있는 주소(d.urls)를 쓴다.
  */
 export async function buildSheet(day, codis, d, online) {
+  // 10/29 모델 기본 가이드 — 모든 시트에 같이(lib/modelGuide). 한 번도 저장 안 했으면 기본 동선
+  const g = await loadKey(GUIDE_KEY, online, null).catch(() => null);
+  const baseItems = filledItems(g ? g.items : DEFAULT_GUIDE.items);
   const keys = [];
+  for (const x of baseItems) {
+    for (const p of x.photos || []) if (p.key && !p.key.startsWith("data:")) keys.push(p.key);
+    for (const cl of x.clips || []) keys.push(videoKey(cl.reelId), thumbKey(cl.reelId));
+  }
   for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
   const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
@@ -100,6 +111,15 @@ export async function buildSheet(day, codis, d, online) {
     prep: PREP_PARTS.map((p) => ({ title: p.title, items: prepLines(day.prep?.[p.k]) })).filter((x) => x.items.length),
     // 10/29 v4 — 코디 칸 없음(날짜·장소 · 전할 말 · 영상 가이드만). 이미 보낸 v1~v3 시트는 SheetPage 가 예전 모양 그대로 그린다
     v: 4,
+    // 10/29 촬영 기본 가이드(모든 촬영 공통 — 동선·찍을 영상·포즈…) — 글은 그대로, 시트(SheetPage → BaseGuide)가 번호 단계·사진/영상 표시로 그린다
+    base: baseItems.map((x) => ({
+      title: (x.title || "").trim(),
+      text: x.text || "",
+      photos: (x.photos || []).map((p) => ({ url: urlOf(p.key), cap: (p.cap || "").trim() })).filter((p) => p.url),
+      // 칸마다 참고 영상 — 릴스 기획에서 자른 장면(파일은 그대로, 7일 서명 주소 · 누르면 그 장면만 반복) · 인스타 주소
+      clips: (x.clips || []).map((cl) => ({ src: urlOf(videoKey(cl.reelId)), poster: urlOf(thumbKey(cl.reelId)), start: cl.start || 0, end: cl.end || 0, note: (cl.note || "").trim() })),
+      links: (x.links || []).filter((l) => /^https?:\/\//i.test(l.url || "")).map((l) => ({ name: (l.name || "").trim(), url: l.url })),
+    })),
     // 10/27 모델에게 보낼 가이드 — '영상 가이드'(사진은 7일 서명 주소, 링크는 이름 + 주소)
     guide: {
       photos: (day.guidePhotos || []).map(urlOf).filter(Boolean),
