@@ -162,14 +162,14 @@ function PeekCard({ peek }) {
         </div>
         <span className="text-xs text-stone-400">대략 이런 옷이에요 · 촬영 때 바뀔 수 있어요</span>
       </div>
-      {/* 10/30 세원 "너무 안 보여, 살짝만 크게" — 48×64 → 72×96, '코디 N' 은 사진 위로(한 줄에 4장) */}
+      {/* 10/30 세원 "너무 안 보여, 살짝만 크게" → "5개 꽉 차게 들어갈 때까지 키워도" — 한 줄을 꽉 채운다: 넓은 화면 5칸, 폰 4칸(폰에서 5칸이면 오히려 작아져서) */}
       <ul className="space-y-3">
         {peek.map((photos, i) => (
           <li key={i}>
             <div className="mb-1 text-xs font-semibold text-rose-700">코디 {i + 1}</div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
               {photos.map((u, k) => (
-                <img key={k} src={u} alt="" className="h-24 w-[4.5rem] rounded-lg bg-stone-100 object-cover" />
+                <img key={k} src={u} alt="" className="aspect-[3/4] w-full rounded-lg bg-stone-100 object-cover" />
               ))}
             </div>
           </li>
