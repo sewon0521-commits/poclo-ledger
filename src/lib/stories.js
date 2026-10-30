@@ -11,6 +11,7 @@
 //     이 기기 저장 모드(Supabase 없음)면 key 대신 src/thumbSrc 에 줄인 사진(data URL)을 그대로 둔다
 // 사진: 긴 변 1440 JPEG(스토리 글씨를 확대해 읽을 만큼, 한 장 약 100~200KB) + 목록용 작은 사진 폭 240(약 15KB).
 //   목록에는 작은 사진만 받고, 큰 사진은 날짜를 눌러 열 때 그날 것만 받는다.
+//   PC 화면을 통째로 캡처한 가로 사진은 양옆 어두운 바탕을 떼고 스토리 칸만 남긴다(storyBox, 10/30 — Claude 가 크롬에서 캡처해 넣을 때 화면 전체가 찍혀서).
 //   공유 저장소가 무료 한도를 넘어 있다(10/15 1.39GB) — 올리기가 막히면 그 오류를 그대로 보여 준다.
 
 import { isRemote, supabase } from "./supabase";
@@ -41,13 +42,90 @@ function loadImg(file) {
     i.src = url;
   });
 }
-function toJpeg(img, w, h, q) {
+function toJpeg(img, box, w, h, q) {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
-  c.getContext("2d").drawImage(img, 0, 0, w, h);
+  c.getContext("2d").drawImage(img, box.sx, box.sy, box.sw, box.sh, 0, 0, w, h);
   return new Promise((r) => c.toBlob(r, "image/jpeg", q));
 }
+/** PC 화면을 통째로 캡처한 가로 사진이면 양옆·위아래 어두운 바탕을 떼고 가운데 스토리 칸만 {sx, sy, sw, sh}. 아니면 null.
+ *  인스타 PC 스토리 화면 = 어두운 바탕 가운데 9:16 칸 + 칸 바로 옆 작은 넘김 단추 — 단추는 세로로 짧아서 바탕으로 친다. */
+export function storyBox(img) {
+  const W = img.naturalWidth || img.width;
+  const H = img.naturalHeight || img.height;
+  if (W < H * 1.2) return null; // 세로 캡처(폰·스토리만 잡은 것)는 그대로
+  const s = Math.min(1, 640 / W);
+  const w = Math.round(W * s);
+  const h = Math.round(H * s);
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const y0 = Math.round(h * 0.2);
+  const y1 = Math.round(h * 0.8);
+  const avg = (x) => {
+    const t = [0, 0, 0];
+    let n = 0;
+    for (let y = y0; y < y1; y += 2, n++) for (let k = 0; k < 3; k++) t[k] += d[(y * w + x) * 4 + k];
+    return t.map((v) => v / n);
+  };
+  const diff = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+  const side = Math.round(w * 0.02); // 맨 끝은 스크롤 막대일 수 있어서 조금 안쪽
+  const bg = avg(side);
+  if (diff(bg, avg(w - 1 - side)) > 30) return null; // 양옆 바탕색이 다르면 스토리 화면이 아님
+  const far = (x, y) => {
+    const i = (y * w + x) * 4;
+    return Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > 40;
+  };
+  const colHit = (x) => {
+    let n = 0;
+    let all = 0;
+    for (let y = y0; y < y1; y += 2, all++) if (far(x, y)) n++;
+    return n / all;
+  };
+  const gap = Math.max(3, Math.round(w * 0.006));
+  const walk = (from, step, end, hit) => {
+    let edge = from;
+    let run = 0;
+    for (let v = from; step > 0 ? v <= end : v >= end; v += step) {
+      if (hit(v) < 0.06) {
+        if (++run >= gap) break;
+      } else {
+        run = 0;
+        edge = v;
+      }
+    }
+    return edge;
+  };
+  const cx = Math.round(w / 2);
+  let l = walk(cx, -1, 0, colHit);
+  let r = walk(cx, 1, w - 1, colHit);
+  const rowHit = (y) => {
+    let n = 0;
+    let all = 0;
+    for (let x = l; x <= r; x += 2, all++) if (far(x, y)) n++;
+    return n / all;
+  };
+  const t = walk(Math.round(h / 2), -1, 0, rowHit);
+  const b = walk(Math.round(h / 2), 1, h - 1, rowHit);
+  const bh = b - t + 1;
+  let bw = r - l + 1;
+  if (bw < w * 0.12 || bw > w * 0.9 || bh < h * 0.5) return null;
+  const ratio = bw / bh;
+  if (ratio >= 0.42 && ratio <= 0.66) {
+    // 스토리 칸(9:16)으로 맞춘다 — 가장자리가 어두운 스토리는 좁게, 넘김 단추가 붙으면 넓게 잡히는 것 바로잡기
+    const mid = (l + r) / 2;
+    bw = Math.round((bh * 9) / 16);
+    l = Math.max(0, Math.round(mid - bw / 2));
+    r = Math.min(w - 1, l + bw - 1);
+    bw = r - l + 1;
+  } else if (ratio > 1) return null;
+  return { sx: Math.round(l / s), sy: Math.round(t / s), sw: Math.round(bw / s), sh: Math.round(bh / s) };
+}
+
 const dataUrl = (blob) =>
   new Promise((r) => {
     const f = new FileReader();
@@ -59,13 +137,14 @@ const dataUrl = (blob) =>
 export async function putStory(file, online) {
   const { img, done } = await loadImg(file);
   try {
-    const W = img.naturalWidth;
-    const H = img.naturalHeight;
+    const box = storyBox(img) || { sx: 0, sy: 0, sw: img.naturalWidth, sh: img.naturalHeight };
+    const W = box.sw;
+    const H = box.sh;
     const s = Math.min(1, EDGE / Math.max(W, H));
     const w = Math.round(W * s);
     const h = Math.round(H * s);
     const ts = Math.min(1, THUMB_W / W);
-    const [full, small] = await Promise.all([toJpeg(img, w, h, 0.82), toJpeg(img, Math.round(W * ts), Math.round(H * ts), 0.75)]);
+    const [full, small] = await Promise.all([toJpeg(img, box, w, h, 0.82), toJpeg(img, box, Math.round(W * ts), Math.round(H * ts), 0.75)]);
     const id = newId("st");
     if (!(isRemote && online)) return { id, src: await dataUrl(full), thumbSrc: await dataUrl(small), w, h, size: full.size };
     const key = `story/${id}.jpg`;

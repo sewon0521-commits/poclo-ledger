@@ -216,7 +216,7 @@ function AddSheet({ start, shops, defShop, onNewShop, onSubmit, onClose }) {
             <button type="button" onClick={() => pick.current?.click()} className="flex w-full flex-col items-center gap-1.5 py-6 text-sm text-stone-500">
               <ImagePlus size={22} className="text-stone-400" />
               <span className="font-medium text-stone-700">캡처 사진 고르기</span>
-              <span className="text-xs text-stone-400">PC는 캡처하고 Ctrl+V · 끌어다 놓기도 돼요</span>
+              <span className="text-xs text-stone-400">PC는 캡처하고 Ctrl+V · 끌어다 놓기도 돼요 · 화면 전체를 찍어도 양옆 바탕은 저절로 잘라요</span>
             </button>
           )}
           <p className="mt-2 text-xs text-stone-400">
