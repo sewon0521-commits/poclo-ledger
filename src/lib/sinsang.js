@@ -19,6 +19,7 @@
 //    refused, refusedOn, refusedWhy,       // 거래처가 샘플이 안 된다고 함 → 보류·드랍에 '샘플 안 됨'으로 (이유 한 줄)
 //    arrivedOn, arrivedOpts,               // 입고일 · 입고된 색상·사이즈
 //    pickedOn, shoots[{on, opts}],          // 촬영 1차·2차… (날짜 · 색상 및 사이즈). shootDate·shootOpts 는 1차 사본
+//    models:["주현","연서"],                 // 입은 모델 짧은 이름 (아래 MODELS) — erp_sync.py 가 메모 `모델:` 줄로
 //    shotOn, doneOn, channels:{cafe24},
 //    returning, hold, packed, packedOn, paid, returnedOn, returnDays,
 //    buyQty,                               // 사입 수량 (대납금 = 도매가 × 수량)
@@ -98,6 +99,33 @@ export function shootsOf(x) {
   return [{ on: x.shootDate || "", opts: x.shootOpts || "" }];
 }
 export const withShoots = (shoots) => ({ shoots, shootDate: shoots[0]?.on || "", shootOpts: shoots[0]?.opts || "" });
+
+/**
+ * 상품마다 입은 모델 (10/31 세원: "상품마다 '모델'을 여러 명 고를 수 있게") — item.models: ["주현", "연서"], 아무도 안 고르면 [].
+ * ⚠ 칸 이름 models 를 바꾸지 말 것: poclo-cafe24/erp_sync.py 가 이 값을 상품 메모 `모델:` 줄로 옮기고, 그걸로 상세페이지 맨 위 모델 정보 띠가 정해진다.
+ * 짧은 이름으로 저장한다(촬영 관리엔 '이주현'·'남연서'처럼 성까지). 모델이 늘면 여기에 더한다 — 순서 = 칩 순서 = 저장 순서.
+ */
+export const MODELS = ["주현", "연서", "지원"];
+export const modelsOf = (x) => (Array.isArray(x?.models) ? x.models.filter(Boolean) : []);
+/** '이주현' → '주현' (모르는 이름은 "") */
+export const modelShort = (name) => {
+  const n = String(name || "").replace(/\s+/g, "");
+  return MODELS.find((m) => n === m || (n.endsWith(m) && n.length - m.length <= 2)) || "";
+};
+/** 고른 순서와 상관없이 MODELS 순서로 (모르는 이름은 뒤에 그대로) */
+export const sortModels = (list) => [...MODELS.filter((m) => list.includes(m)), ...list.filter((m) => !MODELS.includes(m))];
+/**
+ * 추천 모델 — 상품 촬영일(shotOn, 없으면 마지막 촬영 차수 날짜)에 촬영 관리(shoot_days) 줄이 하나뿐이고 그 줄 모델이 한 명일 때만.
+ * 10/28 처럼 한 날 두 줄(한 명은 당일 취소)이면 누가 입었는지 몰라서 추천하지 않는다. 추천은 보여 주기만 — 누르기 전엔 저장 안 함.
+ */
+export function suggestModel(x, days) {
+  const on = x.shotOn || shootsOf(x).filter((r) => r.on).at(-1)?.on || "";
+  if (!on) return "";
+  const rows = (days || []).filter((r) => r.on === on);
+  if (rows.length !== 1) return "";
+  const ms = (rows[0].models || []).map((s) => String(s).trim()).filter(Boolean);
+  return ms.length === 1 ? modelShort(ms[0]) : "";
+}
 
 /** 오늘부터 며칠 남았나 (음수 = 초과) */
 export function daysLeft(due, today = dayKey()) {

@@ -5,7 +5,7 @@ import { FIELD, md, won, upsert, remove, putPhoto, loadKey, onSettingsChange, wa
 import { starsOf, starLabel } from "../lib/lookStars";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
-import { sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf } from "../lib/sinsang";
+import { MODELS, modelsOf, sortModels, suggestModel, sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -112,7 +112,11 @@ function CardInfo({ x, line, copyName = false }) {
           </button>
         )}
       </span>
-      <span className="block truncate text-[11px] text-stone-400">{[x.place, won(x.price), x.kind].filter(Boolean).join(" · ") || "정보 없음"}</span>
+      {/* 입은 모델은 오른쪽 끝에 작게 — 위치·가격이 길어도 안 잘리게 (10/31) */}
+      <span className="flex items-center gap-1 text-[11px]">
+        <span className="min-w-0 flex-1 truncate text-stone-400">{[x.place, won(x.price), x.kind].filter(Boolean).join(" · ") || "정보 없음"}</span>
+        {modelsOf(x).length > 0 && <span className="shrink-0 font-medium text-rose-700">{modelsOf(x).join("·")}</span>}
+      </span>
       <span className={"block truncate text-[11px] " + line.tone}>{line.text}</span>
     </span>
   );
@@ -421,6 +425,45 @@ function OptInput({ value, onChange, options, placeholder }) {
   );
 }
 
+/**
+ * 입은 모델 — 여러 명 같이 눌리고 다시 누르면 빠진다 (10/31). 저장은 MODELS 순서로.
+ * 아무도 안 골랐고 촬영 관리 그날 모델이 한 명뿐이면 그 칩을 흐리게 '추천' — 눌러야 골라진다.
+ */
+function ModelPick({ value, onChange, suggest, day }) {
+  const flip = (m) => onChange(value.includes(m) ? value.filter((v) => v !== m) : sortModels([...value, m]));
+  const tip = !value.length && suggest;
+  return (
+    <div className="space-y-1">
+      <div className="text-xs font-medium text-stone-500">
+        모델 <span className="font-normal text-stone-400">여러 명 골라도 돼요 · 상세페이지 맨 위 모델 정보가 이걸로 정해져요</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {MODELS.map((m) => {
+          const on = value.includes(m);
+          const soft = tip === m;
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => flip(m)}
+              aria-pressed={on}
+              title={soft ? `촬영 관리 ${md(day)} 모델이에요 — 누르면 골라져요` : undefined}
+              className={
+                "rounded-full border px-3 py-1.5 text-xs font-medium " +
+                (on ? "border-rose-700 bg-rose-700 text-white" : soft ? "border-dashed border-rose-300 bg-rose-50/60 text-rose-700/70 hover:border-rose-400" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")
+              }
+            >
+              {m}
+              {soft && <span className="ml-1 text-[10px] font-normal">추천</span>}
+            </button>
+          );
+        })}
+      </div>
+      {tip && <p className="text-[11px] text-stone-400">흐린 칩은 촬영 관리 {md(day)} 모델이에요. 눌러야 저장돼요.</p>}
+    </div>
+  );
+}
+
 /** 촬영 1차·2차·3차… — 날짜 + 그때 찍은 색상·사이즈. + 로 늘리고 × 로 뺀다 (10/3) */
 function ShootRounds({ shoots, onChange, options }) {
   const put = (i, v) => onChange(shoots.map((s, k) => (k === i ? { ...s, ...v } : s)));
@@ -500,10 +543,11 @@ function Fold({ title, summary, open, onToggle, children }) {
   );
 }
 
-const flowSummary = (x) => {
+const flowSummary = (x, suggest) => {
   const shot = shootsOf(x).filter((r) => r.on);
   return [
     stageName(x.stage),
+    modelsOf(x).length ? `모델 ${modelsOf(x).join("·")}` : suggest && `모델 추천 ${suggest}`,
     x.asked && "요청함",
     x.pickup && "픽업 요청",
     sourcedOf(x) && `소싱 ${md(sourcedOf(x))}`,
@@ -589,6 +633,27 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
     set({ vendor: rec.name, place: place(x.place) });
     setVendorEdit(false);
   };
+  // 촬영 관리(shoot_days) — 그날 모델 추천에만 쓴다. 작아서 창을 열 때마다 한 번 읽는다(먼저 이 기기 사본)
+  const [days, setDays] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("poclo_shoot_days") || "null")?.items || [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    let alive = true;
+    loadKey("shoot_days", online)
+      .then((v) => alive && setDays(v.items || []))
+      .catch(() => {
+        /* 못 읽으면 추천만 안 보인다 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  const suggest = suggestModel(x, days);
+  const shotDay = x.shotOn || shootsOf(x).filter((r) => r.on).at(-1)?.on || "";
   const sample = x.type !== "buy";
   const due = dueOf(x);
   const colorList = list(x.colors);
@@ -868,7 +933,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
               <WearBox wear={x.wear || {}} wearFrom={x.wearFrom} onChange={(wear) => set({ wear, wearFrom: "" })} />
             </Fold>
 
-            <Fold title="진행" summary={flowSummary(x)} open={open.flow} onToggle={() => flip("flow")}>
+            <Fold title="진행" summary={flowSummary(x, suggest)} open={open.flow} onToggle={() => flip("flow")}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold text-stone-500">단계</span>
                 <select value={x.stage} onChange={(e) => set(moveTo(x, e.target.value, today))} className="rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm">
@@ -923,6 +988,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   )}
                 </div>
               )}
+              <ModelPick value={modelsOf(x)} onChange={(models) => set({ models })} suggest={suggest} day={shotDay} />
               <ShootRounds shoots={shootsOf(x)} onChange={(r) => set(withShoots(r))} options={[...colorList, ...sizeList]} />
               <div className="flex flex-wrap gap-1.5">
                 <Toggle on={x.detailShot} tone={x.detailUp ? "amber" : ""} title={detailTitle(x)} onClick={() => set(detailNext(x, today))}>
