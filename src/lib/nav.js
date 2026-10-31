@@ -71,6 +71,8 @@ export const SECTIONS = [
         group: "기본",
         items: [
           { key: "journal", label: "업무일지", icon: NotebookPen },
+          // 10/31 세원: "재고가 넥스트팩과 사무실 렉 두 곳에 나뉘어 한눈에 안 보인다" (components/StockPage.jsx). 11/1 세원: "일로 옮겨야 할 듯, 업무일지 밑으로" (처음엔 촬영 › 신상 관리 옆)
+          { key: "stock", label: "재고", icon: Boxes },
           // 10/6 세원: "넥스트팩 발주 변환기를 ERP 에 넣고 단가 칸에 단가를 넣어 줘" → 이지어드민 발주 → SO+ 붙여넣기. "일 카테고리로"
           { key: "soOrder", label: "SO+ 발주 변환", icon: FileSpreadsheet },
           // 10/17 세원: "재구매 쿠폰·이벤트를 배너로 알리는 계획을 짜는 틀 — 이벤트 캘린더"
@@ -134,8 +136,6 @@ export const SECTIONS = [
         group: "기본",
         items: [
           { key: "shoot", label: "신상 관리", icon: Camera },
-          // 10/31 세원: "재고가 넥스트팩과 사무실 렉 두 곳에 나뉘어 한눈에 안 보인다 — 자리는 신상 관리 근처로" (components/StockPage.jsx)
-          { key: "stock", label: "재고", icon: Boxes },
           // 10/29 세원: "신상 관리에서 상품, 코디 창 나누기로 보고 싶은데" — 코디를 따로 열 수 있게(같은 화면은 두 칸에 못 열어서) → "신상 관리에서 코디 없애 줘"(신상 관리 = 상품만)
           { key: "shootCodis", label: "코디", icon: Layers },
           { key: "shootRefs", label: "촬영 레퍼런스", icon: Images },

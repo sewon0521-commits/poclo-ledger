@@ -3056,7 +3056,7 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 ## 68. 재고 — 넥스트팩 + 사무실 렉 (2026-10-31)
 
 세원: "재고가 넥스트팩(이지어드민)과 사무실 렉 두 곳에 나뉘어 있어 한눈에 안 보인다. 할인 상품을 고를 때 사무실 재고를 놓치는 일이 있었다."
-→ 촬영 › **재고**(신상 관리 바로 아래, `StockPage.jsx`, 계산은 `lib/stock.js` 머리말). Claude API 호출 없음(비용 0) · 사진 저장 없음.
+→ 일 › **재고**(업무일지 바로 아래 — 처음엔 촬영 › 신상 관리 아래였는데 11/1 세원: "재고 카테고리 일로 옮겨야 할 듯, 업무일지 밑으로". `StockPage.jsx`, 계산은 `lib/stock.js` 머리말). Claude API 호출 없음(비용 0) · 사진 저장 없음.
 
 - 저장: settings **`stock`** = `{nextpack:{at, file, rows:[{name,option,code,location,qty,avail,hold,cost,price,maker,supplyName}]}, rack:[{id,name,option,rack,qty,cost,memo,at}]}`.
   ⚠ **칸 이름을 바꾸지 말 것** — `poclo-cafe24/today_ship.py` 가 rack 의 name·option·qty, nextpack.rows 의 name·option·avail 을 읽어 카페24 오늘출발 분류·썸네일 배지를 맞춘다. 수량은 숫자, name 은 비우면 안 된다(첫 낱말을 꺼내다 멈춘다 — 화면이 막아 둠). 카페24 는 ERP 에서 안 건드린다.

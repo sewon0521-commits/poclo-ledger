@@ -38,7 +38,7 @@ import {
 } from "../lib/stock";
 
 /**
- * 촬영 › 재고 (lib/stock.js 머리말). 넥스트팩(이지어드민) + 사무실 렉을 상품별로 합쳐 본다. Claude API 호출 없음 · 사진 저장 없음.
+ * 일 › 재고 (lib/stock.js 머리말). 넥스트팩(이지어드민) + 사무실 렉을 상품별로 합쳐 본다. Claude API 호출 없음 · 사진 저장 없음.
  * 저장은 settings 'stock' 한 키 — 넥스트팩 넣기와 렉 고치기가 서로 안 지우게 서버 최신을 읽어 그 부분만 바꿔 쓴다(lib/saveQueue → changeKey).
  * 표를 Ctrl+V 하거나 파일을 놓으면 머리 줄을 보고 넥스트팩인지 렉인지 저절로 가른다.
  */
