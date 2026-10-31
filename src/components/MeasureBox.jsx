@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Ruler, Copy, Check, Pencil, Eraser, Wand2, X } from "lucide-react";
-import { MEASURE_CATS, fixMeasure, catOf, partsOf, isSame, partName, spreadSame, blankMeasure, sizeNames, filled, measureText, parseMeasure, WEAR, wearLines } from "../lib/measure";
+import { MEASURE_CATS, SET_PIECES, fixMeasure, catOf, partsOf, piecesOf, pieceParts, toSet, renamePiece, isSame, partName, spreadSame, blankMeasure, sizeNames, filled, measureText, parseMeasure, parseSet, WEAR, wearLines } from "../lib/measure";
 import { dayKey } from "../lib/journal";
 import { Sheet, SheetHead, Photo } from "./ShootBits";
 
@@ -39,6 +39,10 @@ export function MeasureBox({ x, onChange, big = false }) {
   const cat = catOf(m.cat);
   const sizes = m.sizes?.length ? m.sizes : ["FREE"];
   const parts = partsOf(m);
+  const isSet = m.cat === "set";
+  // 세트 칸 이름은 '상의 어깨' — 칸 위에는 옷 이름 없이 '어깨' 만
+  const partLabel = (p) => (isSet ? p.split(" ").slice(1).join(" ") : p);
+  const read = (text, into) => (isSet ? parseSet(text, { ...m, sizes }, into) : parseMeasure(text, { ...m, sizes }));
   // 모든 사이즈 같은 값(신발 굽높이처럼) — 한 줄만 재고 나머지 사이즈에도 같은 값
   const same = sizes.length > 1 && isSame(m);
   const rowSizes = same ? sizes.slice(0, 1) : sizes;
@@ -94,7 +98,7 @@ export function MeasureBox({ x, onChange, big = false }) {
           // 표·글을 통째로 붙이면 칸마다 (숫자 하나면 그 칸에 그대로)
           const t = e.clipboardData?.getData("text/plain") || "";
           if (!/[\n\t]|[가-힣]/.test(t) && (t.match(/\d+(?:\.\d+)?/g) || []).length < 2) return;
-          if (merge(parseMeasure(t, { ...m, sizes }))) e.preventDefault();
+          if (merge(read(t, isSet ? p.split(" ")[0] : null))) e.preventDefault();
         }}
         inputMode="decimal"
         enterKeyHint={order.indexOf(key) === order.length - 1 ? "done" : "next"}
@@ -108,6 +112,45 @@ export function MeasureBox({ x, onChange, big = false }) {
       />
     );
   };
+  const table = (list) =>
+    rowSizes.length === 1 ? (
+      <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 sm:grid-cols-6">
+        {list.map((p) => (
+          <label key={p} className="block text-center">
+            <span className="mb-0.5 block text-xs font-medium text-stone-500">{partLabel(p)}</span>
+            {cell(sizes[0], p)}
+          </label>
+        ))}
+        {same && <p className="col-span-full text-[11px] text-stone-400">{sizes.join(" · ")} 모두 이 값으로 들어가요</p>}
+      </div>
+    ) : (
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-stone-500">
+              <th className="w-14 pb-1 text-left font-medium" />
+              {sizes.map((s) => (
+                <th key={s} className="pb-1 font-semibold text-stone-700">
+                  {s}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((p) => (
+              <tr key={p}>
+                <td className="pr-2 text-xs font-medium whitespace-nowrap text-stone-500">{partLabel(p)}</td>
+                {sizes.map((s) => (
+                  <td key={s} className="min-w-16 p-0.5">
+                    {cell(s, p)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
 
   return (
     <div ref={box} className="space-y-2.5 rounded-xl border border-stone-200 p-3">
@@ -124,7 +167,7 @@ export function MeasureBox({ x, onChange, big = false }) {
               key={c.k}
               type="button"
               title={c.hint}
-              onClick={() => update({ cat: c.k })}
+              onClick={() => cat.k !== c.k && update(c.k === "set" ? toSet(m) : { cat: c.k })}
               aria-pressed={cat.k === c.k}
               className={"rounded-full border px-2.5 py-1 text-xs font-medium " + (cat.k === c.k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600")}
             >
@@ -208,44 +251,25 @@ export function MeasureBox({ x, onChange, big = false }) {
         </div>
       )}
 
-      {rowSizes.length === 1 ? (
-        <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 sm:grid-cols-6">
-          {parts.map((p) => (
-            <label key={p} className="block text-center">
-              <span className="mb-0.5 block text-xs font-medium text-stone-500">{p}</span>
-              {cell(sizes[0], p)}
-            </label>
-          ))}
-          {same && <p className="col-span-full text-[11px] text-stone-400">{sizes.join(" · ")} 모두 이 값으로 들어가요</p>}
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-stone-500">
-                <th className="w-14 pb-1 text-left font-medium" />
-                {sizes.map((s) => (
-                  <th key={s} className="pb-1 font-semibold text-stone-700">
-                    {s}
-                  </th>
+      {isSet
+        ? piecesOf(m).map((name, i) => (
+            <div key={i} className={"space-y-1.5" + (i ? " border-t border-stone-100 pt-2.5" : "")}>
+              <select
+                value={name}
+                onChange={(e) => update(renamePiece(m, i, e.target.value))}
+                aria-label={`${i + 1}번째 옷`}
+                className="rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs font-semibold text-stone-800 outline-none focus:border-rose-400"
+              >
+                {SET_PIECES.map((p) => (
+                  <option key={p.name} value={p.name} disabled={p.name !== name && piecesOf(m).includes(p.name)}>
+                    {p.name}
+                  </option>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {parts.map((p) => (
-                <tr key={p}>
-                  <td className="pr-2 text-xs font-medium whitespace-nowrap text-stone-500">{p}</td>
-                  {sizes.map((s) => (
-                    <td key={s} className="min-w-16 p-0.5">
-                      {cell(s, p)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </select>
+              {table(pieceParts(name))}
+            </div>
+          ))
+        : table(parts)}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <button
@@ -259,7 +283,7 @@ export function MeasureBox({ x, onChange, big = false }) {
         {x.sizeText && (
           <button
             type="button"
-            onClick={() => merge(parseMeasure(x.sizeText, { ...m, sizes })) || setCopied("거래처 실측에서 이 표에 맞는 숫자를 못 찾았어요")}
+            onClick={() => merge(read(x.sizeText)) || setCopied("거래처 실측에서 이 표에 맞는 숫자를 못 찾았어요")}
             className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600 hover:border-rose-300"
           >
             <Wand2 size={13} /> 거래처 실측으로 채우기

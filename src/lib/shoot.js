@@ -240,6 +240,7 @@ export function wearPart(x) {
   if (k === "하의") return "하의";
   const g = guessMeasureCat(x);
   if (g === "shoes") return "신발";
+  if (g === "set") return "원피스·세트";
   if (g === "etc" || k === "신발·잡화") return BAG.test(t) ? "가방" : "기타";
   if (g === "sleeveless") return "이너";
   if (g === "bottom" || g === "skirt") return "하의";
