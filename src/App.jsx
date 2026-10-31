@@ -28,6 +28,7 @@ import PnlPage from "./components/PnlPage";
 import PendingPage from "./components/PendingPage";
 import PricingPage from "./components/PricingPage";
 import SoOrderPage from "./components/SoOrderPage";
+import StockPage from "./components/StockPage";
 import CsPage from "./components/CsPage";
 import MusicPage from "./components/MusicPage";
 import ContractPage from "./components/ContractPage";
@@ -562,6 +563,8 @@ pg === "home" ? (
                 <PartTimePage online={L.mode === "remote" && !!L.session} onPage={go} />
               ) : pg === "soOrder" ? (
                 <SoOrderPage tx={tx} vendors={vendors} pricing={S.pricing} online={L.mode === "remote" && !!L.session} />
+              ) : pg === "stock" ? (
+                <StockPage pricing={S.pricing} stats={S.productStats} online={L.mode === "remote" && !!L.session} />
               ) : pg === "cs" ? (
                 <CsPage online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
               ) : pg === "pending" ? (
@@ -619,7 +622,7 @@ pg === "home" ? (
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 */}
-        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "stories" || page === "soOrder" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : page === "home" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "stories" || page === "soOrder" || page === "stock" || page === "cs" ? "max-w-6xl" : page === "events" ? "max-w-5xl" : page === "home" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
           <div className="mb-4 flex items-center justify-end gap-2">
             {wide && (
               <button

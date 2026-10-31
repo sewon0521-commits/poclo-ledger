@@ -31,6 +31,7 @@ import {
   CalendarCheck,
   Users,
   CircleDashed,
+  Boxes,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -133,6 +134,8 @@ export const SECTIONS = [
         group: "기본",
         items: [
           { key: "shoot", label: "신상 관리", icon: Camera },
+          // 10/31 세원: "재고가 넥스트팩과 사무실 렉 두 곳에 나뉘어 한눈에 안 보인다 — 자리는 신상 관리 근처로" (components/StockPage.jsx)
+          { key: "stock", label: "재고", icon: Boxes },
           // 10/29 세원: "신상 관리에서 상품, 코디 창 나누기로 보고 싶은데" — 코디를 따로 열 수 있게(같은 화면은 두 칸에 못 열어서) → "신상 관리에서 코디 없애 줘"(신상 관리 = 상품만)
           { key: "shootCodis", label: "코디", icon: Layers },
           { key: "shootRefs", label: "촬영 레퍼런스", icon: Images },

@@ -29,9 +29,9 @@ export function decodeText(buffer) {
 }
 
 /** 엑셀 파일 → CSV 텍스트. 시트가 여럿이면 줄이 제일 많은 것을 고른다. */
-async function excelToCsv(buffer) {
+async function excelToCsv(buffer, opts) {
   const XLSX = await import("xlsx");
-  const wb = XLSX.read(buffer, { type: "array" });
+  const wb = XLSX.read(buffer, { type: "array", ...opts });
   let best = "";
   for (const name of wb.SheetNames) {
     const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
@@ -43,14 +43,15 @@ async function excelToCsv(buffer) {
 /**
  * 파일 하나를 CSV 텍스트로. CSV·TSV·엑셀 다 받는다.
  * 못 읽으면 빈 문자열을 준다 — 부르는 쪽이 이미 "못 읽었어요"를 띄운다.
+ * opts.raw — 칸 글자를 그대로 둔다. 이지어드민 .xls 는 실제로 HTML 표라 그냥 읽으면 '3-4'·'12/5' 가 날짜로, '007' 이 7 로 바뀐다 (재고 화면, 10/31).
  */
-export async function fileToCsv(file) {
+export async function fileToCsv(file, opts) {
   const buffer = await file.arrayBuffer();
   const head = new Uint8Array(buffer.slice(0, 4));
   const name = (file.name || "").toLowerCase();
   if (looksLikeZip(head) || looksLikeOle(head) || name.endsWith(".xlsx") || name.endsWith(".xls")) {
     try {
-      return await excelToCsv(buffer);
+      return await excelToCsv(buffer, opts);
     } catch {
       return "";
     }
