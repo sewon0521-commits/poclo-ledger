@@ -18,6 +18,8 @@ export const STOCK_KEY = "stock";
 
 const squash = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
 export const stripTags = (s) => String(s || "").trim().replace(/^(\[[^\]]*\]\s*)+/, "").trim();
+/** 화면에 보일 이름 — [태그]와 (3color) 를 뗀다 */
+export const displayName = (s) => stripTags(s).replace(/\s*\((\d+\s*colou?rs?|one\s*colou?r|\d+\s*컬러|원컬러)\)/gi, "").trim();
 /** 묶는 이름 = [태그]를 뗀 첫 낱말 */
 export const groupKey = (name) => stripTags(name).split(/\s+/)[0] || "";
 /** '[블랙-L]' → '블랙-L' */
@@ -246,7 +248,7 @@ export function buildGroups(stock, pricing) {
 
 /** 맨 위 요약 — 전체 장수 · 묶인 돈 · 곳별 */
 export function stockTotals(groups) {
-  const t = { products: groups.length, lines: 0, pieces: 0, money: 0, noCost: 0, heldLines: 0, nextpack: { pieces: 0, avail: 0, money: 0, noCost: 0 }, rack: { pieces: 0, money: 0, noCost: 0 } };
+  const t = { products: groups.length, lines: 0, pieces: 0, money: 0, noCost: 0, heldLines: 0, heldPieces: 0, nextpack: { pieces: 0, avail: 0, money: 0, noCost: 0 }, rack: { pieces: 0, money: 0, noCost: 0 } };
   for (const g of groups)
     for (const l of g.lines) {
       t.lines++;
@@ -254,6 +256,7 @@ export function stockTotals(groups) {
       t.money += l.money;
       t.noCost += l.noCost;
       if (l.held > 0) t.heldLines++;
+      t.heldPieces += l.held;
       t.nextpack.pieces += l.npQty;
       t.nextpack.avail += l.npAvail;
       t.nextpack.money += l.np?.money || 0;

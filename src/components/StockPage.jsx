@@ -14,6 +14,7 @@ import {
   cleanOption,
   costFinder,
   diffNextpack,
+  displayName,
   groupKey,
   guessRackColumns,
   knownNames,
@@ -164,73 +165,118 @@ const CHIP_OFF = "border-stone-200 bg-white text-stone-600 hover:border-stone-40
 
 // ---------------------------------------------------------------- 재고 보기
 
-// 표 칸 — 좁은 칸(폰·옆 창)에서는 한 줄씩 쌓는다
-const VIEW_GRID = "@2xl:grid-cols-[minmax(0,1.5fr)_6.5rem_minmax(0,1.1fr)_3.5rem_6rem_6.5rem]";
+// 10/31 세원: "좀 헷갈리는데 한눈에 보이게 좀 못하나?" — 상품 줄 아래 옵션 줄이 같은 숫자로 또 나오고(대부분 옵션이 하나), '5 / 5' 표기가 뜻이 바로 안 들어왔다.
+// → 상품 하나 = 한 줄. 옵션은 그 줄 안의 칩(회색 넥스트팩 · 빨강 사무실 · 노랑 주문에 묶임), 위치·원가는 줄을 누르면 펼쳐진다.
+// 좁은 칸(폰·옆 창)에서는 왼쪽 이름·칩 / 오른쪽 장수·돈
+const VIEW_GRID = "@2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_4.5rem_4.5rem_3.5rem_6.5rem]";
+const TONE = {
+  nextpack: "bg-stone-100 text-stone-700",
+  rack: "bg-rose-50 text-rose-800",
+  held: "bg-amber-100 text-amber-900",
+};
+const Pill = ({ tone, children }) => <span className={"inline-flex max-w-full flex-wrap items-baseline gap-x-1 rounded-md px-1.5 py-0.5 text-xs " + TONE[tone]}>{children}</span>;
+const NoCost = ({ n }) => <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-amber-800">원가 없음{n > 1 ? ` ${n}줄` : ""}</span>;
 
-const NoCost = () => <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-amber-800">원가 없음</span>;
-
-function RackCell({ line }) {
-  if (!line.rack.length) return <span className="text-stone-300">—</span>;
+/** 옵션별 수량 칩 — 칩 하나 = 한 곳에 있는 그 옵션 */
+function OptionChips({ lines }) {
   return (
-    <span className="flex flex-wrap gap-x-2 gap-y-0.5">
-      {line.rack.map((x) => (
-        <span key={x.id} title={x.memo || undefined} className="tabular-nums">
-          <span className="text-stone-500">{x.rack || "위치 없음"}</span> <b className="font-semibold text-stone-800">{x.qty}</b>
-          {x.memo && <span className="ml-1 text-[11px] text-stone-400">{x.memo}</span>}
-        </span>
-      ))}
+    <span className="flex flex-wrap gap-1">
+      {lines.flatMap((l) => {
+        const name = l.option || "옵션 없음";
+        const chips = l.rack.map((x) => (
+          <Pill key={x.id} tone="rack">
+            {name} <b className="font-semibold">{x.qty}</b>
+            {x.rack && <span className="opacity-70">{x.rack}</span>}
+          </Pill>
+        ));
+        if (l.np)
+          chips.unshift(
+            <Pill key={`${l.key}|np`} tone={l.held > 0 ? "held" : "nextpack"}>
+              {name} <b className="font-semibold">{l.npQty}</b>
+              {l.held > 0 && <span>묶임 {l.held}</span>}
+            </Pill>,
+          );
+        return chips;
+      })}
     </span>
   );
 }
 
-function Line({ line, onCost }) {
-  const needCost = line.rack.filter((x) => x.qty > 0 && !(x.useCost > 0));
-  return (
-    <div className={"grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-3 py-2 text-sm @2xl:items-center " + VIEW_GRID}>
-      <div className="min-w-0 font-medium break-words text-stone-800 @2xl:pl-6">{line.option || <span className="text-stone-400">옵션 없음</span>}</div>
-      <div className="text-right text-stone-800 tabular-nums @2xl:hidden">
-        <b>{line.pieces}장</b>
-        {line.money > 0 && <span className="ml-1.5 text-stone-500">₩{won(line.money)}</span>}
-      </div>
-      <div className={"col-span-2 text-xs @2xl:col-span-1 @2xl:text-sm " + (line.np ? "" : "hidden @2xl:block")}>
-        {line.np ? (
-          <span className="flex flex-wrap items-center gap-x-1.5 tabular-nums">
-            <span className="text-stone-400 @2xl:hidden">넥스트팩 가용/정상</span>
-            <b className="font-semibold text-stone-800">
-              {line.npAvail} / {line.npQty}
-            </b>
-            {line.np.locs.length > 0 && <span className="text-[11px] text-stone-400">{line.np.locs.join(" · ")}</span>}
-            {line.held > 0 && <span className="rounded bg-amber-100 px-1 text-[11px] font-medium whitespace-nowrap text-amber-800">묶임 {line.held}</span>}
+function Money({ g }) {
+  if (g.money > 0)
+    return (
+      <>
+        <span className="font-semibold text-stone-900">₩{won(g.money)}</span>
+        {g.noCost > 0 && (
+          <span className="mt-0.5 block">
+            <NoCost n={g.noCost} />
           </span>
-        ) : (
-          <span className="text-stone-300">—</span>
         )}
-      </div>
-      <div className={"col-span-2 text-xs @2xl:col-span-1 @2xl:text-sm " + (line.rack.length ? "" : "hidden @2xl:block")}>
-        <span className="flex flex-wrap gap-x-1.5">
-          <span className="text-stone-400 @2xl:hidden">사무실</span>
-          <RackCell line={line} />
-        </span>
-      </div>
-      <div className="hidden text-right font-semibold text-stone-800 tabular-nums @2xl:block">{line.pieces}</div>
-      <div className="col-span-2 flex flex-wrap items-center gap-1.5 text-xs text-stone-600 tabular-nums @2xl:col-span-1 @2xl:justify-end @2xl:text-sm">
-        <span className="text-stone-400 @2xl:hidden">원가</span>
-        {line.cost > 0 && <span>{won(line.cost)}</span>}
-        {line.noCost > 0 && needCost.length === 0 && <NoCost />}
-        {needCost.length > 0 && (
-          <CommitInput
-            value=""
-            inputMode="numeric"
-            placeholder="원가 입력"
-            aria-label="사무실 줄 원가 직접 입력"
-            onCommit={(t) => onCost(needCost.map((x) => x.id), toNum(t))}
-            className="w-20 rounded-md border border-amber-300 bg-amber-50/60 px-1.5 py-0.5 text-right text-xs outline-none focus:border-rose-600"
+      </>
+    );
+  return g.noCost > 0 ? <NoCost /> : <span className="text-stone-300">—</span>;
+}
+
+function DetailRow({ option, where, tone, qty, note, cost, money, input }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-sm @2xl:pl-8">
+      <span className="font-medium break-words text-stone-800">{option}</span>
+      <Pill tone={tone}>{where}</Pill>
+      <b className="font-semibold text-stone-800 tabular-nums">{qty}장</b>
+      {note}
+      <span className="ml-auto flex items-center gap-2 text-xs text-stone-500 tabular-nums">
+        {input || (cost > 0 ? `장당 ${won(cost)}` : <NoCost />)}
+        {money > 0 && <span className="text-sm font-medium text-stone-800">₩{won(money)}</span>}
+      </span>
+    </div>
+  );
+}
+
+/** 줄을 누르면 — 곳마다 위치·장수·원가·묶인 돈. 사무실 줄 원가가 없으면 여기서 적는다 */
+function Details({ group, onCost }) {
+  return (
+    <div className="divide-y divide-stone-100 border-t border-stone-100 bg-stone-50/60">
+      {group.lines.flatMap((l) => {
+        const name = l.option || "옵션 없음";
+        const rows = l.rack.map((x) => (
+          <DetailRow
+            key={x.id}
+            option={name}
+            where={`사무실 ${x.rack || "위치 없음"}`}
+            tone="rack"
+            qty={x.qty}
+            note={x.memo ? <span className="text-xs text-stone-400">{x.memo}</span> : null}
+            cost={x.useCost}
+            money={x.money}
+            input={
+              x.qty > 0 && !(x.useCost > 0) ? (
+                <CommitInput
+                  value=""
+                  inputMode="numeric"
+                  placeholder="원가 입력"
+                  aria-label="사무실 줄 원가 직접 입력"
+                  onCommit={(t) => onCost([x.id], toNum(t))}
+                  className="w-24 rounded-md border border-amber-300 bg-amber-50/60 px-1.5 py-1 text-right text-xs outline-none focus:border-rose-600"
+                />
+              ) : null
+            }
           />
-        )}
-      </div>
-      <div className="hidden text-right tabular-nums @2xl:block">
-        {line.money > 0 ? <span className="text-stone-800">₩{won(line.money)}</span> : <span className="text-stone-300">—</span>}
-      </div>
+        ));
+        if (l.np)
+          rows.unshift(
+            <DetailRow
+              key={`${l.key}|np`}
+              option={name}
+              where={`넥스트팩${l.np.locs.length ? ` ${l.np.locs.join(" · ")}` : ""}`}
+              tone="nextpack"
+              qty={l.npQty}
+              note={l.held > 0 ? <Pill tone="held">주문에 묶임 {l.held} · 바로 보낼 수 있는 건 {l.npAvail}장</Pill> : null}
+              cost={l.np.cost}
+              money={l.np.money}
+            />,
+          );
+        return rows;
+      })}
     </div>
   );
 }
@@ -241,16 +287,16 @@ function ViewTab({ groups, totals, onCost, goAdd }) {
   const [noCost, setNoCost] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("money");
-  const [closed, setClosed] = useState(() => new Set());
+  const [opened, setOpened] = useState(() => new Set());
   const list = useMemo(() => viewGroups(groups, { place, q, held, noCost, sort }), [groups, place, q, held, noCost, sort]);
   const toggle = (k) =>
-    setClosed((s) => {
+    setOpened((s) => {
       const n = new Set(s);
       if (n.has(k)) n.delete(k);
       else n.add(k);
       return n;
     });
-  const allClosed = list.length > 0 && list.every((g) => closed.has(g.key));
+  const allOpen = list.length > 0 && list.every((g) => opened.has(g.key));
 
   if (!groups.length)
     return (
@@ -268,7 +314,7 @@ function ViewTab({ groups, totals, onCost, goAdd }) {
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <div className="flex shrink-0 gap-0.5 rounded-full bg-stone-100 p-0.5">
           {[
             ["all", "전체"],
@@ -289,68 +335,66 @@ function ViewTab({ groups, totals, onCost, goAdd }) {
           </button>
         )}
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품·옵션·렉·제조사 찾기" aria-label="재고 찾기" className={FIELD + " w-full min-w-0 py-1.5 @2xl:w-56 @2xl:flex-none"} />
-        <span className="ml-auto flex items-center gap-2 text-xs text-stone-500">
-          <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="정렬" className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 outline-none focus:border-rose-600">
-            <option value="money">묶인 돈 많은 순</option>
-            <option value="pieces">장수 많은 순</option>
-            <option value="name">이름 순</option>
-          </select>
-          <button type="button" onClick={() => setClosed(allClosed ? new Set() : new Set(list.map((g) => g.key)))} className="whitespace-nowrap underline decoration-dotted hover:text-stone-800">
-            {allClosed ? "전부 펴기" : "전부 접기"}
-          </button>
-        </span>
+        <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="정렬" className="ml-auto rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs text-stone-500 outline-none focus:border-rose-600">
+          <option value="money">묶인 돈 많은 순</option>
+          <option value="pieces">장수 많은 순</option>
+          <option value="name">이름 순</option>
+        </select>
       </div>
 
       {list.length === 0 ? (
         <Empty title="맞는 재고가 없어요" hint="찾는 말이나 거르기를 바꿔 보세요." />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
-          <div className={"hidden gap-x-3 border-b border-stone-200 bg-stone-50 px-3 py-2 text-xs font-medium text-stone-500 @2xl:grid " + VIEW_GRID}>
-            <div>상품 · 옵션</div>
-            <div>넥스트팩 가용/정상</div>
-            <div>사무실 렉·수량</div>
-            <div className="text-right">합계</div>
-            <div className="text-right">원가</div>
-            <div className="text-right">묶인 돈</div>
+        <>
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+            <Pill tone="nextpack">넥스트팩</Pill>
+            <Pill tone="rack">사무실</Pill>
+            <Pill tone="held">주문에 묶임</Pill>
+            <span className="ml-1 text-stone-400">상품을 누르면 위치·원가가 보여요</span>
+            <button type="button" onClick={() => setOpened(allOpen ? new Set() : new Set(list.map((g) => g.key)))} className="ml-auto whitespace-nowrap underline decoration-dotted hover:text-stone-800">
+              {allOpen ? "전부 접기" : "전부 펴기"}
+            </button>
           </div>
-          <div className="divide-y divide-stone-200">
-            {list.map((g) => {
-              const open = !closed.has(g.key);
-              return (
-                <div key={g.key}>
-                  <button type="button" onClick={() => toggle(g.key)} aria-expanded={open} className={"grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 bg-stone-50/70 px-3 py-2 text-left text-sm hover:bg-stone-100/70 @2xl:items-center " + VIEW_GRID}>
-                    <span className="flex min-w-0 items-start gap-1 font-semibold text-stone-900">
-                      <span className="mt-0.5 shrink-0 text-stone-400">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
-                      <span className="min-w-0 break-words">
-                        {g.name}
-                        <span className="ml-1.5 text-xs font-normal text-stone-400">{g.lines.length}줄</span>
+          <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+            <div className={"hidden gap-x-3 border-b border-stone-200 bg-stone-50 px-3 py-2 text-xs font-medium text-stone-500 @2xl:grid " + VIEW_GRID}>
+              <div className="pl-5">상품</div>
+              <div>옵션별 수량</div>
+              <div className="text-right">넥스트팩</div>
+              <div className="text-right">사무실</div>
+              <div className="text-right">합계</div>
+              <div className="text-right">묶인 돈</div>
+            </div>
+            <div className="divide-y divide-stone-200">
+              {list.map((g) => {
+                const open = noCost || opened.has(g.key);
+                return (
+                  <div key={g.key}>
+                    <button type="button" onClick={() => toggle(g.key)} aria-expanded={open} className={"grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-3 py-2.5 text-left text-sm hover:bg-stone-50 @2xl:items-center " + VIEW_GRID}>
+                      <span className="flex min-w-0 items-start gap-1 font-semibold text-stone-900">
+                        <span className="mt-0.5 shrink-0 text-stone-300">{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                        <span className="min-w-0 break-words">{displayName(g.name)}</span>
                       </span>
-                    </span>
-                    <span className="text-right text-stone-800 tabular-nums @2xl:hidden">
-                      <b>{g.pieces}장</b>
-                      {g.money > 0 && <span className="ml-1.5 text-stone-500">₩{won(g.money)}</span>}
-                    </span>
-                    <span className="hidden text-stone-600 tabular-nums @2xl:block">{g.npQty || g.npAvail ? `${g.npAvail} / ${g.npQty}` : "—"}</span>
-                    <span className="hidden text-stone-600 tabular-nums @2xl:block">{g.rackQty || "—"}</span>
-                    <span className="hidden text-right font-semibold text-stone-900 tabular-nums @2xl:block">{g.pieces}</span>
-                    <span className="hidden @2xl:block" />
-                    <span className="hidden text-right font-semibold text-stone-900 tabular-nums @2xl:block">
-                      {g.money > 0 ? `₩${won(g.money)}` : "—"}
-                    </span>
-                    {g.noCost > 0 && <span className="col-span-full mt-0.5 text-right text-[11px] font-medium text-amber-700">원가 없는 {g.noCost}줄 빠짐</span>}
-                  </button>
-                  {open && (
-                    <div className="divide-y divide-stone-100 border-t border-stone-100">
-                      {g.lines.map((l) => (
-                        <Line key={l.key} line={l} onCost={onCost} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                      <span className="row-span-2 text-right text-xs tabular-nums @2xl:hidden">
+                        <b className="block text-base font-bold text-stone-900">{g.pieces}장</b>
+                        <Money g={g} />
+                      </span>
+                      <span className="min-w-0 pl-5 @2xl:pl-0">
+                        <OptionChips lines={g.lines} />
+                      </span>
+                      <span className="hidden text-right text-stone-600 tabular-nums @2xl:block">{g.npQty || <span className="text-stone-300">—</span>}</span>
+                      <span className="hidden text-right tabular-nums @2xl:block">{g.rackQty ? <b className="font-semibold text-rose-700">{g.rackQty}</b> : <span className="text-stone-300">—</span>}</span>
+                      <span className="hidden text-right font-bold text-stone-900 tabular-nums @2xl:block">{g.pieces}</span>
+                      <span className="hidden text-right tabular-nums @2xl:block">
+                        <Money g={g} />
+                      </span>
+                    </button>
+                    {open && <Details group={g} onCost={onCost} />}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </>
   );
@@ -871,9 +915,9 @@ export default function StockPage({ online, pricing, stats }) {
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2 @2xl:grid-cols-4">
-        <Kpi label="전체 장수" value={`${totals.pieces}장`} sub={`상품 ${totals.products}개 · ${totals.lines}줄`} />
-        <Kpi label="묶인 돈 (원가×수량)" value={`₩${won(totals.money)}`} tone="rose" sub={totals.noCost > 0 ? <span className="font-medium text-amber-700">원가 없는 {totals.noCost}줄 빠짐</span> : "원가 전부 있음"} />
-        <Kpi label="넥스트팩" value={`${totals.nextpack.pieces}장`} sub={`₩${won(totals.nextpack.money)} · 가용 ${totals.nextpack.avail}장`} />
+        <Kpi label="전체" value={`${totals.pieces}장`} sub={`상품 ${totals.products}개`} />
+        <Kpi label="묶인 돈" value={`₩${won(totals.money)}`} tone="rose" sub={totals.noCost > 0 ? <span className="font-medium text-amber-700">원가 없는 {totals.noCost}줄 빠짐</span> : "원가 × 수량"} />
+        <Kpi label="넥스트팩" value={`${totals.nextpack.pieces}장`} sub={`₩${won(totals.nextpack.money)}${totals.heldPieces > 0 ? ` · 주문에 묶임 ${totals.heldPieces}장` : ""}`} />
         <Kpi label="사무실" value={`${totals.rack.pieces}장`} sub={`₩${won(totals.rack.money)}${totals.rack.noCost > 0 ? ` · ${totals.rack.noCost}줄 빠짐` : ""}`} />
       </div>
 
