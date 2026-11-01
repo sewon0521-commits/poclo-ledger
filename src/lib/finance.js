@@ -71,8 +71,9 @@ const at = (h, ...names) => {
   return -1;
 };
 const toDay = (s) => {
-  const m = String(s ?? "").match(/(20\d{2})[.\-/]?\s*(\d{1,2})[.\-/]?\s*(\d{1,2})/);
-  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : "";
+  const m = String(s ?? "").match(/(20\d{2})[.\-/]?\s*(\d{1,2})[.\-/]?\s*(\d{1,2})/) || String(s ?? "").match(/^\s*()(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})\s*$/); // 명세서는 '26.08.01'
+  if (!m) return "";
+  return m.length === 5 ? `20${m[2]}-${m[3].padStart(2, "0")}-${m[4].padStart(2, "0")}` : `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
 };
 const toTime = (s) => (String(s ?? "").match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/) || [""])[0];
 const toNum = (s) => {
@@ -155,6 +156,13 @@ function readCard(table, h, hi, kind) {
     if (canceled) row.cancel = true;
     rows.push(row);
   }
+  // 해외 승인이지만 청구가 안 되는 것 — 승인 뒤 바로 취소된 짝, 1달러 미만 카드 확인 결제($0.66 등). 해외매입내역에 안 나와서 '원화 대기'로 남기면 안 된다
+  const ids = new Set(rows.map((r) => r.id));
+  for (const r of rows) {
+    if (!r.pend) continue;
+    const pair = ids.has(r.id.replace(/\|[+-]$/, r.usd < 0 ? "|+" : "|-"));
+    if (pair || Math.abs(r.usd) < 1) r.pend = false;
+  }
   return { kind: "card", label: kind === "buy" ? "국민카드 국내매입내역" : kind === "use" ? "국민카드 이용내역" : "국민카드 승인내역", rows };
 }
 
@@ -186,6 +194,34 @@ function readOverseas(table, h, hi) {
   return { kind: "overseas", label: "국민카드 해외매입내역", rows };
 }
 
+/**
+ * 국민카드 이용대금명세서 — 낸 돈은 '이번달 결제금액'의 원금 + 수수료(리볼빙).
+ * 'KB ALL 해외할인' 줄은 날짜가 없고 원금에 이미 빠져 있어서 안 읽는다. 합계 줄도 날짜가 없다.
+ */
+function readStatement(table, h, hi) {
+  const sub = table.slice(hi + 1, hi + 4).map(headOf).find((r) => r.includes("원금")) || [];
+  const c = { day: at(h, "이용일자", "이용일"), card: at(h, "이용카드"), kind: at(h, "구분"), name: at(h, "이용가맹점"), amt: at(h, "이용금액"), paid: sub.indexOf("원금"), fee: sub.indexOf("수수료") };
+  const seen = {};
+  const rows = [];
+  for (const r of table.slice(hi + 1)) {
+    const d = toDay(r[c.day]);
+    if (!d) continue;
+    const paid = c.paid >= 0 ? toNum(r[c.paid]) : 0;
+    const fee = c.fee >= 0 ? toNum(r[c.fee]) : 0;
+    const total = paid || fee ? paid + fee : toNum(r[c.amt]);
+    if (!total) continue;
+    const src = last4(r[c.card]) || "카드";
+    const name = clean(r[c.name]) || "(이름 없음)";
+    const base = `s|${src}|${d}|${name}|${total}`;
+    seen[base] = (seen[base] || 0) + 1;
+    const row = { id: `${base}|${seen[base]}`, s: "card", src, d, t: "", name, sub: clean(r[c.kind]), amt: -total };
+    if (fee) row.fee = fee;
+    if (total < 0) row.cancel = true;
+    rows.push(row);
+  }
+  return { kind: "card", label: "국민카드 이용대금명세서", rows };
+}
+
 /** 머리 줄을 보고 어느 파일인지 가려 읽는다 → {kind, label, rows, accounts} 또는 {error} */
 export function parseFinance(table) {
   if (!table?.length) return { error: "표를 읽지 못했어요. .xls · .xlsx · .csv 파일인지 확인해 주세요." };
@@ -197,6 +233,8 @@ export function parseFinance(table) {
   if (hi >= 0) return readCard(table, headOf(table[hi]), hi, "buy");
   hi = whichRow(table, (h) => h.includes("승인일") && h.includes("승인금액"));
   if (hi >= 0) return readCard(table, headOf(table[hi]), hi, "approve");
+  hi = whichRow(table, (h) => h.includes("이용가맹점") && h.includes("이번달결제금액"));
+  if (hi >= 0) return readStatement(table, headOf(table[hi]), hi);
   hi = whichRow(table, (h) => at(h, "이용일", "이용일자") >= 0 && at(h, "이용금액", "결제금액", "이용원금") >= 0);
   if (hi >= 0) return readCard(table, headOf(table[hi]), hi, "use");
   if (whichRow(table, (h) => h.includes("결제일") && h.includes("청구합계")) >= 0) return { error: "카드 결제 요약이라 거래가 한 줄씩 없어요. 승인내역이나 국내매입내역을 넣어 주세요." };
@@ -264,6 +302,7 @@ export function classify(r, ctx) {
   if (rule) return { cat: rule.cat, by: rule.by === "ai" ? "ai" : "rule" };
   const isOut = r.amt < 0;
   const hit = (cat, by = "auto") => ({ cat, by });
+  if (r.usd && !r.amt && !r.pend) return hit("기타 경비"); // 청구 없는 해외 승인 — 0원이라 손익엔 영향 없고, 미분류로 남지 않게
   if (r.s === "bank") {
     if (CARD_MONEY.test(r.sub) || r.br === "KB카드" || /kb카드|kb체크|해외승인대금/i.test(r.name)) return hit("카드 대금");
     if (/보증료/.test(r.name)) return hit("이자·금융비용");
@@ -357,7 +396,7 @@ export function planImport(files, existing, ctx) {
       }
       const got = classify(row, ctx);
       // 통장의 카드값 줄은 볼 일이 없어서 확인된 채로 — '확인 전'이 짧아야 체크한다
-      const fresh = { ...row, ...got, ok: got.by === "auto" && got.cat === "카드 대금" };
+      const fresh = { ...row, ...got, ok: (got.by === "auto" && got.cat === "카드 대금") || (!!row.usd && !row.amt && !row.pend) };
       adds.push(fresh);
       pool.push(fresh);
       out.added++;

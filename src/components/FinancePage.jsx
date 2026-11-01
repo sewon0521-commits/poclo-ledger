@@ -241,7 +241,7 @@ function EmptyDrop({ busy, drag, onPick }) {
       <span className="font-semibold text-stone-900">국민은행 거래내역 · 국민카드 내역 넣기</span>
       <span className="text-sm text-stone-500">끌어다 놓거나 눌러서 고르기 · 여러 파일 한 번에 · .xls · .xlsx · .csv</span>
       <span className="mt-1 max-w-xl text-xs leading-relaxed text-stone-400">
-        카드는 승인내역이나 국내매입내역에 해외매입내역까지 넣어 주세요. 메타 광고비 같은 해외 결제는 승인내역에 달러만 있어서 해외매입내역이 있어야 원화로 잡혀요.
+        카드는 승인내역이나 국내매입내역에 해외매입내역까지 넣어 주세요. 메타 광고비 같은 해외 결제는 승인내역에 달러만 있어서 해외매입내역이 있어야 원화로 잡혀요. 이용대금명세서도 읽어요.
       </span>
     </button>
   );
@@ -297,6 +297,8 @@ const TxRow = memo(function TxRow({ r, onCat, onOk }) {
       <div className="text-right text-sm tabular-nums @3xl:order-none">
         {r.pend ? (
           <span className="text-xs font-medium text-amber-700">원화 대기</span>
+        ) : r.usd && !r.amt ? (
+          <span className="text-xs text-stone-400">청구 없음</span>
         ) : (
           <span className={skip ? "text-stone-400" : r.amt > 0 ? "font-semibold text-emerald-700" : "font-semibold text-stone-900"}>{flow(r.amt)}</span>
         )}
