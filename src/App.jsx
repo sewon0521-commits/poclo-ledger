@@ -567,7 +567,7 @@ pg === "home" ? (
               ) : pg === "stock" ? (
                 <StockPage pricing={S.pricing} stats={S.productStats} online={L.mode === "remote" && !!L.session} />
               ) : pg === "finance" ? (
-                <FinancePage vendors={vendors} online={L.mode === "remote" && !!L.session} />
+                <FinancePage vendors={vendors} salesRows={S.rows} salesConf={S.conf} onPage={go} online={L.mode === "remote" && !!L.session} />
               ) : pg === "cs" ? (
                 <CsPage online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
               ) : pg === "pending" ? (

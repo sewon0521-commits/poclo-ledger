@@ -26,6 +26,7 @@ import {
   patchRows,
   planImport,
   ruleKey,
+  salesByMonth,
   shiftDay,
   shiftMonth,
 } from "../lib/finance";
@@ -531,7 +532,7 @@ function CatBars({ title, items, total, color, onCat, note }) {
       <ul className="space-y-1">
         {items.map((x) => (
           <li key={x.k}>
-            <button type="button" onClick={() => onCat(x.k)} title={`${x.k} 거래 보기`} className="w-full rounded-md px-1 py-1 text-left hover:bg-stone-50">
+            <button type="button" onClick={() => (x.go ? x.go() : onCat(x.k))} title={x.go ? `${x.k} 화면 열기` : `${x.k} 거래 보기`} className="w-full rounded-md px-1 py-1 text-left hover:bg-stone-50">
               <span className="flex items-baseline justify-between gap-2 text-sm">
                 <span className="truncate text-stone-700">{x.k}</span>
                 <span className="shrink-0 font-semibold text-stone-900 tabular-nums">
@@ -549,23 +550,33 @@ function CatBars({ title, items, total, color, onCat, note }) {
   );
 }
 
-function PnlTab({ list, month, stats, onMonth, onCat }) {
+function PnlTab({ list, month, stats, onMonth, onCat, onPage }) {
+  const ledger = stats.sales;
   const pick = (type) =>
     Object.entries(stats.byCat)
-      .filter(([k, v]) => catType(k) === type && v)
+      .filter(([k, v]) => catType(k) === type && v && !(ledger && k === "매출 입금"))
       .map(([k, v]) => ({ k, v }))
       .sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  const mon = Number(month.slice(5));
+  const incomes = [...(ledger ? [{ k: "순매출 (매출 장부)", v: ledger.net, go: () => onPage("sales") }] : []), ...pick("income")];
+  const expenses = [...pick("expense"), ...(ledger?.fee ? [{ k: "결제 수수료 (매출 장부 계산)", v: ledger.fee, go: () => onPage("pnl") }] : [])].sort((a, b) => b.v - a.v);
+  // 통장 입금은 수수료가 빠지고 며칠 뒤에 들어와서 그 달 순매출과 다르다 — 비교만
+  const settleNote = !ledger
+    ? "이 달은 매출 장부가 없어서 통장 입금으로 봤어요."
+    : stats.bankRows
+      ? `통장에 들어온 정산은 ₩${won(stats.settled)}이에요. 순매출과의 차이 ${krw(ledger.net - stats.settled)}은 결제 수수료와 입금 날짜 차이예요. 손익에는 순매출만 넣어요.`
+      : "통장 내역을 넣으면 실제로 들어온 정산금과 비교해 보여 드려요.";
   return (
     <div className="space-y-3">
       {list.length > 0 && <MonthChart list={list} month={month} onMonth={onMonth} />}
       <div className="grid gap-3 @3xl:grid-cols-2">
-        <CatBars title={`${Number(month.slice(5))}월 어디에 썼나`} items={pick("expense")} total={stats.expense} color={OUT_COLOR} onCat={onCat} />
+        <CatBars title={`${mon}월 어디에 썼나`} items={expenses} total={stats.expense} color={OUT_COLOR} onCat={onCat} />
         <div className="space-y-3">
-          <CatBars title={`${Number(month.slice(5))}월 어디서 들어왔나`} items={pick("income")} total={stats.income} color={IN_COLOR} onCat={onCat} />
+          <CatBars title={`${mon}월 어디서 들어왔나`} items={incomes} total={stats.income} color={IN_COLOR} onCat={onCat} note={settleNote} />
           <CatBars title="손익에서 뺀 돈" items={pick("skip")} onCat={onCat} note="카드값은 카드 내역으로 세서 통장 출금은 뺐어요. 대출 원금·내 계좌 이동·대표·개인도 손익에 안 넣어요." />
         </div>
       </div>
-      <p className="text-center text-xs text-stone-400">통장·카드로 오간 돈 기준이에요. 카페24 매출 장부의 손익과는 들어온 날·반품 처리가 달라 숫자가 달라요.</p>
+      <p className="text-center text-xs leading-relaxed text-stone-400">수입은 매출 장부 순매출, 지출은 통장·카드로 실제 나간 돈이에요. 돈 › 손익은 상품 원가·가정값으로 계산해서 숫자가 달라요.</p>
     </div>
   );
 }
@@ -750,7 +761,7 @@ function RulesTab({ rules, index, month, monthRows, onRemoveRule, onClearMonth }
 
 const STAMP_NOTE = 8000;
 
-export default function FinancePage({ online, vendors }) {
+export default function FinancePage({ online, vendors, salesRows, salesConf, onPage }) {
   const { index, rules, data, loaded, msg, setMsg, changeMonth, changeIndex, changeRules } = useFinance(online);
   const [tab, setTabState] = useState(() => remember(TAB_KEY, "tx"));
   const [picked, setPicked] = useState(() => remember(MONTH_KEY, ""));
@@ -788,8 +799,9 @@ export default function FinancePage({ online, vendors }) {
   };
   const monthRows = useMemo(() => data[month] || [], [data, month]);
   const allRows = useMemo(() => months.flatMap((m) => data[m] || []), [months, data]);
-  const stats = useMemo(() => monthStats(monthRows), [monthRows]);
-  const chart = useMemo(() => months.slice(-12).map((m) => ({ m, ...monthStats(data[m] || []) })), [months, data]);
+  const sales = useMemo(() => salesByMonth(salesRows, salesConf), [salesRows, salesConf]);
+  const stats = useMemo(() => monthStats(monthRows, sales[month]), [monthRows, sales, month]);
+  const chart = useMemo(() => months.slice(-12).map((m) => ({ m, ...monthStats(data[m] || [], sales[m]) })), [months, data, sales]);
   const ctx = useMemo(() => makeCtx({ rules: rules.rules, vendors, subs }), [rules, vendors, subs]);
   const sources = useMemo(() => {
     const m = new Map();
@@ -1041,11 +1053,14 @@ export default function FinancePage({ online, vendors }) {
         <>
           {drag && <div className="mb-3 rounded-2xl border-2 border-dashed border-rose-400 bg-rose-50/60 py-6 text-center text-sm font-semibold text-rose-800">여기에 놓으면 읽어요</div>}
           <div className="mb-3 grid grid-cols-2 gap-2 @2xl:grid-cols-4">
-            <Kpi label={`${Number(month.slice(5))}월 수입`} value={krw(stats.income)} tone="emerald" />
-            <Kpi label={`${Number(month.slice(5))}월 지출`} value={krw(stats.expense)} />
+            <Kpi label={`${Number(month.slice(5))}월 수입`} value={krw(stats.income)} tone="emerald" sub={stats.sales ? "매출 장부 순매출" : "매출 장부 없음 · 통장 입금"} />
+            <Kpi label={`${Number(month.slice(5))}월 지출`} value={krw(stats.expense)} sub={stats.sales?.fee ? `결제 수수료 ₩${won(stats.sales.fee)} 포함` : "통장·카드"} />
             <Kpi label="이익" value={krw(stats.profit)} tone={stats.profit < 0 ? "rose" : undefined} sub="수입 − 지출" />
             <Kpi label="확인 전" value={`${stats.todo}건`} tone={stats.todo ? "amber" : "emerald"} sub={stats.none.n ? `미분류 ${stats.none.n}건 · 손익에서 빠짐` : "분류 끝"} />
           </div>
+          {!stats.bankRows && (
+            <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">이 달 통장 내역이 없어요. 거래처로 보낸 돈·택배비처럼 통장에서 나간 돈이 지출에 안 잡혀서 이익이 실제보다 커요.</p>
+          )}
           {stats.none.n > 0 && (
             <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 tabular-nums">
               미분류 {stats.none.n}건(출금 ₩{won(stats.none.out)} · 입금 ₩{won(stats.none.inn)})은 아직 손익에 안 들어갔어요.
@@ -1074,7 +1089,7 @@ export default function FinancePage({ online, vendors }) {
             </Tab>
           </div>
           {tab === "pnl" ? (
-            <PnlTab list={chart} month={month} stats={stats} onMonth={setMonth} onCat={showCat} />
+            <PnlTab list={chart} month={month} stats={stats} onMonth={setMonth} onCat={showCat} onPage={onPage} />
           ) : tab === "daily" ? (
             <DailyTab allRows={allRows} accounts={index.accounts} day={day} setDay={setDayPicked} />
           ) : tab === "rules" ? (

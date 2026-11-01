@@ -14,6 +14,7 @@
 // ⚠ 해외 결제(메타 광고비)는 승인내역에 달러만 있다 → 해외매입내역의 원화(결제원금+수수료)로 채운다. 채우기 전엔 손익에 안 들어가고 화면에 알린다.
 // ⚠ 같은 결제가 승인내역·국내매입내역에 둘 다 있다 → 끝 4자리 + 승인번호 + 부호로 하나로 본다. 매입 취소는 번호가 '43212827(30002659)' 꼴이라 괄호 안(원래 번호)을 쓴다.
 import { parseTable } from "./stock";
+import { DEFAULT_COSTS, dayPnl } from "./sales";
 
 export { parseTable };
 
@@ -443,11 +444,36 @@ export const askEstimate = (n) => Math.max(1, Math.ceil(((((900 + 45 * n) * 4 + 
 
 // ---------------------------------------------------------------- 숫자
 
-export function monthStats(rows) {
-  const s = { income: 0, expense: 0, profit: 0, byCat: {}, none: { n: 0, inn: 0, out: 0 }, todo: 0, pend: { n: 0, usd: 0 }, cardOut: 0, cardRows: 0, rows: rows.length };
+/**
+ * 매출 장부 → 달마다 {gross, refund, net, fee, days} (11/1 세원: "수입은 포클로 매출 장부랑 계산해 봐야 하는 거 아닌가")
+ * 순매출 = 결제합계 − 환불합계(카페24 화면과 같은 값). 수수료는 돈 › 손익과 같은 계산 — 정산금에서 빠져 들어와서 통장·카드에 안 찍힌다.
+ */
+export function salesByMonth(salesRows, conf) {
+  const costs = { ...DEFAULT_COSTS, ...conf?.costs };
+  const out = {};
+  for (const row of salesRows || []) {
+    if (!row.cafeGross && !row.cafeRefund) continue;
+    const d = dayPnl(row, costs, null, conf?.monthly);
+    const m = (out[row.date.slice(0, 7)] ||= { gross: 0, refund: 0, net: 0, fee: 0, days: 0 });
+    m.gross += d.revenue;
+    m.refund += d.refund;
+    m.net += d.net;
+    m.fee += Math.round(d.fee);
+    m.days++;
+  }
+  return out;
+}
+
+/**
+ * 한 달 손익. sales(salesByMonth 의 그 달)가 있으면 수입 = 장부 순매출 + 기타 수입, 지출에 결제 수수료를 더한다.
+ * 통장의 '매출 입금'은 같은 돈이 수수료 빠지고 며칠 뒤 들어온 것이라 수입에 또 안 넣는다(settled 로 비교만). 장부가 없는 달만 통장 입금으로 본다.
+ */
+export function monthStats(rows, sales) {
+  const s = { income: 0, expense: 0, profit: 0, byCat: {}, none: { n: 0, inn: 0, out: 0 }, todo: 0, pend: { n: 0, usd: 0 }, cardOut: 0, cardRows: 0, bankRows: 0, settled: 0, sales: sales || null, rows: rows.length };
   for (const r of rows) {
     if (!r.ok) s.todo++;
     if (r.s === "card") s.cardRows++;
+    else s.bankRows++;
     if (r.pend) {
       s.pend.n++;
       s.pend.usd += r.usd || 0;
@@ -461,9 +487,16 @@ export function monthStats(rows) {
     const type = catType(r.cat);
     const v = type === "income" ? r.amt : -r.amt;
     s.byCat[r.cat] = (s.byCat[r.cat] || 0) + v;
-    if (type === "income") s.income += r.amt;
+    if (r.cat === "매출 입금") {
+      s.settled += r.amt;
+      if (!sales) s.income += r.amt;
+    } else if (type === "income") s.income += r.amt;
     else if (type === "expense") s.expense -= r.amt;
     if (r.s === "bank" && r.cat === "카드 대금") s.cardOut -= r.amt;
+  }
+  if (sales) {
+    s.income += sales.net;
+    s.expense += sales.fee;
   }
   s.profit = s.income - s.expense;
   return s;
