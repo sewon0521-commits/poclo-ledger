@@ -32,6 +32,7 @@ import {
   Users,
   CircleDashed,
   Boxes,
+  Landmark,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -124,6 +125,8 @@ export const SECTIONS = [
       },
       // 10/1 세원: "어떤 사이트를 구독하고 있고 어디서 금액이 나가는지 한 번에"
       { group: "지출", items: [{ key: "subs", label: "구독 · 고정 지출", icon: Repeat }] },
+      // 10/15 세원: "그랜터처럼 통장·카드 내역을 모아 자동 분류하고 손익을 보는 메뉴", 11/1 엑셀 방식 확정 (components/FinancePage.jsx)
+      { group: "재무", items: [{ key: "finance", label: "재무 비서", icon: Landmark }] },
     ],
   },
   {
