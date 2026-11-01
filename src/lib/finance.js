@@ -263,7 +263,7 @@ const bitsOf = (s) =>
     .filter((x) => x.length >= 2);
 
 /** 규칙·돈 › 거래처·구독 목록을 분류에 쓰기 좋게 */
-export function makeCtx({ rules, vendors, subs } = {}) {
+export function makeCtx({ rules, words, vendors, subs } = {}) {
   const vendorBits = new Set();
   for (const v of vendors || []) {
     for (const b of bitsOf(v.name)) vendorBits.add(b);
@@ -273,8 +273,13 @@ export function makeCtx({ rules, vendors, subs } = {}) {
     .filter((s) => s.status !== "ended")
     .map((s) => String(s.name || "").toLowerCase().replace(/\s/g, ""))
     .filter((s) => s.length >= 3);
-  return { rules: rules || {}, vendorBits, subNames };
+  return { rules: rules || {}, words: words || [], vendorBits, subNames };
 }
+/** 단어 규칙 — 이름·적요에 이 단어가 있으면 이 분류 (그랜터 '분류 자동화') */
+export const wordHit = (r, words) => {
+  const t = `${r.name} ${r.sub || ""}`.toLowerCase();
+  return (words || []).find((w) => w.word && t.includes(String(w.word).toLowerCase()));
+};
 
 const CARD_MONEY = /^(체크카드|직불출금|카드입금|국민카드)$/;
 const SALES_IN = /npay|네이버페이|톡체크아웃|카페24페이|toss정산|토스페이먼츠|쿠팡페이|이니시스|나이스페이|kcp/i;
@@ -301,6 +306,8 @@ const KIND_RULES = [
 export function classify(r, ctx) {
   const rule = ctx.rules[ruleKey(r)];
   if (rule) return { cat: rule.cat, by: rule.by === "ai" ? "ai" : "rule" };
+  const word = wordHit(r, ctx.words);
+  if (word) return { cat: word.cat, by: "rule" };
   const isOut = r.amt < 0;
   const hit = (cat, by = "auto") => ({ cat, by });
   if (r.usd && !r.amt && !r.pend) return hit("기타 경비"); // 청구 없는 해외 승인 — 0원이라 손익엔 영향 없고, 미분류로 남지 않게
@@ -523,4 +530,207 @@ export function dailyReport(rows, day) {
   const today = bank.filter((r) => r.d === day).sort(inOrder);
   const cards = rows.filter((r) => r.s === "card" && r.d === day).sort(inOrder);
   return { accounts, inn: today.filter((r) => r.amt > 0), out: today.filter((r) => r.amt < 0), cards, cardTotal: -cards.reduce((a, r) => a + r.amt, 0), pend: cards.filter((r) => r.pend).length };
+}
+
+// ---------------------------------------------------------------- 그랜터식 분석 (11/1 세원: "그랜터 사이트, 후기들 보고 최대한 비슷하게")
+
+// 고정비·변동비 — 그랜터처럼 반복되는 비용은 고정, 때마다 달라지는 비용은 변동, 나머지는 기타. 규칙·파일이 아니라 분석 화면에서 옮길 수 있다(rules.kinds)
+const COST_KIND = {
+  "인건비·외주": "fixed",
+  "구독·프로그램": "fixed",
+  "임차·관리비": "fixed",
+  통신비: "fixed",
+  "이자·금융비용": "fixed",
+  "상품 매입": "var",
+  광고비: "var",
+  "택배·물류": "var",
+  "수수료·세무": "var",
+};
+export const COST_KINDS = [
+  ["fixed", "고정비"],
+  ["var", "변동비"],
+  ["etc", "기타"],
+];
+export const FEE_NAME = "결제 수수료 (매출 장부 계산)";
+export const costKindOf = (cat, kinds) => kinds?.[cat] || (cat === FEE_NAME ? "var" : COST_KIND[cat]) || "etc";
+
+/** 달 숫자 → 비용 줄 + 고정·변동·기타 합 */
+export function costSplit(stats, kinds) {
+  const rows = Object.entries(stats.byCat)
+    .filter(([k, v]) => catType(k) === "expense" && v)
+    .map(([k, v]) => ({ k, v }));
+  if (stats.sales?.fee) rows.push({ k: FEE_NAME, v: stats.sales.fee });
+  rows.sort((a, b) => b.v - a.v);
+  const out = { fixed: 0, var: 0, etc: 0, rows };
+  for (const r of rows) {
+    r.kind = costKindOf(r.k, kinds);
+    out[r.kind] += r.v;
+  }
+  return out;
+}
+
+/** 손익계산서 — 매출 → 매출총이익 → 영업이익 → 세전이익. 합은 monthStats 의 이익과 같다 */
+export function plOf(stats) {
+  const sales = stats.sales ? stats.sales.net : stats.settled;
+  const buy = stats.byCat["상품 매입"] || 0;
+  const interest = stats.byCat["이자·금융비용"] || 0;
+  const other = stats.byCat["기타 수입"] || 0;
+  const opex = stats.expense - buy - interest;
+  const gross = sales - buy;
+  const op = gross - opex;
+  return { sales, buy, gross, opex, op, other, interest, pre: op + other - interest };
+}
+
+/** AI 제안 — 확인 안 한 AI 분류를 곳마다 하나로 (승인 카드) */
+export function suggestsOf(rows) {
+  const m = new Map();
+  for (const r of rows) {
+    if (r.by !== "ai" || r.ok || !r.cat) continue;
+    const key = ruleKey(r);
+    const g = m.get(key) || { key, name: r.name, s: r.s, src: r.src, sub: r.sub, d: r.d, t: r.t, cat: r.cat, sure: r.sure, why: r.why, n: 0, total: 0, rows: [] };
+    g.n++;
+    g.total += Math.abs(r.amt);
+    g.rows.push(r);
+    m.set(key, g);
+  }
+  return [...m.values()].sort((a, b) => b.total - a.total);
+}
+
+/** 달마다 말일 통장 잔액 합 (자산의 변동) */
+export function balanceSeries(rows, months) {
+  const bank = rows.filter((r) => r.s === "bank" && r.bal != null);
+  const srcs = [...new Set(bank.map((r) => r.src))];
+  return months.map((m) => {
+    let total = null;
+    for (const src of srcs) {
+      const until = bank.filter((r) => r.src === src && r.d.slice(0, 7) <= m).sort(inOrder);
+      const last = until.at(-1);
+      if (last) total = (total || 0) + last.bal;
+    }
+    return { m, total };
+  });
+}
+
+/** 순자산 — 통장 잔액 + 재고(원가) − 대출 원금. 카드 미결제는 결제일을 몰라 안 뺀다(화면에 적음) */
+export function netWorth(rows, stockMoney) {
+  const bank = rows.filter((r) => r.s === "bank" && r.bal != null);
+  const srcs = [...new Set(bank.map((r) => r.src))];
+  let cash = 0;
+  for (const src of srcs) cash += bank.filter((r) => r.src === src).sort(inOrder).at(-1)?.bal || 0;
+  const loan = Math.max(0, rows.filter((r) => r.cat === "대출 원금").reduce((a, r) => a + r.amt, 0));
+  const stock = stockMoney || 0;
+  return { cash, stock, loan, net: cash + stock - loan, hasBank: srcs.length > 0 };
+}
+
+const CHANNELS = [
+  [/npay|네이버페이|톡체크아웃/i, "네이버페이"],
+  [/카페24페이/, "카페24 페이"],
+  [/toss|토스/i, "토스페이"],
+  [/쿠팡페이/, "쿠팡페이"],
+  [/이니시스|나이스페이|kcp/i, "다른 결제대행"],
+];
+/** 통장 정산 입금 → 결제 채널별 */
+export function channelsOf(rows) {
+  const m = new Map();
+  for (const r of rows) {
+    if (r.cat !== "매출 입금") continue;
+    const name = CHANNELS.find(([re]) => re.test(r.name))?.[1] || "고객 입금·기타";
+    const c = m.get(name) || { name, n: 0, v: 0 };
+    c.n++;
+    c.v += r.amt;
+    m.set(name, c);
+  }
+  return [...m.values()].sort((a, b) => b.v - a.v);
+}
+
+/** 매출·정산 표 — 날마다 총매출·환불·순매출·정산 입금·통장 매입 */
+export function salesBoard(rows, salesRows, month) {
+  const days = new Map();
+  const at = (d) => {
+    if (!days.has(d)) days.set(d, { d, gross: 0, refund: 0, net: 0, settled: 0, buy: 0 });
+    return days.get(d);
+  };
+  for (const s of salesRows || []) {
+    if (!s.date?.startsWith(month) || (!s.cafeGross && !s.cafeRefund)) continue;
+    const x = at(s.date);
+    x.gross += s.cafeGross || 0;
+    x.refund += s.cafeRefund || 0;
+    x.net += (s.cafeGross || 0) - (s.cafeRefund || 0);
+  }
+  for (const r of rows) {
+    if (r.cat === "매출 입금") at(r.d).settled += r.amt;
+    if (r.cat === "상품 매입") at(r.d).buy -= r.amt;
+  }
+  return [...days.values()].sort((a, b) => b.d.localeCompare(a.d));
+}
+
+/** 정기 결제 찾기 — 석 달 넘게 비슷한 금액이 나가는데 구독 목록에 없는 곳 (그랜터 '구독 감지') */
+export function recurringOf(rows, subs) {
+  const names = (subs || []).map((s) => String(s.name || "").toLowerCase().replace(/\s/g, "")).filter((s) => s.length >= 2);
+  const m = new Map();
+  for (const r of rows) {
+    if (r.amt >= 0 || catType(r.cat) === "skip" || r.cat === "상품 매입" || r.cat === "광고비") continue;
+    const key = ruleKey(r);
+    const g = m.get(key) || { key, name: r.name, cat: r.cat, months: new Set(), sums: {} };
+    const mon = r.d.slice(0, 7);
+    g.months.add(mon);
+    g.sums[mon] = (g.sums[mon] || 0) - r.amt;
+    m.set(key, g);
+  }
+  const out = [];
+  for (const g of m.values()) {
+    if (g.months.size < 3) continue;
+    const vals = Object.values(g.sums);
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    if (lo <= 0 || hi / lo > 1.5) continue; // 들쭉날쭉하면 정기 결제가 아니다
+    const plain = g.name.toLowerCase().replace(/\s/g, "");
+    if (names.some((n) => plain.includes(n) || n.includes(normName(g.name)))) continue;
+    out.push({ key: g.key, name: g.name, cat: g.cat, months: g.months.size, avg: Math.round(vals.reduce((a, v) => a + v, 0) / vals.length) });
+  }
+  return out.sort((a, b) => b.avg - a.avg).slice(0, 6);
+}
+
+/** 태그별 합계 (출금 +) */
+export function tagsOf(rows) {
+  const m = new Map();
+  for (const r of rows) for (const t of r.tags || []) {
+    const c = m.get(t) || { tag: t, n: 0, v: 0 };
+    c.n++;
+    c.v -= r.amt;
+    m.set(t, c);
+  }
+  return [...m.values()].sort((a, b) => b.v - a.v);
+}
+
+/** 자금일보 글 — 카톡에 붙여넣기 */
+export function dailyText(rep, label, accounts) {
+  const w = (n) => Math.round(n || 0).toLocaleString();
+  const lines = [`[포클로 자금일보] ${label}`, ""];
+  for (const a of rep.accounts) {
+    lines.push(`통장 ${a.src}${accounts?.[a.src] ? ` ${accounts[a.src]}` : ""}`);
+    lines.push(`전일 잔액 ${w(a.open)}원 / 입금 ${w(a.inn)}원 / 출금 ${w(a.out)}원`);
+    lines.push(`잔액 ${w(a.close)}원 (전일 대비 ${(a.close || 0) - (a.open || 0) >= 0 ? "+" : ""}${w((a.close || 0) - (a.open || 0))}원)`);
+    lines.push("");
+  }
+  lines.push(`카드 사용 ${w(rep.cardTotal)}원 (${rep.cards.length}건)`);
+  return lines.join("\n");
+}
+
+/** 재무 비서에게 묻기 — 달 숫자·큰 곳만 보낸다(번호 없음) */
+export function askContext(chart, month, monthRows) {
+  const places = new Map();
+  for (const r of monthRows) {
+    if (r.amt >= 0 || catType(r.cat) === "skip") continue;
+    const k = normName(r.name);
+    const c = places.get(k) || { 이름: r.name, 분류: r.cat || "미분류", 합계: 0, 건수: 0 };
+    c.합계 -= r.amt;
+    c.건수++;
+    places.set(k, c);
+  }
+  return {
+    고른달: month,
+    달마다: chart.map((x) => ({ 달: x.m, 수입: Math.round(x.income), 지출: Math.round(x.expense), 이익: Math.round(x.profit), 분류별: Object.fromEntries(Object.entries(x.byCat).map(([k, v]) => [k, Math.round(v)])), 결제수수료: x.sales?.fee || 0, 통장내역있음: x.bankRows > 0, 미분류출금: Math.round(x.none.out) })),
+    고른달_많이쓴곳: [...places.values()].sort((a, b) => b.합계 - a.합계).slice(0, 25),
+  };
 }

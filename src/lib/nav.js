@@ -33,6 +33,10 @@ import {
   CircleDashed,
   Boxes,
   Landmark,
+  LayoutDashboard,
+  ChartColumn,
+  HandCoins,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -126,7 +130,18 @@ export const SECTIONS = [
       // 10/1 세원: "어떤 사이트를 구독하고 있고 어디서 금액이 나가는지 한 번에"
       { group: "지출", items: [{ key: "subs", label: "구독 · 고정 지출", icon: Repeat }] },
       // 10/15 세원: "그랜터처럼 통장·카드 내역을 모아 자동 분류하고 손익을 보는 메뉴", 11/1 엑셀 방식 확정 (components/FinancePage.jsx)
-      { group: "재무", items: [{ key: "finance", label: "재무 비서", icon: Landmark }] },
+      // 11/1 세원: "그랜터 사이트, 후기들 보고 최대한 비슷하게. UI 는 포클로 ERP 에 잘 융화시켜서" — 그랜터 왼쪽 메뉴처럼 화면을 나눴다
+      {
+        group: "재무 비서",
+        items: [
+          { key: "finance", label: "대시보드", icon: LayoutDashboard },
+          { key: "financeTx", label: "거래내역 분류", icon: Landmark },
+          { key: "financePnl", label: "분석", icon: ChartColumn },
+          { key: "financeSales", label: "매출·정산", icon: HandCoins },
+          { key: "financeDaily", label: "자금일보", icon: CalendarCheck },
+          { key: "financeRules", label: "규칙·파일", icon: SlidersHorizontal },
+        ],
+      },
     ],
   },
   {

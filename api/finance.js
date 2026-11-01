@@ -66,6 +66,40 @@ async function ask(client, text) {
   }
 }
 
+const ASK_PROMPT = `너는 여성 의류 쇼핑몰 '포클로'의 재무 비서다. 운영자(비개발자)가 자기 돈 흐름을 묻는다. 아래 숫자만 근거로 짧고 쉽게 답한다.
+- 수입은 매출 장부 순매출, 지출은 통장·카드로 실제 나간 돈이다. '통장내역있음'이 false 인 달은 거래처 매입·택배비가 빠져 이익이 부풀어 있다 — 그런 달이 답에 걸리면 꼭 말한다. '미분류출금'도 지출에 안 들어가 있다.
+- 숫자는 받은 것만. 없는 숫자를 지어내거나 추측을 사실처럼 말하지 않는다. 모르면 무엇을 넣으면 알 수 있는지 말한다.
+- 세금·신고·경비 인정 여부는 판단하지 말고 세무사에게 확인하라고 한다.
+- 3~6문장 또는 짧은 목록. 금액은 원 단위 콤마. 존댓말.`;
+
+/** 재무 비서에게 묻기 — 대시보드 입력창. 달 숫자와 많이 쓴 곳만 받는다(계좌·카드번호 없음) */
+async function askMode(body, res) {
+  const question = String(body.question || "").trim().slice(0, 500);
+  if (!question) return fail(res, 400, "bad_request", "물어볼 내용을 적어 주세요.");
+  const context = safe(JSON.stringify(body.context || {}), 14000);
+  try {
+    const stream = new Anthropic().messages.stream({
+      model: MODEL,
+      max_tokens: 4000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+      messages: [{ role: "user", content: `${ASK_PROMPT}\n\n--- 숫자 ---\n${context}\n\n--- 질문 ---\n${question}` }],
+    });
+    const r = await stream.finalMessage();
+    if (r.stop_reason === "refusal") return fail(res, 422, "refusal", "이 질문에는 답하지 못했어요.");
+    const text = r.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+    if (!text) return fail(res, 422, "unreadable", "답이 비었어요. 다시 물어봐 주세요.");
+    return res.status(200).json({ text, _cost: costOf(r.usage) });
+  } catch (err) {
+    const status = err?.status;
+    const msg = String(err?.message || "");
+    if (status === 400 && /credit|balance/i.test(msg)) return fail(res, 402, "no_credit", "API 잔액이 부족해요.");
+    if (status === 401 || /authentication|x-api-key/i.test(msg)) return fail(res, 503, "bad_key", "Claude API 키가 막혔어요(잘못된 키). 새 키를 Vercel 의 ANTHROPIC_API_KEY 에 넣고 다시 배포해야 해요.");
+    console.error(err);
+    return fail(res, 502, "upstream", status === 429 ? "요청이 몰려 한도에 걸렸어요. 1분 뒤 다시 해 주세요." : `잠시 뒤 다시 시도해 주세요. (${status || "연결"})`);
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -76,7 +110,8 @@ export default async function handler(req, res) {
   if (!/^sk-ant-[\x21-\x7e]+$/.test(key)) return fail(res, 503, "bad_key", "API 키 형태가 이상해요. ANTHROPIC_API_KEY를 확인해 주세요.");
 
   const body = req.body || {};
-  if (body.mode !== "classify") return fail(res, 400, "bad_request", "mode 는 classify 만 받아요.");
+  if (body.mode === "ask") return askMode(body, res);
+  if (body.mode !== "classify") return fail(res, 400, "bad_request", "mode 는 classify · ask 만 받아요.");
   const items = (Array.isArray(body.items) ? body.items : []).slice(0, MAX_ITEMS);
   if (!items.length) return fail(res, 400, "bad_request", "물어볼 곳이 없어요.");
 
