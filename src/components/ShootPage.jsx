@@ -10,6 +10,7 @@ import { dayKey, dayTitle } from "../lib/journal";
 import { FolderBar, CategoryEditor, FolderPicker } from "./FolderBits";
 import ShootPlan from "./ShootPlan";
 import ShootDays from "./ShootDays";
+import ModelRefsPage from "./ModelRefsPage";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { queueChange, withPending, usePending, saveMark } from "../lib/saveQueue";
 import { folderIdOf, withChildren, pathName, ordered } from "../lib/reelFolders";
@@ -1724,6 +1725,8 @@ export default function ShootPage({ view, online, vendors = [], onVendor, dealt,
         <ShootPlan d={d} online={online} reelKit={reelKit} />
       ) : view === "days" ? (
         <ShootDays d={d} online={online} />
+      ) : view === "modelRefs" ? (
+        <ModelRefsPage d={d} online={online} />
       ) : (
         <ListView d={d} online={online} vendors={vendors} onVendor={onVendor} dealt={dealt} only={view === "codis" ? "codis" : ""} onOther={onOther} openPages={openPages} />
       )}

@@ -3158,3 +3158,17 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 
 안 만든 것: 은행·카드 자동 연동과 실시간 알림(엑셀 방식으로 정함) · 세금계산서 발행·미수금·미지급 · 전자결재 · 근태·급여(파트타이머 관리가 따로 있다) · 세금 신고.
 시험: scratchpad `perf/finance2.mjs` 56개(실제 통장·카드 파일, 이 기기 저장 모드, Claude 답은 가짜) · `finance/logic.mjs` · `finance/desk.mjs`.
+
+## 73. 모델 레퍼런스 모음 (2026-11-01)
+
+세원: "우리 모델들한테 보낼 사진 레퍼런스랑 영상 레퍼런스 같은 거 모아서 보내 주고 싶은데, 모델 기본 가이드 외에 만들 수 있는 걸." → 촬영 › **모델 레퍼런스**(촬영 관리 아래, `components/ModelRefsPage.jsx`, `lib/modelRefs.js` 머리말).
+
+- 기본 가이드는 모든 촬영 시트에 같이 가는 한 벌, 이건 **주제·모델마다 여러 벌** 만들어 **따로 링크**로 보낸다(촬영 시트 안에 끼우지 않았다).
+- 모음 = 이름 · 전할 말 · 받는 모델 · 칸들. 처음 칸은 '사진 레퍼런스' · '영상 레퍼런스'(세원 말 그대로), 칸 더하기 = 전신 포즈 · 상의 포즈 · 하의 포즈 · 거울셀카 · 실루엣 영상 · 직접. 칸은 기본 가이드 칸과 같은 모양이라 `SectionEdit`(ModelGuideEditor) · `GuideSections`(BaseGuide)를 같이 쓴다.
+- 담는 곳: **촬영 레퍼런스에서 고르기**(`RefPick` — 보관 파일을 그대로 가리키고 `refId` 표시, 새로 안 올림) · 새 사진(파일·Ctrl+V — 이것만 저장소를 쓴다, 한도 초과 중) · 릴스 기획에서 자른 장면(`RefClipsBox`, 구간만) · 인스타 주소(시트 안 영상). ⛔ 경쟁사 스토리 캡처는 내부 참고라 고르는 곳에 넣지 않았다.
+- 저장 settings **`model_refs`** `{items:[{id, title, note, models, sections, sheetToken, sheetAt, sheetSig, sheetClosed, createdAt}]}` — 0.8초 뒤 저절로(changeKey), 아무것도 안 고치고 닫으면 저장 안 함.
+- 보내기: 촬영 시트 표 `shoot_sheets` · `sheet_get` 을 그대로 쓴다(**SQL 필요 없음**). `buildRefSheet` 스냅숏 `{kind:"refs", title, note, models, base, madeAt, until}`, `SheetPage` 가 kind 를 보고 날짜·장소 없는 모양으로 그린다(`RefSetHead`, 칸마다 카드, 머리 글자 '레퍼런스'). 쇼핑몰 이름 · 메모 · 릴스 제목 · refId 는 안 들어간다.
+- **기한 30일**(`REF_SHEET_DAYS`, 촬영 시트는 7일) — 촬영 날짜와 상관없이 두고 보는 것이라. 인스타 주소는 기한 없음. 3일 남으면 ERP 에 알림.
+- 스냅숏이라 고쳐도 모델 화면은 그대로 — `sheetSig` 가 지금 내용(`refSig`)과 다르면 고치기 창에 알림, 카드에 '새로 보내기 필요'. DM 은 복사만(받는 모델이 둘 이상이면 사람마다 단추, `refSheetDm`) — 보내는 건 세원이.
+- 모음 지우기 = 링크 닫기 + 목록에서 뺌, 촬영 레퍼런스·릴스 원본은 그대로. 릴스 기획에서 지워진 영상은 스냅숏에서 뺀다.
+시험: scratchpad `perf/modelrefs.mjs` 39개(이 기기 저장 모드 — 영상은 '영상 없음' 칸으로 나옴) · 기존 `perf/modelguide.mjs` · `perf/peek.mjs` 통과. `perf/sheetv4.mjs` 1개 실패는 10/30 안내 문구 변경(8e79c6c) 뒤로 시험 글자가 옛날 것인 탓.

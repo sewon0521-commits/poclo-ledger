@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BookOpen, CalendarDays, Clock, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
-import { GuideSections, RefLinks } from "./BaseGuide";
+import { GuideSections, RefLinks, RefSetHead } from "./BaseGuide";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
 import LoopClip, { ClipBig } from "./LoopClip";
@@ -22,14 +22,14 @@ const mapUrl = (place) => {
   return addr ? `https://map.naver.com/p/search/${encodeURIComponent(addr)}` : "";
 };
 
-function Shell({ children }) {
+function Shell({ children, label = "촬영 시트" }) {
   return (
     <div className="min-h-screen bg-stone-100">
       <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-xl items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-700 text-sm font-bold text-white">P</span>
           <span className="font-semibold tracking-tight text-stone-900">포클로 POCLO</span>
-          <span className="ml-auto text-xs text-stone-400">촬영 시트</span>
+          <span className="ml-auto text-xs text-stone-400">{label}</span>
         </div>
       </header>
       <main className="mx-auto max-w-xl space-y-4 px-4 py-5">{children}</main>
@@ -270,8 +270,8 @@ export default function SheetPage() {
     };
   }, [token]);
   useEffect(() => {
-    document.title = "포클로 촬영 시트";
-  }, []);
+    document.title = sheet?.kind === "refs" ? "포클로 레퍼런스" : "포클로 촬영 시트";
+  }, [sheet]);
 
   if (state === "loading")
     return (
@@ -294,8 +294,34 @@ export default function SheetPage() {
     );
 
   const s = sheet;
-  const map = mapUrl(s.place);
   const until = s.until ? new Date(s.until) : null;
+  // 11/1 레퍼런스 모음 링크 — 날짜·장소 없이 제목 · 전할 말 · 칸마다 사진·영상 (lib/modelRefs)
+  if (s.kind === "refs") {
+    const hasFiles = s.base?.some((x) => x.photos?.length || x.clips?.length);
+    return (
+      <Shell label="레퍼런스">
+        <Card>
+          <RefSetHead title={s.title} models={s.models} note={s.note ? <Linked text={s.note} /> : null} />
+        </Card>
+        {s.base?.map((x, i) => (
+          <Card key={i}>
+            <GuideSections items={[x]} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />
+          </Card>
+        ))}
+        <p className="px-1 pb-6 text-center text-xs text-stone-400">
+          궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
+          {until && hasFiles && (
+            <span className="mt-1 block">
+              사진·영상은 {until.getMonth() + 1}/{until.getDate()}까지 보여요
+            </span>
+          )}
+        </p>
+        {big && <BigSlides urls={big.urls} start={Math.max(0, big.at)} onClose={() => setBig(null)} />}
+        {clipBig && <ClipBig clips={clipBig.clips} at={clipBig.at} onClose={() => setClipBig(null)} />}
+      </Shell>
+    );
+  }
+  const map = mapUrl(s.place);
   return (
     <Shell>
       <Card>

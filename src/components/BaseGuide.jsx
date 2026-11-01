@@ -1,5 +1,6 @@
 import { Camera, ExternalLink, Repeat, Video } from "lucide-react";
 import { guideBlocks } from "../lib/modelGuide";
+import { callName } from "../lib/contract";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import LoopClip from "./LoopClip";
 
@@ -111,6 +112,17 @@ export function GuideText({ text }) {
   );
 }
 
+/** 레퍼런스 모음 머리 (11/1) — 모델 화면(SheetPage) · 고치기 창 미리 보기가 같이 쓴다. note = 글 또는 부품 */
+export function RefSetHead({ title, note, models }) {
+  return (
+    <div>
+      {models?.length > 0 && <div className="mb-1 text-sm font-medium text-rose-700">{models.map(callName).join(", ")}, 미리 봐 주세요 ☺️</div>}
+      <h1 className="text-xl font-bold text-balance text-stone-900">{title || "사진·영상 레퍼런스"}</h1>
+      {note && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm whitespace-pre-line text-rose-900">{note}</p>}
+    </div>
+  );
+}
+
 /**
  * 칸들 — items [{title, text, photos:[{url, cap}], clips:[{src, poster, start, end, note}], links:[{name, url}]}]
  * 사진(포즈 예시)은 누르면 onBig(주소들, 몇 번째), 장면은 누르면 그 장면만 반복 · 크게는 onClip(장면들, 몇 번째)
@@ -123,7 +135,7 @@ export function GuideSections({ items, onBig, onClip }) {
     return (
       <section key={i} className={i ? "border-t border-stone-200 pt-4" : ""}>
         {x.title && <h2 className="mb-2 text-[17px] font-bold text-stone-900">{x.title}</h2>}
-        <GuideText text={x.text} />
+        {(x.text || "").trim() && <GuideText text={x.text} />}
         {photos.length > 0 && (
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             {photos.map((p, k) => (

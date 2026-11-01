@@ -73,17 +73,33 @@ export class SheetError extends Error {
 
 // ------------------------------------------------------------ 스냅숏 — 모델이 봐도 되는 칸만
 
-/** 보관 키들 → 7일 서명 주소 (공유 장부만) */
-async function longUrls(keys, online) {
+/** 보관 키들 → 서명 주소 (공유 장부만, 기본 7일) */
+async function longUrls(keys, online, days = SHEET_DAYS) {
   const ks = [...new Set(keys.filter((k) => k && !String(k).startsWith("local/")))];
   if (!(isRemote && online) || !ks.length) return {};
   const out = {};
   for (let i = 0; i < ks.length; i += 100) {
-    const { data } = await supabase.storage.from("reels").createSignedUrls(ks.slice(i, i + 100), 60 * 60 * 24 * SHEET_DAYS);
+    const { data } = await supabase.storage.from("reels").createSignedUrls(ks.slice(i, i + 100), 60 * 60 * 24 * days);
     for (const r of data || []) if (r.signedUrl) out[r.path] = r.signedUrl;
   }
   return out;
 }
+
+// 기본 가이드 칸 · 레퍼런스 모음 칸이 같은 모양이라 같이 쓴다
+const sectionKeys = (items) =>
+  items.flatMap((x) => [
+    ...(x.photos || []).map((p) => p.key).filter((k) => k && !k.startsWith("data:")),
+    ...(x.clips || []).flatMap((cl) => [videoKey(cl.reelId), thumbKey(cl.reelId)]),
+  ]);
+const sectionsData = (items, urlOf) =>
+  items.map((x) => ({
+    title: (x.title || "").trim(),
+    text: x.text || "",
+    photos: (x.photos || []).map((p) => ({ url: urlOf(p.key), cap: (p.cap || "").trim() })).filter((p) => p.url),
+    // 칸마다 참고 영상 — 릴스 기획에서 자른 장면(파일은 그대로, 서명 주소 · 누르면 그 장면만 반복) · 인스타 주소
+    clips: (x.clips || []).map((cl) => ({ src: urlOf(videoKey(cl.reelId)), poster: urlOf(thumbKey(cl.reelId)), start: cl.start || 0, end: cl.end || 0, note: (cl.note || "").trim() })),
+    links: (x.links || []).filter((l) => /^https?:\/\//i.test(l.url || "")).map((l) => ({ name: (l.name || "").trim(), url: l.url })),
+  }));
 
 // ------------------------------------------------------------ 찍을 코디 미리 보기 (10/29 밤)
 // 세원: "대충 요런 코디 찍는다는 것도 보여 주고 싶긴 한데, 우리가 촬영해서 보내 주는 건 안 할라고 — 기존 신마 썸네일 좀 작게 해서?"
@@ -147,11 +163,7 @@ export async function buildSheet(day, codis, d, online) {
   // 10/29 모델 기본 가이드 — 모든 시트에 같이(lib/modelGuide). 한 번도 저장 안 했으면 기본 동선
   const g = await loadKey(GUIDE_KEY, online, null).catch(() => null);
   const baseItems = filledItems(g ? g.items : DEFAULT_GUIDE.items);
-  const keys = [];
-  for (const x of baseItems) {
-    for (const p of x.photos || []) if (p.key && !p.key.startsWith("data:")) keys.push(p.key);
-    for (const cl of x.clips || []) keys.push(videoKey(cl.reelId), thumbKey(cl.reelId));
-  }
+  const keys = sectionKeys(baseItems);
   for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
   const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
@@ -169,14 +181,7 @@ export async function buildSheet(day, codis, d, online) {
     v: 4,
     peek, // 10/29 밤 찍을 코디 미리 보기 [[작은 사진 data URL…] 코디마다]
     // 10/29 촬영 기본 가이드(모든 촬영 공통 — 동선·찍을 영상·포즈…) — 글은 그대로, 시트(SheetPage → BaseGuide)가 번호 단계·사진/영상 표시로 그린다
-    base: baseItems.map((x) => ({
-      title: (x.title || "").trim(),
-      text: x.text || "",
-      photos: (x.photos || []).map((p) => ({ url: urlOf(p.key), cap: (p.cap || "").trim() })).filter((p) => p.url),
-      // 칸마다 참고 영상 — 릴스 기획에서 자른 장면(파일은 그대로, 7일 서명 주소 · 누르면 그 장면만 반복) · 인스타 주소
-      clips: (x.clips || []).map((cl) => ({ src: urlOf(videoKey(cl.reelId)), poster: urlOf(thumbKey(cl.reelId)), start: cl.start || 0, end: cl.end || 0, note: (cl.note || "").trim() })),
-      links: (x.links || []).filter((l) => /^https?:\/\//i.test(l.url || "")).map((l) => ({ name: (l.name || "").trim(), url: l.url })),
-    })),
+    base: sectionsData(baseItems, urlOf),
     // 10/27 모델에게 보낼 가이드 — '영상 가이드'(사진은 7일 서명 주소, 링크는 이름 + 주소)
     guide: {
       photos: (day.guidePhotos || []).map(urlOf).filter(Boolean),
@@ -186,6 +191,29 @@ export async function buildSheet(day, codis, d, online) {
     until: new Date(Date.now() + SHEET_DAYS * 86400000).toISOString(),
   };
 }
+
+// ------------------------------------------------------------ 레퍼런스 모음 링크 (11/1 — lib/modelRefs)
+// 촬영 날짜와 상관없이 두고 보는 것이라 사진·영상 주소를 30일 살려 둔다. 지나면 '내용 새로 보내기'로 다시 서명. 인스타 주소는 기한 없음.
+export const REF_SHEET_DAYS = 30;
+
+/** 모음 스냅숏 — 제목 · 전할 말 · 받는 모델 · 칸만. 촬영 레퍼런스의 쇼핑몰·메모·릴스 제목은 안 들어간다 */
+export async function buildRefSheet(set, d, online) {
+  const items = filledItems(set.sections);
+  const signed = await longUrls(sectionKeys(items), online, REF_SHEET_DAYS);
+  const remote = isRemote && online;
+  const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!remote ? d.urls[k] : ""))) || "";
+  return {
+    kind: "refs",
+    title: (set.title || "").trim(),
+    note: (set.note || "").trim(),
+    models: (set.models || []).filter(Boolean),
+    // 릴스 기획에서 지워진 영상은 모델 화면에 빈 칸으로 안 보이게 뺀다
+    base: sectionsData(items, urlOf).map((x) => ({ ...x, clips: x.clips.filter((c) => c.src || !remote) })),
+    madeAt: new Date().toISOString(),
+    until: new Date(Date.now() + REF_SHEET_DAYS * 86400000).toISOString(),
+  };
+}
+export const refSheetDm = (name, token) => `${callName(name)}! 참고하실 사진·영상 레퍼런스 모아 봤어요 ☺️\n촬영 전에 한 번 봐 주세요 💗\n${sheetLink(token)}`;
 
 // ------------------------------------------------------------ 저장 — 공유 장부면 표, 아니면 이 기기
 

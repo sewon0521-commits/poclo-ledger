@@ -86,7 +86,7 @@ async function copyText(text) {
     return ok;
   }
 }
-function CopyBtn({ text, children, primary }) {
+export function CopyBtn({ text, children, primary }) {
   const [done, setDone] = useState(false);
   return (
     <button
@@ -141,7 +141,7 @@ function useDays(online) {
 }
 
 /** 모델 이름 칩 — 적고 엔터 */
-function Models({ value = [], onChange }) {
+export function Models({ value = [], onChange }) {
   const [typed, setTyped] = useState("");
   const add = () => {
     const v = typed.trim();

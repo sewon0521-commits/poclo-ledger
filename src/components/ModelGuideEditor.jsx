@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ImagePlus, Link2, Loader2, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ImagePlus, Images, Link2, Loader2, Plus, Trash2, X } from "lucide-react";
 import { FIELD, loadKey, changeKey, fixUrl } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { signedUrls, videoKey, thumbKey } from "../lib/refClips";
 import { RefClipsBox } from "./RefClips";
+import RefPick from "./RefPick";
 import { GUIDE_KEY, DEFAULT_GUIDE, SUGGEST, guidePhoto } from "../lib/modelGuide";
 import { Sheet, SheetHead } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
@@ -19,9 +20,11 @@ import { ClipBig } from "./LoopClip";
 
 const TIP = "한 줄에 하나 · 들여 쓰면 아래 단계 · '→' 로 이으면 순서(번호) · (사진)/(영상) 을 붙이면 표시";
 
-function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFresh }) {
+// 11/1 모델 레퍼런스 모음(ModelRefsPage)도 같이 쓴다 — d 가 있으면 '촬영 레퍼런스에서 고르기', hint = 글 칸 안내, videoOpen = 참고 영상 펼쳐 두기
+export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFresh, d, hint, videoOpen }) {
   const [pending, setPending] = useState([]);
   const [err, setErr] = useState("");
+  const [picking, setPicking] = useState(false);
   const hot = useRef(false);
   const fileRef = useRef(null);
   const latest = useRef(x);
@@ -60,6 +63,19 @@ function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFre
     return () => window.removeEventListener("paste", onPaste, true);
   }); // eslint-disable-line react-hooks/exhaustive-deps
   const photos = x.photos || [];
+  // 촬영 레퍼런스에서 고른 사진 — 파일은 그대로 두고 보관 이름만 담는다. 직접 넣은 사진은 그대로, 고르기를 푼 것만 빠진다
+  const pickDone = (ids) => {
+    const now = latest.current.photos || [];
+    const keep = now.filter((p) => !p.refId || ids.includes(p.refId));
+    const had = new Set(keep.map((p) => p.refId));
+    const more = ids
+      .filter((id) => !had.has(id))
+      .map((id) => d.refs.find((r) => r.id === id))
+      .filter((r) => r?.photo)
+      .map((r) => ({ key: r.photo, cap: "", refId: r.id }));
+    onChange({ ...latest.current, photos: [...keep, ...more] });
+    setPicking(false);
+  };
   const rows = Math.min(14, Math.max(3, String(x.text || "").split("\n").length + 1));
   return (
     <div
@@ -84,7 +100,7 @@ function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFre
           <Trash2 size={15} />
         </button>
       </div>
-      <textarea value={x.text || ""} onChange={(e) => onChange({ ...x, text: e.target.value })} rows={rows} placeholder={SUGGEST.find((s) => s.title === (x.title || "").trim())?.hint || "예: * 휴대폰을 든 반대 팔은 허리 뒤로"} aria-label={`${x.title || "칸"} 글`} className={FIELD + " resize-y leading-relaxed"} />
+      <textarea value={x.text || ""} onChange={(e) => onChange({ ...x, text: e.target.value })} rows={hint ? 2 : rows} placeholder={hint || SUGGEST.find((s) => s.title === (x.title || "").trim())?.hint || "예: * 휴대폰을 든 반대 팔은 허리 뒤로"} aria-label={`${x.title || "칸"} 글`} className={FIELD + " resize-y leading-relaxed"} />
       <div className="mt-2 flex flex-wrap items-start gap-2">
         {photos.map((p, k) => (
           <div key={p.key.slice(0, 80) + k} className="group relative w-24">
@@ -112,15 +128,21 @@ function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFre
             <Loader2 size={16} className="absolute inset-0 m-auto animate-spin text-white drop-shadow" />
           </span>
         ))}
+        {d && (
+          <button type="button" onClick={() => setPicking(true)} className="flex aspect-[3/4] w-24 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-rose-300 bg-rose-50/40 px-1 text-center text-[11px] font-medium text-rose-800 hover:border-rose-500">
+            <Images size={16} /> 촬영 레퍼런스에서 고르기
+          </button>
+        )}
         <button type="button" onClick={() => fileRef.current?.click()} className="flex aspect-[3/4] w-24 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-stone-300 px-1 text-center text-[11px] text-stone-500 hover:border-rose-300 hover:text-rose-700">
-          <ImagePlus size={16} /> 포즈 사진
+          <ImagePlus size={16} /> {d ? "새 사진" : "포즈 사진"}
           <span className="text-[10px] text-stone-400">고르기 · Ctrl+V</span>
         </button>
         <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (add(e.target.files), (e.target.value = ""))} />
       </div>
       {err && <p className="mt-1.5 text-xs text-rose-700">{err}</p>}
+      {picking && <RefPick d={d} picked={photos.map((p) => p.refId).filter(Boolean)} onDone={pickDone} onClose={() => setPicking(false)} />}
       {/* 참고 영상 — 세원: "거울 셀카 다양한 포즈 및 구도는 내가 레퍼런스를 첨부해야 될 듯" */}
-      <details className="group mt-3 rounded-xl border border-stone-200 px-3 py-2" open={(x.clips || []).length + (x.links || []).length > 0}>
+      <details className="group mt-3 rounded-xl border border-stone-200 px-3 py-2" open={videoOpen || (x.clips || []).length + (x.links || []).length > 0}>
         <summary className="cursor-pointer text-xs font-semibold text-stone-600 select-none group-open:mb-2">
           참고 영상 {(x.clips || []).length + (x.links || []).length > 0 && `· ${(x.clips || []).length + (x.links || []).length}개`}
           <span className="ml-1.5 font-normal text-stone-400">릴스 기획에서 잘라 오기 · 인스타 주소 — 모델 시트에서 바로 봐요</span>

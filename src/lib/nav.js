@@ -37,6 +37,7 @@ import {
   ChartColumn,
   HandCoins,
   SlidersHorizontal,
+  FolderHeart,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -162,6 +163,8 @@ export const SECTIONS = [
           { key: "shootPlan", label: "소싱 관리", icon: ClipboardList },
           // 10/25 세원: "소싱 관리랑 촬영 관리랑 따로 · 모델은 촬영 관리만" → 촬영일마다 코디·스타일링·시간·장소, 모델에게는 촬영 시트 링크(components/ShootDays.jsx)
           { key: "shootDays", label: "촬영 관리", icon: CalendarCheck },
+          // 11/1 세원: "모델들한테 보낼 사진 레퍼런스랑 영상 레퍼런스 모아서 보내 주고 싶어, 모델 기본 가이드 외에" (components/ModelRefsPage.jsx)
+          { key: "shootModelRefs", label: "모델 레퍼런스", icon: FolderHeart },
         ],
       },
     ],
