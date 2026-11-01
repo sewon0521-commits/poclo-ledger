@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sparkles, Search, Clapperboard, Check, Shuffle, X, Video, Upload } from "lucide-react";
 import { folderIdOf, withChildren } from "../lib/reelFolders";
-import { hookKind, flowSteps, MIX_PARTS } from "../lib/reels";
+import { hookKind, flowSteps, MIX_PARTS, mixHow } from "../lib/reels";
 
 /**
  * 우리 상품 릴스를 '어떤 틀로' 찍을지 고르는 칸 (9/23 세원: "어떤 레퍼런스 구조로? 여기가 겁나 헷갈려.
@@ -70,7 +70,7 @@ function partPreview(key, it) {
   return String(r.script || "").split("\n").filter(Boolean).slice(0, 2).join(" / ") || "대본 없음";
 }
 
-export default function RefPicker({ library, value, onChange, mix = {}, onMix, own = [], onOwn, fileUrl, folders }) {
+export default function RefPicker({ library, value, onChange, mix = {}, onMix, own = [], onOwn, fileUrl, folders, noProduct }) {
   // BEST(9/29) 를 맨 앞에
   const done = useMemo(() => {
     const d = library.filter((i) => i.reference?.structure);
@@ -85,9 +85,11 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
   const [thumbs, setThumbs] = useState({});
 
   const picked = value !== "auto" && value !== "mix" ? done.find((i) => i.id === value) : null;
+  const how = mixHow(mix);
+  const blend = useMemo(() => (mix.blend || []).map((id) => done.find((i) => i.id === id)).filter(Boolean), [mix.blend, done]);
   const mixed = useMemo(
-    () => (value === "mix" ? MIX_PARTS.map(([k]) => done.find((i) => i.id === mix[k])).filter(Boolean) : []),
-    [value, mix, done],
+    () => (value === "mix" ? (how === "blend" ? blend : MIX_PARTS.map(([k]) => done.find((i) => i.id === mix[k])).filter(Boolean)) : []),
+    [value, how, blend, mix, done],
   );
 
   // 썸네일은 서명 주소라 목록이 열릴 때(닫혀 있으면 고른 것만) 받아 온다
@@ -133,11 +135,19 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
   }, [done, q, folder, folders]);
 
   const choose = (it) => {
+    if (picking === "blend") {
+      // 여러 개를 고르는 동안은 목록을 안 닫는다. 3개가 끝. 빨리 눌러도 앞서 고른 게 안 지워지게 최신 값에서 바꾼다
+      onMix((m) => {
+        const cur = m.blend || [];
+        return { ...m, how: "blend", blend: cur.includes(it.id) ? cur.filter((x) => x !== it.id) : cur.length < 3 ? [...cur, it.id] : cur };
+      });
+      return;
+    }
     if (picking === "one") onChange(it.id);
-    else onMix({ ...mix, [picking]: it.id });
+    else onMix({ ...mix, how: "parts", [picking]: it.id });
     setPicking(null);
   };
-  const isOn = (it) => (picking === "one" ? value === it.id : mix[picking] === it.id);
+  const isOn = (it) => (picking === "blend" ? (mix.blend || []).includes(it.id) : picking === "one" ? value === it.id : mix[picking] === it.id);
   const partLabel = MIX_PARTS.find(([k]) => k === picking)?.[1];
 
   const mode = (key, icon, title, hint, onClick) => (
@@ -161,18 +171,40 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
     <div className="space-y-2">
       <div className="text-xs font-semibold text-stone-500">어떤 릴스 틀로 찍을까요?</div>
       <div className="grid gap-2 sm:grid-cols-3">
-        {mode("auto", <Sparkles size={16} className="mt-0.5 shrink-0 text-rose-700" />, "알아서 골라줘", `라이브러리 ${done.length}개 중 이 상품에 가장 맞는 틀을 골라요.`, () => {
+        {mode("auto", <Sparkles size={16} className="mt-0.5 shrink-0 text-rose-700" />, "알아서 골라줘", noProduct ? `라이브러리 ${done.length}개 중 지금 찍기 좋은 틀을 골라요.` : `라이브러리 ${done.length}개 중 이 상품에 가장 맞는 틀을 골라요.`, () => {
           onChange("auto");
           setPicking(null);
         })}
         {mode("one", <Clapperboard size={16} className="mt-0.5 shrink-0 text-stone-600" />, "하나 고를게", picked ? "고른 틀 그대로 만들어요." : "마음에 드는 영상 하나의 틀로.", () =>
           setPicking((p) => (p === "one" ? null : "one")),
         )}
-        {mode("mix", <Shuffle size={16} className="mt-0.5 shrink-0 text-stone-600" />, "섞어서 만들래", "훅·내용·구도·대본을 영상마다 골라 한 편으로.", () => {
+        {mode("mix", <Shuffle size={16} className="mt-0.5 shrink-0 text-stone-600" />, "섞어서 만들래", "영상 2~3개를 섞어 완전히 새로운 한 편으로.", () => {
           onChange("mix");
           setPicking(null);
         })}
       </div>
+
+      {value === "mix" && (
+        <div className="flex gap-1 rounded-lg bg-stone-100 p-0.5 text-xs">
+          {[
+            ["blend", "2~3개 고르면 AI가 섞기"],
+            ["parts", "부분마다 직접 고르기"],
+          ].map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={how === k}
+              onClick={() => {
+                onMix({ ...mix, how: k });
+                setPicking(null);
+              }}
+              className={"flex-1 rounded-md px-2 py-1.5 font-medium " + (how === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {picked && !picking && (
         <div className="rounded-xl border border-stone-200 bg-white p-3">
@@ -182,7 +214,40 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
 
       {value === "mix" && (
         <ul className="divide-y divide-stone-100 overflow-hidden rounded-xl border border-stone-200 bg-white">
-          {MIX_PARTS.map(([k, label, hint]) => {
+          {how === "blend" && (
+            <li className={"px-3 py-2.5 " + (picking === "blend" ? "bg-rose-50/60" : "")}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-stone-800">섞을 영상 {blend.length}/3</span>
+                  <span className="block text-[10px] leading-tight text-stone-400">영상마다 제일 잘한 점을 뽑아 어느 것과도 다른 한 편으로 써요</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPicking((p) => (p === "blend" ? null : "blend"))}
+                  className="shrink-0 rounded-lg border border-stone-200 bg-white px-2.5 py-1 text-xs font-medium text-stone-600 hover:border-rose-300 hover:text-rose-800"
+                >
+                  {blend.length ? "바꾸기" : "영상 고르기"}
+                </button>
+              </div>
+              {blend.length > 0 && (
+                <ul className="mt-2 space-y-1.5">
+                  {blend.map((it) => (
+                    <li key={it.id} className="flex items-center gap-2.5">
+                      <span className="h-14 w-10 shrink-0 overflow-hidden rounded-md bg-stone-100">{thumbs[it.id] && <img src={thumbs[it.id]} alt="" className="h-full w-full object-cover" />}</span>
+                      <span className="min-w-0 flex-1 space-y-0.5">
+                        <span className="block truncate text-xs font-semibold text-stone-700">{hookKind(it.reference?.structure?.hookType).name || it.title}</span>
+                        <span className="line-clamp-1 block text-xs text-stone-500">{partPreview("hook", it)}</span>
+                      </span>
+                      <button type="button" onClick={() => onMix((m) => ({ ...m, how: "blend", blend: (m.blend || []).filter((x) => x !== it.id) }))} aria-label="이 영상 빼기" className="rounded p-1 text-stone-300 hover:text-rose-600">
+                        <X size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          )}
+          {how === "parts" && MIX_PARTS.map(([k, label, hint]) => {
             const it = done.find((i) => i.id === mix[k]);
             return (
               <li key={k} className={"flex items-center gap-3 px-3 py-2.5 " + (picking === k ? "bg-rose-50/60" : "")}>
@@ -311,6 +376,14 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
       {picking && picking !== "own" && (
         <div className="space-y-2 rounded-xl border border-stone-200 bg-white p-3">
           {partLabel && <div className="text-xs font-semibold text-rose-800">‘{partLabel}’ 을(를) 빌려 올 영상 고르기</div>}
+          {picking === "blend" && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-rose-800">섞을 영상 2~3개 고르기 ({blend.length}/3)</span>
+              <button type="button" onClick={() => setPicking(null)} className="rounded-lg bg-stone-800 px-2.5 py-1 text-xs font-semibold text-white">
+                다 골랐어요
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="relative">
               <Search size={13} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
@@ -379,7 +452,7 @@ export default function RefPicker({ library, value, onChange, mix = {}, onMix, o
                           {it.best && <span className="shrink-0 rounded bg-amber-400 px-1 text-[10px] font-bold text-amber-950">BEST</span>}
                           <span className="truncate">{k.name || it.title}</span>
                         </span>
-                        {picking === "one" || picking === "hook" ? (
+                        {picking === "one" || picking === "hook" || picking === "blend" ? (
                           <>
                             <span className="line-clamp-2 block text-xs leading-snug text-stone-600">
                               {silent(r.hook) ? <span className="text-stone-400">자막 없이 영상으로 시작</span> : `“${r.hook || ""}”`}

@@ -403,7 +403,12 @@ function mixBrief(mix) {
   const f = mix.flow || {};
   const w = mix.script || {};
   return [
-    "섞어 만들기 — 부분마다 다른 레퍼런스. 핵심(core)은 '훅'과 '내용 흐름' 레퍼런스로 잡아라.",
+    Array.isArray(mix.blend) && mix.blend.length
+      ? `섞어 만들기 — 아래 영상들의 잘한 점을 합쳐 완전히 새로운 한 편. 핵심(core)은 합쳤을 때의 핵심으로 잡아라.\n${mix.blend
+          .slice(0, 3)
+          .map((b) => `'${b.title || ""}': 훅 ${b.hook || ""} (${b.hookType || ""}) · 흐름 ${b.flow || ""} · 먹히는 이유 ${b.why || ""}`)
+          .join("\n")}`
+      : "섞어 만들기 — 부분마다 다른 레퍼런스. 핵심(core)은 '훅'과 '내용 흐름' 레퍼런스로 잡아라.",
     h.title || h.hook ? `훅 레퍼런스 '${h.title || ""}': ${h.hook || ""} (${h.hookType || ""}) ${h.empathy ? "· 공감: " + h.empathy : ""}` : "",
     f.title || f.flow ? `흐름 레퍼런스 '${f.title || ""}': ${f.flow || ""} · CTA: ${f.cta || ""}` : "",
     w.script ? `대본 말투 레퍼런스 '${w.title || ""}':\n${String(w.script).slice(0, 900)}` : "",
@@ -712,6 +717,7 @@ function frameContent(frames) {
  * 세원 9/23: "룩 3개를 소개해주는 릴스라면 상품 주소를 다양하게 넣어야" → 룩으로 묶어서 받는다.
  */
 async function readLooks(body) {
+  if (body.noProduct === true) return { products: [], count: 0 };
   const looks = Array.isArray(body.looks) && body.looks.length
     ? body.looks
     : [{ products: [{ url: body.url }] }];
@@ -731,6 +737,7 @@ async function readLooks(body) {
 
 /** 읽은 상품들을 룩 단위 글로 */
 function looksText(products, count) {
+  if (!products.length) return "(아직 안 정함)";
   const many = count > 1 || products.length > 1;
   const lines = [];
   for (let n = 1; n <= count; n++) {
@@ -775,6 +782,71 @@ function redoText(body) {
     body.avoid ? `앞서 만든 것(이것과 똑같이 만들지 마라):\n${String(body.avoid).slice(0, 2000)}` : "",
     "레퍼런스 대본을 까는 방식은 '대본 만드는 법' 그대로 두고, **우리 말**(상품을 설명하는 표현·강조하는 점·소구점)을 앞서 만든 것과 다르게 골라라.",
     body.direction ? `이번엔 이렇게: ${String(body.direction).slice(0, 500)} (방향이 '새로 써'·'다른 레퍼런스' 처럼 바탕을 벗어나라는 뜻이면 그걸 따른다)` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * 상품 없이 벤치마킹 (11/1 세원: "대본을 만들 때 무조건 우리 상품을 골라야 진행이 가능했잖아?
+ * 영상 분석을 끝내면 우리 상품을 선택하지 않고도 레퍼런스를 벤치마킹하게") — 위 프롬프트의 '우리 상품'을 포클로 계정으로 읽게 한다.
+ */
+function noProductText(body) {
+  if (body.noProduct !== true) return "";
+  return `
+--- 이번엔 상품을 안 정했다 (벤치마킹) — 위 설명보다 이 칸이 먼저다 ---
+세원이 상품을 고르기 전에 레퍼런스를 먼저 벤치마킹해서 포클로 릴스를 만든다. 위에서 '우리 상품'이라고 한 곳은 '포클로 계정'으로 읽어라.
+- 소재·색·핏·가격·숫자·상품명을 지어내지 마라. 특정 상품 사실이 꼭 필요한 자리만 [상품명]·[색상]·[소재]·[핏]·[가격] 처럼 대괄호로 비워 둬라 — 나중에 상품을 고르면 채운다. 줄마다 남발하지 마라.
+- 옷 종류는 레퍼가 다룬 것을 일반 명사로 써도 된다(니트, 와이드 팬츠). 상품 없이 되는 말 — 공감·상황·체형 고민·코디 방법·시즌 이야기·끝까지 보게 하는 말 — 은 완성해서 써라.
+- 레퍼 문장에 나온 가격·브랜드·수치를 옮기지 마라.
+- product 칸: name·price·cautions 는 빈 문자열, look 은 어떤 옷에 어울리는 틀인지 한 줄, points 는 이 릴스에 맞는 상품 조건 2~4개(상품 고를 때 기준), target 은 누구를 겨냥하는지.
+- looks·shots 는 빈 배열, filled 는 빈 배열, scenes 의 look 은 0.
+- 후보가 여럿이면 포클로 계정이 지금 찍기 가장 좋은 것 하나를 골라라(★BEST 먼저). chosenWhy 에 왜 벤치마킹할 만한지 적어라.
+- 방향을 고를 때(fit 칸)는 어떤 상품을 고르면 이 방향이 맞는지 한 줄로 적어라.`;
+}
+
+/**
+ * 레퍼런스 2~3개를 섞어 완전히 새로운 한 편 (11/1 세원: "레퍼런스 2개 3개를 섞어서 완전히 다른 걸").
+ * 부분마다 직접 고르는 mixText 와 달리, 어느 영상의 무엇을 쓸지 Claude 가 정한다. 문장은 전부 새로 쓴다(BASE_FRESH).
+ */
+function blendText(mix) {
+  const list = Array.isArray(mix.blend) ? mix.blend.slice(0, 3) : [];
+  return [
+    `\n--- 이번엔 레퍼런스 ${list.length}개를 섞어 완전히 새로운 한 편을 만든다 ---`,
+    "어느 한 편을 따라 쓰지 마라. 영상마다 **제일 잘한 점 하나씩**(훅 방식·전개·리듬·구도·무드)을 뽑아 한 편으로 합쳐서, 어느 레퍼런스와도 다른 릴스로 만들어라.",
+    "- 훅은 가장 강한 영상의 훅 방식을 빌리되 문장은 새로. 전개·CTA·구도는 그 훅에 가장 잘 이어지는 영상에서. 억지로 모두 넣지 말고 한 편으로 자연스러워야 한다.",
+    "- chosenWhy 에 **무엇을 어느 영상에서 빌렸고 왜 같이 쓰면 더 잘 될지** 2~4줄. 레퍼런스는 id 말고 **제목으로** 불러라(사람이 읽는다). chosen 에는 훅을 빌린 레퍼런스 id.",
+    ...list.map((b) =>
+      [
+        `\n[${b.id}] ${b.title || ""}`,
+        `  훅: ${b.hook || ""} (${b.hookType || ""})`,
+        b.formula?.line ? `  훅 공식: A=${b.formula.a} / B=${b.formula.b} — ${b.formula.why || ""}` : "",
+        b.empathy ? `  공감 포인트: ${b.empathy}` : "",
+        `  흐름: ${b.flow || ""} · CTA: ${b.cta || ""}`,
+        b.why ? `  먹히는 이유: ${b.why}` : "",
+        b.seconds ? `  길이: 약 ${b.seconds}초` : "",
+        b.scenes?.length ? `  장면:\n${b.scenes.map((l) => "    " + l).join("\n")}` : "",
+        b.script ? `  대본:\n${String(b.script).slice(0, 1400)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ),
+    ownText(mix.own),
+  ].join("\n");
+}
+
+/** 상품 없이 만든 기획에 나중에 상품을 넣기 — 대본은 그대로 두고 빈칸만 채운다 */
+function fillText(body) {
+  const f = body.fillFrom;
+  if (!f) return "";
+  return [
+    "\n--- 앞서 상품 없이 만든 기획 — 이번엔 고른 상품으로 채운다 (가장 먼저 따를 것) ---",
+    "아래 대본이 '레퍼런스 대본' 자리다. 줄 수·순서·말투·훅 틀을 그대로 두고 **[대괄호] 자리와 이 상품에 안 맞는 말만** 위 상품 글의 사실로 바꿔라. 새로 쓰지 마라.",
+    "baseLines 의 ref 는 아래 줄, ours 는 채운 줄. caption·hashtags·scenes 도 같은 식으로 채운다. chosen 은 빈 문자열, chosenWhy 는 무엇을 채웠는지 한 줄.",
+    `훅: ${String(f.hook || "").slice(0, 400)}`,
+    `대본:\n${String(f.script || "").slice(0, 3000)}`,
+    f.caption ? `본문:\n${String(f.caption).slice(0, 800)}` : "",
+    Array.isArray(f.scenes) && f.scenes.length ? `촬영 순서:\n${f.scenes.slice(0, 20).map((s) => `  ${s.at} ${s.shot} / "${s.text || ""}"`).join("\n")}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -935,6 +1007,7 @@ export default async function handler(req, res) {
         refs,
         count > 1 ? `\n--- 우리 상품 (룩 ${count}개) ---` : "\n--- 우리 상품 ---",
         looksText(products, count),
+        noProductText(body),
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
         trendText(body),
       ].join("\n");
@@ -955,10 +1028,11 @@ export default async function handler(req, res) {
       const cands = Array.isArray(body.candidates) ? body.candidates.slice(0, 12) : [];
       const st = body.stats || {};
       const mix = body.mix && typeof body.mix === "object" ? body.mix : null;
+      const blending = Array.isArray(mix?.blend) && mix.blend.length > 0;
       const text = [
         PRODUCT_REEL_PROMPT,
-        baseText(body),
-        mix ? mixText(mix) : "\n--- 레퍼런스 후보 ---",
+        blending ? BASE_FRESH : baseText(body),
+        blending ? blendText(mix) : mix ? mixText(mix) : "\n--- 레퍼런스 후보 ---",
         mix ? "" : cands.length
           ? cands
               .map((c) =>
@@ -975,6 +1049,8 @@ export default async function handler(req, res) {
           : mix ? "" : "(없음)",
         count > 1 ? `\n--- 우리 상품 (룩 ${count}개) ---` : "\n--- 우리 상품 ---",
         looksText(products, count),
+        noProductText(body),
+        fillText(body),
         st.reason ? `판매 숫자: ${st.reason}` : "",
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
         angleText(body),
@@ -994,8 +1070,8 @@ export default async function handler(req, res) {
       }
       return res.status(200).json({
         ...withBase(parsedOf(r, "릴스 기획")),
-        closeness: closenessOf(body),
-        productTitle: products[0].title,
+        closeness: blending ? "fresh" : closenessOf(body),
+        productTitle: products[0]?.title || "",
         productTitles: products.map((p) => p.title),
         images: imgs,
       });
@@ -1010,7 +1086,7 @@ export default async function handler(req, res) {
         return fail(res, 422, "product_unreadable", err.message || "상품 페이지를 못 읽었어요.");
       }
       const { products, count } = got;
-      if (products.every((p) => (p.text || "").length < 80)) {
+      if (products.length && products.every((p) => (p.text || "").length < 80)) {
         return fail(res, 422, "product_empty", "상품 페이지에서 글을 거의 못 찾았어요. 상세가 이미지뿐이면 상품 설명을 메모에 적어주세요.");
       }
       const photos = photoBlocks(products);
@@ -1031,6 +1107,7 @@ export default async function handler(req, res) {
           : "",
         count > 1 ? `\n--- 우리 상품 판매페이지 (룩 ${count}개) ---` : "\n--- 우리 상품 판매페이지 ---",
         looksText(products, count),
+        noProductText(body),
         body.memo ? `\n--- 메모 (세원 지시) ---\n${String(body.memo).slice(0, 1500)}` : "",
         angleText(body),
         trendText(body),

@@ -728,7 +728,10 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
   const [closeness, setCloseness] = useState(item.plan?.closeness || readCloseness());
   // 맞춰갈 방향 (10/9)
   const [angleSt, setAngleSt] = useState(item.angleSt || { pick: "auto", custom: "" });
-  const angleKey = JSON.stringify(looks.map((l) => l.products.map((p) => p.url || p.no || "")));
+  // 상품 없이 벤치마킹 (11/1 세원: "하나의 영상 분석을 끝내면 우리 상품을 선택하지 않고도 레퍼런스를 벤치마킹하게")
+  const [noProduct, setNoProduct] = useState(!!item.planNoProduct);
+  const canWrite = noProduct || looks.some((l) => l.products.length);
+  const angleKey = JSON.stringify([noProduct, looks.map((l) => l.products.map((p) => p.url || p.no || ""))]);
   const [direction, setDirection] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -753,7 +756,8 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
     try {
       const res = await adaptScript({
         reference: r,
-        looks,
+        looks: noProduct ? [] : looks,
+        noProduct,
         memo,
         // 다시 만들 때는 앞서 나온 훅·대본을 피한다 (9/23 세원: "대본을 아예 갈아엎을 수 있게")
         avoid: again ? `${plan?.hook || ""}\n${plan?.script || ""}` : "",
@@ -774,7 +778,8 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
         looks,
         angleSt,
         planMemo: memo,
-        productUrl: looks[0]?.products?.[0]?.url || "",
+        planNoProduct: noProduct,
+        productUrl: noProduct ? "" : looks[0]?.products?.[0]?.url || "",
       });
       setDirection("");
       setTab("write");
@@ -1125,13 +1130,27 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
               {tab === "write" && (
                 <>
                   <div className="space-y-2 rounded-xl border border-stone-200 p-3">
-                    <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
+                    <div className="flex gap-1 rounded-lg bg-stone-100 p-0.5 text-xs">
+                      {[
+                        [false, "우리 상품으로"],
+                        [true, "상품 없이 벤치마킹"],
+                      ].map(([v, label]) => (
+                        <button key={label} type="button" aria-pressed={noProduct === v} onClick={() => setNoProduct(v)} className={"flex-1 rounded-md px-2 py-1.5 font-medium " + (noProduct === v ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {noProduct ? (
+                      <p className="px-1 text-xs leading-relaxed text-stone-500">이 영상을 벤치마킹해 우리 대본을 만들어요. 상품 자리는 [상품명]처럼 비워 두고, 어떤 상품이 맞을지 조건을 같이 적어 줘요.</p>
+                    ) : (
+                      <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
+                    )}
                     <AngleBox
                       state={angleSt}
                       onChange={setAngleSt}
-                      fetcher={() => reelAngles({ looks, reference: r, memo })}
+                      fetcher={() => reelAngles({ looks: noProduct ? [] : looks, noProduct, reference: r, memo })}
                       keyNow={angleKey}
-                      disabled={!looks.some((l) => l.products.length)}
+                      disabled={!canWrite}
                     />
                     <ClosenessPick
                       value={closeness}
@@ -1148,12 +1167,12 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                     />
                     <button
                       type="button"
-                      disabled={!looks.some((l) => l.products.length) || busy}
+                      disabled={!canWrite || busy}
                       onClick={() => run(false)}
                       className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-rose-700 py-2.5 text-sm font-semibold text-white disabled:bg-stone-300"
                     >
                       {busy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                      {busy ? "만드는 중… (1분쯤)" : plan ? "이 내용으로 다시 만들기" : "이 상품으로 대본 만들기"}
+                      {busy ? "만드는 중… (1분쯤)" : plan ? "이 내용으로 다시 만들기" : noProduct ? "상품 없이 벤치마킹 대본 만들기" : "이 상품으로 대본 만들기"}
                     </button>
                     {plan && (
                       <div className="flex flex-wrap gap-2 border-t border-stone-100 pt-2">
@@ -1217,7 +1236,7 @@ function Detail({ item, urls, folders, queue, onSave, onRemove, onClose, onRetry
                     <div className="mt-3 space-y-3">
                       <div className="rounded-xl bg-stone-50 px-3 py-2.5 text-sm">
                         <div className="text-xs font-semibold text-stone-500">
-                          {plan.product?.name} {plan.product?.price}
+                          {plan.product?.name ? `${plan.product.name} ${plan.product?.price || ""}` : "이 릴스에 맞는 상품 조건"}
                         </div>
                         <ul className="mt-1 list-disc space-y-0.5 pl-4 text-stone-700">
                           {(plan.product?.points || []).map((p, i) => (
@@ -1857,7 +1876,7 @@ export default function ReelsPage({
       <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
         {[
           ["library", `레퍼런스 라이브러리 ${items.length}`],
-          ["product", `우리 상품으로 기획 ${plans.length}`],
+          ["product", `우리 릴스 기획 ${plans.length}`],
         ].map(([k, label]) => (
           <button
             key={k}

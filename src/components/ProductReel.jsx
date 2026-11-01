@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Pencil, Send, Undo2, MessageSquare, Play, ChevronDown, ExternalLink, CircleCheck, Film, Megaphone, Link2 } from "lucide-react";
+import { Loader2, Sparkles, X, Trash2, Camera, Clapperboard, RotateCw, Shirt, Shuffle, Pencil, Send, Undo2, MessageSquare, Play, ChevronDown, ExternalLink, CircleCheck, Film, Megaphone, Link2 } from "lucide-react";
 import { dayKey, shortDay } from "../lib/journal";
-import { productReel, reviseReel, candidateOf, fillTemplate, hookKind, mixPayload, MIX_PARTS, readCloseness, saveCloseness, reelAngles, angleOf, chosenOf } from "../lib/reels";
+import { productReel, reviseReel, candidateOf, fillTemplate, hookKind, mixPayload, mixHow, MIX_PARTS, readCloseness, saveCloseness, reelAngles, angleOf, chosenOf } from "../lib/reels";
 import { extractFrames } from "../lib/video";
 import { newId } from "../lib/id";
 import { shortName as short, emptyLook } from "../lib/looks";
@@ -24,12 +24,19 @@ import AngleBox from "./AngleBox";
 const FIELD =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 outline-none focus:border-rose-600";
 
-function FirstPick({ stats, onPick }) {
+function FirstPick({ stats, onPick, onNoProduct }) {
   return (
     <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4">
       <div className="text-sm font-semibold text-stone-800">어떤 상품으로 릴스를 만들까요?</div>
       <ProductSearch stats={stats} onPick={onPick} />
       <p className="text-[11px] text-stone-400">고른 뒤에 룩을 더하거나 한 룩에 상의·하의를 같이 담을 수 있어요.</p>
+      <button type="button" onClick={onNoProduct} className="flex w-full items-center gap-2.5 rounded-xl border border-dashed border-stone-300 px-3 py-2.5 text-left hover:border-rose-300 hover:bg-rose-50/40">
+        <Shuffle size={16} className="shrink-0 text-rose-700" />
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-stone-900">상품 없이 레퍼런스로 먼저 만들기</span>
+          <span className="block text-xs text-stone-500">영상 하나를 벤치마킹하거나 2~3개를 섞어요. 상품은 나중에 골라도 돼요.</span>
+        </span>
+      </button>
     </div>
   );
 }
@@ -69,9 +76,17 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
   const [angleSt, setAngleSt] = useState(draft.angle || { pick: "auto", custom: "" });
   const angleKey = JSON.stringify([looks.map((l) => l.products.map((p) => p.url || p.no || "")), refId, mixing ? mix : null]);
   const ordered = (pool) => [...pool.filter((i) => i.best), ...pool.filter((i) => !i.best)].slice(0, 12).map(candidateOf);
+  // 상품 없이 벤치마킹 (11/1) — 상품을 안 고르고 시작한 기획. 상품 자리는 [상품명]으로 비워 두고 나중에 고르면 채운다(fillFrom)
+  const hasProduct = looks.some((l) => l.products.length);
+  const noProduct = !hasProduct && !!draft.noProduct;
+  const filling = !!draft.fillFrom;
+  const [showPicker, setShowPicker] = useState(!draft.noProduct || hasProduct);
+  const blending = mixing && mixHow(mix) === "blend";
+  const blendShort = !filling && blending && (mix.blend || []).length < 2;
   const fetchAngles = () =>
     reelAngles({
       looks,
+      noProduct,
       candidates: ordered(refId === "auto" ? done : mixing ? [] : done.filter((i) => i.id === refId)),
       mix: mixing ? mixPayload(library, mix) : undefined,
       memo,
@@ -96,7 +111,7 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
     try {
       // 우리 영상 소스 → 소스마다 장면 8장쯤 (Claude 는 영상을 못 받는다 — 사진으로)
       const ownPayload = [];
-      if (mixing) {
+      if (mixing && !filling) {
         for (const [i, o] of own.entries()) {
           setStep(`우리 영상 ${i + 1}/${own.length} 장면 뜨는 중…`);
           let blob = o.file;
@@ -114,31 +129,38 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
       // 방향을 먼저 뽑을 때 레퍼런스를 골랐으면(알아서 고르기) 그 레퍼런스로
       const picked = refId === "auto" ? chosenOf(angleSt, angleKey) : "";
       const pool = refId === "auto" ? (done.some((i) => i.id === picked) ? done.filter((i) => i.id === picked) : done) : mixing ? [] : done.filter((i) => i.id === refId);
-      const r = await productReel({
-        looks,
-        stats: first.reason ? { reason: first.reason } : {},
-        // BEST(우리가 고른 좋은 레퍼런스)를 먼저 후보로 (9/29)
-        candidates: ordered(pool),
-        memo,
-        // 갈아엎기 — 앞서 만든 훅·대본은 피한다
-        avoid: again ? `${draft.prev.hook || ""}\n${draft.prev.script || ""}` : "",
-        direction: again ? direction : "",
-        mix: mixing ? { ...mixPayload(library, mix), own: ownPayload } : undefined,
-        closeness,
-        angle: angleOf(angleSt, angleKey),
-      });
+      const r = await productReel(
+        filling
+          ? // 상품 없이 만든 기획에 상품 넣기 — 대본은 그대로, 빈칸만 채운다. 레퍼런스는 다시 안 고른다
+            { looks, stats: first.reason ? { reason: first.reason } : {}, candidates: [], memo, closeness: "copy", fillFrom: draft.fillFrom }
+          : {
+              looks,
+              noProduct,
+              stats: first.reason ? { reason: first.reason } : {},
+              // BEST(우리가 고른 좋은 레퍼런스)를 먼저 후보로 (9/29)
+              candidates: ordered(pool),
+              memo,
+              // 갈아엎기 — 앞서 만든 훅·대본은 피한다
+              avoid: again ? `${draft.prev.hook || ""}\n${draft.prev.script || ""}` : "",
+              direction: again ? direction : "",
+              mix: mixing ? { ...mixPayload(library, mix), own: ownPayload } : undefined,
+              closeness,
+              angle: angleOf(angleSt, angleKey),
+            },
+      );
       if (!r.ok) {
         setMsg(r.message);
         const d = readDraft();
         if (d) writeDraft({ ...d, running: null });
         return;
       }
-      const ref = done.find((i) => i.id === r.data.chosen) || null;
+      const ref = done.find((i) => i.id === (filling ? refId : r.data.chosen)) || null;
       const names = (r.data.productTitles || []).map(short);
+      const benchTitle = blending ? `섞어 만들기 · 레퍼 ${(mix.blend || []).length}개` : `벤치마킹 · ${ref ? ref.reference?.title || ref.title : "레퍼런스"}`;
       await onDone({
         id: draft.id || newId("rp"),
-        title: draft.title || (names.length > 1 ? `${names[0]} 외 ${names.length - 1} · 룩 ${looks.length}` : short(names[0] || first.name)),
-        product: { no: first.no || null, name: r.data.productTitle || first.name, url: first.url, image: first.image || r.data.images?.[0] || "", reason: first.reason || "" },
+        title: !names.length ? draft.title || benchTitle : !filling && draft.title ? draft.title : names.length > 1 ? `${names[0]} 외 ${names.length - 1} · 룩 ${looks.length}` : short(names[0] || first.name),
+        product: { no: first.no || null, name: r.data.productTitle || first.name || "", url: first.url || "", image: first.image || r.data.images?.[0] || "", reason: first.reason || "" },
         looks,
         refId: ref?.id || "",
         refTitle: ref ? ref.reference?.title || ref.title : "",
@@ -165,22 +187,37 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
     <div className="space-y-3 rounded-2xl border border-rose-200 bg-rose-50/40 p-4">
       <div className="flex items-start justify-between gap-2">
         <span className="flex items-center gap-1.5 text-sm font-semibold text-rose-900">
-          <Shirt size={14} /> {again ? "다시 만들기" : "릴스 기획 만들기"}
+          <Shirt size={14} /> {filling ? "상품 넣어 빈칸 채우기" : again ? "다시 만들기" : noProduct ? "상품 없이 만들기" : "릴스 기획 만들기"}
         </span>
         <button type="button" onClick={onCancel} aria-label="닫기" className="p-1 text-stone-400 hover:text-stone-700">
           <X size={18} />
         </button>
       </div>
-      <LookPicker stats={stats} looks={looks} onChange={setLooks} label="이 릴스에 나올 우리 상품" />
-      <RefPicker library={library} value={refId} onChange={setRefId} mix={mix} onMix={setMix} own={own} onOwn={setOwn} fileUrl={fileUrl} folders={folders} />
-      <AngleBox state={angleSt} onChange={setAngleSt} fetcher={fetchAngles} keyNow={angleKey} disabled={!looks.some((l) => l.products.length)} />
-      <ClosenessPick
-        value={closeness}
-        onChange={(v) => {
-          setCloseness(v);
-          saveCloseness(v);
-        }}
-      />
+      {showPicker || filling ? (
+        <LookPicker stats={stats} looks={looks} onChange={setLooks} label={filling ? "이 기획에 넣을 우리 상품" : "이 릴스에 나올 우리 상품"} />
+      ) : (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2.5">
+          <p className="min-w-0 text-xs leading-relaxed text-stone-600">상품 없이 만들어요. 상품 자리는 [상품명]처럼 비워 두고, 나중에 고르면 채워요.</p>
+          <button type="button" onClick={() => setShowPicker(true)} className="shrink-0 rounded-lg border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600 hover:border-rose-300 hover:text-rose-800">
+            상품 고르기
+          </button>
+        </div>
+      )}
+      {!filling && (
+        <>
+          <RefPicker library={library} value={refId} onChange={setRefId} mix={mix} onMix={setMix} own={own} onOwn={setOwn} fileUrl={fileUrl} folders={folders} noProduct={noProduct} />
+          <AngleBox state={angleSt} onChange={setAngleSt} fetcher={fetchAngles} keyNow={angleKey} disabled={(!hasProduct && !noProduct) || blendShort} />
+          {!blending && (
+            <ClosenessPick
+              value={closeness}
+              onChange={(v) => {
+                setCloseness(v);
+                saveCloseness(v);
+              }}
+            />
+          )}
+        </>
+      )}
       <textarea
         value={memo}
         onChange={(e) => setMemo(e.target.value)}
@@ -196,14 +233,25 @@ function Make({ draft, stats, library, fileUrl, folders, onDone, onCancel }) {
         />
       )}
       {msg && <p className="text-sm text-rose-700">{msg}</p>}
+      {blendShort && <p className="text-xs text-amber-700">섞을 영상을 2개 이상 골라 주세요.</p>}
       <button
         type="button"
-        disabled={busy || waiting || !looks.some((l) => l.products.length)}
+        disabled={busy || waiting || (!hasProduct && !noProduct) || (filling && !hasProduct) || blendShort}
         onClick={run}
         className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-3 font-semibold text-white disabled:bg-stone-300"
       >
         {busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-        {busy ? step || "상품 사진·레퍼런스 보고 기획하는 중… (1분쯤)" : again ? "갈아엎어서 다시 만들기" : "이 상품으로 릴스 기획"}
+        {busy
+          ? step || (hasProduct ? "상품 사진·레퍼런스 보고 기획하는 중… (1분쯤)" : "레퍼런스 보고 기획하는 중… (1분쯤)")
+          : filling
+            ? "이 상품으로 빈칸 채우기"
+            : again
+              ? "갈아엎어서 다시 만들기"
+              : blending
+                ? "섞어서 새 릴스 만들기"
+                : noProduct
+                  ? "상품 없이 벤치마킹하기"
+                  : "이 상품으로 릴스 기획"}
       </button>
     </div>
   );
@@ -400,9 +448,16 @@ function refClips(item, library) {
     if (ref) add(ref, "레퍼런스");
     return out;
   }
-  for (const [k, label] of MIX_PARTS) {
-    const it = find(item.mix[k]);
-    if (it) add(it, label);
+  if (mixHow(item.mix) === "blend") {
+    (item.mix.blend || []).forEach((id, i) => {
+      const it = find(id);
+      if (it) add(it, `레퍼 ${i + 1}`);
+    });
+  } else {
+    for (const [k, label] of MIX_PARTS) {
+      const it = find(item.mix[k]);
+      if (it) add(it, label);
+    }
   }
   (item.own || []).forEach((o, i) => {
     const it = o.kind === "lib" && find(o.id);
@@ -570,7 +625,7 @@ function RefPlayer({ clips, cur, onPick, fileUrl, seek, wide, fold, onFold, onOp
 
 const FOLD_KEY = "poclo_refplayer_fold";
 
-function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain, onClose }) {
+function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain, onFill, onClose }) {
   const p = item.plan || {};
   const ref = library.find((i) => i.id === item.refId);
   const [refThumb, setRefThumb] = useState(null);
@@ -662,6 +717,26 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
       <div className="flex min-h-0 flex-1">
       {clips.length > 0 && wide && <RefPlayer key={item.id} clips={clips} cur={cur} onPick={setCur} fileUrl={fileUrl} seek={seek} wide fold={false} onFold={setFold} onOpenRef={onOpenRef} />}
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+        {!item.product?.url && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <p className="min-w-0 text-xs leading-relaxed text-amber-900">상품 없이 만든 기획이에요. 대본의 [상품명] 같은 자리는 상품을 고르면 채워져요.</p>
+              <button type="button" onClick={() => onFill(item)} className="shrink-0 rounded-lg bg-rose-700 px-2.5 py-1 text-xs font-semibold text-white">
+                상품 고르기
+              </button>
+            </div>
+            {p.product?.points?.length > 0 && (
+              <div className="mt-2 border-t border-amber-200/70 pt-2">
+                <div className="text-xs font-semibold text-amber-900">이 릴스에 맞는 상품 조건</div>
+                <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-stone-700">
+                  {p.product.points.map((x, i) => (
+                    <li key={i}>{x}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
         {p.looks?.filter((l) => l.n > 0).length > 1 && (
           <div className="rounded-xl border border-stone-200 px-3 py-2">
             <div className="text-xs font-semibold text-stone-500">룩 {p.looks.filter((l) => l.n > 0).length}개</div>
@@ -678,7 +753,20 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
           <div className="rounded-xl border border-stone-200 px-3 py-2.5">
             <div className="mb-1.5 text-xs font-semibold text-stone-500">섞어서 만들었어요</div>
             <ul className="space-y-1 text-xs">
-              {MIX_PARTS.map(([k, label]) => {
+              {mixHow(item.mix) === "blend" &&
+                (item.mix.blend || []).map((id, n) => {
+                  const it = library.find((i) => i.id === id);
+                  if (!it) return null;
+                  return (
+                    <li key={id} className="flex items-baseline gap-2">
+                      <span className="w-20 shrink-0 font-semibold text-stone-700">레퍼 {n + 1}</span>
+                      <button type="button" onClick={() => show(it.id)} title="이 영상을 위(옆) 화면에서 보기" className="min-w-0 truncate text-left text-rose-700 hover:underline">
+                        {hookKind(it.reference?.structure?.hookType).name || it.title} · {it.title}
+                      </button>
+                    </li>
+                  );
+                })}
+              {mixHow(item.mix) === "parts" && MIX_PARTS.map(([k, label]) => {
                 const it = library.find((i) => i.id === item.mix[k]);
                 return (
                   <li key={k} className="flex items-baseline gap-2">
@@ -812,9 +900,11 @@ function PlanView({ item, library, fileUrl, onRemove, onOpenRef, onSave, onAgain
           <button type="button" onClick={() => onAgain(item)} className="flex items-center gap-1 text-xs font-medium text-rose-700 hover:underline">
             <RotateCw size={12} /> 다시 만들기 (갈아엎기)
           </button>
-          <a href={item.product?.url} target="_blank" rel="noreferrer" className="text-xs text-sky-700 hover:underline">
-            상품 페이지 열기
-          </a>
+          {item.product?.url && (
+            <a href={item.product.url} target="_blank" rel="noreferrer" className="text-xs text-sky-700 hover:underline">
+              상품 페이지 열기
+            </a>
+          )}
         </span>
       </footer>
     </div>
@@ -1052,7 +1142,7 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
           }}
         />
       ) : (
-        <FirstPick stats={stats} onPick={(p) => setDraft({ looks: [emptyLook([p])], memo: "" })} />
+        <FirstPick stats={stats} onPick={(p) => setDraft({ looks: [emptyLook([p])], memo: "" })} onNoProduct={() => setDraft({ looks: [emptyLook([])], memo: "", noProduct: true, refId: "mix", mix: { how: "blend", blend: [] } })} />
       )}
 
       {plans.length > 0 && (
@@ -1091,7 +1181,7 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
       )}
 
       {plans.length === 0 ? (
-        <Empty title="아직 만든 상품 릴스 기획이 없어요." hint="위에서 상품을 고르면 라이브러리의 잘 된 릴스 구조로 기획해요." />
+        <Empty title="아직 만든 릴스 기획이 없어요." hint="위에서 상품을 고르거나, 상품 없이 레퍼런스로 먼저 만들 수 있어요." />
       ) : shown.length === 0 ? (
         tab === "posted" ? (
           <Empty title="아직 올린 릴스가 없어요." hint="'진행 중' 카드 오른쪽 위 ✓ 를 누르면 여기로 옮겨지고, 내 영상 링크(인스타 · 메타 광고)를 넣을 수 있어요." />
@@ -1128,7 +1218,8 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
                   id: item.id,
                   title: item.title,
                   createdAt: item.createdAt,
-                  looks: item.looks?.length ? item.looks : [emptyLook([item.product])],
+                  looks: item.looks?.length ? item.looks : [emptyLook(item.product?.url ? [item.product] : [])],
+                  noProduct: !item.product?.url,
                   memo: item.memo || "",
                   refId: item.mix ? "mix" : item.auto ? "auto" : item.refId,
                   mix: item.mix || {},
@@ -1136,6 +1227,21 @@ export default function ProductReelTab({ stats, library, plans, fileUrl, folders
                   closeness: item.plan?.closeness,
                   angle: item.angleSt,
                   prev: item.plan,
+                });
+              }}
+              onFill={(item) => {
+                setView(null);
+                const p = item.plan || {};
+                setDraft({
+                  id: item.id,
+                  createdAt: item.createdAt,
+                  looks: [emptyLook([])],
+                  memo: item.memo || "",
+                  refId: item.mix ? "mix" : item.refId,
+                  mix: item.mix || {},
+                  own: item.own || [],
+                  angle: item.angleSt,
+                  fillFrom: { hook: p.hook, script: p.script, caption: p.caption, scenes: p.scenes },
                 });
               }}
               onOpenRef={(ref) => {

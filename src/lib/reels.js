@@ -55,15 +55,15 @@ export const looksPayload = (looks) =>
     .filter((l) => l.products.length);
 
 /** 우리 상품(룩 단위) + 레퍼런스 후보들 → 가장 맞는 레퍼런스를 골라 우리 릴스 기획 */
-export const productReel = ({ looks, stats, candidates, memo, avoid, direction, mix, closeness, angle }) =>
-  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction, mix, closeness, angle });
+export const productReel = ({ looks, stats, candidates, memo, avoid, direction, mix, closeness, angle, noProduct, fillFrom }) =>
+  call({ mode: "product", looks: looksPayload(looks), stats, candidates, memo, avoid, direction, mix, closeness, angle, noProduct: noProduct || undefined, fillFrom });
 
 /**
  * 맞춰갈 방향 고르기 (10/9 세원: "레퍼 문맥의 제일 중요한 점을 내가 집든 처음 만들 때 집어 주든 — 레퍼런스랩처럼 어떻게 맞춰 갈지 고르는 란")
  * 글만 보내서 싸다(상품 사진 없음, effort low). → {chosen, core{point,target,mood,hook}, angles[{title,same,keep,change,hook,fit}]}
  */
-export const reelAngles = ({ looks, candidates, mix, reference, memo }) =>
-  call({ mode: "angles", looks: looksPayload(looks), candidates, mix, reference, memo });
+export const reelAngles = ({ looks, candidates, mix, reference, memo, noProduct }) =>
+  call({ mode: "angles", looks: looksPayload(looks), candidates, mix, reference, memo, noProduct: noProduct || undefined });
 
 /** 고른 방향 → 요청에 실을 모양 (AngleBox state). 상품·레퍼런스가 바뀌었으면(keyNow 다름) 안 보낸다 */
 export function angleOf(state, keyNow) {
@@ -105,8 +105,26 @@ export const MIX_PARTS = [
   ["script", "대본 말투", "이 영상의 말투·문장 길이·리듬"],
 ];
 
+/**
+ * 섞는 방법 (11/1 세원: "레퍼런스 2개 3개를 섞어서 완전히 다른 걸") — "blend" 2~3개만 고르면 AI가 잘한 점을 골라 합침(mix.blend = id 목록) /
+ * "parts" 부분마다 직접 고름(9/29). 예전에 부분을 골라 둔 기획은 그대로 parts.
+ */
+export const mixHow = (mix) => mix?.how || (MIX_PARTS.some(([k]) => mix?.[k]) ? "parts" : "blend");
+
 /** 부분마다 필요한 것만 서버로 (프롬프트가 길어지지 않게) */
 export function mixPayload(library, mix) {
+  if (mixHow(mix) === "blend") {
+    return {
+      blend: (mix?.blend || [])
+        .map((id) => library.find((i) => i.id === id))
+        .filter(Boolean)
+        .slice(0, 3)
+        .map((it) => {
+          const r = it.reference || {};
+          return { id: it.id, title: r.title || it.title, hook: r.hook, hookType: r.structure?.hookType, formula: r.hookFormula, empathy: r.empathy, flow: r.structure?.flow, cta: r.structure?.cta, why: r.structure?.whyItWorks, seconds: r.seconds, scenes: (r.scenes || []).map((s) => `${s.at} ${s.visual}`).slice(0, 10), script: String(r.script || "").slice(0, 1400) };
+        }),
+    };
+  }
   const out = {};
   for (const [key] of MIX_PARTS) {
     const it = library.find((i) => i.id === mix?.[key]);
@@ -146,8 +164,8 @@ export function stampOf(line) {
 }
 
 /** 레퍼런스 대본 + 우리 상품 주소 → 우리 릴스 기획 */
-export const adaptScript = ({ reference, looks, memo, avoid, direction, closeness, angle }) =>
-  call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction, closeness, angle });
+export const adaptScript = ({ reference, looks, memo, avoid, direction, closeness, angle, noProduct }) =>
+  call({ mode: "adapt", reference, looks: looksPayload(looks), memo, avoid, direction, closeness, angle, noProduct: noProduct || undefined });
 
 // ---------------------------------------------------------------- 레퍼런스를 얼마나 가져올지
 
