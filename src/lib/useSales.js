@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isRemote, supabase } from "./supabase";
+import { changeKey } from "./shoot";
 import { DEFAULT_COSTS, EMPTY_DAY } from "./sales";
 import { SEED_DAYS, SEED_MONTHLY } from "./seed";
 
@@ -101,7 +102,11 @@ export function useSales(session) {
   const [reelWorker, setReelWorker] = useState(null);
   // 캐러셀 기획 (9/22) — 레퍼런스 'carousels', 기획안 'carousel_plans', 상품 순위 'product_stats'(새벽 갱신이 채움)
   const [carousels, setCarousels] = useState(() => readLocal(CAROUSELS_KEY, []));
-  const [carouselPlans, setCarouselPlans] = useState(() => readLocal(CAROUSEL_PLANS_KEY, []));
+  // changeKey 도 같은 이름에 {items} 로 사본을 남기므로 목록으로 풀어 읽는다
+  const [carouselPlans, setCarouselPlans] = useState(() => {
+    const v = readLocal(CAROUSEL_PLANS_KEY, []);
+    return Array.isArray(v) ? v : v?.items || [];
+  });
   const [productStats, setProductStats] = useState(null);
   // 상품에서 시작한 릴스 기획 (9/22) — settings 'reel_plans'
   const [reelPlans, setReelPlans] = useState(() => readLocal(REEL_PLANS_KEY, []));
@@ -484,15 +489,27 @@ export function useSales(session) {
     },
     [changeList, carousels, online],
   );
+  // 11/2: 기획안에 저장·공유 숫자를 둘이 따로 적는다 — 그새 누가 썼으면 다시 읽어 적용하는 조건부 쓰기로(changeKey)
+  const changeCarouselPlans = useCallback(
+    async (change) => {
+      if (!(online && remoteOk.current)) return changeList("carousel_plans", CAROUSEL_PLANS_KEY, carouselPlans, setCarouselPlans, change, "캐러셀 기획안");
+      try {
+        const next = await changeKey("carousel_plans", online, (v) => ({ ...v, items: change(v.items || []) }));
+        setCarouselPlans(next.items);
+        writeLocal(CAROUSEL_PLANS_KEY, next.items);
+      } catch (error) {
+        setNotice(`캐러셀 기획안을 저장하지 못했어요. ${error?.message || "잠시 뒤 다시 시도해 주세요."}`);
+        console.error(error);
+      }
+    },
+    [changeList, carouselPlans, online],
+  );
+  // 기획 내용(plan) 없이 칸만 온 저장은 있는 줄에만 합친다 — 그새 상대가 지운 기획안이 빈 줄로 되살아나지 않게
   const saveCarouselPlan = useCallback(
-    (item) => changeList("carousel_plans", CAROUSEL_PLANS_KEY, carouselPlans, setCarouselPlans, upsertInto(item), "캐러셀 기획안"),
-    [changeList, carouselPlans],
+    (item) => changeCarouselPlans(item.plan ? upsertInto(item) : (items) => (items.some((i) => i.id === item.id) ? upsertInto(item)(items) : items)),
+    [changeCarouselPlans],
   );
-  const removeCarouselPlan = useCallback(
-    (id) => changeList("carousel_plans", CAROUSEL_PLANS_KEY, carouselPlans, setCarouselPlans,
-      (items) => items.filter((i) => i.id !== id), "캐러셀 기획안"),
-    [changeList, carouselPlans],
-  );
+  const removeCarouselPlan = useCallback((id) => changeCarouselPlans((items) => items.filter((i) => i.id !== id)), [changeCarouselPlans]);
 
   const saveAccount = useCallback(
     (item) => changeList("accounts", ACCOUNTS_KEY, accounts, setAccounts, upsertInto(item), "계정"),

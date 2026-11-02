@@ -4,7 +4,7 @@
  * 사람이 고친 것은 settings 'reel_types' {map:{릴스id: 유형}} 에 남겨 그걸 먼저 쓴다.
  */
 export const CTYPES = [
-  { key: "brand", n: "01", icon: "🏷️", name: "브랜드 소개형", desc: "쇼핑몰·브랜드 이야기, 신상·베스트·룩북을 몰아서 소개 — 우리 '지원 이야기' 같은 것", use: "소재 틀" },
+  { key: "brand", n: "01", icon: "🏷️", name: "브랜드 소개형", desc: "쇼핑몰·브랜드 이야기, 신상·베스트·룩북을 몰아서 소개 — 우리 '실루엣을 보는 쇼핑몰' 이야기 같은 것", use: "소재 틀" },
   { key: "codi", n: "02", icon: "👗", name: "코디 제안형", desc: "출근룩·데이트룩 같은 상황별 착장, 한 벌로 여러 코디", use: "소재 틀" },
   { key: "color", n: "03", icon: "🎨", name: "컬러칩 제안", desc: "같은 옷 여러 색 — 색감으로 고르게", use: "소재 틀" },
   { key: "silhouette", n: "04", icon: "🧍", name: "실루엣 직관형", desc: "말 없이 입은 핏·실루엣을 바로 보여 주기", use: "소재 틀" },

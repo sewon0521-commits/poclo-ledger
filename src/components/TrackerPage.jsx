@@ -481,7 +481,7 @@ function Guide() {
           <div className="space-y-1.5">
             <div className="text-xs font-bold text-rose-800">우리 기준으로 거르기</div>
             <ul className="space-y-1 text-stone-600">
-              <li>· 2030 데일리, 150~160cm 스트레이트 체형에 맞는지 먼저</li>
+              <li>· 2030 데일리, 실루엣이 예쁘게 떨어지는지 먼저</li>
               <li>· 한 몰에서만 뜬 건 그 몰 광고 덕일 수 있어요 → <b>2곳 이상 · 2일 이상</b>이면 신호</li>
               <li>· 3일 넘게 10위 안에 버티는 상품은 검증된 스테디 → 색·기장 바꿔 가져오기</li>
               <li>· '가장 많은 가격대'와 우리 판매가 구간을 맞춰 보기</li>
