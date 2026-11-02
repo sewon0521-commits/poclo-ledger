@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, ExternalLink, Repeat, Video } from "lucide-react";
 import { guideBlocks } from "../lib/modelGuide";
 import { clothGroups, clothLabel } from "../lib/modelRefs";
@@ -125,14 +125,36 @@ export function RefSetHead({ title, note, models }) {
   );
 }
 
+/** 카테고리 탭 줄 — tabs [{key, label, count}]. 많으면 옆으로 밀리고, 고른 탭이 늘 보이게 옮겨 준다 */
+export function ClothBar({ tabs, cur, onPick, sticky, className = "" }) {
+  const on = useRef(null);
+  useEffect(() => {
+    const el = on.current;
+    const bar = el?.parentElement;
+    if (!bar) return;
+    if (el.offsetLeft < bar.scrollLeft) bar.scrollLeft = el.offsetLeft - 4;
+    else if (el.offsetLeft + el.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = el.offsetLeft + el.offsetWidth - bar.clientWidth + 4;
+  }, [cur, tabs.length]);
+  return (
+    <div className={"flex gap-1 overflow-x-auto rounded-xl bg-stone-200 p-1 text-sm [scrollbar-width:none] " + (sticky ? "sticky top-[3.75rem] z-10 shadow-sm " : "relative ") + className}>
+      {tabs.map((t) => (
+        <button key={t.key} ref={t.key === cur ? on : null} type="button" aria-pressed={t.key === cur} onClick={() => onPick(t.key)} className={"flex-1 shrink-0 rounded-lg px-3 py-2 font-medium whitespace-nowrap " + (t.key === cur ? "bg-white text-stone-900 shadow-sm" : "text-stone-600")}>
+          {t.label}
+          {t.count > 0 && <span className="ml-1 text-xs font-normal text-stone-400 tabular-nums">{t.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
- * 의류별로 나눠 보기 (11/2) — 탭 하나에 그 의류 컷만, children(묶음)으로 그린다. 의류가 하나뿐이면(예전 링크 포함) 탭 없이 그대로.
- * value·onChange 를 주면 바깥과 같은 탭을 본다(고치기 창). sticky = 모델 화면: 머리글 아래 붙어 있고, 내려 본 뒤 바꾸면 그 의류 맨 위부터.
+ * 카테고리별로 나눠 보기 (11/2) — 탭 하나에 그 카테고리 컷만, children(묶음)으로 그린다. 하나뿐이면(예전 링크 포함) 탭 없이 그대로.
+ * value·onChange 를 주면 바깥과 같은 탭을 본다(고치기 창). sticky = 모델 화면: 머리글 아래 붙어 있고, 내려 본 뒤 바꾸면 그 카테고리 맨 위부터.
  */
-export function ClothTabs({ items, value, onChange, sticky, children }) {
+export function ClothTabs({ items, order, value, onChange, sticky, children }) {
   const [own, setOwn] = useState(null);
   const top = useRef(null);
-  const groups = clothGroups(items);
+  const groups = clothGroups(items, order);
   const cur = groups.find((g) => g.cloth === (value ?? own)) || groups[0];
   if (!cur) return null;
   const pick = (cloth) => {
@@ -142,15 +164,7 @@ export function ClothTabs({ items, value, onChange, sticky, children }) {
   };
   return (
     <div ref={top} className="scroll-mt-16 space-y-4">
-      {groups.length > 1 && (
-        <div className={"flex gap-1 rounded-xl bg-stone-200 p-1 text-sm " + (sticky ? "sticky top-[3.75rem] z-10 shadow-sm" : "")}>
-          {groups.map((g) => (
-            <button key={g.cloth} type="button" aria-pressed={g === cur} onClick={() => pick(g.cloth)} className={"flex-1 rounded-lg py-2 font-medium " + (g === cur ? "bg-white text-stone-900 shadow-sm" : "text-stone-600")}>
-              {clothLabel(g.cloth)}
-            </button>
-          ))}
-        </div>
-      )}
+      {groups.length > 1 && <ClothBar tabs={groups.map((g) => ({ key: g.cloth, label: clothLabel(g.cloth) }))} cur={cur.cloth} onPick={pick} sticky={sticky} />}
       {children(cur)}
     </div>
   );

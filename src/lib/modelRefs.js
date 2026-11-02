@@ -1,7 +1,7 @@
 // 모델 레퍼런스 모음 (11/1) — 세원: "우리 모델들한테 보낼 사진 레퍼런스랑 영상 레퍼런스 같은 거 모아서 보내 주고 싶은데, 모델 기본 가이드 외에 만들 수 있는 걸."
 // 기본 가이드(lib/modelGuide)는 모든 촬영 시트에 같이 가는 한 벌, 이건 주제·모델마다 여러 벌 만들어 따로 링크로 보낸다.
 //
-// settings model_refs {items:[{id, title, note, models:[이름], sections:[칸], sheetToken, sheetAt, sheetSig, sheetClosed, createdAt}]}
+// settings model_refs {items:[{id, title, note, models:[이름], sections:[칸], sheetToken, sheetAt, sheetSig, sheetClosed, createdAt}], cloths:[카테고리 이름 — 순서 = 탭 순서]}
 //   칸 = 기본 가이드 칸과 같은 모양 {id, title, text, photos:[{key, cap, refId}], clips, links} + cloth(의류) — 고치기 SectionEdit · 그리기 GuideSections 를 같이 쓴다.
 //   refId = 촬영 레퍼런스에서 고른 사진. 보관 파일을 그대로 가리킨다(저장소 한도 초과라 새로 안 올린다).
 //   cloth (11/2 세원: "일단 의류 카테고리만 크게 나누자. 아우터, 상의, 하의. 그 안에서 내가 거울셀카, 앉아서 찍는 컷 등등 만들게") — 없으면 공통.
@@ -11,34 +11,72 @@ import { newId } from "./id";
 
 export const REFS_KEY = "model_refs";
 
-/** 의류 갈래 — 고치기 탭 · 모델 화면 탭이 이 순서. 이 안의 컷은 세원이 직접 만든다 */
+/** 처음 카테고리 — 고치기 · 모델 화면 탭이 이 순서. 세원이 '카테고리 편집'에서 늘리면 model_refs.cloths 에 저장된다. 이 안의 컷은 세원이 직접 만든다 */
 export const CLOTHS = ["아우터", "상의", "하의"];
 export const CLOTH_NONE = "공통";
-export const clothKey = (s) => (CLOTHS.includes(s.cloth) ? s.cloth : "");
+export const clothsOf = (v) => (v?.cloths?.length ? v.cloths : CLOTHS);
+export const clothKey = (s, cloths = CLOTHS) => (cloths.includes(s.cloth) ? s.cloth : "");
 
 // 세원이 칸 이름으로 나눠 쓰던 것('아우터 - 거울셀카')을 읽을 때 제자리로 옮긴다. 저장은 고칠 때 저절로
-const CLOTH_TITLE = new RegExp(`^\\s*(${CLOTHS.join("|")})\\s*[-–—·:/]\\s*(.+)$`);
-export function withCloth(s) {
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function withCloth(s, cloths = CLOTHS) {
   if (s.cloth) return s;
-  const m = (s.title || "").match(CLOTH_TITLE);
+  // 긴 이름 먼저 — '상의세트'가 '상의'로 읽히지 않게
+  const names = [...cloths].sort((a, b) => b.length - a.length).map(escapeRe).join("|");
+  const m = (s.title || "").match(new RegExp(`^\\s*(${names})\\s*[-–—·:/]\\s*(.+)$`));
   return m ? { ...s, cloth: m[1], title: m[2].trim() } : s;
 }
-export const withClothSet = (x) => ({ ...x, sections: (x.sections || []).map(withCloth) });
+export const withClothSet = (x, cloths = CLOTHS) => ({ ...x, sections: (x.sections || []).map((s) => withCloth(s, cloths)) });
 
-/** 칸들 → 의류별 묶음 (칸 있는 의류만, 공통은 맨 뒤) — 예전 링크는 cloth 가 없어 묶음 하나, 탭 없이 그대로 보인다 */
-export function clothGroups(items) {
-  const groups = CLOTHS.map((cloth) => ({ cloth, items: items.filter((x) => x.cloth === cloth) })).filter((g) => g.items.length);
-  const rest = items.filter((x) => !clothKey(x));
+/**
+ * 칸들 → 카테고리별 묶음 (칸 있는 것만, 공통은 맨 뒤). order 순서, 그 밖은 나온 순서.
+ * 모델 화면은 목록을 못 읽으니 스냅숏 순서 그대로다. 예전 링크는 cloth 가 없어 묶음 하나, 탭 없이 그대로 보인다.
+ */
+export function clothGroups(items, order = []) {
+  const names = [...new Set([...order, ...items.map((x) => x.cloth).filter(Boolean)])];
+  const groups = names.map((cloth) => ({ cloth, items: items.filter((x) => x.cloth === cloth) })).filter((g) => g.items.length);
+  const rest = items.filter((x) => !x.cloth);
   return rest.length ? [...groups, { cloth: "", items: rest }] : groups;
 }
 export const clothLabel = (cloth) => cloth || CLOTH_NONE;
 
 /** 목록 카드 한 줄 — '아우터 2컷 · 상의 1컷' */
-export const clothSummary = (x) =>
-  clothGroups((x.sections || []).map(withCloth))
+export const clothSummary = (x, cloths = CLOTHS) =>
+  clothGroups(
+    (x.sections || []).map((s) => withCloth(s, cloths)),
+    cloths,
+  )
     .filter((g) => g.cloth)
     .map((g) => `${g.cloth} ${g.items.length}컷`)
     .join(" · ");
+
+// 카테고리 고치기 — changeKey 에 넘긴다(서버 최신 위에서 돈다). 이름을 바꾸거나 지우면 모든 모음의 컷을 같이 고친다
+const mapSections = (v, fn) => ({
+  ...v,
+  // 옛 칸 이름('아우터 - 거울셀카')도 먼저 제자리로 — 안 그러면 이름을 바꾼 뒤 못 읽는다
+  items: (v.items || []).map((x) => ({ ...x, sections: (x.sections || []).map((s) => fn(withCloth(s, clothsOf(v)))) })),
+});
+export const addCloth = (name) => (v) => ({ ...v, cloths: [...clothsOf(v), name] });
+export const renameCloth = (from, to) => (v) => ({ ...mapSections(v, (s) => (s.cloth === from ? { ...s, cloth: to } : s)), cloths: clothsOf(v).map((c) => (c === from ? to : c)) });
+/** 지우면 안의 컷은 공통으로 — 사진·영상은 그대로 */
+export const dropCloth = (name) => (v) => ({
+  ...mapSections(v, (s) => {
+    if (s.cloth !== name) return s;
+    const { cloth: _gone, ...rest } = s;
+    return rest;
+  }),
+  cloths: clothsOf(v).filter((c) => c !== name),
+});
+export const moveCloth = (name, dir) => (v) => {
+  const list = [...clothsOf(v)];
+  const i = list.indexOf(name);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return v;
+  [list[i], list[j]] = [list[j], list[i]];
+  return { ...v, cloths: list };
+};
+/** 컷이 몇 개인지 — 모든 모음을 통틀어 */
+export const clothCount = (items, name, cloths = CLOTHS) => (items || []).flatMap((x) => x.sections || []).filter((s) => withCloth(s, cloths).cloth === name).length;
 
 /** 컷 이름 추천 — 내용은 세원이 채운다. 옷 종류는 탭이 나누므로 이름엔 안 넣는다 */
 export const REF_SUGGEST = [

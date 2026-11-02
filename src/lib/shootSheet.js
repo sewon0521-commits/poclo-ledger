@@ -25,6 +25,7 @@ import { isRemote, supabase } from "./supabase";
 import { newToken, callName, isMissing } from "./contract";
 import { md, loadKey, codiItems, photoUrls } from "./shoot";
 import { GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "./modelGuide";
+import { CLOTHS, clothGroups, clothKey } from "./modelRefs";
 import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
 
@@ -197,7 +198,7 @@ export async function buildSheet(day, codis, d, online) {
 export const REF_SHEET_DAYS = 30;
 
 /** 모음 스냅숏 — 제목 · 전할 말 · 받는 모델 · 칸만. 촬영 레퍼런스의 쇼핑몰·메모·릴스 제목은 안 들어간다 */
-export async function buildRefSheet(set, d, online) {
+export async function buildRefSheet(set, d, online, cloths = CLOTHS) {
   const items = filledItems(set.sections);
   const signed = await longUrls(sectionKeys(items), online, REF_SHEET_DAYS);
   const remote = isRemote && online;
@@ -208,7 +209,11 @@ export async function buildRefSheet(set, d, online) {
     note: (set.note || "").trim(),
     models: (set.models || []).filter(Boolean),
     // 릴스 기획에서 지워진 영상은 모델 화면에 빈 칸으로 안 보이게 뺀다
-    base: sectionsData(items, urlOf).map((x, i) => ({ ...x, cloth: items[i].cloth || "", clips: x.clips.filter((c) => c.src || !remote) })),
+    // 카테고리 순서대로 담는다 — 모델 화면은 목록을 못 읽으니 이 순서가 탭 순서
+    base: clothGroups(
+      sectionsData(items, urlOf).map((x, i) => ({ ...x, cloth: clothKey(items[i], cloths), clips: x.clips.filter((c) => c.src || !remote) })),
+      cloths,
+    ).flatMap((g) => g.items),
     madeAt: new Date().toISOString(),
     until: new Date(Date.now() + REF_SHEET_DAYS * 86400000).toISOString(),
   };
