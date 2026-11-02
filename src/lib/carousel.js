@@ -95,8 +95,8 @@ export function planTitle({ kind, postOn, topic }) {
   return `${d}${name}${topic ? ` · ${topic}` : ""}`;
 }
 
-/** 어림 비용 — 실측(11/2): 상품 3개 + 사진 12장 234원, 상품 없이는 사진이 안 가서 더 싸다 */
-export const planCost = (products) => (products === 0 ? "약 100~250원" : products === 1 ? "약 200~350원" : "약 250~500원");
+/** 어림 비용 — 실측(11/2 배포 함수, 릴스 레퍼런스 4개·트렌드 메모 포함): 상품 없이 192·203원, 상품 1개(사진 14장) 379원 */
+export const planCost = (products) => (products === 0 ? "약 150~250원" : "약 300~500원");
 
 /** 게시 뒤 볼 숫자 — 기획안에 칸마다 바로 저장한다(비어 있으면 안 적음, 0 은 진짜 0) */
 export const PLAN_STATS = [
