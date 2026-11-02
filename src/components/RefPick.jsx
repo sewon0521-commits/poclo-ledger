@@ -10,9 +10,14 @@ import { folderIdOf, withChildren, ordered } from "../lib/reelFolders";
 const withFolder = (r) => (r.folderId || r.folder ? r : { ...r, folder: (r.clothes || [])[0] || "" });
 
 /** 촬영 레퍼런스에서 사진 고르기 (10/6 세원: "코디 촬영 관리 폴더 만든 곳에서 촬영 레퍼런스에 있는 사진 레퍼런스를 픽할 수 있었으면") */
-export default function RefPick({ d, picked, onDone, onClose }) {
+export default function RefPick({ d, picked, onDone, onClose, startFolder = "" }) {
   const [sel, setSel] = useState(picked);
-  const [folder, setFolder] = useState("");
+  // 그 목록에 사진이 없으면 전체부터 — 빈 창으로 시작하지 않게
+  const [folder, setFolder] = useState(() => {
+    if (!startFolder) return "";
+    const ids = new Set(withChildren(startFolder, d.folders));
+    return d.refs.map(withFolder).some((r) => ids.has(folderIdOf(r, d.folders))) ? startFolder : "";
+  });
   const [cut, setCut] = useState("");
   const [shop, setShop] = useState("");
   const shops = shopsOf(d.tags, d.refs);

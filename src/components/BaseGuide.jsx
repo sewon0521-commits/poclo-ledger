@@ -1,5 +1,7 @@
+import { useRef, useState } from "react";
 import { Camera, ExternalLink, Repeat, Video } from "lucide-react";
 import { guideBlocks } from "../lib/modelGuide";
+import { clothGroups, clothLabel } from "../lib/modelRefs";
 import { callName } from "../lib/contract";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import LoopClip from "./LoopClip";
@@ -119,6 +121,37 @@ export function RefSetHead({ title, note, models }) {
       {models?.length > 0 && <div className="mb-1 text-sm font-medium text-rose-700">{models.map(callName).join(", ")}, 미리 봐 주세요 ☺️</div>}
       <h1 className="text-xl font-bold text-balance text-stone-900">{title || "사진·영상 레퍼런스"}</h1>
       {note && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm whitespace-pre-line text-rose-900">{note}</p>}
+    </div>
+  );
+}
+
+/**
+ * 의류별로 나눠 보기 (11/2) — 탭 하나에 그 의류 컷만, children(묶음)으로 그린다. 의류가 하나뿐이면(예전 링크 포함) 탭 없이 그대로.
+ * value·onChange 를 주면 바깥과 같은 탭을 본다(고치기 창). sticky = 모델 화면: 머리글 아래 붙어 있고, 내려 본 뒤 바꾸면 그 의류 맨 위부터.
+ */
+export function ClothTabs({ items, value, onChange, sticky, children }) {
+  const [own, setOwn] = useState(null);
+  const top = useRef(null);
+  const groups = clothGroups(items);
+  const cur = groups.find((g) => g.cloth === (value ?? own)) || groups[0];
+  if (!cur) return null;
+  const pick = (cloth) => {
+    if (onChange) onChange(cloth);
+    else setOwn(cloth);
+    if (sticky && top.current && top.current.getBoundingClientRect().top < 0) top.current.scrollIntoView({ block: "start" });
+  };
+  return (
+    <div ref={top} className="scroll-mt-16 space-y-4">
+      {groups.length > 1 && (
+        <div className={"flex gap-1 rounded-xl bg-stone-200 p-1 text-sm " + (sticky ? "sticky top-[3.75rem] z-10 shadow-sm" : "")}>
+          {groups.map((g) => (
+            <button key={g.cloth} type="button" aria-pressed={g === cur} onClick={() => pick(g.cloth)} className={"flex-1 rounded-lg py-2 font-medium " + (g === cur ? "bg-white text-stone-900 shadow-sm" : "text-stone-600")}>
+              {clothLabel(g.cloth)}
+            </button>
+          ))}
+        </div>
+      )}
+      {children(cur)}
     </div>
   );
 }

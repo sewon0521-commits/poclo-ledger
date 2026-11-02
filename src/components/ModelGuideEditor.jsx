@@ -21,7 +21,7 @@ import { ClipBig } from "./LoopClip";
 const TIP = "한 줄에 하나 · 들여 쓰면 아래 단계 · '→' 로 이으면 순서(번호) · (사진)/(영상) 을 붙이면 표시";
 
 // 11/1 모델 레퍼런스 모음(ModelRefsPage)도 같이 쓴다 — d 가 있으면 '촬영 레퍼런스에서 고르기', hint = 글 칸 안내, videoOpen = 참고 영상 펼쳐 두기
-export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFresh, d, hint, videoOpen }) {
+export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFresh, d, hint, videoOpen, titleHint, extra }) {
   const [pending, setPending] = useState([]);
   const [err, setErr] = useState("");
   const [picking, setPicking] = useState(false);
@@ -89,7 +89,8 @@ export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove
       className="rounded-2xl border border-stone-200 bg-white p-3"
     >
       <div className="mb-2 flex items-center gap-1.5">
-        <input value={x.title || ""} onChange={(e) => onChange({ ...x, title: e.target.value })} placeholder="칸 이름 (예: 셀카 포즈)" aria-label="칸 이름" className={FIELD + " font-semibold"} />
+        <input value={x.title || ""} onChange={(e) => onChange({ ...x, title: e.target.value })} placeholder={titleHint || "칸 이름 (예: 셀카 포즈)"} aria-label="칸 이름" className={FIELD + " min-w-0 font-semibold"} />
+        {extra}
         <button type="button" disabled={i === 0} onClick={() => onMove(-1)} aria-label="위로" className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
           <ArrowUp size={15} />
         </button>
@@ -140,7 +141,7 @@ export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove
         <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (add(e.target.files), (e.target.value = ""))} />
       </div>
       {err && <p className="mt-1.5 text-xs text-rose-700">{err}</p>}
-      {picking && <RefPick d={d} picked={photos.map((p) => p.refId).filter(Boolean)} onDone={pickDone} onClose={() => setPicking(false)} />}
+      {picking && <RefPick d={d} picked={photos.map((p) => p.refId).filter(Boolean)} startFolder={x.cloth ? d.folders.find((f) => f.name === x.cloth)?.id : ""} onDone={pickDone} onClose={() => setPicking(false)} />}
       {/* 참고 영상 — 세원: "거울 셀카 다양한 포즈 및 구도는 내가 레퍼런스를 첨부해야 될 듯" */}
       <details className="group mt-3 rounded-xl border border-stone-200 px-3 py-2" open={videoOpen || (x.clips || []).length + (x.links || []).length > 0}>
         <summary className="cursor-pointer text-xs font-semibold text-stone-600 select-none group-open:mb-2">

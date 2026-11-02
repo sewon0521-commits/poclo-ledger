@@ -3,19 +3,19 @@ import { Check, ExternalLink, Film, Image as ImageIcon, Link2, Loader2, Lock, Pl
 import { FIELD, md, loadKey, changeKey, upsert, remove } from "../lib/shoot";
 import { dayKey } from "../lib/journal";
 import { signedUrls, videoKey, thumbKey } from "../lib/refClips";
-import { REFS_KEY, REF_SUGGEST, blankSet, newSection, countsOf, refSig } from "../lib/modelRefs";
+import { REFS_KEY, REF_SUGGEST, CLOTHS, blankSet, newSection, countsOf, refSig, clothKey, clothGroups, clothLabel, clothSummary, withClothSet } from "../lib/modelRefs";
 import { filledItems } from "../lib/modelGuide";
 import { buildRefSheet, createSheet, updateSheet, sheetLink, refSheetDm, REF_SHEET_DAYS, SheetError } from "../lib/shootSheet";
 import { Sheet, SheetHead } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
 import { ClipBig } from "./LoopClip";
-import { GuideSections, RefSetHead } from "./BaseGuide";
+import { ClothTabs, GuideSections, RefSetHead } from "./BaseGuide";
 import { SectionEdit } from "./ModelGuideEditor";
 import { CopyBtn, Models } from "./ShootDays";
 
 /**
  * 촬영 › 모델 레퍼런스 (11/1) — 세원: "우리 모델들한테 보낼 사진 레퍼런스랑 영상 레퍼런스 같은 거 모아서 보내 주고 싶은데, 모델 기본 가이드 외에 만들 수 있는 걸."
- * 모음을 주제·모델마다 만들고(칸마다 사진·영상), 로그인 없는 링크로 보낸다. 규칙은 lib/modelRefs.js 머리말.
+ * 모음을 주제·모델마다 만들고(의류 탭 → 컷마다 사진·영상), 로그인 없는 링크로 보낸다. 규칙은 lib/modelRefs.js 머리말.
  * 고치면 0.8초 뒤 저절로 저장, 닫을 때 남은 것 바로. 보낸 링크는 스냅숏이라 '내용 새로 보내기'를 눌러야 바뀐다.
  */
 
@@ -158,12 +158,18 @@ function RefSetSheet({ init, isNew, d, online, sets, onClose }) {
   const [big, setBig] = useState(null);
   const [clipBig, setClipBig] = useState(null);
   const [view, setView] = useState("edit");
+  const [tabWant, setTab] = useState(() => clothGroups(init.sections || [])[0]?.cloth ?? CLOTHS[0]);
+  const [cutName, setCutName] = useState("");
   const latest = useRef(init);
   const dirty = useRef(false);
   const timer = useRef(null);
   const flushRef = useRef(null);
 
   const secs = x.sections || [];
+  // 의류 탭 — 공통은 의류를 안 정한 칸이 있을 때만(예전 모음)
+  const tabs = secs.some((s) => !clothKey(s)) ? [...CLOTHS, ""] : CLOTHS;
+  const tab = tabs.includes(tabWant) ? tabWant : CLOTHS[0];
+  const shown = secs.filter((s) => clothKey(s) === tab);
   const want = secs
     .flatMap((s) => [...(s.photos || []).map((p) => p.key), ...(s.clips || []).flatMap((c) => [videoKey(c.reelId), thumbKey(c.reelId)])])
     .filter((k) => !k.startsWith("data:") && !(k in urls));
@@ -209,11 +215,22 @@ function RefSetSheet({ init, isNew, d, online, sets, onClose }) {
     onClose();
   };
   const setSection = (id) => (sec) => put({ sections: (latest.current.sections || []).map((s) => (s.id === id ? sec : s)) });
+  // 순서는 이 의류 안에서만 바꾼다
   const move = (i, dir) => {
-    const n = [...secs];
-    const [s] = n.splice(i, 1);
-    n.splice(i + dir, 0, s);
-    put({ sections: n });
+    const a = shown[i];
+    const b = shown[i + dir];
+    put({ sections: secs.map((s) => (s.id === a.id ? b : s.id === b.id ? a : s)) });
+  };
+  const addCut = (raw) => {
+    const title = raw.trim();
+    if (!title) return;
+    if (shown.some((s) => (s.title || "").trim() === title)) {
+      setMsg(`${clothLabel(tab)}에 이미 '${title}'이 있어요.`);
+      return;
+    }
+    setMsg("");
+    put({ sections: [...secs, newSection(title, tab)] });
+    setCutName("");
   };
   const dropSet = async () => {
     if (!window.confirm(`'${x.title || "이 모음"}'을 지울까요?${x.sheetToken ? " 보낸 링크도 닫혀요." : ""} 촬영 레퍼런스·릴스 기획의 원본은 그대로예요.`)) return;
@@ -228,6 +245,7 @@ function RefSetSheet({ init, isNew, d, online, sets, onClose }) {
     }
   };
   const preview = filledItems(secs).map((s) => ({
+    cloth: clothKey(s),
     title: (s.title || "").trim(),
     text: s.text || "",
     photos: (s.photos || []).map((p) => ({ url: urlOf(p.key), cap: p.cap })),
@@ -272,19 +290,48 @@ function RefSetSheet({ init, isNew, d, online, sets, onClose }) {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <div className={"min-w-0 space-y-3 " + (view === "see" ? "max-lg:hidden" : "")}>
             <div className="space-y-2 rounded-2xl border border-stone-200 bg-white p-3">
-              <input value={x.title || ""} onChange={(e) => put({ title: e.target.value })} placeholder="모음 이름 (예: 11월 아우터 포즈)" aria-label="모음 이름" className={FIELD + " font-semibold"} />
+              <input value={x.title || ""} onChange={(e) => put({ title: e.target.value })} placeholder="모음 이름 (예: 11월 촬영 레퍼런스)" aria-label="모음 이름" className={FIELD + " font-semibold"} />
               <textarea value={x.note || ""} onChange={(e) => put({ note: e.target.value })} rows={2} placeholder="모델에게 전할 말 (예: 이번 촬영은 이런 느낌으로 부탁드려요)" aria-label="모델에게 전할 말" className={FIELD + " resize-y leading-relaxed"} />
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-xs font-semibold text-stone-500">받는 모델</span>
                 <Models value={x.models || []} onChange={(models) => put({ models })} />
               </div>
             </div>
-            {secs.map((s, i) => (
+            <div className="flex gap-1 rounded-xl bg-stone-200 p-1 text-sm">
+              {tabs.map((c) => {
+                const count = secs.filter((s) => clothKey(s) === c).length;
+                return (
+                  <button key={c} type="button" aria-pressed={c === tab} onClick={() => (setTab(c), setMsg(""))} className={"flex-1 rounded-lg py-2 font-medium " + (c === tab ? "bg-white text-stone-900 shadow-sm" : "text-stone-600")}>
+                    {clothLabel(c)}
+                    {count > 0 && <span className="ml-1 text-xs font-normal text-stone-400 tabular-nums">{count}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {shown.length === 0 && <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-4 py-6 text-center text-sm text-stone-500">{clothLabel(tab)}에 아직 컷이 없어요. 아래에서 만들어 주세요.</p>}
+            {shown.map((s, i) => (
               <SectionEdit
                 key={s.id}
                 x={s}
                 i={i}
-                n={secs.length}
+                n={shown.length}
+                titleHint="컷 이름 (예: 앉아서 찍는 컷)"
+                extra={
+                  <select
+                    value={clothKey(s)}
+                    onChange={(e) => setSection(s.id)({ ...s, cloth: e.target.value })}
+                    aria-label={`${s.title || "이 컷"} 의류 옮기기`}
+                    title="다른 의류로 옮기기"
+                    className="shrink-0 rounded-lg border border-stone-200 bg-white px-1.5 py-2 text-xs text-stone-600 outline-none focus:border-rose-600"
+                  >
+                    {CLOTHS.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                    {!clothKey(s) && <option value="">{clothLabel("")}</option>}
+                  </select>
+                }
                 online={online}
                 urlOf={urlOf}
                 d={d}
@@ -293,19 +340,31 @@ function RefSetSheet({ init, isNew, d, online, sets, onClose }) {
                 onFresh={(k, u) => setUrls((m) => ({ ...m, [k]: u }))}
                 onChange={setSection(s.id)}
                 onMove={(dir) => move(i, dir)}
-                onRemove={() => (!filledItems([s]).length || window.confirm(`'${s.title || "이 칸"}'을 지울까요?`)) && put({ sections: secs.filter((y) => y.id !== s.id) })}
+                onRemove={() => (!filledItems([s]).length || window.confirm(`'${s.title || "이 컷"}'을 지울까요?`)) && put({ sections: secs.filter((y) => y.id !== s.id) })}
               />
             ))}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs font-semibold text-stone-500">칸 더하기</span>
-              {REF_SUGGEST.filter((g) => !secs.some((s) => (s.title || "").trim() === g.title)).map((g) => (
-                <button key={g.title} type="button" onClick={() => put({ sections: [...secs, newSection(g)] })} className="flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800">
-                  <Plus size={12} /> {g.title}
+            <div className="space-y-2 rounded-2xl border border-stone-200 bg-white p-3">
+              <div className="flex gap-1.5">
+                {/* 한글은 엔터 keydown 이 조합 끝내기로 먹혀서 keyup 에서 넣는다 */}
+                <input
+                  value={cutName}
+                  onChange={(e) => setCutName(e.target.value)}
+                  onKeyUp={(e) => e.key === "Enter" && addCut(cutName)}
+                  placeholder={`${clothLabel(tab)} 안에 만들 컷 이름`}
+                  aria-label="만들 컷 이름"
+                  className={FIELD + " min-w-0 flex-1"}
+                />
+                <button type="button" disabled={!cutName.trim()} onClick={() => addCut(cutName)} className="flex shrink-0 items-center gap-1 rounded-lg bg-rose-700 px-3 text-sm font-semibold text-white disabled:bg-stone-300">
+                  <Plus size={14} /> 컷 만들기
                 </button>
-              ))}
-              <button type="button" onClick={() => put({ sections: [...secs, newSection()] })} className="flex items-center gap-1 rounded-full border border-dashed border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-500 hover:border-rose-300 hover:text-rose-800">
-                <Plus size={12} /> 직접 칸
-              </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {REF_SUGGEST.filter((g) => !shown.some((s) => (s.title || "").trim() === g.title)).map((g) => (
+                  <button key={g.title} type="button" onClick={() => addCut(g.title)} className="flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800">
+                    <Plus size={12} /> {g.title}
+                  </button>
+                ))}
+              </div>
             </div>
             {msg && <p className="text-xs text-rose-700">{msg}</p>}
             {!isNew && (
@@ -322,8 +381,10 @@ function RefSetSheet({ init, isNew, d, online, sets, onClose }) {
                 <div className="space-y-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-stone-200">
                   <RefSetHead title={(x.title || "").trim()} note={(x.note || "").trim()} models={x.models} />
                   {preview.length ? (
-                    <div className="space-y-4 border-t border-stone-200 pt-4">
-                      <GuideSections items={preview} onBig={(u, k) => setBig({ u, k })} onClip={(clips, k) => setClipBig({ clips, k })} />
+                    <div className="border-t border-stone-200 pt-4">
+                      <ClothTabs items={preview} value={tab} onChange={setTab}>
+                        {(g) => <GuideSections items={g.items} onBig={(u, k) => setBig({ u, k })} onClip={(clips, k) => setClipBig({ clips, k })} />}
+                      </ClothTabs>
                     </div>
                   ) : (
                     <p className="py-6 text-center text-sm text-stone-400">사진이나 영상을 담으면 여기 보여요.</p>
@@ -366,7 +427,7 @@ export default function ModelRefsPage({ d, online }) {
       <div className="mb-4 flex items-start justify-between gap-2">
         <div>
           <h2 className="text-xl font-bold text-stone-900">모델 레퍼런스</h2>
-          <p className="mt-0.5 text-sm text-stone-500">포즈 사진 · 영상 레퍼런스를 주제나 모델별로 모아 링크로 보내요. 모델은 로그인 없이 봐요.</p>
+          <p className="mt-0.5 text-sm text-stone-500">포즈 사진 · 영상 레퍼런스를 아우터 · 상의 · 하의로 나눠 모아 링크로 보내요. 모델은 로그인 없이 봐요.</p>
         </div>
         <button type="button" onClick={make} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <Plus size={16} /> 새 모음
@@ -398,6 +459,7 @@ export default function ModelRefsPage({ d, online }) {
               <button key={x.id} type="button" onClick={() => setOpen({ x })} className="rounded-2xl border border-stone-200 bg-white p-4 text-left transition hover:border-rose-300 hover:shadow-sm">
                 <div className="text-base leading-snug font-bold text-stone-900">{x.title || "이름 없는 모음"}</div>
                 {who && <div className="mt-0.5 truncate text-xs font-medium text-rose-800">{who}</div>}
+                {clothSummary(x) && <div className="mt-0.5 text-xs text-stone-500 tabular-nums">{clothSummary(x)}</div>}
                 {peek.length > 0 && (
                   <div className="mt-2.5 grid grid-cols-4 gap-1">
                     {peek.map((k, i) => (
@@ -437,7 +499,7 @@ export default function ModelRefsPage({ d, online }) {
           })}
         </div>
       )}
-      {live && <RefSetSheet key={live.id} init={live} isNew={open.isNew && !sets.items.some((y) => y.id === live.id)} d={d} online={online} sets={sets} onClose={() => setOpen(null)} />}
+      {live && <RefSetSheet key={live.id} init={withClothSet(live)} isNew={open.isNew && !sets.items.some((y) => y.id === live.id)} d={d} online={online} sets={sets} onClose={() => setOpen(null)} />}
     </div>
   );
 }

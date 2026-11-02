@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BookOpen, CalendarDays, Clock, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
-import { GuideSections, RefLinks, RefSetHead } from "./BaseGuide";
+import { ClothTabs, GuideSections, RefLinks, RefSetHead } from "./BaseGuide";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
 import LoopClip, { ClipBig } from "./LoopClip";
@@ -303,11 +303,15 @@ export default function SheetPage() {
         <Card>
           <RefSetHead title={s.title} models={s.models} note={s.note ? <Linked text={s.note} /> : null} />
         </Card>
-        {s.base?.map((x, i) => (
-          <Card key={i}>
-            <GuideSections items={[x]} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />
-          </Card>
-        ))}
+        <ClothTabs items={s.base || []} sticky>
+          {(g) =>
+            g.items.map((x, i) => (
+              <Card key={i}>
+                <GuideSections items={[x]} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />
+              </Card>
+            ))
+          }
+        </ClothTabs>
         <p className="px-1 pb-6 text-center text-xs text-stone-400">
           궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
           {until && hasFiles && (

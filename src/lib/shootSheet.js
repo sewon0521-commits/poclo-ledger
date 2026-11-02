@@ -208,7 +208,7 @@ export async function buildRefSheet(set, d, online) {
     note: (set.note || "").trim(),
     models: (set.models || []).filter(Boolean),
     // 릴스 기획에서 지워진 영상은 모델 화면에 빈 칸으로 안 보이게 뺀다
-    base: sectionsData(items, urlOf).map((x) => ({ ...x, clips: x.clips.filter((c) => c.src || !remote) })),
+    base: sectionsData(items, urlOf).map((x, i) => ({ ...x, cloth: items[i].cloth || "", clips: x.clips.filter((c) => c.src || !remote) })),
     madeAt: new Date().toISOString(),
     until: new Date(Date.now() + REF_SHEET_DAYS * 86400000).toISOString(),
   };
