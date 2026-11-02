@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, ImagePlus, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
+import { ArrowUp, BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, FolderHeart, ImagePlus, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
 import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, photoUrls, fixUrl } from "../lib/shoot";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
@@ -13,6 +13,10 @@ import { MemoEditor } from "./SourcingMemo";
 import { useSort, reorder, Grip } from "./CutBits";
 import { guidePhoto, GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "../lib/modelGuide";
 import ModelGuideSheet from "./ModelGuideEditor";
+import { REFS_KEY, clothsOf, refItems, refFileKeys, countsOf } from "../lib/modelRefs";
+import { signedUrls } from "../lib/refClips";
+import { ClothTabs, GuideSections } from "./BaseGuide";
+import { ClipBig } from "./LoopClip";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -35,7 +39,13 @@ import ModelGuideSheet from "./ModelGuideEditor";
  */
 
 const DAYS_KEY = "shoot_days";
-const STUDIO = "우베리 스튜디오 (서울 서대문구 북아현로 100, 2층)";
+
+// 스튜디오 목록 (11/2 세원: "촬영 관리 → 장소에 스튜디오 선택할 수 있게") — settings shoot_studios {items:[{id, name, address}]}
+// 맨 위가 새 촬영의 기본 장소. 고르면 장소 칸에 '이름 (주소)' 글자 그대로 들어간다 — 모델 시트가 괄호 안 주소로 지도 링크를 만든다(SheetPage mapUrl).
+// 이미 정한 촬영의 장소는 글자로 남아 있어서, 목록을 고치거나 빼도 안 바뀐다.
+const STUDIOS_KEY = "shoot_studios";
+const FIRST_STUDIOS = [{ id: "st_ubery", name: "우베리 스튜디오", address: "서울 서대문구 북아현로 100, 2층" }];
+const placeOf = (st) => (st.address ? `${st.name} (${st.address})` : st.name);
 
 const wd = (d) => (d ? "일월화수목금토"[new Date(d + "T00:00:00").getDay()] : "");
 const dday = (d) => {
@@ -138,6 +148,226 @@ function useDays(online) {
     [online],
   );
   return { items, msg, setMsg, save: (it) => change(upsert(it)), drop: (id) => change(remove(id)) };
+}
+
+/** 스튜디오 목록 — 저장한 적 없으면 처음 목록. change(목록 → 새 목록)는 서버 최신 위에서 돈다 */
+function useStudios(online) {
+  const [items, setItems] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("poclo_" + STUDIOS_KEY) || "null")?.items || [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    let alive = true;
+    loadKey(STUDIOS_KEY, online)
+      .then((v) => alive && setItems(v.items || []))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  const change = useCallback(
+    async (fn) => {
+      const next = await changeKey(STUDIOS_KEY, online, (v) => ({ ...v, items: fn((v.items || []).length ? v.items : FIRST_STUDIOS) }));
+      setItems(next.items || []);
+    },
+    [online],
+  );
+  return { list: items.length ? items : FIRST_STUDIOS, change };
+}
+
+/** 장소 — 스튜디오를 눌러 고르거나 직접 적는다. '+ 스튜디오'에서 더하기 · 이름·주소 고치기 · 맨 위로(기본) · 빼기 */
+function StudioPick({ value, onChange, studios }) {
+  const [edit, setEdit] = useState(false);
+  const [name, setName] = useState("");
+  const [addr, setAddr] = useState("");
+  const [err, setErr] = useState("");
+  const list = studios.list;
+  const run = async (fn) => {
+    setErr("");
+    try {
+      await studios.change(fn);
+      return true;
+    } catch (e) {
+      setErr(e.message || "스튜디오 목록을 저장하지 못했어요.");
+      return false;
+    }
+  };
+  const add = async () => {
+    const n = name.trim();
+    if (!n) return;
+    if (list.some((st) => st.name === n)) return setErr(`'${n}'은 이미 목록에 있어요.`);
+    const st = { id: newId("st"), name: n, address: addr.trim() };
+    if (!(await run((l) => [...l, st]))) return;
+    onChange(placeOf(st));
+    setName("");
+    setAddr("");
+  };
+  const fix = (st, patch) => {
+    const next = { ...st, ...patch };
+    if (!next.name.trim()) return;
+    if (next.name !== st.name && list.some((x) => x.id !== st.id && x.name === next.name)) return setErr(`'${next.name}'은 이미 목록에 있어요.`);
+    // 지금 이 촬영이 그 스튜디오면 장소 글자도 같이
+    if (value === placeOf(st)) onChange(placeOf(next));
+    run((l) => l.map((x) => (x.id === st.id ? next : x)));
+  };
+  const chip = "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium";
+  const small = "rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-rose-600";
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {list.map((st) => {
+          const on = value === placeOf(st);
+          return (
+            <button key={st.id} type="button" aria-pressed={on} title={st.address || undefined} onClick={() => onChange(placeOf(st))} className={chip + " " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-700 hover:border-rose-300 hover:text-rose-800")}>
+              {on && <Check size={12} />} {st.name}
+            </button>
+          );
+        })}
+        <button type="button" aria-expanded={edit} onClick={() => setEdit((v) => !v)} className={chip + " border-dashed border-stone-300 text-stone-500 hover:border-rose-300 hover:text-rose-800"}>
+          {edit ? (
+            "편집 닫기"
+          ) : (
+            <>
+              <Plus size={12} /> 스튜디오
+            </>
+          )}
+        </button>
+      </div>
+      <input value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder="목록에 없는 곳은 직접 적기 (예: 한강공원)" aria-label="장소" className={FIELD + " mt-2"} />
+      {edit && (
+        <div className="mt-2 space-y-2 rounded-xl border border-stone-200 bg-stone-50 p-2.5">
+          <p className="text-[11px] text-stone-500">맨 위 스튜디오가 새 촬영의 기본 장소예요. 주소는 모델 시트에서 지도 링크가 돼요. 이미 정한 촬영 장소는 목록을 고쳐도 안 바뀌어요.</p>
+          {list.map((st, i) => (
+            <div key={`${st.id}:${st.name}:${st.address}`} className="flex items-center gap-1.5">
+              <input defaultValue={st.name} aria-label={`${st.name} 이름`} onBlur={(e) => e.target.value.trim() !== st.name && fix(st, { name: e.target.value.trim() })} onKeyUp={(e) => e.key === "Enter" && e.currentTarget.blur()} className={small + " w-32 shrink-0 font-semibold sm:w-40"} />
+              <input defaultValue={st.address} aria-label={`${st.name} 주소`} placeholder="주소 (선택)" onBlur={(e) => e.target.value.trim() !== (st.address || "") && fix(st, { address: e.target.value.trim() })} onKeyUp={(e) => e.key === "Enter" && e.currentTarget.blur()} className={small + " w-0 min-w-0 flex-1"} />
+              <button type="button" disabled={i === 0} onClick={() => run((l) => [l[i], ...l.filter((_, k) => k !== i)])} aria-label={`${st.name} 맨 위로(기본)`} title="맨 위로 — 새 촬영의 기본 장소" className="shrink-0 rounded p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
+                <ArrowUp size={14} />
+              </button>
+              <button type="button" disabled={list.length === 1} onClick={() => window.confirm(`'${st.name}'을 목록에서 뺄까요? 이미 정한 촬영 장소는 그대로예요.`) && run((l) => l.filter((x) => x.id !== st.id))} aria-label={`${st.name} 빼기`} className="shrink-0 rounded p-1 text-stone-300 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-stone-200 pt-2">
+            {/* 한글은 엔터 keydown 이 조합 끝내기로 먹혀서 keyup 에서 넣는다 */}
+            <input value={name} onChange={(e) => setName(e.target.value)} onKeyUp={(e) => e.key === "Enter" && add()} placeholder="새 스튜디오 이름" aria-label="새 스튜디오 이름" className={small + " w-32 shrink-0 sm:w-40"} />
+            <input value={addr} onChange={(e) => setAddr(e.target.value)} onKeyUp={(e) => e.key === "Enter" && add()} placeholder="주소 (선택)" aria-label="새 스튜디오 주소" className={small + " w-0 min-w-0 flex-1"} />
+            <button type="button" disabled={!name.trim()} onClick={add} className="shrink-0 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-stone-300">
+              더하기
+            </button>
+          </div>
+          {err && <p className="text-xs text-rose-700">{err}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 모델 레퍼런스 고르기 (11/2)
+// 세원: "촬영 관리에 모델에게 보낼 가이드를 모델 레퍼런스로 변경해줘. 모델 레퍼런스 고르면 바로 보이게."
+// 촬영 줄에 refSetIds:[모음 id] — 고르면 이 창에 바로 모델이 보는 모양으로 펼쳐지고, 촬영 시트를 만들거나 새로 보낼 때 같이 들어간다(buildSheet refs).
+// 모음 자체는 촬영 › 모델 레퍼런스에서 만든다(settings model_refs). 예전 '모델에게 보낼 가이드'(guidePhotos·guideLinks)는 있던 촬영에서만 접어서 보인다.
+
+/** model_refs 읽기만 — 화면을 열 때 한 번 */
+function useRefList(online) {
+  const [v, setV] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("poclo_" + REFS_KEY) || "null") || {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    let alive = true;
+    loadKey(REFS_KEY, online)
+      .then((x) => alive && setV(x))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  return { items: v.items || [], cloths: clothsOf(v) };
+}
+
+function RefSetBox({ s, set, refs, online, d }) {
+  const ids = s.refSetIds || [];
+  const picked = ids.map((id) => refs.items.find((x) => x.id === id)).filter(Boolean);
+  const toggle = (id) => set({ refSetIds: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
+  const [urls, setUrls] = useState({});
+  const [big, setBig] = useState(null);
+  const [clipBig, setClipBig] = useState(null);
+  const wantKey = picked
+    .flatMap(refFileKeys)
+    .filter((k) => k && !k.startsWith("data:") && !(k in urls))
+    .join("|");
+  useEffect(() => {
+    if (!wantKey) return;
+    const ks = wantKey.split("|");
+    // 못 받은 건 빈 값으로 남겨 다시 안 묻는다
+    signedUrls(ks, online)
+      .then((m) => setUrls((u) => ({ ...u, ...Object.fromEntries(ks.map((k) => [k, ""])), ...m })))
+      .catch(() => {});
+  }, [wantKey, online]);
+  const urlOf = (k) => (k.startsWith("data:") ? k : urls[k] || d.urls[k] || "");
+  const chip = "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium";
+  return (
+    <div className="rounded-xl border border-stone-200 p-3">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm font-semibold text-stone-800">
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
+          <FolderHeart size={15} className="text-rose-700" /> 모델 레퍼런스
+        </span>
+        <span className="text-xs font-normal text-stone-400">고른 모음이 촬영 시트에 같이 가요</span>
+      </div>
+      {refs.items.length === 0 ? (
+        <p className="text-xs text-stone-500">아직 모음이 없어요. 촬영 › 모델 레퍼런스에서 만들면 여기서 골라요.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {refs.items.map((x) => {
+            const on = ids.includes(x.id);
+            const n = countsOf(x);
+            return (
+              <button key={x.id} type="button" aria-pressed={on} onClick={() => toggle(x.id)} className={chip + " " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-700 hover:border-rose-300 hover:text-rose-800")}>
+                {on && <Check size={12} />} {x.title || "이름 없는 모음"}
+                <span className={"font-normal tabular-nums " + (on ? "text-rose-100" : "text-stone-400")}>
+                  사진 {n.photos} · 영상 {n.videos}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {picked.length > 0 && s.sheetToken && !s.sheetClosed && <p className="mt-2 text-xs text-amber-800">이미 만든 링크엔 아래 '내용 새로 보내기'를 눌러야 들어가요.</p>}
+      {picked.map((x) => {
+        const items = refItems(x, refs.cloths, urlOf);
+        return (
+          <div key={x.id} className="mt-3 space-y-3 rounded-xl bg-stone-50 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-stone-900">{x.title || "이름 없는 모음"}</div>
+                {(x.note || "").trim() && <p className="mt-0.5 text-xs whitespace-pre-line text-stone-500">{x.note.trim()}</p>}
+              </div>
+              <button type="button" onClick={() => toggle(x.id)} className="shrink-0 text-xs font-medium text-stone-400 hover:text-rose-700">
+                빼기
+              </button>
+            </div>
+            {items.length ? (
+              <ClothTabs items={items} order={refs.cloths}>
+                {(g) => <GuideSections items={g.items} onBig={(u, k) => setBig({ u, k })} onClip={(clips, k) => setClipBig({ clips, k })} />}
+              </ClothTabs>
+            ) : (
+              <p className="text-xs text-stone-500">이 모음엔 아직 담은 사진·영상이 없어요.</p>
+            )}
+          </div>
+        );
+      })}
+      {big && <BigSlides urls={big.u} start={big.k} onClose={() => setBig(null)} />}
+      {clipBig && <ClipBig clips={clipBig.clips} at={clipBig.k} onClose={() => setClipBig(null)} />}
+    </div>
+  );
 }
 
 /** 모델 이름 칩 — 적고 엔터 */
@@ -422,7 +652,7 @@ function GuideBox({ s, set, online }) {
 }
 
 /** 모델에게 보낼 촬영 시트 링크 */
-function SheetLink({ day, set, codis, d, online }) {
+function SheetLink({ day, set, codis, d, online, refs }) {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const today = dayKey();
@@ -444,11 +674,11 @@ function SheetLink({ day, set, codis, d, online }) {
     setErr("");
     try {
       if (what === "make") {
-        const data = await buildSheet(day, codis, d, online);
+        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths);
         const token = await createSheet(online, data);
         set({ sheetToken: token, sheetAt: new Date().toISOString(), sheetClosed: false });
       } else if (what === "refresh") {
-        const data = await buildSheet(day, codis, d, online);
+        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths);
         await updateSheet(online, day.sheetToken, { data, closed: false });
         set({ sheetAt: new Date().toISOString(), sheetClosed: false });
       } else if (what === "close") {
@@ -472,7 +702,7 @@ function SheetLink({ day, set, codis, d, online }) {
         <Link2 size={15} className="text-rose-700" /> 모델에게 보낼 촬영 시트
       </div>
       <p className="mb-2 text-xs text-stone-500">
-        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 찍을 코디(작은 상품 사진) · 촬영 기본 가이드 · 영상 가이드</b>만 봐요. 코디 사진·참고 사진·참고 영상·상품 이름·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
+        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 찍을 코디(작은 상품 사진) · 촬영 기본 가이드 · 고른 모델 레퍼런스</b>만 봐요. 코디 사진·참고 사진·참고 영상·상품 이름·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
       </p>
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white px-2.5 py-1.5 text-xs ring-1 ring-stone-200">
         <BookOpen size={13} className="shrink-0 text-rose-700" />
@@ -600,7 +830,7 @@ function ModelPrep({ s, set, rows }) {
 }
 
 /** 촬영 창 — 고치는 대로 저장. rows = 촬영 전체(같은 날 다른 촬영 찾기), onOpen = 다른 촬영 열기, onAddSibling = 같은 날 새 촬영 */
-function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose, onOpen, onAddSibling, canRemove }) {
+function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onRemove, onClose, onOpen, onAddSibling, canRemove }) {
   const [s, setS] = useState(start);
   const latest = useRef(s);
   const timer = useRef(null);
@@ -659,7 +889,7 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
           </button>
         </header>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4">
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <label className="block text-xs font-medium text-stone-500">
               촬영일
               <input type="date" value={s.on || ""} onChange={(e) => set({ on: e.target.value })} className={FIELD + " mt-1"} />
@@ -668,10 +898,10 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
               시작 시각
               <input type="time" value={s.time || ""} onChange={(e) => set({ time: e.target.value })} className={FIELD + " mt-1"} />
             </label>
-            <label className="block text-xs font-medium text-stone-500 sm:col-span-1">
-              장소
-              <input value={s.place || ""} onChange={(e) => set({ place: e.target.value })} placeholder={STUDIO} className={FIELD + " mt-1"} />
-            </label>
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-medium text-stone-500">장소</div>
+            <StudioPick value={s.place || ""} onChange={(place) => set({ place })} studios={studios} />
           </div>
           <div>
             <div className="mb-1 text-xs font-medium text-stone-500">모델</div>
@@ -705,7 +935,18 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
             </div>
           )}
           <ModelPrep s={s} set={set} rows={rows} />
-          <GuideBox s={s} set={set} online={online} />
+          <RefSetBox s={s} set={set} refs={refs} online={online} d={d} />
+          {/* 예전 '모델에게 보낼 가이드' — 담아 둔 촬영에서만(시트에도 그대로 같이 간다) */}
+          {((s.guidePhotos || []).length > 0 || (s.guideLinks || []).length > 0) && (
+            <details className="rounded-xl border border-stone-200 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-semibold text-stone-500 select-none">
+                예전 가이드 · 사진 {(s.guidePhotos || []).length} · 링크 {(s.guideLinks || []).length} <span className="font-normal text-stone-400">시트에 같이 가요</span>
+              </summary>
+              <div className="mt-2">
+                <GuideBox s={s} set={set} online={online} />
+              </div>
+            </details>
+          )}
 
           <div className="rounded-xl border border-stone-200 p-3">
             <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-stone-800">
@@ -767,7 +1008,7 @@ function DaySheet({ day: start, d, online, rows = [], onSave, onRemove, onClose,
             </div>
           )}
 
-          <SheetLink day={s} set={set} codis={codis} d={d} online={online} />
+          <SheetLink day={s} set={set} codis={codis} d={d} online={online} refs={refs} />
 
           <div>
             <div className="mb-1 text-xs font-medium text-stone-500">메모 (우리만 봐요)</div>
@@ -861,6 +1102,8 @@ function UndatedCodis({ codis, d, onStyle }) {
 
 export default function ShootDays({ d, online }) {
   const days = useDays(online);
+  const studios = useStudios(online);
+  const refs = useRefList(online);
   const [open, setOpen] = useState(null); // 날짜 또는 기록 id
   const [styling, setStyling] = useState(null); // 촬영일 미정 코디 id
   const [guide, setGuide] = useState(false); // 모델 기본 가이드 고치기 창
@@ -878,11 +1121,13 @@ export default function ShootDays({ d, online }) {
     const past = rows.filter((r) => r.on < today).sort((a, b) => b.on.localeCompare(a.on) || byTime(a, b));
     return { up, past };
   }, [days.items, d.codis, today]);
-  const blank = (on) => ({ id: newId("sd"), on, time: "12:00", place: STUDIO, models: [], modelNote: "", memo: "", cuts: [], videos: [], createdAt: new Date().toISOString() });
+  // 새 촬영 장소 = 스튜디오 목록 맨 위
+  const home = placeOf(studios.list[0]);
+  const blank = (on) => ({ id: newId("sd"), on, time: "12:00", place: home, models: [], modelNote: "", memo: "", cuts: [], videos: [], createdAt: new Date().toISOString() });
   const openDay = open && (days.items.find((x) => x.id === open.id) || open);
   // 같은 날 다른 모델 촬영 — 시간은 비워 두고 장소는 그대로
   const addSibling = (from) => {
-    const x = { ...blank(from.on), time: "", place: from.place || STUDIO };
+    const x = { ...blank(from.on), time: "", place: from.place || home };
     days.save(x);
     setOpen(x);
   };
@@ -998,6 +1243,8 @@ export default function ShootDays({ d, online }) {
           d={d}
           online={online}
           rows={days.items}
+          studios={studios}
+          refs={refs}
           onOpen={(r) => setOpen(r)}
           onAddSibling={addSibling}
           canRemove={days.items.some((x) => x.id === openDay.id)}

@@ -8,6 +8,8 @@
 //   sheetSig = 보낸 때의 내용 표시 — 지금 내용과 다르면 '내용 새로 보내기'를 알린다.
 // 보내기는 촬영 시트 표(shoot_sheets)를 같이 쓴다 — SQL 필요 없음. 스냅숏은 lib/shootSheet buildRefSheet, 모델 화면은 SheetPage kind "refs".
 import { newId } from "./id";
+import { videoKey, thumbKey } from "./refClips";
+import { filledItems } from "./modelGuide";
 
 export const REFS_KEY = "model_refs";
 
@@ -98,6 +100,19 @@ export const blankSet = () => ({
   sections: [],
   createdAt: new Date().toISOString(),
 });
+
+/** 모음 → 모델이 보는 칸 (담은 게 있는 컷만) — urlOf(보관 키) 로 사진·영상 주소. 고치기 미리 보기 · 촬영 관리가 같이 쓴다 */
+export const refItems = (x, cloths, urlOf) =>
+  filledItems((x.sections || []).map((s) => withCloth(s, cloths))).map((s) => ({
+    cloth: clothKey(s, cloths),
+    title: (s.title || "").trim(),
+    text: s.text || "",
+    photos: (s.photos || []).map((p) => ({ url: urlOf(p.key), cap: p.cap })),
+    clips: (s.clips || []).map((c) => ({ src: urlOf(videoKey(c.reelId)), poster: urlOf(thumbKey(c.reelId)), start: c.start, end: c.end, note: c.note })),
+    links: s.links || [],
+  }));
+/** 서명 주소를 받아야 할 보관 키 (사진 · 장면 영상 · 장면 썸네일) */
+export const refFileKeys = (x) => (x.sections || []).flatMap((s) => [...(s.photos || []).map((p) => p.key), ...(s.clips || []).flatMap((c) => [videoKey(c.reelId), thumbKey(c.reelId)])]);
 
 export const countsOf = (x) => {
   const secs = x.sections || [];

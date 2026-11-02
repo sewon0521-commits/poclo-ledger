@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, CalendarDays, Clock, Film, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
+import { BookOpen, CalendarDays, Clock, Film, FolderHeart, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
 import { ClothTabs, GuideSections, RefLinks, RefSetHead } from "./BaseGuide";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
@@ -382,9 +382,22 @@ export default function SheetPage() {
 
       <GuideCard g={s.guide} />
 
+      {/* 11/2 모델 레퍼런스 — 촬영 창에서 고른 모음. 모음마다 카드, 카테고리 탭은 머리글 아래 붙는다 */}
+      {(s.refs || []).map((r, i) => (
+        <Card key={i} className="space-y-4">
+          <div className="flex items-center gap-1.5 text-base font-bold text-stone-900">
+            <FolderHeart size={18} className="text-rose-700" /> {r.title || "사진·영상 레퍼런스"}
+          </div>
+          {r.note && <p className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm whitespace-pre-line text-rose-900">{r.note}</p>}
+          <ClothTabs items={r.base} sticky>
+            {(g) => <GuideSections items={g.items} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />}
+          </ClothTabs>
+        </Card>
+      ))}
+
       <p className="px-1 pb-6 text-center text-xs text-stone-400">
         궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
-        {until && ((s.v || 1) < 4 || s.guide?.photos?.length > 0 || s.base?.some((x) => x.photos?.length)) && (
+        {until && ((s.v || 1) < 4 || s.guide?.photos?.length > 0 || s.base?.some((x) => x.photos?.length) || s.refs?.length > 0) && (
           <span className="mt-1 block">
             {(s.v || 1) >= 4 ? "가이드 사진" : (s.v || 1) >= 3 ? "사진·영상" : "사진"}은 {until.getMonth() + 1}/{until.getDate()}까지 보여요
           </span>

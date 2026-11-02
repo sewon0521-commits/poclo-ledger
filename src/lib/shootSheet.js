@@ -25,7 +25,7 @@ import { isRemote, supabase } from "./supabase";
 import { newToken, callName, isMissing } from "./contract";
 import { md, loadKey, codiItems, photoUrls } from "./shoot";
 import { GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "./modelGuide";
-import { CLOTHS, clothGroups, clothKey } from "./modelRefs";
+import { CLOTHS, clothGroups, clothKey, withCloth } from "./modelRefs";
 import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
 
@@ -160,7 +160,7 @@ async function peekOf(codis, d, online) {
  * 그날 시트 내용 — day = shoot_days 한 줄, codis = 그날 코디, d = 신상 관리 데이터(items·refs·urls)
  * 이 기기 저장 모드면 사진은 화면에 이미 있는 주소(d.urls)를 쓴다.
  */
-export async function buildSheet(day, codis, d, online) {
+export async function buildSheet(day, codis, d, online, refSets = [], cloths = CLOTHS) {
   // 10/29 모델 기본 가이드 — 모든 시트에 같이(lib/modelGuide). 한 번도 저장 안 했으면 기본 동선
   const g = await loadKey(GUIDE_KEY, online, null).catch(() => null);
   const baseItems = filledItems(g ? g.items : DEFAULT_GUIDE.items);
@@ -183,7 +183,9 @@ export async function buildSheet(day, codis, d, online) {
     peek, // 10/29 밤 찍을 코디 미리 보기 [[작은 사진 data URL…] 코디마다]
     // 10/29 촬영 기본 가이드(모든 촬영 공통 — 동선·찍을 영상·포즈…) — 글은 그대로, 시트(SheetPage → BaseGuide)가 번호 단계·사진/영상 표시로 그린다
     base: sectionsData(baseItems, urlOf),
-    // 10/27 모델에게 보낼 가이드 — '영상 가이드'(사진은 7일 서명 주소, 링크는 이름 + 주소)
+    // 11/2 모델 레퍼런스 — 촬영 창에서 고른 모음(촬영 › 모델 레퍼런스). 모음 링크와 같은 스냅숏(사진·영상 30일), 카테고리 탭 그대로
+    refs: (await Promise.all(refSets.map((x) => buildRefSheet(x, d, online, cloths)))).map((r) => ({ title: r.title, note: r.note, base: r.base })).filter((r) => r.base.length),
+    // 10/27 모델에게 보낼 가이드 — '영상 가이드'(사진은 7일 서명 주소, 링크는 이름 + 주소). 11/2 부터는 예전에 담아 둔 촬영에만
     guide: {
       photos: (day.guidePhotos || []).map(urlOf).filter(Boolean),
       links: (day.guideLinks || []).filter((l) => /^https?:\/\//i.test(l.url || "")).map((l) => ({ name: (l.name || "").trim(), url: l.url })),
@@ -199,7 +201,8 @@ export const REF_SHEET_DAYS = 30;
 
 /** 모음 스냅숏 — 제목 · 전할 말 · 받는 모델 · 칸만. 촬영 레퍼런스의 쇼핑몰·메모·릴스 제목은 안 들어간다 */
 export async function buildRefSheet(set, d, online, cloths = CLOTHS) {
-  const items = filledItems(set.sections);
+  // 옛 칸 이름('아우터 - 전신')도 제자리로 — 촬영 관리는 저장된 모음을 그대로 넘긴다
+  const items = filledItems((set.sections || []).map((s) => withCloth(s, cloths)));
   const signed = await longUrls(sectionKeys(items), online, REF_SHEET_DAYS);
   const remote = isRemote && online;
   const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!remote ? d.urls[k] : ""))) || "";
