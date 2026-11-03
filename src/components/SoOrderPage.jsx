@@ -664,16 +664,17 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
 
           {/* 줄 */}
           <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white">
+            {/* 11/4 세원: "PC 에서만 쓰니까 옆으로 드래그 안 하게" — 본문 칸을 넓히고(App) 칸 여백을 줄임. 메모 칸은 좁으면 6rem 까지 줄어든다 */}
             <table className="w-full min-w-[960px] text-sm">
               <thead className="border-b border-stone-200 bg-stone-50 text-left text-xs text-stone-500">
                 <tr>
-                  <th className="px-3 py-2 font-medium">매장명</th>
-                  <th className="px-3 py-2 font-medium">도매처 상품명</th>
-                  <th className="px-3 py-2 font-medium">색상</th>
-                  <th className="px-3 py-2 text-right font-medium">수량</th>
-                  <th className="px-3 py-2 font-medium">한 장 단가</th>
-                  <th className="px-3 py-2 text-right font-medium">금액</th>
-                  <th className="px-3 py-2 font-medium">
+                  <th className="px-2 py-2 font-medium">매장명</th>
+                  <th className="px-2 py-2 font-medium">도매처 상품명</th>
+                  <th className="px-2 py-2 font-medium">색상</th>
+                  <th className="px-2 py-2 text-right font-medium">수량</th>
+                  <th className="px-2 py-2 font-medium">한 장 단가</th>
+                  <th className="px-2 py-2 text-right font-medium">금액</th>
+                  <th className="px-2 py-2 font-medium">
                     <div>미송</div>
                     <div className="mt-0.5 flex gap-1">
                       <button type="button" onClick={() => allMiss("yes")} className="rounded-full border border-stone-200 bg-white px-1.5 text-[10px] text-stone-600 hover:border-stone-400">
@@ -684,7 +685,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                       </button>
                     </div>
                   </th>
-                  <th className="px-3 py-2 font-medium">
+                  <th className="px-2 py-2 font-medium">
                     <div>입금</div>
                     <div className="mt-0.5 flex gap-1">
                       <button type="button" onClick={() => allPay("cash")} className="rounded-full border border-stone-200 bg-white px-1.5 text-[10px] whitespace-nowrap text-stone-600 hover:border-stone-400">
@@ -695,7 +696,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                       </button>
                     </div>
                   </th>
-                  <th className="px-3 py-2 font-medium">메모</th>
+                  <th className="px-2 py-2 font-medium">메모</th>
                   <th className="sticky right-0 w-9 bg-stone-50" />
                 </tr>
               </thead>
@@ -711,7 +712,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                   return (
                     <tr key={r.id} className={"align-top " + (top && i > 0 ? "border-t-2 border-t-stone-300" : "") + (r.qty <= 0 ? " bg-emerald-50/40" : "")}>
                       {top && (
-                      <td rowSpan={group.length} className="bg-stone-50/70 px-3 py-2">
+                      <td rowSpan={group.length} className="bg-stone-50/70 px-2 py-2">
                         <input
                           key={r.store}
                           defaultValue={r.store}
@@ -720,7 +721,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           aria-label={`${r.name} 매장명`}
                           title="SO+ 에 들어갈 매장명 — 고치면 같은 제조사 줄도 같이 바뀌어요"
                           className={
-                            "w-32 rounded-lg border px-2 py-1 font-medium text-stone-900 outline-none focus:border-rose-600 " +
+                            "w-28 rounded-lg border px-2 py-1 font-medium text-stone-900 outline-none focus:border-rose-600 " +
                             (r.storeEdit ? "border-rose-300 bg-rose-50/50" : "border-stone-200 bg-white")
                           }
                         />
@@ -735,13 +736,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         </div>
                       </td>
                       )}
-                      <td className="max-w-[15rem] px-3 py-2">
+                      <td className="max-w-[15rem] px-2 py-2">
                         <div className={"font-medium " + (sameItem ? "text-stone-400" : "text-stone-900")} title={sameItem ? "바로 위와 같은 상품 · 다른 옵션" : undefined}>
                           {r.name}
                         </div>
                         {r.shopName && <div className="truncate text-xs text-stone-400">{r.shopName}</div>}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-stone-700">
+                      <td className="px-2 py-2 whitespace-nowrap text-stone-700">
                         {/* 10/13 세원: "상품등록할 때 거래처랑 다르게 적은 색이 있어" — 색만 고친다(사이즈는 그대로). 고치면 같은 상품·같은 색 줄도 같이, 복사할 때 기억 */}
                         <span className="inline-flex items-center gap-0.5">
                           {splitOpt(r.option).wrap && <span className="text-stone-400">[</span>}
@@ -777,7 +778,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           </button>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-2 py-2 text-right">
                         {/* 10/6 세원: "수량도 변경 가능하게" — 칸을 벗어나거나 엔터에 적용, 1 아래로는 안 내려간다(줄을 빼려면 ×) */}
                         <input
                           key={`${r.qty}|${r.misUsed}`}
@@ -838,7 +839,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           </div>
                         ))}
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <input
                           value={r.price ? String(r.price) : ""}
                           inputMode="numeric"
@@ -871,15 +872,15 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           {!edited && f.alt && <div className="text-amber-700">{f.alt}</div>}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap text-stone-500 tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2 text-right whitespace-nowrap text-stone-500 tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>
+                      <td className="px-2 py-2">
                         <MissChip value={r.miss} onChange={(v) => patchRow(r.id, { miss: v })} />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-2">
                         <PayChip value={r.pay} onChange={(v) => patchRow(r.id, { pay: v })} />
                       </td>
-                      <td className="px-3 py-2">
-                        <input value={r.memo || ""} onChange={(e) => patchRow(r.id, { memo: e.target.value })} className="w-28 rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:border-rose-600" />
+                      <td className="px-2 py-2">
+                        <input value={r.memo || ""} onChange={(e) => patchRow(r.id, { memo: e.target.value })} className="w-full min-w-24 rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:border-rose-600" />
                       </td>
                       <td className="sticky right-0 bg-white py-2 pr-1.5 pl-1 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]">
                         <button type="button" onClick={() => patchRow(r.id, { off: true })} aria-label="이 줄 빼기" title="이 줄 빼기 — 맨 아래 '뺀 줄'로 내려가요(되살릴 수 있어요)" className="rounded-md p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-700">
@@ -891,7 +892,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 })}
                 {offRows.length > 0 && (
                   <tr className="border-t-2 border-t-stone-300 bg-stone-100/70">
-                    <td colSpan={9} className="px-3 py-2">
+                    <td colSpan={10} className="px-2 py-2">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         <span className="font-semibold text-stone-600">뺀 줄 {offRows.length}개</span>
                         {/* 표가 넓어 오른쪽 끝은 잘려 보일 수 있어서 글 바로 옆에 */}
@@ -909,17 +910,17 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 )}
                 {offRows.map((r) => (
                   <tr key={r.id} className="bg-stone-50/80 align-top text-stone-400">
-                    <td className="px-3 py-2">
-                      <div className="w-32 truncate font-medium">{r.store}</div>
+                    <td className="px-2 py-2">
+                      <div className="w-28 truncate font-medium">{r.store}</div>
                     </td>
-                    <td className="max-w-[15rem] px-3 py-2">
+                    <td className="max-w-[15rem] px-2 py-2">
                       <div className="font-medium line-through decoration-stone-300">{r.name}</div>
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{r.option}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.qty}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{r.price ? won(r.price) : ""}</td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>
-                    <td colSpan={2} className="px-3 py-2">
+                    <td className="px-2 py-2 whitespace-nowrap">{r.option}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{r.qty}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{r.price ? won(r.price) : ""}</td>
+                    <td className="px-2 py-2 text-right whitespace-nowrap tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>
+                    <td colSpan={3} className="px-2 py-2">
                       <button
                         type="button"
                         onClick={() => patchRow(r.id, { off: false })}
