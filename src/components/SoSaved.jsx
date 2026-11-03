@@ -57,6 +57,7 @@ function Detail({ item, online, onClose, onLoad, onDelete, copyText }) {
                     <th className="px-3 py-2 text-right font-medium">단가</th>
                     <th className="px-3 py-2 text-right font-medium">금액</th>
                     <th className="px-3 py-2 font-medium">미송</th>
+                    <th className="px-3 py-2 font-medium">입금</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
@@ -78,6 +79,7 @@ function Detail({ item, online, onClose, onLoad, onDelete, copyText }) {
                       <td className="px-3 py-2 text-right whitespace-nowrap text-stone-900 tabular-nums">{r.price ? won(r.price) : <span className="text-amber-700">없음</span>}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap text-stone-500 tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>
                       <td className="px-3 py-2 text-xs whitespace-nowrap">{r.miss === "no" ? <span className="text-rose-700">미송 X</span> : r.miss === "yes" ? "미송 가능" : <span className="text-stone-400">안 고름</span>}</td>
+                      <td className="px-3 py-2 text-xs whitespace-nowrap">{r.pay === "online" ? <span className="text-sky-700">온라인 입금</span> : r.pay === "cash" ? "대납" : <span className="text-stone-400">{r.qty > 0 ? "안 고름" : ""}</span>}</td>
                     </tr>
                   ))}
                 </tbody>

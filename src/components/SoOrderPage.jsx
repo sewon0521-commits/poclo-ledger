@@ -64,6 +64,32 @@ const FROM_TONE = {
   memory: "text-sky-700",
 };
 
+/** 입금 (11/3) — 대납(삼촌이 현금) / 온라인 입금(우리가 이체). 온라인 입금만 메모에 남는다 */
+function PayChip({ value, onChange }) {
+  const opts = [
+    ["cash", "대납"],
+    ["online", "온라인 입금"],
+  ];
+  return (
+    <span className="inline-flex overflow-hidden rounded-full border border-stone-200">
+      {opts.map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          aria-pressed={value === k}
+          onClick={() => onChange(value === k ? null : k)}
+          className={
+            "px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap " +
+            (value === k ? (k === "cash" ? "bg-stone-900 text-white" : "bg-sky-700 text-white") : "bg-white text-stone-400 hover:text-stone-700")
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 function MissChip({ value, onChange }) {
   const opts = [
     ["yes", "미송 가능"],
@@ -367,6 +393,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const diffOff = () => setDraft((d) => ({ ...d, rows: d.diff.all, diff: { ...d.diff, off: true } }));
   const diffOn = () => setDraft((d) => ({ ...d, rows: d.diff.kept, diff: { ...d.diff, off: false } }));
   const allMiss = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, miss: v })) }));
+  const allPay = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, pay: v })) }));
 
   const type = draft?.type || "주문";
   // 미송으로 다 채운 줄(주문 0장)도 SO+ 에 넣는다 — 수량 0 + 메모 '미송 N장 받기(결제함)'. 삼촌이 그 매장에 들르게 (10/12 세원)
@@ -378,6 +405,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const total = live.reduce((s, r) => s + r.qty * (r.price || 0), 0);
   const noPrice = live.filter((r) => !r.price);
   const noMiss = live.filter((r) => !r.miss);
+  const noPay = live.filter((r) => !r.pay);
   const misTaken = rows.filter((r) => r.misUsed > 0);
   const differ = rows.filter((r) => r.manual == null && r.auto?.alt);
 
@@ -461,7 +489,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   };
 
   const copy = async () => {
-    if (noMiss.length) return;
+    if (noMiss.length || noPay.length) return;
     const ok = await copyText(text);
     if (!ok) {
       setMsg("복사가 막혔어요. 아래 '복사되는 내용 보기'에서 직접 골라 복사해 주세요.");
@@ -636,7 +664,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
 
           {/* 줄 */}
           <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white">
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[960px] text-sm">
               <thead className="border-b border-stone-200 bg-stone-50 text-left text-xs text-stone-500">
                 <tr>
                   <th className="px-3 py-2 font-medium">매장명</th>
@@ -653,6 +681,17 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                       </button>
                       <button type="button" onClick={() => allMiss("no")} className="rounded-full border border-stone-200 bg-white px-1.5 text-[10px] text-stone-600 hover:border-stone-400">
                         전부 X
+                      </button>
+                    </div>
+                  </th>
+                  <th className="px-3 py-2 font-medium">
+                    <div>입금</div>
+                    <div className="mt-0.5 flex gap-1">
+                      <button type="button" onClick={() => allPay("cash")} className="rounded-full border border-stone-200 bg-white px-1.5 text-[10px] whitespace-nowrap text-stone-600 hover:border-stone-400">
+                        전부 대납
+                      </button>
+                      <button type="button" onClick={() => allPay("online")} className="rounded-full border border-stone-200 bg-white px-1.5 text-[10px] whitespace-nowrap text-stone-600 hover:border-stone-400">
+                        전부 온라인
                       </button>
                     </div>
                   </th>
@@ -837,6 +876,9 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         <MissChip value={r.miss} onChange={(v) => patchRow(r.id, { miss: v })} />
                       </td>
                       <td className="px-3 py-2">
+                        <PayChip value={r.pay} onChange={(v) => patchRow(r.id, { pay: v })} />
+                      </td>
+                      <td className="px-3 py-2">
                         <input value={r.memo || ""} onChange={(e) => patchRow(r.id, { memo: e.target.value })} className="w-28 rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:border-rose-600" />
                       </td>
                       <td className="sticky right-0 bg-white py-2 pr-1.5 pl-1 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]">
@@ -916,6 +958,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 )}
                 {offRows.length > 0 && <div className="text-stone-500">뺀 줄 {offRows.length}개는 안 넣어요 — 표 맨 아래에서 되살리거나 지워요.</div>}
                 {noMiss.length > 0 && <div className="text-amber-700">미송을 아직 안 고른 줄 {noMiss.length}개 — 표 머리 '전부 가능 / 전부 X' 또는 줄마다 골라 주세요.</div>}
+                {noPay.length > 0 && <div className="text-amber-700">입금을 아직 안 고른 줄 {noPay.length}개 — 표 머리 '전부 대납 / 전부 온라인' 또는 줄마다 골라 주세요. 온라인 입금하는 거래처는 꼭 '온라인 입금'으로.</div>}
                 {noPrice.length > 0 && <div className="text-amber-700">단가가 빈 줄 {noPrice.length}개 — 비운 채 복사하면 SO+ 에서 따로 넣어야 해요.</div>}
                 {differ.length > 0 && <div className="text-stone-500">장끼 단가와 판매가 목록 공급가가 다른 상품 {differ.length}개 — 장끼(실제로 낸 값)로 넣었어요.</div>}
                 {copied && (
@@ -952,7 +995,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 </button>
                 <button
                   type="button"
-                  disabled={!!noMiss.length || !lines.length}
+                  disabled={!!noMiss.length || !!noPay.length || !lines.length}
                   onClick={copy}
                   className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-5 py-2.5 font-semibold text-white disabled:bg-stone-300"
                 >
