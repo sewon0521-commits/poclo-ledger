@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Radar, Loader2, RotateCw, Trash2, X, ExternalLink, Play, Layers, Info, SlidersHorizontal, Check } from "lucide-react";
+import { Radar, Loader2, RotateCw, Trash2, X, ExternalLink, Play, Layers, Info, SlidersHorizontal, Check, TrendingUp } from "lucide-react";
 import { newId } from "../lib/id";
 import { WorkerStatus, SlideViewer } from "./ContentBits";
+import { GrowthTab, GrowthCompare, growthLine } from "./AccountGrowth";
 import { Empty } from "./ui";
 
 /**
@@ -16,6 +17,9 @@ import { Empty } from "./ui";
  *  - 영상 광고 → 레퍼런스 라이브러리로 (분석기가 광고 영상을 받아 온다). 보관만(무료) / 분석까지 고를 수 있다.
  *
  * 스캔은 사무실 PC 분석기(poclo-cafe24/account_scan.py). 목록 settings 'accounts', 기록 'acct_<id>'.
+ *
+ * 11/5 성장(세원: "쇼핑몰이 얼마나 크는지 팔로워 수나 그런 것도") — 계정마다 '성장' 탭(팔로워 그래프),
+ * 목록 맨 위 '성장 비교'(누가 빨리 크나). 숫자·저장 모양은 AccountGrowth.jsx 머리말.
  */
 
 const FIELD =
@@ -538,9 +542,11 @@ function AdsPanel({ acc, data, urls, onOpen, onSaveAcc }) {
 
 // ------------------------------------------------------------------ 오른쪽 — 계정 하나
 
-function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemove, onSave, onImportPost, onImportAd }) {
+const NONE = []; // 성장 탭은 받을 썸네일이 없다
+
+function AccountPanel({ acc, startTab, status, load, patchData, fileUrls, onRescan, onRemove, onSave, onImportPost, onImportAd }) {
   const [data, setData] = useState(null);
-  const [tab, setTab] = useState(acc.handle ? "reel" : "ads");
+  const [tab, setTab] = useState(startTab || (acc.handle ? "reel" : "ads"));
   const [urls, setUrls] = useState({});
   const [openPost, setOpenPost] = useState(null);
   const [openAd, setOpenAd] = useState(null);
@@ -564,7 +570,7 @@ function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemo
   const photos = useMemo(() => posts.filter((p) => p.kind !== "reel"), [posts]);
   const adsAll = useMemo(() => Object.values(data?.ads || {}).filter((a) => !a.hidden), [data]);
 
-  const need = tab === "ads" ? adsAll : tab === "reel" ? reels : photos;
+  const need = tab === "ads" ? adsAll : tab === "reel" ? reels : tab === "photo" ? photos : NONE;
   useEffect(() => {
     // 못 받은 사진은 빈 값으로 남겨 다시 안 묻는다 (10/21 — 예전엔 없는 파일이 하나라도 있으면 화면이 바뀔 때마다 끝없이 다시 물어 멈추거나 느려졌다)
     const keys = need.map((x) => x.thumb).filter((k) => k && !(k in urls)).slice(0, 150);
@@ -593,6 +599,7 @@ function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemo
         ]
       : []),
     ["ads", "광고 소재", adsAll.length],
+    ...(acc.handle ? [["growth", "성장", ""]] : []),
   ];
 
   return (
@@ -621,6 +628,7 @@ function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemo
               {dotted(acc.addedAt)} 부터 모니터링 · 수집된 소재 {num(total)}개 · 마지막 확인{" "}
               {acc.lastScan ? md(new Date(acc.lastScan).toLocaleDateString("sv-SE")) : "아직"}
               {acc.name && acc.handle ? ` · ${acc.name}` : ""}
+              {acc.growth ? ` · 팔로워 ${num(acc.growth.followers)}` : ""}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -672,6 +680,8 @@ function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemo
           </div>
         ) : tab === "ads" ? (
           <AdsPanel acc={acc} data={data} urls={urls} onOpen={setOpenAd} onSaveAcc={onSave} />
+        ) : tab === "growth" ? (
+          <GrowthTab data={data} />
         ) : shown.length === 0 ? (
           <Empty title="아직 없어요." hint="최근 게시물 12개 안에 없거나 스캔 전이에요. 매일 새로 쌓여요." />
         ) : (
@@ -717,6 +727,8 @@ function AccountPanel({ acc, status, load, patchData, fileUrls, onRescan, onRemo
 
 // ------------------------------------------------------------------- 화면
 
+const COMPARE = "__compare"; // 목록 맨 위 '성장 비교'
+
 export default function AccountsPage({
   accounts,
   onSave,
@@ -732,6 +744,7 @@ export default function AccountsPage({
   onSaveCarousel,
 }) {
   const [sel, setSel] = useState(null);
+  const [startTab, setStartTab] = useState(null); // 성장 비교에서 누르면 그 계정 '성장' 탭으로
 
   useEffect(() => {
     onPoll();
@@ -740,7 +753,8 @@ export default function AccountsPage({
   }, [onPoll]);
 
   const sorted = useMemo(() => [...accounts].sort((a, b) => (a.addedAt || "").localeCompare(b.addedAt || "")), [accounts]);
-  const current = sorted.find((a) => a.id === sel) || sorted[0] || null;
+  const comparing = sel === COMPARE;
+  const current = comparing ? null : sorted.find((a) => a.id === sel) || sorted[0] || null;
 
   const scan = async (acc) => {
     await onSave({ ...acc, job: { status: "queued", at: new Date().toISOString() } });
@@ -811,10 +825,28 @@ export default function AccountsPage({
       {sorted.length === 0 ? (
         <Empty title="아직 추적하는 계정이 없어요." hint="위에 인스타 계정 링크를 붙여넣고 모니터링 시작을 누르세요." />
       ) : (
-        <div className="flex flex-col gap-4 md:flex-row md:items-start">
-          <aside className="shrink-0 rounded-2xl border border-stone-200 bg-white p-2 md:sticky md:top-4 md:w-60">
+        // 11/5 — 태블릿(768)은 본문이 496px 라 옆에 목록을 두면 오른쪽 칸이 240px 로 줄었다 → 넓은 화면(1024↑)에서만 나란히
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+          <aside className="shrink-0 rounded-2xl border border-stone-200 bg-white p-2 lg:sticky lg:top-4 lg:w-60">
             <div className="px-2 pt-1 pb-2 text-xs font-semibold text-stone-500">수집된 계정 {sorted.length}</div>
-            <ul className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
+            <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+              {sorted.some((a) => a.handle) && (
+                <li className="shrink-0 lg:border-b lg:border-stone-100 lg:pb-1">
+                  <button
+                    type="button"
+                    onClick={() => setSel(COMPARE)}
+                    className={"flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left " + (comparing ? "bg-rose-50" : "hover:bg-stone-50")}
+                  >
+                    <span className={"flex h-9 w-9 shrink-0 items-center justify-center rounded-full " + (comparing ? "bg-rose-100 text-rose-800" : "bg-stone-100 text-stone-500")}>
+                      <TrendingUp size={16} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={"block truncate text-sm font-semibold " + (comparing ? "text-rose-800" : "text-stone-800")}>성장 비교</span>
+                      <span className="block text-[11px] text-stone-400">누가 빨리 크나</span>
+                    </span>
+                  </button>
+                </li>
+              )}
               {sorted.map((a) => {
                 const on = current?.id === a.id;
                 const st = statusOf(a, queue);
@@ -824,7 +856,10 @@ export default function AccountsPage({
                   <li key={a.id} className="shrink-0">
                     <button
                       type="button"
-                      onClick={() => setSel(a.id)}
+                      onClick={() => {
+                        setStartTab(null);
+                        setSel(a.id);
+                      }}
                       className={"flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left " + (on ? "bg-rose-50" : "hover:bg-stone-50")}
                     >
                       <Avatar acc={a} active={on} />
@@ -832,7 +867,7 @@ export default function AccountsPage({
                         <span className={"block truncate text-sm font-semibold " + (on ? "text-rose-800" : "text-stone-800")}>
                           {a.handle ? `@${a.handle}` : a.name || "광고"}
                         </span>
-                        <span className="block text-[11px] text-stone-400">{st.kind === "done" ? `소재 ${num(n)}` : st.text}</span>
+                        <span className="block text-[11px] text-stone-400">{st.kind === "done" ? growthLine(a.growth) || `소재 ${num(n)}` : st.text}</span>
                       </span>
                       <span
                         title={a.paused ? "모니터링 꺼짐" : "모니터링 중"}
@@ -847,10 +882,18 @@ export default function AccountsPage({
               })}
             </ul>
           </aside>
+          {comparing && <GrowthCompare
+              accounts={sorted}
+              onPick={(id) => {
+                setStartTab("growth");
+                setSel(id);
+              }}
+            />}
           {current && (
             <AccountPanel
               key={current.id}
               acc={current}
+              startTab={startTab}
               status={statusOf(current, queue)}
               load={load}
               patchData={patchData}

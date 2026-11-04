@@ -525,7 +525,8 @@ export function useSales(session) {
   /** 계정 하나의 기록 (게시물·광고·스캔 이력) — 열 때만 읽는다 */
   const loadAccount = useCallback(
     async (id) => {
-      if (!(online && remoteOk.current)) return null;
+      // 이 기기 저장 모드엔 스캔이 없다 — 시험용으로 넣어 둔 기록(poclo_acct_<id>)만 읽는다
+      if (!(online && remoteOk.current)) return readLocal(`poclo_acct_${id}`, null);
       const { data, error } = await supabase.from("settings").select("value").eq("key", `acct_${id}`).maybeSingle();
       return error ? null : data?.value || null;
     },
