@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Send, ChevronRight, ChevronDown, Search, Copy, Check, FileSpreadsheet, Undo2, Receipt, Building2, ImagePlus, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Send, ChevronRight, ChevronDown, Search, Copy, Check, FileSpreadsheet, Undo2, Receipt, Building2, ImagePlus, Loader2, FileImage, ArrowDownToLine } from "lucide-react";
 import { won } from "../lib/sales";
 import { loadKey, changeKey, upsert, remove, putPhoto, photoUrls, md, FIELD } from "../lib/shoot";
 import { dayKey } from "../lib/journal";
@@ -12,6 +12,7 @@ import { Sheet, SheetHead } from "./ShootBits";
  * 탭 ① 계산서 챙기기 — 그 달 거래처마다 받을 계산서(공급가+부가세)와 받았는지, 요청 글 / 거래처 상세
  *    ② 거래처 부가세 송금 — 부가세 후입금 거래처에 보낼 부가세, 계좌, 대량이체 표, 이체 완료 처리, 입금 안내 글
  * 알림톡은 아직 연결 전 — 카카오 채널·발송 서비스·양식 승인을 세원이 정해 주면 붙인다. 지금은 글을 복사해 카톡으로.
+ * 11/5: 후입금 줄 '안 받음'(그 달 계산서 안 받는 곳으로 — invoice_skip) · 요청 글에서 사업자 정보 글을 빼고 '등록증 복사'(사진 그대로 클립보드).
  */
 
 async function copyText(text) {
@@ -31,6 +32,28 @@ async function copyText(text) {
     } catch {
       return false;
     }
+  }
+}
+
+/** 사진을 클립보드로 — 카톡 채팅창에 Ctrl+V(폰은 길게 눌러 붙여넣기) 하면 사진이 붙는다.
+ *  브라우저는 PNG 만 받아서 바꿔 넣는다. 누른 그 순간에 써야 막히지 않아서, 사진 받기는 약속(Promise)째 넘긴다. */
+async function copyImage(getUrl) {
+  if (!window.ClipboardItem || !navigator.clipboard?.write) return false;
+  const png = (async () => {
+    const url = await getUrl();
+    if (!url) throw new Error("사진 주소 없음");
+    const bm = await createImageBitmap(await (await fetch(url)).blob());
+    const c = document.createElement("canvas");
+    c.width = bm.width;
+    c.height = bm.height;
+    c.getContext("2d").drawImage(bm, 0, 0);
+    return new Promise((r) => c.toBlob(r, "image/png"));
+  })();
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -76,7 +99,7 @@ function BizCard({ biz, onSave, online }) {
       <button type="button" onClick={() => { setX(biz); setOpen(!open); }} className="flex w-full items-center gap-2 px-4 py-3 text-left">
         <Building2 size={16} className="text-stone-500" />
         <span className="flex-1 text-sm font-semibold text-stone-800">
-          우리 사업자 정보 <span className="font-normal text-stone-400">· 계산서 요청 글에 같이 들어가요</span>
+          우리 사업자 정보 <span className="font-normal text-stone-400">· 등록증 사진은 요청 글 옆 '등록증 복사'로 보내요</span>
         </span>
         {empty ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">아직 비어 있어요</span> : <span className="text-xs text-stone-500">{biz.name} · {biz.bizNo}</span>}
         <ChevronDown size={16} className={"text-stone-400 " + (open ? "rotate-180" : "")} />
@@ -114,7 +137,7 @@ function BizCard({ biz, onSave, online }) {
             </label>
             {cert && (
               <a href={cert} target="_blank" rel="noreferrer" className="text-xs font-medium text-sky-700 hover:underline">
-                등록증 보기 (거래처가 달라고 하면 이걸 보내요)
+                등록증 보기
               </a>
             )}
           </div>
@@ -134,12 +157,18 @@ function BizCard({ biz, onSave, online }) {
 
 // ---------------------------------------------------------------- 요청 글 창
 
-function RequestSheet({ rows, month, biz, sendsOn, reqs, onMark, onClose }) {
+function RequestSheet({ rows, month, biz, certUrl, sendsOn, reqs, onMark, onClose }) {
   const [done, setDone] = useState({});
+  const [certDone, setCertDone] = useState({});
   const say = async (r) => {
     const ok = await copyText(requestText(r, month, biz, sendsOn(r.id)));
     setDone((d) => ({ ...d, [r.id]: ok ? "복사했어요" : "복사가 막혔어요" }));
     if (ok) onMark([r.id]);
+  };
+  const cert = async (r) => {
+    setCertDone((d) => ({ ...d, [r.id]: "복사 중…" }));
+    const ok = await copyImage(certUrl);
+    setCertDone((d) => ({ ...d, [r.id]: ok ? "사진 복사했어요" : "막혔어요" }));
   };
   return (
     <Sheet onClose={onClose}>
@@ -149,7 +178,10 @@ function RequestSheet({ rows, month, biz, sendsOn, reqs, onMark, onClose }) {
           <b>알림톡은 아직 연결 전이에요.</b> 지금은 거래처마다 글을 복사해 카톡에 붙여넣어 주세요(복사하면 '요청함'으로 표시돼요).
           카카오 채널·발송 서비스·양식 승인이 준비되면 Claude 에게 알려 주세요 — 여기서 바로 보내지게 붙여요.
         </p>
-        {!bizLines(biz).length && <p className="text-xs text-rose-700">위 '우리 사업자 정보'를 먼저 채우면 글에 상호·사업자번호·이메일이 같이 들어가요.</p>}
+        <p className="text-xs leading-relaxed text-stone-500">
+          순서: <b>글 복사</b> → 카톡에 붙여넣기 → <b>등록증 복사</b> → 카톡에 붙여넣기(사진으로 들어가요).
+          {!biz.certKey && <span className="text-rose-700"> 등록증 사진이 아직 없어요 — 화면 위 '우리 사업자 정보'에서 올려 주세요.</span>}
+        </p>
         {rows.map((r) => (
           <div key={r.id} className="rounded-xl border border-stone-200">
             <div className="flex items-center justify-between gap-2 border-b border-stone-100 px-3 py-2">
@@ -159,9 +191,34 @@ function RequestSheet({ rows, month, biz, sendsOn, reqs, onMark, onClose }) {
                 <button type="button" onClick={() => say(r)} className="flex items-center gap-1 rounded-lg bg-rose-700 px-2.5 py-1 text-xs font-semibold text-white">
                   <Copy size={12} /> {done[r.id] || "글 복사"}
                 </button>
+                <button
+                  type="button"
+                  disabled={!biz.certKey}
+                  onClick={() => cert(r)}
+                  title="우리 사업자등록증 사진을 복사해요 — 카톡에 붙여넣으면 사진으로 들어가요"
+                  className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-xs font-semibold text-stone-700 disabled:opacity-40"
+                >
+                  <FileImage size={12} /> {certDone[r.id] || "등록증 복사"}
+                </button>
               </span>
             </div>
             <pre className="px-3 py-2 font-sans text-xs leading-relaxed whitespace-pre-wrap text-stone-700">{requestText(r, month, biz, sendsOn(r.id))}</pre>
+            {certDone[r.id] === "막혔어요" && (
+              <p className="border-t border-stone-100 px-3 py-2 text-xs text-rose-700">
+                이 브라우저가 사진 복사를 막았어요.{" "}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const u = await certUrl();
+                    if (u) window.open(u, "_blank");
+                  }}
+                  className="font-semibold underline"
+                >
+                  등록증 열기
+                </button>{" "}
+                → 사진을 길게 누르거나 오른쪽 클릭해 복사해 주세요.
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -171,7 +228,7 @@ function RequestSheet({ rows, month, biz, sendsOn, reqs, onMark, onClose }) {
 
 // ---------------------------------------------------------------- 거래처 상세
 
-function VendorSheet({ row, month, tx, vendors, sends, reqOn, biz, onInvoice, onBreakdown, onRequest, onGoVat, onClose }) {
+function VendorSheet({ row, month, tx, vendors, sends, reqOn, skipped, skipOf, onSkip, onInvoice, onBreakdown, onRequest, onGoVat, onClose }) {
   const v = row.vendor;
   // 최근 6달 — 같은 규칙으로
   const months = useMemo(
@@ -208,7 +265,17 @@ function VendorSheet({ row, month, tx, vendors, sends, reqOn, biz, onInvoice, on
           </div>
         </div>
 
-        {late && (
+        {skipped && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-xs text-stone-600">
+            <span>
+              <b className="text-stone-800">{monthTitle(month)}은 계산서를 안 받기로 했어요</b> — 부가세도 안 보내요.
+            </span>
+            <button type="button" onClick={() => onSkip(false)} className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-2.5 py-1 font-semibold text-stone-700">
+              <Undo2 size={12} /> 다시 받을 계산서로
+            </button>
+          </div>
+        )}
+        {late && !skipped && (
           <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-3 text-xs leading-relaxed text-violet-900">
             <b className="text-sm">부가세를 따로(후입금) 보내는 거래처예요</b>
             <p className="mt-1">· 장끼에는 공급가 {won(row.lateSupply)}원만 보냈어요(부가세 빼고).</p>
@@ -223,11 +290,16 @@ function VendorSheet({ row, month, tx, vendors, sends, reqOn, biz, onInvoice, on
               )}
             </p>
             <p>· 그래도 계산서는 <b>전액 {won(row.total)}원</b>으로 받아야 맞아요(공급가 + 부가세).</p>
+            {row.status === "todo" && (
+              <button type="button" onClick={() => onSkip(true)} className="mt-2 flex items-center gap-1 rounded-lg border border-violet-300 bg-white px-2.5 py-1 font-semibold text-violet-800">
+                <ArrowDownToLine size={12} /> 이번 달은 부가세 안 보내고 계산서도 안 받아요
+              </button>
+            )}
           </div>
         )}
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={onRequest} disabled={late && row.vatDue > 0} className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white disabled:bg-stone-300" title={late && row.vatDue > 0 ? "부가세를 먼저 보내야 해요" : ""}>
+          <button type="button" onClick={onRequest} disabled={skipped || (late && row.vatDue > 0)} className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white disabled:bg-stone-300" title={late && row.vatDue > 0 ? "부가세를 먼저 보내야 해요" : ""}>
             <Send size={13} /> 요청 글 만들기 {reqOn && <span className="font-normal opacity-80">(요청함 {md(reqOn)})</span>}
           </button>
           <button
@@ -244,7 +316,9 @@ function VendorSheet({ row, month, tx, vendors, sends, reqOn, biz, onInvoice, on
           {months.map(({ m, r }) => (
             <div key={m} className="flex items-center gap-2 border-t border-stone-100 px-3 py-1.5 text-xs">
               <span className="w-16 text-stone-600">{monthTitle(m).slice(5)}</span>
-              {r && r.inv.length ? (
+              {r && r.inv.length && skipOf(m) ? (
+                <span className="flex-1 text-stone-400">{won(r.total)}원 · 계산서 안 받기로 함</span>
+              ) : r && r.inv.length ? (
                 <>
                   <span className="flex-1 tabular-nums text-stone-800">{won(r.total)}원</span>
                   {r.late.length > 0 && <span className={r.vatDue ? "text-violet-700" : "text-stone-400"}>{r.vatDue ? `부가세 ${won(r.vatDue)} 안 보냄` : "부가세 보냄"}</span>}
@@ -273,7 +347,6 @@ function VendorSheet({ row, month, tx, vendors, sends, reqOn, biz, onInvoice, on
               </div>
             ))}
         </dl>
-        {!bizLines(biz).length && <p className="text-xs text-stone-400">요청 글에 우리 사업자 정보를 넣으려면 화면 위 '우리 사업자 정보'를 채워 주세요.</p>}
       </div>
     </Sheet>
   );
@@ -421,18 +494,21 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
   const [q, setQ] = useState("");
   const [sends, setSends] = useState([]);
   const [reqList, setReqList] = useState([]);
+  const [skipList, setSkipList] = useState([]);
   const [biz, setBiz] = useState({});
   const [open, setOpen] = useState(null); // 거래처 id
   const [reqFor, setReqFor] = useState(null); // 요청 글 창에 띄울 거래처 id 들
   const [showSamchon, setShowSamchon] = useState(false);
   const [msg, setMsg] = useState("");
+  const [note, setNote] = useState(null); // {text, undo?}
 
   const load = useCallback(async () => {
     try {
-      const [a, b, c] = await Promise.all([loadKey("vat_sends", online), loadKey("invoice_reqs", online), loadKey("biz_info", online, {})]);
+      const [a, b, c, d] = await Promise.all([loadKey("vat_sends", online), loadKey("invoice_reqs", online), loadKey("biz_info", online, {}), loadKey("invoice_skip", online)]);
       setSends(a.items || []);
       setReqList(b.items || []);
       setBiz(c || {});
+      setSkipList(d.items || []);
     } catch {
       setMsg("기록을 불러오지 못했어요. 인터넷을 확인해 주세요.");
     }
@@ -442,7 +518,24 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
     load();
   }, [load]);
 
-  const board = useMemo(() => monthBoard(tx, vendors, month, sends), [tx, vendors, month, sends]);
+  const all = useMemo(() => monthBoard(tx, vendors, month, sends), [tx, vendors, month, sends]);
+  const skipIds = useMemo(() => new Set(skipList.filter((x) => x.month === month).map((x) => x.vendorId)), [skipList, month]);
+  // 안 받기로 한 곳은 받을 계산서·도착 n/N·부가세 송금에서 뺀다
+  const board = useMemo(() => all.filter((r) => !skipIds.has(r.id)), [all, skipIds]);
+  const skipRows = all.filter((r) => skipIds.has(r.id) && r.inv.length);
+  // 등록증 사진 주소 — 서명 주소는 4시간짜리라 3시간 넘었으면 새로 받는다
+  const certRef = useRef({ key: "", url: "", at: 0 });
+  const certUrl = useCallback(async () => {
+    const c = certRef.current;
+    if (!biz.certKey) return "";
+    if (c.key === biz.certKey && c.url && Date.now() - c.at < 3 * 3600e3) return c.url;
+    const url = (await photoUrls([biz.certKey], online))[biz.certKey] || "";
+    certRef.current = { key: biz.certKey, url, at: Date.now() };
+    return url;
+  }, [biz.certKey, online]);
+  useEffect(() => {
+    certUrl(); // 미리 받아 두면 누를 때 바로 복사된다
+  }, [certUrl]);
   const reqs = useMemo(() => Object.fromEntries(reqList.filter((r) => r.month === month).map((r) => [r.vendorId, r.on])), [reqList, month]);
   const sendOn = (vid) => sends.find((s) => s.month === month && s.vendorId === vid)?.on || "";
 
@@ -451,7 +544,8 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
   const byAmount = (a, b) => b.total - a.total;
   const late = board.filter((r) => r.kind === "late" && match(r)).sort(byAmount);
   const paid = board.filter((r) => r.kind === "paid" && match(r)).sort(byAmount);
-  const samchon = board.filter((r) => r.samchon.length && match(r)).sort((a, b) => b.samchonSupply - a.samchonSupply);
+  const samchon = all.filter((r) => r.samchon.length && match(r)).sort((a, b) => b.samchonSupply - a.samchonSupply);
+  const skipShown = skipRows.filter(match).sort(byAmount);
   const targets = board.filter((r) => r.inv.length);
   const arrived = targets.filter((r) => r.status === "done").length;
   const vatDue = board.filter((r) => r.vatDue > 0);
@@ -481,29 +575,49 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
     setSends((await changeKey("vat_sends", online, remove(s.id))).items || []);
   };
   const saveBiz = async (x) => setBiz(await changeKey("biz_info", online, () => x, {}));
+  const setSkip = async (vid, on) => {
+    const id = `${month}|${vid}`;
+    const v = await changeKey("invoice_skip", online, on ? upsert({ id, month, vendorId: vid, on: dayKey() }) : remove(id));
+    setSkipList(v.items || []);
+    const name = all.find((r) => r.id === vid)?.vendor.name || "거래처";
+    setNote(on ? { text: `${name} — ${monthTitle(month)}은 계산서 안 받는 곳으로 옮겼어요`, undo: vid } : { text: `${name} — 다시 받을 계산서로 올렸어요` });
+  };
 
-  const openRow = board.find((r) => r.id === open);
+  const openRow = all.find((r) => r.id === open);
 
   const Row = ({ r }) => (
     <div className="flex items-center gap-2 border-b border-stone-100 px-4 py-2.5 last:border-b-0 hover:bg-stone-50">
       <button type="button" onClick={() => setOpen(r.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
         <b className="truncate text-stone-900">{r.vendor.name}</b>
-        {r.kind === "late" && <span className="shrink-0 rounded-full border border-violet-300 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">부가세 후입금</span>}
+        {r.kind === "late" && <span className="hidden shrink-0 rounded-full border border-violet-300 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 sm:inline">부가세 후입금</span>}
         {reqs[r.id] && r.status !== "done" && <span className="shrink-0 text-[11px] text-stone-400">요청함 {md(reqs[r.id])}</span>}
       </button>
       <StatusChip s={r.status} />
       <b className="w-20 shrink-0 text-right tabular-nums text-stone-900">{won(r.total)}</b>
       {r.vatDue > 0 ? (
-        <button type="button" onClick={() => setTab("vat")} className="w-24 shrink-0 rounded-lg border border-violet-300 px-2 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-50">
+        <button type="button" onClick={() => setTab("vat")} className="w-20 shrink-0 rounded-lg border sm:w-24 border-violet-300 px-2 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-50">
           부가세 먼저 →
         </button>
       ) : r.status !== "done" ? (
-        <button type="button" onClick={() => setReqFor([r.id])} className="w-24 shrink-0 rounded-lg border border-rose-300 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50">
+        <button type="button" onClick={() => setReqFor([r.id])} className="w-20 shrink-0 rounded-lg border sm:w-24 border-rose-300 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50">
           요청 글 →
         </button>
       ) : (
-        <span className="w-24 shrink-0" />
+        <span className="w-20 shrink-0 sm:w-24" />
       )}
+      {r.kind === "late" && r.status === "todo" ? (
+        <button
+          type="button"
+          onClick={() => setSkip(r.id, true)}
+          title="이번 달은 부가세 안 보내고 계산서도 안 받아요 — 아래 '계산서 안 받는 곳'으로"
+          aria-label="이번 달 계산서 안 받음"
+          className="flex w-6 shrink-0 items-center justify-center gap-0.5 rounded-lg py-1 text-[11px] font-medium text-stone-400 hover:bg-stone-100 hover:text-stone-700 sm:w-[3.75rem]"
+        >
+          <ArrowDownToLine size={13} /> <span className="hidden sm:inline">안 받음</span>
+        </button>
+      ) : r.kind === "late" ? (
+        <span className="w-6 shrink-0 sm:w-[3.75rem]" />
+      ) : null}
       <button type="button" onClick={() => setOpen(r.id)} aria-label="자세히" className="text-stone-300 hover:text-stone-600">
         <ChevronRight size={16} />
       </button>
@@ -517,6 +631,19 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
         <p className="mt-0.5 text-sm text-stone-500">달마다 거래처에 계산서를 요청하고, 부가세를 따로 보내는 곳은 부가세부터 보내요. 받았는지는 장끼의 '세금계산서 받음'과 같은 값이에요.</p>
       </div>
       {msg && <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{msg}</p>}
+      {note && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg bg-stone-800 px-3 py-2 text-sm text-white">
+          <span className="flex-1">{note.text}</span>
+          {note.undo && (
+            <button type="button" onClick={() => setSkip(note.undo, false)} className="font-semibold text-rose-200 underline">
+              되돌리기
+            </button>
+          )}
+          <button type="button" onClick={() => setNote(null)} aria-label="닫기" className="px-1 text-stone-400">
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <select value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-semibold">
@@ -593,7 +720,32 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
                 </section>
               ),
           )}
-          {!late.length && !paid.length && <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-8 text-center text-sm text-stone-500">{monthTitle(month)}에 계산서 받을 이체 장끼가 없어요.</p>}
+          {!late.length && !paid.length && !skipShown.length && <p className="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-8 text-center text-sm text-stone-500">{monthTitle(month)}에 계산서 받을 이체 장끼가 없어요.</p>}
+
+          {skipShown.length > 0 && (
+            <section className="mb-3 overflow-hidden rounded-2xl border border-stone-200 bg-white">
+              <div className="border-b border-stone-100 bg-stone-50 px-4 py-2">
+                <span className="flex items-center gap-2 text-sm font-semibold text-stone-600">
+                  <span className="h-2 w-2 rounded-full bg-stone-400" /> 계산서 안 받는 곳 · 이번 달 안 받기로 함{" "}
+                  <span className="font-normal text-stone-400">
+                    {skipShown.length}곳 · 공급가 {won(skipShown.reduce((a, r) => a + r.supply, 0))}원
+                  </span>
+                </span>
+                <span className="text-[11px] text-stone-500">부가세도 안 보내요. 장끼는 그대로라 매입 장부엔 '부가세 안 낸 매입'으로 남아요.</span>
+              </div>
+              {skipShown.map((r) => (
+                <div key={r.id} className="flex items-center gap-2 border-b border-stone-100 px-4 py-2 text-sm last:border-b-0 hover:bg-stone-50">
+                  <button type="button" onClick={() => setOpen(r.id)} className="min-w-0 flex-1 truncate text-left text-stone-700">
+                    {r.vendor.name}
+                  </button>
+                  <span className="shrink-0 tabular-nums text-stone-500">공급가 {won(r.supply)}</span>
+                  <button type="button" onClick={() => setSkip(r.id, false)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-300 px-2 py-1 text-[11px] font-semibold text-stone-600 hover:bg-white">
+                    <Undo2 size={11} /> 다시 받기
+                  </button>
+                </div>
+              ))}
+            </section>
+          )}
 
           {samchon.length > 0 && (
             <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
@@ -621,7 +773,9 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
           vendors={vendors}
           sends={sends}
           reqOn={reqs[openRow.id]}
-          biz={biz}
+          skipped={skipIds.has(openRow.id)}
+          skipOf={(m) => skipList.some((x) => x.month === m && x.vendorId === openRow.id)}
+          onSkip={(on) => setSkip(openRow.id, on)}
           onInvoice={(ids, on) => onPatchTxs(ids, { invoice: on })}
           onBreakdown={(spec) => {
             setOpen(null);
@@ -639,7 +793,7 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
         />
       )}
       {reqFor && (
-        <RequestSheet rows={board.filter((r) => reqFor.includes(r.id))} month={month} biz={biz} sendsOn={sendOn} reqs={reqs} onMark={markReq} onClose={() => setReqFor(null)} />
+        <RequestSheet rows={board.filter((r) => reqFor.includes(r.id))} month={month} biz={biz} certUrl={certUrl} sendsOn={sendOn} reqs={reqs} onMark={markReq} onClose={() => setReqFor(null)} />
       )}
     </div>
   );

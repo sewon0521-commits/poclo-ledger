@@ -15,7 +15,9 @@
 // settings
 //   vat_sends    {items:[{id, month, vendorId, txIds[], amount, on, account}]}
 //   invoice_reqs {items:[{id:"월|거래처", month, vendorId, on}]}   — 요청 글을 보낸 날
-//   biz_info     {name, bizNo, ceo, address, type, item, email, phone, certKey}  — 요청 글에 넣는 우리 사업자 정보
+//   invoice_skip {items:[{id:"월|거래처", month, vendorId, on}]}   — 그 달 계산서를 안 받기로 한 곳 (11/5 세원: "후입금인데 부가세 안 보내고 안 끊을 때도 있어서")
+//                → 받을 계산서·도착 n/N·부가세 송금에서 빠지고 아래 '계산서 안 받는 곳'으로. 장끼는 안 바꾼다(부가세 안 낸 매입 그대로).
+//   biz_info     {name, bizNo, ceo, address, type, item, email, phone, certKey}  — 우리 사업자 정보 · certKey = 등록증 사진(요청 글 옆 '등록증 복사')
 
 import { VAT_RATE } from "./calc";
 import { won } from "./sales"; // ₩ 없이 숫자만 (글에 '원'을 붙인다)
@@ -109,9 +111,8 @@ export function requestText(row, month, biz = {}, sentOn = "") {
     `· 합계 ${won(row.total)}원 (${row.inv.length}건)`,
   ];
   if (row.late.length) lines.push(`· 부가세 ${won(row.vatSent || vatOf(row.lateSupply))}원은 ${sentOn ? `${Number(sentOn.slice(5, 7))}/${Number(sentOn.slice(8, 10))}에 ` : ""}따로 입금드렸어요.`);
-  const b = bizLines(biz);
-  if (b.length) lines.push("", "[저희 사업자 정보]", ...b);
-  lines.push("", "감사합니다.");
+  // 11/5 세원: "요청 글에 사업자 정보 없애고 사업자 등록증 사진 복사되는 거 하나 — 그게 훨씬 나아" → 글엔 안 넣고 화면의 '등록증 복사'로 사진을 붙인다
+  lines.push("", "사업자등록증은 사진으로 같이 보내드려요.", "감사합니다.");
   return lines.join("\n");
 }
 
