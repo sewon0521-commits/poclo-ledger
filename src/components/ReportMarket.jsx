@@ -26,7 +26,7 @@ function SkyIcon({ code, size = 18 }) {
 
 function Card({ icon: Icon, title, sub, children, className = "" }) {
   return (
-    <section className={"rounded-2xl border border-stone-200 bg-white p-4 " + className}>
+    <section className={"min-w-0 rounded-2xl border border-stone-200 bg-white p-4 " + className}>
       <h3 className="mb-2 flex items-baseline gap-1.5 text-sm font-bold text-stone-900">
         <Icon size={15} className="shrink-0 translate-y-0.5 text-rose-700" />
         {title}
@@ -78,7 +78,7 @@ function Weather({ w, take }) {
           <div className="mb-1 font-semibold text-stone-700">
             작년 이맘때 한 달 <span className="font-normal text-stone-400">· 평균 {ly.avgMax}° / {ly.avgMin}°{ly.firstBelow0 ? ` · 첫 영하 ${mdOf(ly.firstBelow0)}` : ""}</span>
           </div>
-          <ul className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
             {ly.weeks.map((k) => (
               <li key={k.from} className="flex gap-1.5 tabular-nums">
                 <span className="w-[5.5rem] shrink-0 text-stone-400">
@@ -175,7 +175,8 @@ export function MarketBrief({ r }) {
   const t = r.market_take || {};
   if (!r.market && !r.market_take) return null;
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
+    // 11/4 세원: "모바일로 보는데 기온·시장 흐름 칸이 너무 넓어" — grid-cols-1 이 없으면 칸이 안의 날짜 줄 길이(556px)만큼 늘어나 폰 화면 밖으로 나갔다
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <Weather w={m.weather} take={t.weather} />
       <Trend trend={t.trend} news={Array.isArray(m.news) ? m.news : []} comp={m.compNew} insta={m.insta} />
     </div>
