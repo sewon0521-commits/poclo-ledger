@@ -668,9 +668,12 @@ window.__pocloStore = async function (o) {
     probe.button = !!btn;
     if (btn) {
       var before = doc.body.innerText.length;
-      (btn.closest("button,a,[role=button]") || btn).click();
       var modal = null;
-      for (var w4 = 0; w4 < 25 && !modal; w4++) {
+      // 11/5 세원("매장 정보 누르면 카톡이랑 전번 나온다고 했는데 왜 안 해줘?") — 여러 개 담기 중 샤샤앤코(까만 배너 매장)에서 빈손.
+      // 같은 코드를 상품 화면 하나에서 돌리면 전화·카톡이 다 나왔다 → 매장 화면이 늦게 떠서 단추가 아직 안 먹을 때 한 번 누르고 끝냈던 것.
+      // 이제 창이 안 뜨면 1.2초마다 다시 누르며 7.5초까지 기다린다.
+      for (var w4 = 0; w4 < 50 && !modal; w4++) {
+        if (w4 % 8 === 0) (btn.closest("button,a,[role=button]") || btn).click();
         await sleep(150);
         // 제목 '매장 정보'(누른 단추 말고)에서 위로 — 전화나 링크·아이콘이 2개 넘게 들어오는 칸
         var titles = leafIn(doc, ["매장정보"]).filter(function (e) {
@@ -687,26 +690,40 @@ window.__pocloStore = async function (o) {
             up = up.parentElement;
           }
         }
-        if (!modal && doc.body.innerText.length > before + 30 && w4 > 10) break;
+        if (!modal && doc.body.innerText.length > before + 30 && w4 > 24) break;
       }
+      probe.wait = w4;
       if (modal) {
         res.how = res.how ? res.how + " + 매장 정보" : "매장 정보";
         var sigOf = function (e) {
           // 그 줄의 아이콘 모양 — 이미지 주소·이름, svg 안 글, 링크 주소, class
+          // 11/5 실제 신마 '매장 정보' 창: 아이콘이 이름 없는 data:image/svg+xml 그림이라 주소를 풀어 그림 모양(ICON)으로 가른다 — 자르지 않는다
           var row = e,
             s = "";
           for (var q = 0; row && q < 3; q++) {
             var ic = row.querySelector("img,svg,i,[class*=icon],[class*=Icon]");
             if (ic && !e.contains(ic)) {
-              s += " " + (ic.getAttribute("src") || "") + " " + (ic.getAttribute("alt") || "") + " " + String(ic.className && ic.className.baseVal != null ? ic.className.baseVal : ic.className || "") + " " + (ic.getAttribute("aria-label") || "");
-              if (ic.tagName.toLowerCase() === "svg") s += " " + ic.outerHTML.slice(0, 300);
+              var src = ic.getAttribute("src") || "";
+              try {
+                src = decodeURIComponent(src);
+              } catch (x) {
+                void x;
+              }
+              s += " " + src + " " + (ic.getAttribute("alt") || "") + " " + String(ic.className && ic.className.baseVal != null ? ic.className.baseVal : ic.className || "") + " " + (ic.getAttribute("aria-label") || "");
+              if (ic.tagName.toLowerCase() === "svg") s += " " + ic.outerHTML.slice(0, 3000);
               break;
             }
             row = row.parentElement;
           }
           var link = e.closest("a[href]");
-          return (s + " " + (link ? link.getAttribute("href") : "") + " " + String(e.className || "")).slice(0, 600);
+          return s + " " + (link ? link.getAttribute("href") : "") + " " + String(e.className || "");
         };
+        // 신마 '매장 정보' 아이콘 그림의 첫 선(11/5 샤샤앤코 창에서 확인): 전화 수화기 · 카톡 말풍선 · 인스타 둥근 네모
+        var ICON = [
+          ["tel", /M16\.0537 17\.1503/],
+          ["kakao", /M12 5\.625C8\.06787 5\.625/],
+          ["insta", /M15 6\.375H9C7\.55025|M14\.7885 8\.41533/],
+        ];
         var items = [].slice.call(modal.querySelectorAll("*")).filter(function (e) {
           var t = own(e);
           return t && t.length <= 40 && shown(e) && !/매장\s?정보|외부\s?SNS|문의|거래처/.test(t) && (PH.test(t) || /^[@A-Za-z0-9_.-]{3,40}$/.test(t));
@@ -716,10 +733,15 @@ window.__pocloStore = async function (o) {
           var t = own(e),
             sig = sigOf(e),
             kind = "";
-          if (PH.test(t) || /tel:|phone|call|전화/i.test(sig)) kind = "tel";
-          else if (/insta/i.test(sig)) kind = "insta";
-          else if (/kakao|katalk|ka-?talk|카카오|카톡|\btalk\b/i.test(sig)) kind = "kakao";
-          else if (/wechat|weixin|wx|위챗/i.test(sig)) kind = "wechat";
+          ICON.forEach(function (c) {
+            if (!kind && c[1].test(sig)) kind = c[0];
+          });
+          if (!kind) {
+            if (PH.test(t) || /tel:|phone|call|전화/i.test(sig)) kind = "tel";
+            else if (/insta/i.test(sig)) kind = "insta";
+            else if (/kakao|katalk|ka-?talk|카카오|카톡|\btalk\b/i.test(sig)) kind = "kakao";
+            else if (/wechat|weixin|wx|위챗/i.test(sig)) kind = "wechat";
+          }
           if (kind === "tel" && !res.tel) res.tel = (t.match(PH) || [t])[0];
           else if (kind && kind !== "tel" && !res[kind]) res[kind] = t.replace(/^@/, "");
           else if (!kind) unknown.push(t);
@@ -734,11 +756,13 @@ window.__pocloStore = async function (o) {
       } else probe.modal = "매장 정보 칸을 못 찾음";
     }
     res.probe = probe;
-    try {
-      sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), res: res }));
-    } catch (e) {
-      void e;
-    }
+    // 하나도 못 읽었으면 기억하지 않는다 (11/5 — 빈손을 1시간 기억해서 같은 매장 다음 상품도 빈손이었다)
+    if (res.tel || res.kakao || res.insta || res.wechat)
+      try {
+        sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), res: res }));
+      } catch (e) {
+        void e;
+      }
     return res;
   } catch (e) {
     probe.err = String(e).slice(0, 200) + " | " + String((e && e.stack) || "").slice(0, 400);
