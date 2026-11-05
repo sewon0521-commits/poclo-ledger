@@ -13,6 +13,16 @@ import * as remote from "./remote";
 import { loadAll, saveVendors, saveTx, makeVendor, makeTx } from "./store";
 import * as localPhotos from "./photos";
 
+// 이 기기에 로그인 기록이 남아 있나 — 값(토큰)은 안 읽고 있는지만 본다
+const RETRY_KEY = "poclo_auth_retry";
+function hasSavedLogin() {
+  try {
+    return !!JSON.parse(localStorage.getItem(supabase.auth.storageKey) || "null")?.refresh_token;
+  } catch {
+    return false;
+  }
+}
+
 export function useLedger() {
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(!isRemote);
@@ -32,6 +42,18 @@ export function useLedger() {
   useEffect(() => {
     if (!isRemote) return;
     supabase.auth.getSession().then(({ data }) => {
+      // 11/5 세원: "포클로에 담기 누르면 계속 로그인해야돼" — 로그인 기록(refresh token)이 멀쩡히 남아 있는데도 처음 한 번
+      // 토큰 새로 받기가 실패하면 session 이 비어 와서 로그인 창이 떴다(세원 크롬에서 봄 — 새로고침하면 바로 이어짐).
+      // 라이브러리는 실패를 60초 동안 기억해서 그 안에 다시 물어도 같은 답이라, 기록이 남아 있으면 한 번만 새로고침해 다시 잇는다.
+      // 정말 끊긴 로그인(토큰 거절)은 라이브러리가 기록을 지우므로 여기 안 걸리고 로그인 창으로 간다.
+      if (!data.session && hasSavedLogin()) {
+        const last = Number(sessionStorage.getItem(RETRY_KEY) || 0);
+        if (Date.now() - last > 60_000) {
+          sessionStorage.setItem(RETRY_KEY, String(Date.now()));
+          setTimeout(() => window.location.reload(), 800);
+          return; // 그동안은 도는 표시
+        }
+      }
       setSession(data.session);
       setAuthReady(true);
     });

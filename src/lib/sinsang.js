@@ -490,7 +490,12 @@ export function knownKeys(vendors = [], items = []) {
 // 대신 세원이 **자기 브라우저로 보고 있는 상품 화면**에서 즐겨찾기 단추를 누르면, 그 화면의 글·사진을 읽어
 // ERP 작은 창(#clip=…)으로 넘긴다. 읽는 코드는 public/clip.js 하나 — 단추는 그걸 불러오고, 막히면 안에 넣어 둔 같은 코드를 돌린다.
 
-/** 즐겨찾기 막대에 끌어다 놓는 단추의 주소. core = clip.js 의 글(막혔을 때 쓸 것) */
+/**
+ * 즐겨찾기 막대에 끌어다 놓는 단추의 주소. core = clip.js 의 글(막혔을 때 쓸 것)
+ * 11/5 세원: "상품 누르고 포클로에 담기 누르면 계속 로그인해야돼" — 예전 단추는 window.open('about:blank', 'poclo-clip') 이라
+ * 열어 둔 담기 창을 누를 때마다 빈 화면으로 날리고 ERP 를 처음부터 다시 띄웠다(느리고, 로그인 이어 붙이던 중이면 끊겨 풀린다).
+ * 빈 주소('')로 열면 열린 창은 그대로 두고 돌려준다 — 담기 창은 주소 뒤(#clip=…)만 바뀌어 이어서 담는다. __pocloBV = 2 가 새 단추.
+ */
 export function bookmarklet(origin, core) {
   core = String(core || "")
     .split("\n")
@@ -498,7 +503,7 @@ export function bookmarklet(origin, core) {
     .filter((l) => l && !l.startsWith("//"))
     .join("\n");
   const code =
-    `(function(){var o='${origin}';window.__pocloO=o;window.__pocloW=window.open('about:blank','poclo-clip','width=470,height=760');` +
+    `(function(){var o='${origin}';window.__pocloO=o;window.__pocloBV=2;window.__pocloW=window.open('','poclo-clip','width=470,height=760');` +
     `var s=document.createElement('script');s.src=o+'/clip.js?t='+Date.now();s.onerror=function(){${core}};document.documentElement.appendChild(s);})();`;
   return "javascript:" + encodeURIComponent(code);
 }

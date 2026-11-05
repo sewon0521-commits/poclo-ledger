@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import { won } from "../lib/shoot";
 import { stageName, refusalText } from "../lib/sinsang";
-import { saveClip } from "../lib/clipSave";
+import { saveClip, NEW_BUTTON } from "../lib/clipSave";
 import { Photo } from "./ShootBits";
 
 /**
@@ -36,6 +36,7 @@ const label = (r) =>
 export default function ClipBatch({ online, vendors = [], onVendor, ready = true }) {
   const [rows, setRows] = useState([]); // {i, state: wait|saving|saved|dup|error|fail, item, photo, why, refused}
   const [info, setInfo] = useState({ n: 0, end: null });
+  const [oldButton, setOldButton] = useState(false); // 열어 둔 창을 날리던 예전 단추로 눌렀다 (11/5)
   const queue = useRef([]);
   const busy = useRef(false);
   const known = useRef(vendors);
@@ -76,9 +77,15 @@ export default function ClipBatch({ online, vendors = [], onVendor, ready = true
     const onMsg = (e) => {
       const m = e.data;
       if (!m || typeof m !== "object" || !m.poclo || !fromSinsang(e.origin)) return;
+      // 열어 둔 담기 창을 다시 쓰면(11/5) 창을 처음 연 신마 탭과 지금 누른 탭이 다를 수 있다 — 물어 온 그 탭에 바로 답한다
+      if (m.poclo === "hello") {
+        e.source?.postMessage({ poclo: "ready" }, e.origin);
+        return;
+      }
       heard = true;
       if (m.poclo === "start") setInfo({ n: m.n, end: null });
       else if (m.poclo === "clip" && m.d) {
+        if ((m.d.bv || 1) < 2) setOldButton(true);
         put(m.i, { state: "wait" });
         queue.current.push(m);
         pump.current?.();
@@ -123,6 +130,7 @@ export default function ClipBatch({ online, vendors = [], onVendor, ready = true
         )}
         {info.end?.halted && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">신마에서 '멈추기'를 눌러 중간에 멈췄어요.</p>}
         {!ready && <p className="px-1 text-xs text-stone-500">포클로ERP 거래처 목록을 읽는 중이에요 — 다 읽으면 바로 담아요.</p>}
+        {oldButton && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">{NEW_BUTTON}</p>}
 
         <ul className="space-y-1.5">
           {rows.map((r) => (

@@ -63,6 +63,7 @@ import { readSplit, writeSplit, useWide, defaultSplitW } from "./lib/split";
 
 const TAX_TYPE_KEY = "poclo_tax_type";
 const NO_PRODUCTS = [];
+const batchOf = (h) => (h.startsWith("#clip-batch") ? h : "");
 
 function loadTaxType() {
   try {
@@ -88,14 +89,14 @@ export default function App() {
   const [pwOpen, setPwOpen] = useState(false);
   // 신상마켓 '포클로에 담기' 단추가 연 작은 창 — 주소 뒤 #clip=… (lib/sinsang.js). 같은 창에 다음 상품이 이어서 온다
   const [clip, setClip] = useState(() => readClipHash(window.location.hash));
-  // 여러 개 담기 창 — #clip-batch (10/13)
-  const [clipBatch, setClipBatch] = useState(() => window.location.hash === "#clip-batch");
+  // 여러 개 담기 창 — #clip-batch (10/13). 11/5부터 열어 둔 창을 다시 쓰므로 #clip-batch-<시각> — 시각이 바뀌면 새 '여러 개 담기'로 다시 그린다
+  const [clipBatch, setClipBatch] = useState(() => batchOf(window.location.hash));
   // 인스타에서 한 번에 담기 창 — #reels-clip (10/20, public/insta-clip.js)
   const [reelsClip, setReelsClip] = useState(() => window.location.hash === "#reels-clip");
   useEffect(() => {
     const onHash = () => {
       setClip(readClipHash(window.location.hash));
-      setClipBatch(window.location.hash === "#clip-batch");
+      setClipBatch(batchOf(window.location.hash));
       setReelsClip(window.location.hash === "#reels-clip");
     };
     window.addEventListener("hashchange", onHash);
@@ -380,7 +381,7 @@ export default function App() {
 
   if (L.mode === "remote" && !L.session) return <Login />;
   if (reelsClip) return <ReelsClip online={L.mode === "remote" && !!L.session} ready={!L.loading} />;
-  if (clipBatch) return <ClipBatch online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
+  if (clipBatch) return <ClipBatch key={clipBatch} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
   if (clip) return <ClipPage payload={clip} online={L.mode === "remote" && !!L.session} vendors={vendors} onVendor={L.saveVendor} ready={!L.loading} />;
 
   // 화면 하나 그리기 — pg = 화면, go = 그 칸 안에서 다른 화면으로 넘어가기

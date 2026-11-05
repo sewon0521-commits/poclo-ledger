@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import { DEFAULT_TAGS, FIELD, md, won, changeKey, upsert } from "../lib/shoot";
-import { saveClip, OLD_BUTTON } from "../lib/clipSave";
+import { saveClip, OLD_BUTTON, NEW_BUTTON } from "../lib/clipSave";
 import { stageName, refusalText } from "../lib/sinsang";
 import { Chips, Photo } from "./ShootBits";
 
@@ -141,6 +141,7 @@ export default function ClipPage({ payload, online, vendors = [], onVendor, read
         )}
         {msg && state !== "error" && <p className="text-xs text-rose-700">{msg}</p>}
         {!payload.v && state !== "error" && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">{OLD_BUTTON}</p>}
+        {payload.v && (payload.bv || 1) < 2 && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">{NEW_BUTTON}</p>}
 
         <p className="px-1 text-xs leading-relaxed text-stone-500">이 창은 그대로 두고, 신마로 돌아가 다음 상품에서 또 '포클로에 담기'를 누르세요. 여기에 이어서 담겨요.</p>
 

@@ -411,6 +411,7 @@ window.__pocloRead = async function () {
     im: imgs,
     ph: "",
     v: 3,
+    bv: window.__pocloBV || 1, // 2 = 열린 담기 창을 날리지 않는 새 단추 (11/5)
     g: gid,
     a: r.how + (r.ok ? "" : " · 칸 못 찾음"),
     ds: ds.join("\n").slice(0, 1500),
@@ -773,7 +774,17 @@ window.__pocloStore = async function (o) {
   }
 };
 
-// 읽은 것 하나를 담기 창(#clip=…)으로
+// 단추가 방금 연 빈 창인가 — ERP 가 떠 있는 담기 창이면 다른 주소라 못 읽는다(false). 그 창은 닫지 않고 이어서 쓴다 (11/5)
+window.__pocloBlank = function (w) {
+  try {
+    return !!w && !w.closed && w.location.href === "about:blank";
+  } catch (e) {
+    void e;
+    return false;
+  }
+};
+
+// 읽은 것 하나를 담기 창(#clip=…)으로 — 담기 창이 이미 ERP 면 주소 뒤만 바뀌어 다시 안 띄운다
 window.__pocloSend = function (w, origin, d) {
   var url = origin + "/#clip=" + encodeURIComponent(JSON.stringify(d));
   if (w && !w.closed) {
@@ -809,12 +820,9 @@ window.__pocloOpen = function () {
 // 10/13 디자인 다시(세원: "여러 개 담기 체크 표시로 해 주고 디자인 디벨롭"): 사진마다 체크 동그라미(빈 동그라미 → 고르면 로즈 + ✓, 사진 테두리) ·
 // 아래에 떠 있는 막대(로고 · 고른 개수 · 다 지우기 · 상품 하나만 · N개 담기 · ×) · 담는 동안 진행 막대 · 다 보내면 초록.
 window.__pocloBatch = function (w, origin) {
-  // 단추가 연 빈 창은 닫아 둔다 — 'N개 담기'를 누를 때 다시 연다(그때도 누른 순간이라 열 수 있다)
-  try {
-    if (w && !w.closed) w.close();
-  } catch (e) {
-    void e;
-  }
+  // 단추가 연 빈 창은 닫아 둔다 — 'N개 담기'를 누를 때 다시 연다(그때도 누른 순간이라 열 수 있다).
+  // 열어 둔 담기 창(ERP)은 닫지 않는다 — 닫으면 다음에 ERP 를 처음부터 다시 띄우고 로그인을 다시 이어야 한다 (11/5)
+  if (window.__pocloBlank(w)) w.close();
   var sleep = function (ms) {
     return new Promise(function (r) {
       setTimeout(r, ms);
@@ -1050,7 +1058,7 @@ window.__pocloBatch = function (w, origin) {
     draw();
   };
   one.onclick = async function () {
-    var win = window.open("about:blank", "poclo-clip", "width=470,height=760");
+    var win = window.open("", "poclo-clip", "width=470,height=760");
     end();
     window.__pocloSend(win, origin, await window.__pocloRead());
   };
@@ -1130,7 +1138,8 @@ window.__pocloBatch = function (w, origin) {
       halt = true;
       hint.textContent = "지금 상품까지만 읽고 멈춰요";
     };
-    var win = window.open(origin + "/#clip-batch", "poclo-clip", "width=470,height=760");
+    // 주소 뒤에 시각을 붙인다 — 담기 창이 이미 열려 있으면 다시 안 띄우고 새 '여러 개 담기'로만 바뀐다 (11/5)
+    var win = window.open(origin + "/#clip-batch-" + Date.now(), "poclo-clip", "width=470,height=760");
     var ready = false;
     var hear = function (e) {
       if (e.origin === origin && e.data && e.data.poclo === "ready") ready = true;
@@ -1154,8 +1163,11 @@ window.__pocloBatch = function (w, origin) {
       x.onclick = end;
       if (ok2) setTimeout(end, 6000);
     };
+    // 담기 창에 '준비됐어요?'를 계속 묻는다 — 열어 둔 창을 다시 쓰면 그 창이 이 탭을 모를 수 있어서 (11/5)
+    var asked = 0;
     if (
       !(await until(function () {
+        if (!ready && asked++ % 5 === 0) post({ poclo: "hello" });
         return ready;
       }, 15000))
     ) {
@@ -1224,11 +1236,7 @@ window.__pocloClip = async function (w, origin) {
   // 고르는 중에 단추를 또 누르면 그만
   if (window.__pocloBar && window.__pocloBatchStop) {
     window.__pocloBatchStop();
-    try {
-      if (w && !w.closed) w.close();
-    } catch (e) {
-      void e;
-    }
+    if (window.__pocloBlank(w)) w.close();
     return;
   }
   if (window.__pocloOpen()) window.__pocloSend(w, origin, await window.__pocloRead());
