@@ -12,7 +12,7 @@
 //   works [{id, personId, on, start, end, minutes, wage, tax, memo, paidOn, from:{type:'contract'|'day', id}, createdAt}]
 //   지급액 = 시급 × 시간(분 단위, 원 미만 반올림). tax '3.3' = 프리랜서 사업소득 원천징수 — 소득세 3%(10원 미만 버림) + 지방소득세 = 소득세의 10%(10원 미만 버림).
 //   tax 'none' = 떼지 않고 그대로. 지급 기한 = 근무일 + 3일(계약서 제3조 '촬영일로부터 3일 안에').
-//   월별 정리는 **지급한 날(paidOn)** 기준 — 원천징수 신고 자료로 세무사에게 넘길 때 본다. 세무 판단은 앱에 넣지 않는다(계산·기록만).
+//   월별 정리는 **지급한 날(paidOn)** 기준 — 원천징수 신고 자료. 11/5 부터 회계사님께 보내던 사업소득 지급대장 양식 엑셀로(lib/payrollXlsx.js). 세무 판단은 앱에 넣지 않는다(계산·기록만).
 //
 // 넣을 근무 찾기 — 서명 계약서의 촬영일(시각·예상 시간·시급) · 촬영 관리(shoot_days)의 모델 이름이 오늘까지 지났는데 그 사람·그날 근무가 없으면
 //   '넣을까요?' 로 띄운다. 건너뛴 것은 skip ["사람id|날짜"].
@@ -220,24 +220,7 @@ export const skipSuggestion = (key) => (v) => {
 /** 이체할 것 한 줄 — '국민 123-456 홍길동 38,680원' */
 export const transferLine = (p, net) => [accountText(p) || `${p.name} (계좌 없음)`, won(net)].join(" ");
 
-/** 월별 정리 복사 글 — 지급한 날 기준. 주민등록번호는 넣지 않는다('신고용 보기'에서 따로) */
-export function monthText(ym, rows, bizName = "포클로") {
-  const [y, m] = ym.split("-");
-  const taxed = rows.filter((r) => r.taxed.n);
-  const plain = rows.filter((r) => r.plain.n);
-  const L = [`${bizName} ${y}년 ${Number(m)}월 인건비 지급 (지급일 기준)`];
-  if (taxed.length) {
-    L.push("", "■ 프리랜서 사업소득 3.3% 원천징수");
-    for (const r of taxed) L.push(`${r.name} · 지급 ${won(r.taxed.gross)} · 소득세 ${won(r.taxed.incomeTax)} · 지방소득세 ${won(r.taxed.localTax)} · 실지급 ${won(r.taxed.net)} · 지급일 ${r.paidDays.taxed.map(md).join(", ")}`);
-    const t = sumPay(taxed.flatMap((r) => r.taxedWorks));
-    L.push(`합계 · 지급 ${won(t.gross)} · 소득세 ${won(t.incomeTax)} · 지방소득세 ${won(t.localTax)} · 실지급 ${won(t.net)}`);
-  }
-  if (plain.length) {
-    L.push("", "■ 떼지 않고 지급");
-    for (const r of plain) L.push(`${r.name} · 지급 ${won(r.plain.gross)} · 지급일 ${r.paidDays.plain.map(md).join(", ")}`);
-  }
-  return L.join("\n");
-}
+// 월별 정리는 예전엔 세무사에게 보낼 글을 복사했다 — 11/5 부터 사업소득 지급대장 엑셀(lib/payrollXlsx.js)
 
 /** 그 달(지급일 기준) 사람별로 — [{id, name, person, taxed, plain, taxedWorks, plainWorks, paidDays}] */
 export function monthRows(works, people, ym) {

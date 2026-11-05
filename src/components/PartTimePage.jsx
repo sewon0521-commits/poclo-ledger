@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, EyeOff, FileSignature, Loader2, Plus, Trash2, UserPlus, Users, Wallet } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, EyeOff, FileSignature, FileSpreadsheet, Loader2, Plus, Share2, Trash2, UserPlus, Users, Wallet } from "lucide-react";
 import {
   EMPTY,
   KEY,
@@ -15,7 +15,6 @@ import {
   md,
   mdw,
   monthRows,
-  monthText,
   newId,
   payOf,
   peopleOf,
@@ -32,7 +31,8 @@ import {
   transferLine,
   won,
 } from "../lib/partTime";
-import { ContractError, listContracts } from "../lib/contract";
+import { ContractError, listContracts, revealRrn } from "../lib/contract";
+import { XLSX_TYPE, buildPayroll, payrollFileName } from "../lib/payrollXlsx";
 import { changeKey, loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { RrnBox } from "./ContractPage";
 import HangulInput from "./HangulInput";
@@ -701,18 +701,116 @@ function PeopleTab({ people, works, days, today, onPerson, onAdd }) {
 
 // ------------------------------------------------------------ 월별 정리 (지급일 기준 — 원천징수 신고 자료)
 
+/** 서명 계약서 중 주민번호가 든 것 */
+const rrnContractOf = (person) => (person?.contracts || []).find((x) => x.hasRrn) || person?.contract;
+
+/** 폰이면 공유(카톡 등)로 바로 보내고, PC 면 내려받는다 */
+const canShareFile = () => {
+  try {
+    return window.matchMedia("(pointer: coarse)").matches && !!navigator.canShare?.({ files: [new File([""], "a.xlsx", { type: XLSX_TYPE })] });
+  } catch {
+    return false;
+  }
+};
+
+function saveFile(file) {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/** 사업소득 지급대장 엑셀 — 세원이 쓰던 양식 그대로(lib/payrollXlsx). 3.3% 뗀 사람만 */
+function PayrollButton({ ym, rows, online, biz, extra }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null); // {ok, text, file?}
+  const share = canShareFile();
+  const taxed = rows.filter((r) => r.taxed.n > 0);
+
+  const send = async (file) => {
+    try {
+      await navigator.share({ files: [file], title: file.name });
+      setNote({ ok: true, text: `'${file.name}' 보냈어요` });
+    } catch (e) {
+      if (e?.name === "AbortError") return setNote(null);
+      // 준비하는 사이 누른 효과가 끝나면 막힌다 — 한 번 더 누르게
+      setNote({ ok: true, text: "파일이 준비됐어요 — '보내기'를 한 번 더 눌러 주세요", file });
+    }
+  };
+
+  const make = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const list = [];
+      for (const r of taxed) {
+        const c = rrnContractOf(r.person);
+        let rrn = (extra[r.id] || "").trim();
+        if (!rrn && c?.signed_at && c?.hasRrn) rrn = (await revealRrn(online, c.id))?.rrn || ""; // 신고용 보기처럼 조회 기록이 남는다
+        list.push({ name: r.name, rrn, gross: r.taxed.gross, incomeTax: r.taxed.incomeTax, localTax: r.taxed.localTax });
+      }
+      const bizName = biz?.name || "포클로";
+      const out = await buildPayroll({ ym, bizName, rows: list });
+      const file = new File([out.bytes], payrollFileName(ym, bizName), { type: XLSX_TYPE });
+      const warn = [
+        list.filter((x) => !x.rrn).length && `주민등록번호 빈 칸: ${list.filter((x) => !x.rrn).map((x) => x.name).join(", ")}`,
+        out.cut && `양식이 10줄이라 ${out.cut}명은 못 넣었어요`,
+        out.diff.length && `${out.diff.map((d) => d.name).join(", ")} — 근무마다 떼서 양식 계산과 ${out.diff.map((d) => Math.abs(d.form - d.actual)).join(", ")}원 달라요. 실제로 뗀 금액으로 적었어요`,
+      ].filter(Boolean);
+      if (share) {
+        await send(file);
+        if (warn.length) setNote((n) => ({ ...(n || { ok: true, text: "" }), warn }));
+      } else {
+        saveFile(file);
+        setNote({ ok: true, text: `다운로드 폴더에 '${file.name}' 받았어요 — 카톡·메일에 끌어다 놓으면 돼요`, warn });
+      }
+    } catch (e) {
+      setNote({ ok: false, text: e instanceof ContractError ? e.message : "엑셀을 못 만들었어요: " + (e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!taxed.length) return null;
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <button type="button" onClick={note?.file ? () => send(note.file) : make} disabled={busy} className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold whitespace-nowrap text-white hover:bg-rose-800 disabled:opacity-60">
+        {busy ? <Loader2 size={14} className="animate-spin" /> : share ? <Share2 size={14} /> : <FileSpreadsheet size={14} />}
+        {note?.file ? "보내기" : share ? "지급대장 엑셀 보내기" : "지급대장 엑셀 받기"}
+      </button>
+      {note && (
+        <div className={"max-w-sm text-right text-xs leading-relaxed " + (note.ok ? "text-emerald-700" : "text-rose-700")}>
+          {note.text}
+          {(note.warn || []).map((w) => (
+            <p key={w} className="text-amber-700">
+              {w}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MonthTab({ people, works, online, biz, ym, setYm }) {
   const rows = monthRows(works, people, ym);
   const taxed = sumPay(rows.flatMap((r) => r.taxedWorks));
   const plain = sumPay(rows.flatMap((r) => r.plainWorks));
+  const [extra, setExtra] = useState({}); // 계약서에 주민번호가 없는 사람 — 엑셀에만 넣고 저장 안 함
+  const plainOnly = rows.filter((r) => r.plain.n && !r.taxed.n).length;
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <MonthPick ym={ym} onChange={setYm} />
-        {rows.length > 0 && <CopyBtn text={monthText(ym, rows, biz?.name || "포클로")}>세무사에게 보낼 글 복사</CopyBtn>}
+        <PayrollButton ym={ym} rows={rows} online={online} biz={biz} extra={extra} />
       </div>
       <p className="text-xs leading-relaxed text-stone-500">
-        <b>지급한 날</b> 기준으로 모았어요. 주민등록번호는 복사 글에 넣지 않아요 — 사람마다 &apos;신고용 보기&apos;(누가 언제 봤는지 남음)에서 확인해요.
+        <b>지급한 날</b> 기준으로 모았어요. 엑셀은 회계사님께 보내던 <b>사업소득 지급대장 양식 그대로</b>예요 — 3.3% 뗀 사람만 들어가고, 주민등록번호는 서명한 계약서에서 넣어요(받을 때마다 &apos;신고용 보기&apos;처럼 누가 언제 봤는지 남아요).
+        {plainOnly > 0 && ` 떼지 않고 지급한 ${plainOnly}명은 지급대장에 안 들어가요.`}
       </p>
       {!rows.length ? (
         <Empty title={`${Number(ym.slice(5, 7))}월에 지급한 돈이 없어요`} hint="'지급할 것'에서 지급 완료를 누르면 그 날짜 달로 들어와요." />
@@ -733,7 +831,7 @@ function MonthTab({ people, works, online, biz, ym, setYm }) {
           </div>
           <ul className="space-y-2">
             {rows.map((r) => {
-              const c = (r.person?.contracts || []).find((x) => x.hasRrn) || r.person?.contract;
+              const c = rrnContractOf(r.person);
               return (
                 <li key={r.id} className="rounded-xl border border-stone-200 bg-white p-3.5">
                   <div className="flex flex-wrap items-center gap-2">
@@ -776,6 +874,19 @@ function MonthTab({ people, works, online, biz, ym, setYm }) {
                     ) : (
                       <p className="mt-2 text-xs text-amber-700">서명한 모델 계약서가 없어 주민등록번호가 없어요 — 신고 전에 따로 받아야 해요.</p>
                     ))}
+                  {r.taxed.n > 0 && !(c?.signed_at && c?.hasRrn) && (
+                    <label className="mt-2 block">
+                      <span className="mb-1 block text-[11px] text-stone-500">엑셀에 넣을 주민등록번호 (이 칸은 저장 안 해요)</span>
+                      <input
+                        value={extra[r.id] || ""}
+                        onChange={(e) => setExtra((x) => ({ ...x, [r.id]: e.target.value.replace(/[^\d-]/g, "").slice(0, 14) }))}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder="000000-0000000"
+                        className={F + " max-w-xs font-mono tabular-nums"}
+                      />
+                    </label>
+                  )}
                 </li>
               );
             })}
