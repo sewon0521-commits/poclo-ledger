@@ -404,14 +404,11 @@ export function Models({ value = [], onChange }) {
 function CodiRow({ c, d, onStyle, rows, onMove }) {
   const its = codiItems(c, d.items);
   const line = stylingLine(c.styling, d.items);
-  // 이 코디의 찍을 컷 · 영상 (10/27) — 끝낸 수 / 전체
-  const cnt = (l) => (l?.length ? `${l.filter((x) => x.done).length}/${l.length}` : "");
+  // 11/6 찍을 컷 · 영상 칸을 스타일링 창에서 뺐다 — 카드에도 안 센다
   // 10/29 모델 시트에 가는 참고 영상(자른 장면 + 인스타 주소) · 참고 사진 수
   const nVid = (c.styling?.clips?.length || 0) + (c.styling?.refVideos?.length || 0);
   const nPic = new Set([...(c.styling?.refIds || []), ...(c.refIds || [])]).size;
   const tally = [
-    cnt(c.styling?.cuts) && `컷 ${cnt(c.styling.cuts)}`,
-    cnt(c.styling?.videos) && `영상 ${cnt(c.styling.videos)}`,
     nVid && `참고 영상 ${nVid}`,
     nPic && `참고 사진 ${nPic}`,
   ]
@@ -994,12 +991,12 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
             )}
           </div>
 
-          {/* 10/27 세원: "찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" — 이제 코디마다(코디를 누르면 스타일링 창 맨 위).
+          {/* 10/27 세원: "찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" → 11/6 "스타일링에 찍을 컷, 찍을 영상 없애도 될 듯"(코디마다 칸도 뺌).
               예전에 촬영 전체로 적어 둔 것만 아래에 남겨 보여 준다(지우면 사라짐). */}
           {((s.cuts || []).length > 0 || (s.videos || []).length > 0) && (
             <div className="space-y-2 rounded-xl bg-stone-50 p-3">
               <p className="text-xs text-stone-500">
-                <b className="font-semibold text-stone-700">예전에 촬영 전체로 적은 찍을 컷 · 영상</b> — 이제는 코디마다 적어요(코디를 누르면 스타일링 창 맨 위). 다 옮겼으면 지워도 돼요.
+                <b className="font-semibold text-stone-700">예전에 촬영 전체로 적은 찍을 컷 · 영상</b> — 이제는 안 쓰는 칸이에요. 필요 없으면 지워도 돼요.
               </p>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {(s.cuts || []).length > 0 && <CheckList title="찍을 컷 (촬영 전체)" list={s.cuts} onChange={(v) => set({ cuts: v })} placeholder="+ 컷 엔터" />}

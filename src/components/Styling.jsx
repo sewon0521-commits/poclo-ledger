@@ -4,7 +4,7 @@ import { FIELD, md, codiName, codiItems, loadKey, changeKey, upsert, putPhoto, p
 import { normalize } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
-import { Sheet, SheetHead, Photo, CheckList } from "./ShootBits";
+import { Sheet, SheetHead, Photo } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import RefPick from "./RefPick";
@@ -21,6 +21,7 @@ import { REFS_KEY, CLOTHS, clothsOf } from "../lib/modelRefs";
  * 촬영 관리(그날 코디) · 소싱 관리(이날 코디) 둘 다 여기로 연다. 이 창 내용은 **모델 촬영 시트에 안 간다**(lib/shootSheet.js v4, 10/29 세원:
  * "참고 영상은 우리 보면서 찍으려고 한 거, 코디는 찍을 때 상품 특징 보고 우리가 디렉") — 촬영 때 우리가 ERP 에서 보는 것.
  *
+ * (11/6 찍을 컷 · 찍을 영상 칸은 뺐다 — 세원 "없애도 될 듯")
  * 10/27 세원: "촬영 관리에 찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각 만들어 주고 스타일링 맨 위에. 참고 사진 말고 영상도 넣어 주고 그것도 위로 올려 주되
  *   찍을 컷, 찍을 영상 밑에. 헤어, 악세 선택하는 게 마지막으로." → 창 순서: 코디 → 찍을 컷 · 찍을 영상 → 참고 사진 → 참고 영상 → 코디 사진 → 메모 → 헤어 → 신발·가방·목걸이·반지·양말.
  */
@@ -349,7 +350,6 @@ export default function StylingSheet({ codi, d, online, onClose }) {
       setCodiPending((p) => p.filter((u) => !previews.includes(u)));
     }
   };
-  const [optsReady, setOptsReady] = useState(false);
   useEffect(() => {
     let alive = true;
     loadKey(OPTS_KEY, online, {})
@@ -361,18 +361,12 @@ export default function StylingSheet({ codi, d, online, onClose }) {
             .then((m) => alive && setModelCats(clothsOf(m)))
             .catch(() => {});
       })
-      .catch(() => {})
-      .finally(() => alive && setOptsReady(true));
+      .catch(() => {});
     return () => {
       alive = false;
     };
   }, [online]);
-  // 10/29 기본 찍을 영상 — 코디를 처음 열 때 '찍을 영상'이 비어 있으면 기본 목록을 깔아 둔다(한 번만 — videosInit, 다 지우면 다시 안 깐다)
-  useEffect(() => {
-    if (!optsReady || codi.done) return;
-    // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
-    setSt((x) => (x.videosInit || (x.videos || []).length || !opts.videos.length ? x : { ...x, videosInit: true, videos: opts.videos.map((text) => ({ id: newId("k"), text, done: false })) }));
-  }, [optsReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 11/6 찍을 영상 칸을 빼면서 기본 영상을 저절로 깔던 것(videosInit)도 뺐다
   const set = (k) => (v) => setSt((x) => ({ ...x, [k]: v }));
   const saveOpts = async (k, list) => {
     try {
@@ -496,18 +490,6 @@ export default function StylingSheet({ codi, d, online, onClose }) {
     onClose();
   };
   const its = codiItems(codi, d.items);
-  // 같은 날 다른 코디의 찍을 컷 · 영상 — 이 코디 칸이 비어 있을 때 '다른 코디 것 가져오기'(코디마다 같은 영상을 찍는 날이 많아서)
-  const sibs = codi.shootDate ? d.codis.filter((c) => c.id !== codi.id && c.shootDate === codi.shootDate) : [];
-  const copyBtn = (k) => {
-    if ((st[k] || []).length) return null;
-    const src = sibs.map((c) => c.styling?.[k] || []).sort((a, b) => b.length - a.length)[0] || [];
-    if (!src.length) return null;
-    return (
-      <button type="button" onClick={() => set(k)(src.map((x) => ({ id: newId("k"), text: x.text, done: false })))} className="rounded-full border border-dashed border-rose-300 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50">
-        다른 코디 것 가져오기 ({src.length})
-      </button>
-    );
-  };
   return (
     <>
     <Sheet onClose={editCats ? () => setEditCats(false) : close} wide>
@@ -533,37 +515,7 @@ export default function StylingSheet({ codi, d, online, onClose }) {
           </div>
         </div>
 
-        {/* 10/27 이 코디의 찍을 컷 · 찍을 영상 — 예전엔 촬영(날짜)에 하나였다. 비어 있으면 같은 날 다른 코디 것을 가져올 수 있다 */}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <CheckList title="찍을 컷" list={st.cuts || []} onChange={set("cuts")} placeholder="+ 컷 (예: 창가 전신 정면) 엔터" extra={copyBtn("cuts")} />
-          <CheckList
-            title="찍을 영상"
-            list={st.videos || []}
-            onChange={set("videos")}
-            placeholder="+ 영상 (예: 거울셀카 걸어오기) 엔터"
-            extra={
-              <>
-                {copyBtn("videos")}
-                {/* 10/29 기본 영상 — 빠진 것만 넣기 · 기본 목록 고치기 */}
-                {(st.videos || []).length > 0 && opts.videos.some((t) => !(st.videos || []).some((x) => x.text === t)) && (
-                  <button
-                    type="button"
-                    onClick={() => set("videos")([...(st.videos || []), ...opts.videos.filter((t) => !(st.videos || []).some((x) => x.text === t)).map((text) => ({ id: newId("k"), text, done: false }))])}
-                    className="rounded-full border border-dashed border-rose-300 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
-                  >
-                    기본 영상 넣기
-                  </button>
-                )}
-                <button type="button" onClick={() => setEditOpts(editOpts === "videos" ? "" : "videos")} title="코디마다 처음부터 깔리는 기본 영상 고치기" className="flex items-center gap-0.5 text-[11px] font-normal text-stone-400 hover:text-rose-700">
-                  <Pencil size={11} /> 기본
-                </button>
-              </>
-            }
-          />
-        </div>
-        {editOpts === "videos" && (
-          <OptsEditor title="기본 영상(코디마다 처음부터 깔림)" list={opts.videos} onSave={(l) => saveOpts("videos", l)} onClose={() => setEditOpts("")} />
-        )}
+        {/* 11/6 세원: "스타일링에 위에 있는 찍을 컷, 찍을 영상 없애도 될 듯" — 칸을 뺐다(예전에 적은 styling.cuts · videos 데이터는 그대로 남음) */}
         {/* 11/6 카테고리 탭 → 컷 → 사진 (모델 레퍼런스처럼, components/StylingRefs) */}
         <Section title="참고 사진" hint="카테고리 안에 컷을 만들어 담기 · 레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기">
           <RefCutsBox
