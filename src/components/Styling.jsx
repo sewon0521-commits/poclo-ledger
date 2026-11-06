@@ -9,7 +9,9 @@ import { BigSlides } from "./ContentBits";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import RefPick from "./RefPick";
 import { RefClipsBox } from "./RefClips";
-import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING, PARTS, partHas } from "../lib/styling";
+import { RefCutsBox, RefCatEditor } from "./StylingRefs";
+import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING, PARTS, partHas, refCutsOf, looseRefIds, withRefCuts, mapRefCloth } from "../lib/styling";
+import { REFS_KEY, CLOTHS, clothsOf } from "../lib/modelRefs";
 
 /**
  * 코디 스타일링 (10/25) — 세원: "이날 코디에 해당 칸이 뜨면 눌러서 이 코디에 헤어는 어떻게 할지, 신발, 악세서리(반지, 목걸이 등)는
@@ -302,10 +304,14 @@ export default function StylingSheet({ codi, d, online, onClose }) {
   const [st, setSt] = useState(() => ({ ...EMPTY_STYLING, ...(codi.styling || {}) }));
   const [opts, setOpts] = useState(DEFAULT_OPTS);
   const [editOpts, setEditOpts] = useState(""); // "hair" | "acc"
-  const [pick, setPick] = useState(false);
-  const [big, setBig] = useState(null);
+  // 참고 사진 (11/6 카테고리 → 컷, components/StylingRefs) — pick = 고를 곳(컷 id · "" 공통 · null 닫힘), pending = [{u, where}]
+  const [pick, setPick] = useState(null);
+  const [big, setBig] = useState(null); // {urls, k}
   const [msg, setMsg] = useState("");
   const [pending, setPending] = useState([]);
+  const [refTab, setRefTab] = useState(null);
+  const [editCats, setEditCats] = useState(false);
+  const [modelCats, setModelCats] = useState(null); // 스타일링 카테고리를 아직 안 고쳤으면 모델 레퍼런스 카테고리로 시작
   // 코디 사진(10/25 세원: "참고 사진 위에 코디 사진 — 우리가 직접 벽걸이에 걸은 사진") — 촬영 레퍼런스엔 안 담고 이 코디에만(st.codiPhotos = 보관 이름)
   const [codiPending, setCodiPending] = useState([]);
   const [fresh, setFresh] = useState({}); // 방금 올린 사진 → 이 기기 미리 보기 주소
@@ -347,7 +353,14 @@ export default function StylingSheet({ codi, d, online, onClose }) {
   useEffect(() => {
     let alive = true;
     loadKey(OPTS_KEY, online, {})
-      .then((v) => alive && setOpts({ hair: v.hair?.length ? v.hair : DEFAULT_OPTS.hair, acc: v.acc?.length ? v.acc : DEFAULT_OPTS.acc, videos: Array.isArray(v.videos) ? v.videos : DEFAULT_OPTS.videos }))
+      .then((v) => {
+        if (!alive) return;
+        setOpts({ hair: v.hair?.length ? v.hair : DEFAULT_OPTS.hair, acc: v.acc?.length ? v.acc : DEFAULT_OPTS.acc, videos: Array.isArray(v.videos) ? v.videos : DEFAULT_OPTS.videos, cloths: v.cloths?.length ? v.cloths : null });
+        if (!v.cloths?.length)
+          loadKey(REFS_KEY, online, {})
+            .then((m) => alive && setModelCats(clothsOf(m)))
+            .catch(() => {});
+      })
       .catch(() => {})
       .finally(() => alive && setOptsReady(true));
     return () => {
@@ -364,18 +377,41 @@ export default function StylingSheet({ codi, d, online, onClose }) {
   const saveOpts = async (k, list) => {
     try {
       const next = await changeKey(OPTS_KEY, online, (v) => ({ ...DEFAULT_OPTS, ...v, [k]: list }), {});
-      setOpts({ hair: next.hair, acc: next.acc, videos: next.videos || DEFAULT_OPTS.videos });
+      setOpts({ hair: next.hair, acc: next.acc, videos: next.videos || DEFAULT_OPTS.videos, cloths: next.cloths?.length ? next.cloths : null });
       setEditOpts("");
     } catch (e) {
       setMsg(e.message || "칩을 저장하지 못했어요.");
     }
   };
-  // 참고 사진 붙여넣기 · 끌어다 놓기 → 촬영 레퍼런스에도 담기고 이 코디에 들어간다
-  const addFiles = async (files) => {
+  // 참고 사진 카테고리 고치기(RefCatEditor) — 목록은 styling_opts.cloths. 이름 바꾸기·지우기(to "")는 모든 코디의 컷도 같이, 이 창 것은 화면 사본까지.
+  // 먼저 이 창에서 고치던 걸 저장한다 — 안 그러면 다음 자동 저장이 예전 이름으로 덮는다
+  const changeCats = async (fn, from, to) => {
+    try {
+      await flushRef.current?.();
+      const next = await changeKey(OPTS_KEY, online, (v) => ({ ...DEFAULT_OPTS, ...v, cloths: fn(v.cloths?.length ? v.cloths : cats) }), {});
+      setOpts((o) => ({ ...o, cloths: next.cloths }));
+      if (from !== undefined) {
+        await d.saveCodis((v) => ({ ...v, items: (v.items || []).map((c) => (c.styling ? { ...c, styling: mapRefCloth(c.styling, from, to) } : c)) }));
+        setSt((x) => mapRefCloth(x, from, to));
+        if (refTab === from) setRefTab(to);
+      }
+    } catch (e) {
+      setMsg(e.message || "카테고리를 저장하지 못했어요.");
+    }
+  };
+  const catCounts = {};
+  for (const c of d.codis) for (const x of refCutsOf(c.id === codi.id ? st : c.styling)) if (x.cloth) catCounts[x.cloth] = (catCounts[x.cloth] || 0) + 1;
+  // 참고 사진 카테고리 — 스타일링 것(styling_opts.cloths), 아직 안 고쳤으면 모델 레퍼런스 카테고리 목록으로 시작
+  const cats = opts.cloths || modelCats || CLOTHS;
+  // 참고 사진 붙여넣기 · 끌어다 놓기 → 촬영 레퍼런스에도 담기고(그 카테고리와 같은 이름 목록으로) 이 코디의 그 컷에 들어간다.
+  // where = 컷 id · "" 공통 · "new:카테고리"(그 탭에 컷이 없으면 '참고 사진' 컷을 만들어 넣는다)
+  const addFiles = async (files, where = "") => {
     const imgs = [...files].filter((f) => f.type.startsWith("image/"));
     if (!imgs.length) return;
     const previews = imgs.map((f) => URL.createObjectURL(f));
-    setPending((p) => [...p, ...previews]);
+    setPending((p) => [...p, ...previews.map((u) => ({ u, where }))]);
+    const cloth = where.startsWith("new:") ? where.slice(4) : refCutsOf(st).find((c) => c.id === where)?.cloth || "";
+    const folderId = (cloth && d.folders.find((f) => f.name === cloth)?.id) || null;
     try {
       const made = [];
       for (const f of imgs) {
@@ -384,21 +420,29 @@ export default function StylingSheet({ codi, d, online, onClose }) {
           setMsg("이 기기에만 저장하는 모드라 사진은 '레퍼런스에서 고르기'로 넣어 주세요.");
           break;
         }
-        made.push({ id: newId("r"), photo, folderId: null, cuts: [], place: "", memo: "스타일링 참고", createdAt: new Date().toISOString() });
+        made.push({ id: newId("r"), photo, folderId, cuts: [], place: "", memo: "스타일링 참고", createdAt: new Date().toISOString() });
       }
       if (made.length) {
         await d.saveRefs((v) => ({ ...v, items: [...made, ...(v.items || [])] }));
-        setSt((x) => ({ ...x, refIds: [...(x.refIds || []), ...made.map((r) => r.id)] }));
+        const ids = made.map((r) => r.id);
+        setSt((x) => {
+          const cuts = refCutsOf(x);
+          // 그 사이 그 탭에 컷이 생겼으면(연달아 붙여넣기) 그 컷으로
+          const to = where.startsWith("new:") ? cuts.find((c) => c.cloth === cloth)?.id : where;
+          if (where.startsWith("new:") && !to) return withRefCuts(x, [...cuts, { id: newId("sc"), cloth, title: "참고 사진", refIds: ids }]);
+          if (to && cuts.some((c) => c.id === to)) return withRefCuts(x, cuts.map((c) => (c.id === to ? { ...c, refIds: [...(c.refIds || []), ...ids] } : c)));
+          return withRefCuts(x, cuts, [...looseRefIds(x), ...ids]);
+        });
       }
     } catch (e) {
       setMsg(e.message || "사진을 넣지 못했어요.");
     } finally {
-      setPending((p) => p.filter((u) => !previews.includes(u)));
+      setPending((p) => p.filter((x) => !previews.includes(x.u)));
     }
   };
   const addRef = useRef(null);
   useEffect(() => {
-    addRef.current = (fs) => (target.current === "ref" ? addFiles(fs) : addCodiFiles(fs));
+    addRef.current = (fs) => (target.current.startsWith("ref:") ? addFiles(fs, target.current.slice(4)) : addCodiFiles(fs));
   });
   useEffect(() => {
     const onPaste = (e) => {
@@ -464,9 +508,9 @@ export default function StylingSheet({ codi, d, online, onClose }) {
       </button>
     );
   };
-  const refs = (st.refIds || []).map((id) => d.refs.find((r) => r.id === id)).filter(Boolean);
   return (
-    <Sheet onClose={close} wide>
+    <>
+    <Sheet onClose={editCats ? () => setEditCats(false) : close} wide>
       <SheetHead title="스타일링" onClose={close} />
       <div
         className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4"
@@ -520,42 +564,22 @@ export default function StylingSheet({ codi, d, online, onClose }) {
         {editOpts === "videos" && (
           <OptsEditor title="기본 영상(코디마다 처음부터 깔림)" list={opts.videos} onSave={(l) => saveOpts("videos", l)} onClose={() => setEditOpts("")} />
         )}
-        <Section
-          title="참고 사진"
-          hint="레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기"
-          onMouseEnter={() => (target.current = "ref")}
-          onPointerDown={() => (target.current = "ref")}
-        >
-          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-5">
-            {refs.map((r, i) => (
-              <span key={r.id} className="group relative">
-                <button type="button" onClick={() => setBig(i)} className="block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
-                  {d.urls[r.photo] && <img src={d.urls[r.photo]} alt="" loading="lazy" className="h-full w-full object-cover" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => set("refIds")((st.refIds || []).filter((x) => x !== r.id))}
-                  aria-label="사진 빼기"
-                  className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 group-hover:opacity-100 max-sm:opacity-80"
-                >
-                  <X size={13} />
-                </button>
-              </span>
-            ))}
-            {pending.map((u) => (
-              <span key={u} className="relative block aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">
-                <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
-                <Loader2 size={16} className="absolute inset-0 m-auto animate-spin text-white" />
-              </span>
-            ))}
-            <button type="button" onClick={() => setPick(true)} className="flex aspect-[3/4] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-stone-300 text-[11px] text-stone-500 hover:border-rose-300 hover:text-rose-700">
-              <ImagePlus size={16} /> 레퍼런스에서
-            </button>
-            <label className="flex aspect-[3/4] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-stone-300 text-[11px] text-stone-500 hover:border-rose-300 hover:text-rose-700">
-              <ImagePlus size={16} /> 사진 고르기
-              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => (addFiles(e.target.files), (e.target.value = ""))} />
-            </label>
-          </div>
+        {/* 11/6 카테고리 탭 → 컷 → 사진 (모델 레퍼런스처럼, components/StylingRefs) */}
+        <Section title="참고 사진" hint="카테고리 안에 컷을 만들어 담기 · 레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기">
+          <RefCutsBox
+            st={st}
+            onChange={setSt}
+            d={d}
+            cats={cats}
+            tab={refTab}
+            onTab={setRefTab}
+            pending={pending}
+            onPick={setPick}
+            onFiles={addFiles}
+            onHot={(where) => (target.current = "ref:" + where)}
+            onBig={(urls, k) => setBig({ urls, k })}
+            onEditCats={() => (flushRef.current?.(), setEditCats(true))}
+          />
         </Section>
         {/* 10/29 릴스 기획에서 장면 가져오기 — 볼 부분만 잘라(구간만 저장) 누르면 그 장면만 반복. 아래는 예전처럼 인스타 주소로 넣기 */}
         <Section title="참고 영상" hint="릴스 기획에서 가져와 볼 부분만 자르기 · 누르면 그 장면만 반복 · 촬영 때 우리가 보는 것">
@@ -657,19 +681,43 @@ export default function StylingSheet({ codi, d, online, onClose }) {
           닫기
         </button>
       </footer>
-      {pick && (
+      {pick !== null && (
         <RefPick
           d={d}
-          picked={st.refIds || []}
-          onClose={() => setPick(false)}
+          picked={pick ? refCutsOf(st).find((c) => c.id === pick)?.refIds || [] : looseRefIds(st)}
+          startFolder={(() => {
+            const cloth = refCutsOf(st).find((c) => c.id === pick)?.cloth;
+            return cloth ? d.folders.find((f) => f.name === cloth)?.id || "" : "";
+          })()}
+          onClose={() => setPick(null)}
           onDone={(ids) => {
-            set("refIds")(ids);
-            setPick(false);
+            setSt((x) => (pick ? withRefCuts(x, refCutsOf(x).map((c) => (c.id === pick ? { ...c, refIds: ids } : c))) : withRefCuts(x, refCutsOf(x), ids)));
+            setPick(null);
           }}
         />
       )}
-      {big != null && <BigSlides urls={refs.map((r) => d.urls[r.photo] || "")} start={big} onClose={() => setBig(null)} />}
+      {big && <BigSlides urls={big.urls} start={big.k} onClose={() => setBig(null)} />}
       {bigCodi != null && <BigSlides urls={(st.codiPhotos || []).map(codiUrl)} start={bigCodi} onClose={() => setBigCodi(null)} />}
     </Sheet>
+      {editCats && (
+        <RefCatEditor
+          cats={cats}
+          counts={catCounts}
+          onAdd={(n) => changeCats((l) => [...l, n])}
+          onRename={(from, to) => changeCats((l) => l.map((c) => (c === from ? to : c)), from, to)}
+          onMove={(n, dir) =>
+            changeCats((l) => {
+              const list = [...l];
+              const i = list.indexOf(n);
+              if (i < 0 || i + dir < 0 || i + dir >= list.length) return list;
+              [list[i], list[i + dir]] = [list[i + dir], list[i]];
+              return list;
+            })
+          }
+          onDrop={(n) => changeCats((l) => l.filter((c) => c !== n), n, "")}
+          onClose={() => setEditCats(false)}
+        />
+      )}
+    </>
   );
 }

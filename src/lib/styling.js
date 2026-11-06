@@ -17,7 +17,26 @@ export const DEFAULT_OPTS = {
 };
 // 10/27 cuts · videos = 이 코디의 찍을 컷 · 찍을 영상 [{id, text, done}](예전엔 촬영 줄에 하나) · refVideos = 참고 영상 [{id, name, url}](인스타는 창 안에서 임베드로)
 // 10/29 clips = 릴스 기획에서 잘라 온 장면 [{id, reelId, start, end, note, ver, at}] (lib/refClips.js)
-export const EMPTY_STYLING = { cuts: [], videos: [], hair: [], shoes: [], bag: [], necklace: [], ring: [], socks: [], acc: [], memo: "", codiPhotos: [], refIds: [], refVideos: [], clips: [] };
+export const EMPTY_STYLING = { cuts: [], videos: [], hair: [], shoes: [], bag: [], necklace: [], ring: [], socks: [], acc: [], memo: "", codiPhotos: [], refIds: [], refCuts: [], refVideos: [], clips: [] };
+
+// 참고 사진 카테고리 (11/6 세원: "우리 스타일링 → 참고 사진도 모델 레퍼런스처럼 카테고리 나누자") — 모델 레퍼런스(lib/modelRefs)와 같은 모양:
+// 카테고리(cloth) 탭 → 그 안에 세원이 만든 컷 → 컷마다 촬영 레퍼런스 사진. refCuts [{id, cloth, title, refIds}], cloth 가 없으면 공통.
+// refIds 는 예전처럼 **이 코디 참고 사진 전부**(컷 사진 + 컷에 안 든 사진) — 촬영 관리 카드의 '참고 사진 N' 이 그대로 센다.
+// 컷에 안 든 사진(예전에 넣은 것)은 '공통' 탭에 그대로 보인다. 카테고리 목록 = styling_opts.cloths(고치기 전엔 모델 레퍼런스 카테고리 목록으로 시작).
+export const REF_CUT_SUGGEST = ["거울셀카", "앉아서 찍는 컷", "전신 포즈", "디테일 컷"];
+export const refCutsOf = (st) => st?.refCuts || [];
+/** 어느 컷에도 안 든 참고 사진 */
+export function looseRefIds(st) {
+  const inCut = new Set(refCutsOf(st).flatMap((c) => c.refIds || []));
+  return (st?.refIds || []).filter((id) => !inCut.has(id));
+}
+/** 컷을 고친 뒤 refIds(전부)를 다시 맞춘다 — loose 는 고치기 전에 센 것 */
+export const withRefCuts = (st, cuts, loose = looseRefIds(st)) => ({ ...st, refCuts: cuts, refIds: [...new Set([...loose, ...cuts.flatMap((c) => c.refIds || [])])] });
+/** 카테고리 이름 바꾸기·지우기를 한 코디 스타일링에 (to 가 "" 이면 공통으로) */
+export function mapRefCloth(st, from, to) {
+  if (!refCutsOf(st).some((c) => c.cloth === from)) return st;
+  return { ...st, refCuts: refCutsOf(st).map((c) => (c.cloth !== from ? c : to ? { ...c, cloth: to } : (({ cloth: _gone, ...rest }) => rest)(c))) };
+}
 
 // 신상 관리 상품에서 고를 칸. 가방·목걸이·반지·양말은 **상품 이름**으로 가린다 —
 // 신상 관리 종류(kind)가 틀린 상품이 있어서(10/25 '노스경량패딩'이 신발·잡화, '벤또 파우치'가 상의) 종류로 가리면 엉뚱한 게 섞인다.
