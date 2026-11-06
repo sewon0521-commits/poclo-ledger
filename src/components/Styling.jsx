@@ -5,8 +5,8 @@ import { normalize } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { ReelKitCtx } from "../lib/refClips";
-import { useLookbook, lookOf, lookItems, videoTally } from "../lib/lookbook";
-import { Sheet, SheetHead, Photo, CheckList } from "./ShootBits";
+import { useLookbook, lookOf, lookItems, videoTally, renameLook } from "../lib/lookbook";
+import { Sheet, SheetHead, Photo, CheckList, ItemText } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import RefPick from "./RefPick";
@@ -554,15 +554,20 @@ export default function StylingSheet({ codi, d, online, onClose }) {
                       >
                         {on && <Check size={12} strokeWidth={3} />}
                       </button>
+                      {/* 11/7 글을 누르면 고치기 — 룩북 이름이라 그날 코디 전부에 같이 바뀐다. 영상은 '룩북 · 필수'를 누르면 아래 룩북 칸으로 */}
+                      <ItemText
+                        text={x.text}
+                        done={on}
+                        onSave={(t) => lb.change(day, (l) => renameLook(l, x.id, t)).catch((e) => setMsg(e.message || "룩북 영상 이름을 저장하지 못했어요."))}
+                      />
                       <button
                         type="button"
                         onClick={() => lookRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                         title="룩북 영상 보기"
-                        className={"min-w-0 flex-1 text-left text-sm leading-snug break-words " + (on ? "text-stone-400 line-through" : "text-stone-800 hover:text-rose-800")}
+                        className="mt-0.5 shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800 hover:bg-rose-200"
                       >
-                        {x.text}
+                        룩북 · 필수
                       </button>
-                      <span className="mt-0.5 shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">룩북 · 필수</span>
                     </li>
                   );
                 })}

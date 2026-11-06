@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Camera, Check, X } from "lucide-react";
 import { SlideViewer } from "./ContentBits";
 import { newId } from "../lib/id";
@@ -6,7 +6,72 @@ import { newId } from "../lib/id";
 // 촬영 갈래(촬영 레퍼런스 · 신상 관리 · 코디)가 같이 쓰는 조각.
 
 /**
- * 체크 목록 — 찍을 컷 · 찍을 영상 [{id, text, done}]. 적고 엔터로 더하기, 네모 눌러 끝냄, × 빼기.
+ * 줄 글 눌러서 고치기 (11/7 세원: "찍을 영상 메모 편집할 수 있게") — 누르면 그 자리에서 글 칸, 엔터·칸 벗어나면 저장, 시프트+엔터 줄바꿈, Esc 그만두기.
+ * 다 지우고 나가면 예전 글 그대로(빼기는 ×). 한글 조합 중 엔터는 안 받는다.
+ */
+export function ItemText({ text, onSave, done, className = "" }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState(text);
+  const ref = useRef(null);
+  const over = useRef(false); // 엔터·Esc 로 끝낸 뒤 칸이 사라지며 오는 blur 는 안 받는다(두 번 저장 · Esc 인데 저장 막기)
+  useLayoutEffect(() => {
+    const t = ref.current;
+    if (!edit || !t) return;
+    t.style.height = "auto";
+    t.style.height = t.scrollHeight + "px";
+  }, [edit, v]);
+  const save = () => {
+    if (over.current) return;
+    over.current = true;
+    const n = v.trim();
+    setEdit(false);
+    if (n && n !== text) onSave(n);
+  };
+  if (edit)
+    return (
+      <textarea
+        ref={ref}
+        autoFocus
+        rows={1}
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onFocus={(e) => e.target.setSelectionRange(e.target.value.length, e.target.value.length)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            save();
+          } else if (e.key === "Escape") {
+            // 창 전체가 Esc 로 닫히지 않게
+            e.preventDefault();
+            e.stopPropagation();
+            e.nativeEvent.stopImmediatePropagation();
+            over.current = true;
+            setEdit(false);
+          }
+        }}
+        onBlur={save}
+        aria-label="글 고치기"
+        className={"-my-0.5 min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-rose-300 bg-white px-1.5 py-0.5 text-sm leading-snug text-stone-800 outline-none " + className}
+      />
+    );
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        over.current = false;
+        setV(text);
+        setEdit(true);
+      }}
+      title="눌러서 고치기"
+      className={"-my-0.5 min-w-0 flex-1 rounded-md px-1.5 py-0.5 text-left text-sm leading-snug break-words whitespace-pre-wrap hover:bg-stone-100 " + (done ? "text-stone-400 line-through" : "text-stone-800") + " " + className}
+    >
+      {text}
+    </button>
+  );
+}
+
+/**
+ * 체크 목록 — 찍을 컷 · 찍을 영상 [{id, text, done}]. 적고 엔터로 더하기, 네모 눌러 끝냄, × 빼기, 글을 누르면 고치기(11/7 ItemText).
  * 10/27 세원: "촬영 관리에 찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" — 예전엔 촬영(날짜)에 하나, 이제 코디마다(스타일링 창 맨 위). extra = 제목 줄 오른쪽 단추 자리.
  */
 // 11/7 top = 목록 위에 따로 그릴 줄(스타일링 '찍을 영상'의 룩북 · 필수), tally = 끝낸 수 {done, all}(top 까지 센 것)
@@ -41,7 +106,7 @@ export function CheckList({ title, list = [], onChange, placeholder, extra, top,
             >
               {x.done && <Check size={12} strokeWidth={3} />}
             </button>
-            <span className={"min-w-0 flex-1 text-sm leading-snug break-words " + (x.done ? "text-stone-400 line-through" : "text-stone-800")}>{x.text}</span>
+            <ItemText text={x.text} done={x.done} onSave={(t) => onChange(list.map((y) => (y.id === x.id ? { ...y, text: t } : y)))} />
             <button type="button" onClick={() => onChange(list.filter((y) => y.id !== x.id))} aria-label="빼기" className="p-1 text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-700 max-sm:opacity-100">
               <X size={13} />
             </button>

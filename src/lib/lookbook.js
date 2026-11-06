@@ -23,11 +23,18 @@ export function lookItems(look, reels = []) {
   return [
     ...clips.map((c, i) => {
       const reel = reels.find((r) => r.id === c.reelId);
-      return { id: c.id, text: c.note || (reel ? reelTitle(reel) : `룩북 영상 ${i + 1}`) };
+      return { id: c.id, kind: "clip", text: c.note || (reel ? reelTitle(reel) : `룩북 영상 ${i + 1}`) };
     }),
-    ...(look?.videos || []).map((v, i) => ({ id: v.id, text: v.name || `룩북 영상 ${clips.length + i + 1}` })),
+    ...(look?.videos || []).map((v, i) => ({ id: v.id, kind: "video", text: v.name || `룩북 영상 ${clips.length + i + 1}` })),
   ];
 }
+
+/** 룩북 줄 이름 고치기 (11/7) — 장면은 메모(note, 참고 영상 칸 굵은 글과 같음), 인스타 주소는 이름(name). 그날 코디 전부에 같이 바뀐다 */
+export const renameLook = (look, id, text) => ({
+  ...look,
+  clips: (look.clips || []).map((c) => (c.id === id ? { ...c, note: text } : c)),
+  videos: (look.videos || []).map((v) => (v.id === id ? { ...v, name: text } : v)),
+});
 
 /** 이 코디 찍을 영상 끝낸 수 / 전체 — 룩북(그날 필수) + 이 코디 것 */
 export function videoTally(st, look) {
