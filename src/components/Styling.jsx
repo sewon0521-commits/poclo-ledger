@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Check, ExternalLink, Film, ImagePlus, Loader2, Pencil, X } from "lucide-react";
 import { FIELD, md, codiName, codiItems, loadKey, changeKey, upsert, putPhoto, photoUrls, fixUrl } from "../lib/shoot";
 import { normalize } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
-import { Sheet, SheetHead, Photo } from "./ShootBits";
+import { ReelKitCtx } from "../lib/refClips";
+import { useLookbook, lookOf, lookItems, videoTally } from "../lib/lookbook";
+import { Sheet, SheetHead, Photo, CheckList } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import RefPick from "./RefPick";
@@ -22,6 +24,8 @@ import { REFS_KEY, CLOTHS, clothsOf } from "../lib/modelRefs";
  * "참고 영상은 우리 보면서 찍으려고 한 거, 코디는 찍을 때 상품 특징 보고 우리가 디렉") — 촬영 때 우리가 ERP 에서 보는 것.
  *
  * (11/6 찍을 컷 · 찍을 영상 칸은 뺐다 — 세원 "없애도 될 듯")
+ * 11/7 세원: "찍을 것, 찍을 영상 없앴잖아? 찍을 영상 칸만 다시 살려 줘" → 찍을 영상만 코디 바로 아래로(기본 영상 저절로 깔기 · 다른 코디 것 가져오기는 룩북이 대신해서 안 살림).
+ *   + 참고 영상 맨 위 '룩북 영상'(lib/lookbook.js) — 넣으면 그날 촬영 코디 전부의 찍을 영상 맨 위에 '룩북 · 필수'로 뜬다(다 찍었는지는 코디마다 styling.lookDone).
  * 10/27 세원: "촬영 관리에 찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각 만들어 주고 스타일링 맨 위에. 참고 사진 말고 영상도 넣어 주고 그것도 위로 올려 주되
  *   찍을 컷, 찍을 영상 밑에. 헤어, 악세 선택하는 게 마지막으로." → 창 순서: 코디 → 찍을 컷 · 찍을 영상 → 참고 사진 → 참고 영상 → 코디 사진 → 메모 → 헤어 → 신발·가방·목걸이·반지·양말.
  */
@@ -490,6 +494,17 @@ export default function StylingSheet({ codi, d, online, onClose }) {
     onClose();
   };
   const its = codiItems(codi, d.items);
+  // 룩북 영상 (11/7) — 촬영일(shootDate)마다 하나, 그날 코디 전부 필수(lib/lookbook)
+  const kit = useContext(ReelKitCtx);
+  const lb = useLookbook(online);
+  const day = codi.shootDate || "";
+  const look = lookOf(lb.all, day);
+  const lookList = lookItems(look, kit?.reels || []);
+  const dayCodis = day ? d.codis.filter((c) => c.shootDate === day).length : 0;
+  const lookRef = useRef(null);
+  const changeLook = (k) => (v) => lb.change(day, (l) => ({ ...l, [k]: v })).catch((e) => setMsg(e.message || "룩북 영상을 저장하지 못했어요."));
+  const lookDone = new Set(st.lookDone || []);
+  const flipLook = (id) => setSt((x) => ({ ...x, lookDone: (x.lookDone || []).includes(id) ? x.lookDone.filter((y) => y !== id) : [...(x.lookDone || []), id] }));
   return (
     <>
     <Sheet onClose={editCats ? () => setEditCats(false) : close} wide>
@@ -515,7 +530,46 @@ export default function StylingSheet({ codi, d, online, onClose }) {
           </div>
         </div>
 
-        {/* 11/6 세원: "스타일링에 위에 있는 찍을 컷, 찍을 영상 없애도 될 듯" — 칸을 뺐다(예전에 적은 styling.cuts · videos 데이터는 그대로 남음) */}
+        {/* 11/6 세원: "스타일링에 위에 있는 찍을 컷, 찍을 영상 없애도 될 듯" — 둘 다 뺐다가 11/7 "찍을 영상 칸만 다시 살려 줘"(찍을 컷 styling.cuts 데이터는 그대로 남음).
+            맨 위 '룩북 · 필수' = 그날 룩북 영상(아래 참고 영상 › 룩북 영상에서 넣는다), 그 아래는 이 코디만 찍을 영상 */}
+        <CheckList
+          title="찍을 영상"
+          list={st.videos || []}
+          onChange={set("videos")}
+          placeholder="+ 이 코디만 찍을 영상 (예: 거울셀카 걸어오기) 엔터"
+          tally={videoTally(st, look)}
+          top={
+            lookList.length > 0 && (
+              <ul className="mb-1.5 space-y-1 border-b border-stone-100 pb-1.5">
+                {lookList.map((x) => {
+                  const on = lookDone.has(x.id);
+                  return (
+                    <li key={x.id} className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => flipLook(x.id)}
+                        aria-pressed={on}
+                        aria-label={on ? "끝낸 것 풀기" : "끝냄"}
+                        className={"mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-rose-300 bg-white")}
+                      >
+                        {on && <Check size={12} strokeWidth={3} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => lookRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                        title="룩북 영상 보기"
+                        className={"min-w-0 flex-1 text-left text-sm leading-snug break-words " + (on ? "text-stone-400 line-through" : "text-stone-800 hover:text-rose-800")}
+                      >
+                        {x.text}
+                      </button>
+                      <span className="mt-0.5 shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">룩북 · 필수</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+          }
+        />
         {/* 11/6 카테고리 탭 → 컷 → 사진 (모델 레퍼런스처럼, components/StylingRefs) */}
         <Section title="참고 사진" hint="카테고리 안에 컷을 만들어 담기 · 레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기">
           <RefCutsBox
@@ -535,6 +589,29 @@ export default function StylingSheet({ codi, d, online, onClose }) {
         </Section>
         {/* 10/29 릴스 기획에서 장면 가져오기 — 볼 부분만 잘라(구간만 저장) 누르면 그 장면만 반복. 아래는 예전처럼 인스타 주소로 넣기 */}
         <Section title="참고 영상" hint="릴스 기획에서 가져와 볼 부분만 자르기 · 누르면 그 장면만 반복 · 촬영 때 우리가 보는 것">
+          {/* 11/7 룩북 영상 — 그날 촬영 코디 전부 필수(lib/lookbook, settings shoot_lookbook). 어느 코디에서 넣어도 같은 칸 */}
+          <div ref={lookRef} className="scroll-mt-4 space-y-2 rounded-xl border border-rose-200 bg-rose-50/40 p-3">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="flex items-center gap-1 text-sm font-semibold text-rose-800">
+                <Film size={14} /> 룩북 영상
+              </span>
+              <span className="text-[11px] text-stone-500">
+                {day ? `여기 넣으면 ${md(day)} 촬영 코디 ${dayCodis}개 모두 '찍을 영상'에 필수로 들어가요` : "그날 촬영 코디 전부 필수로 찍을 영상"}
+              </span>
+            </div>
+            {day ? (
+              <>
+                <RefClipsBox list={look.clips} onChange={changeLook("clips")} online={online} />
+                <details className="group rounded-xl border border-rose-100 bg-white px-3 py-2" open={look.videos.length > 0}>
+                  <summary className="cursor-pointer text-xs font-semibold text-stone-500 select-none group-open:mb-2">인스타 주소로 넣기 {look.videos.length > 0 && `· ${look.videos.length}개`}</summary>
+                  <RefVideos list={look.videos} onChange={changeLook("videos")} />
+                </details>
+              </>
+            ) : (
+              <p className="text-xs text-amber-700">이 코디는 촬영일이 없어서 룩북을 못 넣어요 — 코디 고치기에서 촬영일을 정하면 그날 코디 전부에 들어가요.</p>
+            )}
+          </div>
+          <div className="pt-1 text-xs font-semibold text-stone-500">이 코디만</div>
           <RefClipsBox list={st.clips || []} onChange={set("clips")} online={online} />
           <details className="group rounded-xl border border-stone-200 px-3 py-2" open={(st.refVideos || []).length > 0}>
             <summary className="cursor-pointer text-xs font-semibold text-stone-500 select-none group-open:mb-2">인스타 주소로 넣기 {(st.refVideos || []).length > 0 && `· ${st.refVideos.length}개`}</summary>

@@ -6,6 +6,7 @@ import { BigSlides } from "./ContentBits";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stylingLine } from "../lib/styling";
+import { useLookbook, lookOf, lookItems, videoTally } from "../lib/lookbook";
 import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError, PREP_PARTS, hasPrep } from "../lib/shootSheet";
 import { Photo, CheckList } from "./ShootBits";
 import StylingSheet from "./Styling";
@@ -401,14 +402,16 @@ export function Models({ value = [], onChange }) {
 }
 
 /** 그날 코디 카드 — 누르면 스타일링. 같은 날 촬영이 둘 이상이면(rows) 아래에 '누구 촬영' 고르기 */
-function CodiRow({ c, d, onStyle, rows, onMove }) {
+function CodiRow({ c, d, onStyle, rows, onMove, look }) {
   const its = codiItems(c, d.items);
   const line = stylingLine(c.styling, d.items);
-  // 11/6 찍을 컷 · 영상 칸을 스타일링 창에서 뺐다 — 카드에도 안 센다
+  // 11/6 찍을 컷 · 영상 칸을 뺐다가 11/7 찍을 영상만 되살림 — 그날 룩북(필수) + 이 코디 것, 끝낸 수 / 전체
+  const vt = videoTally(c.styling, look);
   // 10/29 모델 시트에 가는 참고 영상(자른 장면 + 인스타 주소) · 참고 사진 수
   const nVid = (c.styling?.clips?.length || 0) + (c.styling?.refVideos?.length || 0);
   const nPic = new Set([...(c.styling?.refIds || []), ...(c.refIds || [])]).size;
   const tally = [
+    vt.all > 0 && `찍을 영상 ${vt.done}/${vt.all}`,
     nVid && `참고 영상 ${nVid}`,
     nPic && `참고 사진 ${nPic}`,
   ]
@@ -868,6 +871,10 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
   };
   const styled = codis.filter((c) => stylingLine(c.styling, d.items)).length;
   const live = styling && d.codis.find((c) => c.id === styling.id);
+  // 11/7 그날 룩북 영상(코디 전부 필수) — 스타일링 창 › 참고 영상 › 룩북 영상에서 넣는다
+  const lb = useLookbook(online);
+  const look = lookOf(lb.all, s.on);
+  const nLook = lookItems(look).length;
   return (
     <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
@@ -950,6 +957,11 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
               <Shirt size={15} className="text-rose-700" /> {siblings.length ? "이 촬영 코디" : "그날 코디"}{" "}
               {codis.length > 0 && <span className="font-normal text-stone-400">{codis.length}개 · 스타일링 {styled}/{codis.length}</span>}
             </div>
+            {nLook > 0 && (
+              <p className="mb-2 flex items-center gap-1 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800">
+                <Film size={12} className="shrink-0" /> 룩북 영상 {nLook}개 — 이날 코디 전부 필수로 찍어요 (코디를 누르면 찍을 영상 맨 위)
+              </p>
+            )}
             {codis.length ? (
               <div className="space-y-2">
                 {codis.length > 1 && <p className="text-[11px] text-stone-400">왼쪽 ⋮⋮ 를 끌어 찍는 순서를 바꿔요 — 모델 시트도 이 순서예요</p>}
@@ -965,7 +977,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
                       {codis.length > 1 && <Grip onPointerDown={(e) => sort.start(e, i)} />}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <CodiRow c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} />
+                      <CodiRow c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} look={look} />
                     </div>
                   </div>
                 ))}
@@ -983,7 +995,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
                 {showOthers && (
                   <div className="mt-2 grid grid-cols-1 gap-2 opacity-90 sm:grid-cols-2">
                     {others.map((c) => (
-                      <CodiRow key={c.id} c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} />
+                      <CodiRow key={c.id} c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} look={look} />
                     ))}
                   </div>
                 )}

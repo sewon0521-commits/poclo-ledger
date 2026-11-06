@@ -9,23 +9,26 @@ import { newId } from "../lib/id";
  * 체크 목록 — 찍을 컷 · 찍을 영상 [{id, text, done}]. 적고 엔터로 더하기, 네모 눌러 끝냄, × 빼기.
  * 10/27 세원: "촬영 관리에 찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" — 예전엔 촬영(날짜)에 하나, 이제 코디마다(스타일링 창 맨 위). extra = 제목 줄 오른쪽 단추 자리.
  */
-export function CheckList({ title, list = [], onChange, placeholder, extra }) {
+// 11/7 top = 목록 위에 따로 그릴 줄(스타일링 '찍을 영상'의 룩북 · 필수), tally = 끝낸 수 {done, all}(top 까지 센 것)
+export function CheckList({ title, list = [], onChange, placeholder, extra, top, tally }) {
   const [typed, setTyped] = useState("");
   const add = () => {
     const v = typed.trim();
     if (v) onChange([...list, { id: newId("k"), text: v, done: false }]);
     setTyped("");
   };
-  const done = list.filter((x) => x.done).length;
+  const done = tally ? tally.done : list.filter((x) => x.done).length;
+  const total = tally ? tally.all : list.length;
   return (
     <div className="rounded-xl border border-stone-200 p-3">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-sm font-semibold text-stone-800">
         {title}
         <span className="flex items-center gap-2">
           {extra}
-          {list.length > 0 && <span className="text-xs font-normal text-stone-400">{done}/{list.length}</span>}
+          {total > 0 && <span className={"text-xs font-normal " + (done === total ? "text-emerald-600" : "text-stone-400")}>{done}/{total}</span>}
         </span>
       </div>
+      {top}
       <ul className="space-y-1">
         {list.map((x) => (
           <li key={x.id} className="group flex items-start gap-2">

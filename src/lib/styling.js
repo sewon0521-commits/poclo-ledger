@@ -17,7 +17,8 @@ export const DEFAULT_OPTS = {
 };
 // 10/27 cuts · videos = 이 코디의 찍을 컷 · 찍을 영상 [{id, text, done}](예전엔 촬영 줄에 하나) · refVideos = 참고 영상 [{id, name, url}](인스타는 창 안에서 임베드로)
 // 10/29 clips = 릴스 기획에서 잘라 온 장면 [{id, reelId, start, end, note, ver, at}] (lib/refClips.js)
-export const EMPTY_STYLING = { cuts: [], videos: [], hair: [], shoes: [], bag: [], necklace: [], ring: [], socks: [], acc: [], memo: "", codiPhotos: [], refIds: [], refCuts: [], refVideos: [], clips: [] };
+// 11/7 lookDone = 그날 룩북 영상(lib/lookbook) 중 이 코디에서 찍은 것 [룩북 영상 id]
+export const EMPTY_STYLING = { cuts: [], videos: [], lookDone: [], hair: [], shoes: [], bag: [], necklace: [], ring: [], socks: [], acc: [], memo: "", codiPhotos: [], refIds: [], refCuts: [], refVideos: [], clips: [] };
 
 // 참고 사진 카테고리 (11/6 세원: "우리 스타일링 → 참고 사진도 모델 레퍼런스처럼 카테고리 나누자") — 모델 레퍼런스(lib/modelRefs)와 같은 모양:
 // 카테고리(cloth) 탭 → 그 안에 세원이 만든 컷 → 컷마다 촬영 레퍼런스 사진. refCuts [{id, cloth, title, refIds}], cloth 가 없으면 공통.
