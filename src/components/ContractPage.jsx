@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Eye, EyeOff, FileSignature, Loader2, Lock, Pencil, Plus, Printer, RefreshCw, Trash2 } from "lucide-react";
 import {
-  DEFAULT_TEMPLATE,
   HOLES,
   PLACE,
+  STOCK,
+  TEMPLATES_KEY,
   TEMPLATE_KEY,
   USES,
   ContractError,
@@ -12,11 +13,14 @@ import {
   dmText,
   faceText,
   fillText,
+  kindName,
   listContracts,
+  needsOf,
   removeContract,
   revealRrn,
   rrnReady,
   signLink,
+  templateList,
   updateContract,
   usesText,
   whoOf,
@@ -85,7 +89,26 @@ const nextWed = () => {
 
 // ------------------------------------------------------------ 만들기
 
-function NewSheet({ online, tpl, biz, onClose, onMade }) {
+const todayISO = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+const PICK_MEM = "poclo_contract_kind";
+
+function NewSheet({ online, tpls, biz, onClose, onMade }) {
+  // 계약서 종류 — 마지막에 고른 것(기기마다), 없으면 맨 앞
+  const [kid, setKid] = useState(() => {
+    let m = "";
+    try {
+      m = localStorage.getItem(PICK_MEM) || "";
+    } catch {
+      /* 기억 못 해도 맨 앞 */
+    }
+    return tpls.some((x) => x.id === m) ? m : tpls[0]?.id;
+  });
+  const tpl = tpls.find((x) => x.id === kid) || tpls[0];
+  const need = needsOf(tpl.body);
   const [t, setT] = useState(() => ({
     name: "",
     date: nextWed(),
@@ -96,6 +119,7 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
     uses: [...USES],
     usesEtc: "",
     place: tpl.place || PLACE,
+    startOn: todayISO(),
     memo: "",
   }));
   const [busy, setBusy] = useState(false);
@@ -104,16 +128,42 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
   // 이 계약서만 고친 본문 — null 이면 틀대로(위 칸이 바뀌면 같이 바뀜)
   const [edited, setEdited] = useState(null);
   const set = (k) => (v) => setT((x) => ({ ...x, [k]: v }));
-  const full = { ...t, title: tpl.title, bizName: biz.name || "포클로 POCLO", ceo: biz.ceo || "최지원" };
+  const pick = (id) => {
+    if (id === kid) return;
+    if (edited != null && !window.confirm("이 계약서만 고친 본문이 있어요. 종류를 바꾸면 고친 게 사라져요 — 바꿀까요?")) return;
+    const next = tpls.find((x) => x.id === id);
+    setKid(id);
+    setEdited(null);
+    if (next?.place) setT((x) => ({ ...x, place: next.place }));
+    try {
+      localStorage.setItem(PICK_MEM, id);
+    } catch {
+      /* 기억 못 해도 됨 */
+    }
+  };
+  // 본문에 없는 칸은 계약서에 안 남긴다 — 정식 모델 계약서엔 촬영일이 없어서 파트타이머 '넣을 근무'에 안 뜬다
+  const { date, time, hours, place, uses, usesEtc, startOn, ...rest } = t;
+  const full = {
+    ...rest,
+    ...(need.date ? { date, time, hours } : {}),
+    ...(need.place ? { place } : {}),
+    ...(need.uses ? { uses, usesEtc } : {}),
+    ...(need.start ? { startOn } : {}),
+    title: tpl.title,
+    tplId: tpl.id,
+    tplName: tpl.name,
+    bizName: biz.name || "포클로 POCLO",
+    ceo: biz.ceo || "최지원",
+  };
   const filled = fillText(tpl.body, full);
   const text = edited ?? filled;
-  const ok = t.name.trim() && t.date && t.time && Number(t.wage) > 0;
+  const ok = t.name.trim() && Number(t.wage) > 0 && (!need.date || (t.date && t.time)) && (!need.start || t.startOn);
 
   const make = async () => {
     setBusy(true);
     setErr("");
     try {
-      const r = await createContract(online, { ...full, name: t.name.trim(), hours: Number(t.hours) || 0, wage: Number(t.wage) || 0, text, madeAt: new Date().toISOString() });
+      const r = await createContract(online, { ...full, name: t.name.trim(), ...(need.date ? { hours: Number(t.hours) || 0 } : {}), wage: Number(t.wage) || 0, text, madeAt: new Date().toISOString() });
       onMade(r);
     } catch (e) {
       setErr(e instanceof ContractError && e.code === "missing" ? "missing" : "저장하지 못했어요: " + (e.message || e));
@@ -126,28 +176,61 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
     <Sheet onClose={onClose} wide>
       <SheetHead title="계약서 만들기" onClose={onClose} />
       <div className="space-y-3.5 overflow-y-auto p-4">
+        <div>
+          <span className="mb-1 block text-xs font-semibold text-stone-500">어떤 계약서?</span>
+          <div className="flex flex-wrap gap-1.5" data-kinds>
+            {tpls.map((x) => {
+              const on = x.id === tpl.id;
+              const n = needsOf(x.body);
+              return (
+                <button
+                  key={x.id}
+                  type="button"
+                  onClick={() => pick(x.id)}
+                  className={"rounded-xl border px-3 py-2 text-left " + (on ? "border-rose-600 bg-rose-50 ring-1 ring-rose-600" : "border-stone-200 bg-white hover:border-stone-300")}
+                >
+                  <span className={"flex items-center gap-1 text-sm font-semibold " + (on ? "text-rose-800" : "text-stone-800")}>
+                    {on && <Check size={13} />} {x.name}
+                  </span>
+                  <span className="block text-[11px] text-stone-500">{n.date ? "촬영마다 따로 — 날짜·장소가 들어가요" : "한 번만 쓰는 기본 계약"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-stone-500">모델 이름</span>
           <input value={t.name} onChange={(e) => set("name")(e.target.value)} placeholder="예: 이주현" className={F} autoFocus />
         </label>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-stone-500">촬영일</span>
-            <input type="date" value={t.date} onChange={(e) => set("date")(e.target.value)} className={F} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-stone-500">시작 시각</span>
-            <input type="time" value={t.time} onChange={(e) => set("time")(e.target.value)} className={F} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-stone-500">예상 시간</span>
-            <input type="number" min="0.5" step="0.5" inputMode="decimal" value={t.hours} onChange={(e) => set("hours")(e.target.value)} className={F} />
-          </label>
+        <div className={"grid grid-cols-2 gap-2.5 " + (need.date ? "sm:grid-cols-4" : "")}>
+          {need.date && (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold text-stone-500">촬영일</span>
+                <input type="date" value={t.date} onChange={(e) => set("date")(e.target.value)} className={F} />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold text-stone-500">시작 시각</span>
+                <input type="time" value={t.time} onChange={(e) => set("time")(e.target.value)} className={F} />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold text-stone-500">예상 시간</span>
+                <input type="number" min="0.5" step="0.5" inputMode="decimal" value={t.hours} onChange={(e) => set("hours")(e.target.value)} className={F} />
+              </label>
+            </>
+          )}
+          {need.start && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-stone-500">계약 시작일</span>
+              <input type="date" value={t.startOn} onChange={(e) => set("startOn")(e.target.value)} className={F} />
+            </label>
+          )}
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-stone-500">시급(원)</span>
             <input type="number" min="0" step="1000" inputMode="numeric" value={t.wage} onChange={(e) => set("wage")(e.target.value)} className={F} />
           </label>
         </div>
+        {need.face && (
         <div>
           <span className="mb-1 block text-xs font-semibold text-stone-500">얼굴 노출</span>
           <div className="inline-flex rounded-full bg-stone-100 p-1">
@@ -159,6 +242,8 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
             </Tab>
           </div>
         </div>
+        )}
+        {need.uses && (
         <div>
           <span className="mb-1 block text-xs font-semibold text-stone-500">이용 범위</span>
           <div className="flex flex-wrap gap-1.5">
@@ -178,10 +263,14 @@ function NewSheet({ online, tpl, biz, onClose, onMade }) {
           </div>
           <input value={t.usesEtc} onChange={(e) => set("usesEtc")(e.target.value)} placeholder="기타 — 직접 적기 (예: 네이버 스마트스토어)" className={F + " mt-1.5"} />
         </div>
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-stone-500">장소</span>
-          <input value={t.place} onChange={(e) => set("place")(e.target.value)} className={F} />
-        </label>
+        )}
+        {need.place && (
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-stone-500">장소</span>
+            <input value={t.place} onChange={(e) => set("place")(e.target.value)} className={F} />
+          </label>
+        )}
+        {!need.date && <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500 ring-1 ring-stone-200">촬영 날짜·장소는 이 계약서에 안 들어가요 — 촬영마다 카톡이나 촬영 시트로 확인해요. 이용 범위·취소 규칙은 본문에 적혀 있어요(아래 &apos;펼치기&apos;로 확인).</p>}
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-stone-500">메모 (모델에겐 안 보여요)</span>
           <input value={t.memo} onChange={(e) => set("memo")(e.target.value)} placeholder="예: 스레드 @soyepie · 테스트 촬영" className={F} />
@@ -292,7 +381,7 @@ function LinkBox({ c }) {
       <div className="text-xs font-semibold text-stone-500">모델에게 보낼 링크</div>
       <div className="truncate rounded-lg bg-white px-2.5 py-2 font-mono text-xs text-stone-700 ring-1 ring-stone-200">{signLink(c.token)}</div>
       <div className="flex flex-wrap gap-1.5">
-        <CopyBtn text={dmText(c.terms?.name, c.token)} primary>
+        <CopyBtn text={dmText(c.terms, c.token)} primary>
           DM 문구 복사
         </CopyBtn>
         <CopyBtn text={signLink(c.token)}>링크만 복사</CopyBtn>
@@ -301,7 +390,7 @@ function LinkBox({ c }) {
         </a>
       </div>
       <div className="rounded-lg bg-white p-2.5 text-xs leading-relaxed break-all whitespace-pre-wrap text-stone-600 ring-1 ring-stone-200" data-dm>
-        {dmText(c.terms?.name, c.token)}
+        {dmText(c.terms, c.token)}
       </div>
     </div>
   );
@@ -405,45 +494,97 @@ function ViewSheet({ c, online, onClose, onRemove, onSaved }) {
 
 // ------------------------------------------------------------ 문구 틀
 
-function TemplateSheet({ tpl, onClose, onSave }) {
-  const [x, setX] = useState(tpl);
+// 계약서 종류마다 이름·제목·본문. 종류 더하기(지금 고르고 있는 것을 베껴 시작)·지우기·순서는 앞에 더한 순서 그대로. 저장은 전부 한 번에.
+function TemplateSheet({ tpls, onClose, onSave }) {
+  const [items, setItems] = useState(tpls);
+  const [cur, setCur] = useState(tpls[0]?.id);
   const [busy, setBusy] = useState(false);
+  const x = items.find((i) => i.id === cur) || items[0];
+  const put = (patch) => setItems((l) => l.map((i) => (i.id === x.id ? { ...i, ...patch } : i)));
+  const add = () => {
+    const name = window.prompt("새 계약서 종류 이름 (예: 릴스 촬영 계약서)\n지금 보고 있는 '" + x.name + "' 내용을 베껴서 시작해요.");
+    if (!name?.trim()) return;
+    const id = "k" + Date.now().toString(36);
+    setItems((l) => [...l, { ...x, id, name: name.trim() }]);
+    setCur(id);
+  };
+  const drop = () => {
+    if (items.length < 2) return;
+    if (!window.confirm(`'${x.name}' 종류를 지울까요? 이미 만든 계약서는 그대로예요.`)) return;
+    const rest = items.filter((i) => i.id !== x.id);
+    setItems(rest);
+    setCur(rest[0].id);
+  };
+  const bad = items.some((i) => !i.name.trim() || !i.title.trim() || !i.body.trim());
+  const need = needsOf(x.body);
   return (
     <Sheet onClose={onClose} wide>
       <SheetHead title="계약서 문구 틀" onClose={onClose} />
       <div className="space-y-3 overflow-y-auto p-4">
-        <p className="text-xs text-stone-400">초안 — 세원이 고칠 수 있어요. 고친 틀은 새로 만드는 계약서부터 들어가요(이미 보낸 계약서는 그대로).</p>
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-stone-500">제목</span>
-          <input value={x.title} onChange={(e) => setX({ ...x, title: e.target.value })} className={F} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-stone-500">기본 장소</span>
-          <input value={x.place} onChange={(e) => setX({ ...x, place: e.target.value })} className={F} />
-        </label>
+        <p className="text-xs text-stone-400">계약서 종류마다 따로 고쳐요. 고친 틀은 새로 만드는 계약서부터 들어가요(이미 보낸 계약서는 그대로).</p>
+        <div className="flex flex-wrap items-center gap-1.5" data-tpl-tabs>
+          {items.map((i) => (
+            <button
+              key={i.id}
+              type="button"
+              onClick={() => setCur(i.id)}
+              className={"rounded-full border px-3 py-1.5 text-xs font-semibold " + (i.id === x.id ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
+            >
+              {i.name || "이름 없음"}
+            </button>
+          ))}
+          <button type="button" onClick={add} className="flex items-center gap-0.5 rounded-full border border-dashed border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-500 hover:border-rose-300 hover:text-rose-700">
+            <Plus size={12} /> 종류 더하기
+          </button>
+        </div>
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-stone-500">종류 이름 (만들기 창에서 고르는 이름)</span>
+            <input value={x.name} onChange={(e) => put({ name: e.target.value })} className={F} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-stone-500">계약서 제목 (모델에게 보이는 제목)</span>
+            <input value={x.title} onChange={(e) => put({ title: e.target.value })} className={F} />
+          </label>
+        </div>
+        {need.place && (
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-stone-500">기본 장소</span>
+            <input value={x.place} onChange={(e) => put({ place: e.target.value })} className={F} />
+          </label>
+        )}
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-stone-500">본문 — '제N조' 로 시작하는 줄은 제목, '·' 로 시작하면 점</span>
-          <textarea value={x.body} onChange={(e) => setX({ ...x, body: e.target.value })} rows={22} className={F + " font-mono text-[13px] leading-relaxed"} />
+          <textarea value={x.body} onChange={(e) => put({ body: e.target.value })} rows={22} className={F + " font-mono text-[13px] leading-relaxed"} />
         </label>
         <p className="text-xs leading-relaxed text-stone-500">
-          채워지는 자리: {HOLES.join(" ")} — {"{얼굴}"}은 노출이면 '{faceText("on")}', 비노출이면 '{faceText("off")}'
+          채워지는 자리: {HOLES.join(" ")} — {"{얼굴}"}은 노출이면 &apos;{faceText("on")}&apos;, 비노출이면 &apos;{faceText("off")}&apos;. 본문에 {"{촬영일}"}이 있으면 만들기 창에 촬영일·시각·시간 칸이, {"{계약일}"}이 있으면 계약 시작일 칸이 나와요.
         </p>
       </div>
       <footer className="flex shrink-0 justify-between gap-2 border-t border-stone-200 px-4 py-3">
-        <button type="button" onClick={() => setX(DEFAULT_TEMPLATE)} className="rounded-lg px-3 py-2 text-xs text-stone-500 hover:text-stone-800">
-          처음 초안으로
-        </button>
+        <span className="flex gap-1">
+          {STOCK[x.id] && (
+            <button type="button" onClick={() => put({ title: STOCK[x.id].title, place: STOCK[x.id].place, body: STOCK[x.id].body })} className="rounded-lg px-3 py-2 text-xs text-stone-500 hover:text-stone-800">
+              처음 초안으로
+            </button>
+          )}
+          {items.length > 1 && (
+            <button type="button" onClick={drop} className="flex items-center gap-1 rounded-lg px-3 py-2 text-xs text-stone-400 hover:text-rose-700">
+              <Trash2 size={12} /> 이 종류 지우기
+            </button>
+          )}
+        </span>
         <span className="flex gap-2">
           <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-stone-600">
             닫기
           </button>
           <button
             type="button"
-            disabled={busy || !x.title.trim() || !x.body.trim()}
+            disabled={busy || bad}
             onClick={async () => {
               setBusy(true);
               try {
-                await onSave(x);
+                await onSave(items);
                 onClose();
               } finally {
                 setBusy(false);
@@ -488,7 +629,7 @@ export default function ContractPage({ online, onPage }) {
   const [missing, setMissing] = useState(false);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState("wait");
-  const [tpl, setTpl] = useState(DEFAULT_TEMPLATE);
+  const [tpls, setTpls] = useState(() => templateList(null, null));
   const [biz, setBiz] = useState({});
   const [making, setMaking] = useState(false);
   const [view, setView] = useState(null);
@@ -508,8 +649,9 @@ export default function ContractPage({ online, onPage }) {
   useEffect(() => {
     load();
     rrnReady(online).then(setRrnOk);
-    loadKey(TEMPLATE_KEY, online, null)
-      .then((v) => v?.body && setTpl({ ...DEFAULT_TEMPLATE, ...v }))
+    // 계약서 종류 — 새 키(contract_templates)가 없으면 예전 촬영 틀(contract_template) + 정식 모델 계약서
+    Promise.all([loadKey(TEMPLATES_KEY, online, null).catch(() => null), loadKey(TEMPLATE_KEY, online, null).catch(() => null)])
+      .then(([many, old]) => setTpls(templateList(many, old)))
       .catch(() => {});
     loadKey("biz_info", online, {})
       .then((v) => setBiz(v || {}))
@@ -602,7 +744,8 @@ export default function ContractPage({ online, onPage }) {
                       )}
                     </div>
                     <div className="mt-0.5 text-xs text-stone-500">
-                      {dateText(t.date)} {t.time} · {wonText(t.wage)}/시간 · 얼굴 {t.face === "off" ? "비노출" : "노출 가능"}
+                      <span className="mr-1 rounded bg-stone-100 px-1.5 py-0.5 text-[11px] font-semibold text-stone-600">{kindName(t)}</span>
+                      {t.date ? `${dateText(t.date)} ${t.time || ""}` : t.startOn ? `${dateText(t.startOn)}부터` : ""} · {wonText(t.wage)}/시간 · 얼굴 {t.face === "off" ? "비노출" : "노출 가능"}
                     </div>
                     <div className="truncate text-[11px] text-stone-400">
                       {c.signed?.rrnMask ? `주민 ${c.signed.rrnMask} · ` : ""}
@@ -613,7 +756,7 @@ export default function ContractPage({ online, onPage }) {
                   <div className="flex flex-wrap gap-1.5">
                     {!c.signed_at && (
                       <>
-                        <CopyBtn text={dmText(t.name, c.token)} primary>
+                        <CopyBtn text={dmText(t, c.token)} primary>
                           DM 문구 복사
                         </CopyBtn>
                         <CopyBtn text={signLink(c.token)}>링크</CopyBtn>
@@ -633,7 +776,7 @@ export default function ContractPage({ online, onPage }) {
       {making && (
         <NewSheet
           online={online}
-          tpl={tpl}
+          tpls={tpls}
           biz={biz}
           onClose={() => setMaking(false)}
           onMade={(c) => {
@@ -658,11 +801,11 @@ export default function ContractPage({ online, onPage }) {
       )}
       {editTpl && (
         <TemplateSheet
-          tpl={tpl}
+          tpls={tpls}
           onClose={() => setEditTpl(false)}
-          onSave={async (x) => {
-            const v = await changeKey(TEMPLATE_KEY, online, () => ({ ...x, at: new Date().toISOString() }), {});
-            setTpl({ ...DEFAULT_TEMPLATE, ...v });
+          onSave={async (items) => {
+            const v = await changeKey(TEMPLATES_KEY, online, () => ({ items: items.map(({ id, name, title, place, body }) => ({ id, name: name.trim(), title: title.trim(), place: place || "", body })), at: new Date().toISOString() }), {});
+            setTpls(templateList(v, null));
           }}
         />
       )}

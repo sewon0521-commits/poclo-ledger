@@ -394,7 +394,7 @@ function PersonSheet({ init, works, online, today, onClose, onSave, onRemove, on
               {init.contracts.map((c) => (
                 <li key={c.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2 text-xs text-stone-600">
                   <FileSignature size={12} className="text-stone-400" />
-                  <span className="text-stone-900">촬영 {mdw(c.terms?.date)}</span>
+                  <span className="text-stone-900">{c.terms?.date ? `촬영 ${mdw(c.terms.date)}` : c.terms?.tplName || "정식 모델 계약서"}</span>
                   <span>시급 {won(c.terms?.wage)}</span>
                   <span className="text-stone-400">{md(c.signed_at?.slice(0, 10))} 서명</span>
                 </li>
