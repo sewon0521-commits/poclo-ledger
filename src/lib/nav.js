@@ -124,6 +124,8 @@ export const SECTIONS = [
         group: "정산·세무",
         items: [
           // 10/2 세원: "오토장끼 참고해서 계산서 발행 요청, 확인 란" — 달마다 계산서 요청·부가세 후입금 송금
+          // 11/8 세원: "카페24 페이먼츠, 네이버페이(주문형·결제형), 카카오 정산주기 계산 — 돈이 언제 들어오고 언제 도는지 정확하게" (components/SettlePage.jsx)
+          { key: "settle", label: "정산 달력", icon: CalendarDays },
           { key: "invoiceReq", label: "계산서 발행 요청·확인", icon: FileCheck },
           { key: "invoice", label: "세금계산서 대조", icon: Scale },
         ],
