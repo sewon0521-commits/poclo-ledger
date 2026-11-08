@@ -5,7 +5,7 @@
 //
 //   한 단 들여쓰기 = 공백 3칸 (안쪽 블록)        • / ◦ 글  → 점 목록          1. 글 → 번호 목록
 //   ☐ / ☑ 글 → 체크박스 (✓ 도 끝낸 체크)         ▾ / ▸ 글 → 토글              > 글 → 인용
-//   ■ 글 → 소제목(제목 3) · # 제목 1 · ## 제목 2   --- → 구분선                  [사진:키] → 사진
+//   ■ 글 → 소제목(제목 3) · # 제목 1 · ## 제목 2   --- → 구분선                  [사진:키] → 사진 · [영상:주소] → 영상(매뉴얼만)
 //   글자 꾸미기는 폭 0 표시 글자(U+2060~2064) — 굵게·밑줄·형광펜·취소선·기울임, `코드`
 //
 // 할 일은 한 줄 = 할 일 하나(todos 목록)라서 따로: 블록 id = 할 일 id, 블록 종류 = kind(bullet·number·heading·text).
@@ -121,6 +121,8 @@ function parseLine(raw) {
   const ic = (t) => inlineFromText(t);
   let m;
   if ((m = s.match(/^\[사진:([^\]\s]+)\]\s*$/))) return { depth, block: { type: "image", props: { url: /^https?:/.test(m[1]) ? m[1] : `photo:${m[1]}` } } };
+  // 영상은 주소로만(매뉴얼 — 11/8 노션 물류 매뉴얼 옮김). 업무일지 편집기에는 영상 블록이 없어서 그냥 글로 남는다
+  if ((m = s.match(/^\[영상:([^\]\s]+)\]\s*$/))) return { depth, block: { type: "video", props: { url: m[1] } } };
   if (/^(-{3,}|—{2,})$/.test(s.trim())) return { depth, block: { type: "divider" } };
   if ((m = s.match(/^([▸▾]) ?(.*)$/))) return { depth, block: { type: "toggleListItem", content: ic(m[2]) } };
   if ((m = s.match(/^([☐☑✓]) ?(.*)$/))) return { depth, block: { type: "checkListItem", props: { checked: m[1] !== "☐" }, content: ic(m[2]) } };
@@ -207,6 +209,11 @@ export function blocksToText(blocks) {
         case "image": {
           const u = String(b.props?.url || "");
           if (u) out.push(pre + "[사진:" + (u.startsWith("photo:") ? u.slice(6) : u) + "]");
+          break;
+        }
+        case "video": {
+          const u = String(b.props?.url || "");
+          if (u) out.push(pre + "[영상:" + u + "]");
           break;
         }
         default:

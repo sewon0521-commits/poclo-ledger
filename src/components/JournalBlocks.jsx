@@ -51,6 +51,13 @@ const NOTE_SCHEMA = BlockNoteSchema.create({
     image: S.image,
   },
 });
+// 매뉴얼(11/8 노션 물류 매뉴얼 옮김)은 영상 블록도 — 영상은 주소로만 넣는다(보관 공간이 모자라서 파일은 안 올림)
+const MEDIA_SCHEMA = BlockNoteSchema.create({ blockSpecs: { ...NOTE_SCHEMA.blockSpecs, video: S.video } });
+/** 영상 블록이 없는 편집기(업무일지·메모)에 '[영상:…]' 줄이 오면 글 줄로 둔다 */
+const noVideo = (list) =>
+  (list || []).map((b) =>
+    b.type === "video" ? { type: "paragraph", content: `[영상:${b.props?.url || ""}]`, children: noVideo(b.children) } : { ...b, children: noVideo(b.children) },
+  );
 // 할 일 칸은 한 줄 = 할 일 하나 — 점 · 번호 · 글 줄 · 제목만 (10/11 저녁 세원: "체크박스 없애고 점으로 통일하자")
 const TODO_SCHEMA = BlockNoteSchema.create({
   blockSpecs: {
@@ -229,14 +236,17 @@ function useKeys(editor, onDone) {
 // ---------------------------------------------------------------- 하루 글
 
 /** heads·template·placeholder 를 안 주면 업무일지 그대로. 소싱 관리 메모(10/25)는 소제목·틀·안내 글만 바꿔 쓴다 */
-export function NoteEditor({ initial, onSave, upload, resolve, compact, heads = HEADS, template: tpl = JOURNAL_TEMPLATE, placeholder, inlineTemplate }) {
-  const [start] = useState(() => textToBlocks(initial));
+export function NoteEditor({ initial, onSave, upload, resolve, compact, heads = HEADS, template: tpl = JOURNAL_TEMPLATE, placeholder, inlineTemplate, media, clock = true }) {
+  const [start] = useState(() => (media ? textToBlocks(initial) : noVideo(textToBlocks(initial))));
   const editor = useCreateBlockNote(
     {
-      schema: NOTE_SCHEMA,
+      schema: media ? MEDIA_SCHEMA : NOTE_SCHEMA,
       dictionary: placeholder ? dict({ default: "글을 쓰거나 '/' 를 눌러 블록을 골라요", emptyDocument: placeholder }) : NOTE_DICT,
       initialContent: start.length ? start : undefined,
-      uploadFile: async (file) => `photo:${await upload(file)}`,
+      uploadFile: async (file) => {
+        if (!String(file?.type || "").startsWith("image/")) throw new Error("영상은 주소(링크)로 넣어 주세요 — 보관 공간이 모자라서 파일은 못 올려요.");
+        return `photo:${await upload(file)}`;
+      },
       resolveFileUrl: async (url) => (url.startsWith("photo:") ? (await resolve(url.slice(6))) || "" : url),
       _tiptapOptions: TIPTAP,
     },
@@ -333,18 +343,20 @@ export function NoteEditor({ initial, onSave, upload, resolve, compact, heads = 
             {h}
           </button>
         ))}
-        <span className="mx-1 h-4 w-px shrink-0 bg-stone-200" />
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            editor.focus();
-            editor.insertInlineContent(nowText());
-          }}
-          className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-stone-500 hover:bg-stone-100"
-        >
-          <Clock size={12} /> 지금 시각
-        </button>
+        {heads.length > 0 && <span className="mx-1 h-4 w-px shrink-0 bg-stone-200" />}
+        {clock && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              editor.focus();
+              editor.insertInlineContent(nowText());
+            }}
+            className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-stone-500 hover:bg-stone-100"
+          >
+            <Clock size={12} /> 지금 시각
+          </button>
+        )}
         <button type="button" onClick={() => file.current?.click()} className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-stone-500 hover:bg-stone-100">
           {uploading ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />} 사진
         </button>

@@ -24,6 +24,7 @@ import {
   FileSpreadsheet,
   Music,
   CalendarDays,
+  BookMarked,
   Newspaper,
   ScanSearch,
   Trophy,
@@ -83,6 +84,8 @@ export const SECTIONS = [
           { key: "soOrder", label: "SO+ 발주 변환", icon: FileSpreadsheet },
           // 10/17 세원: "재구매 쿠폰·이벤트를 배너로 알리는 계획을 짜는 틀 — 이벤트 캘린더"
           { key: "events", label: "이벤트 캘린더", icon: CalendarDays },
+          // 11/8 세원: "포클로 물류 업무 메뉴얼 노션 참고해서 erp에 하나 만들어 줘 나중에 쓰게. 노션 구독 해지하려고" (components/ManualPage.jsx)
+          { key: "manual", label: "매뉴얼", icon: BookMarked },
           // 10/13 세원: CS 자동화 영상·PDF — "포클로 일 칸에 CS 관리를 할 수 있는 칸"
           // 10/16 세원: "카톡·톡톡 같은 걸 못 읽으면 그냥 안 하는 게 낫다" → 메뉴에서 숨김(화면·코드는 남김, 다시 쓰려면 이 줄 주석만 풀면 됨)
           // { key: "cs", label: "CS 관리", icon: Headset },
