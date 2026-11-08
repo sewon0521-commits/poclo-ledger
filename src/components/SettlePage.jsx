@@ -30,7 +30,7 @@ function StackBar({ ch, total, className = "h-1.5" }) {
   return (
     <div className={"flex gap-[2px] overflow-hidden rounded-full " + className}>
       {CHANNELS.filter((c) => (ch[c.k]?.net || 0) > 0).map((c) => (
-        <span key={c.k} style={{ width: `${(ch[c.k].net / total) * 100}%`, background: c.color }} />
+        <span key={c.k} style={{ width: `${(ch[c.k].net / total) * 100}%`, background: c.color, opacity: c.wallet ? 0.45 : 1 }} />
       ))}
     </div>
   );
@@ -155,7 +155,7 @@ export default function SettlePage({ online, onPage }) {
       {/* 이 화면이 답하는 질문 — 언제 얼마 들어오나 */}
       <section className="mb-3 grid gap-px overflow-hidden rounded-2xl border border-stone-200 bg-stone-200 sm:grid-cols-[1.25fr_1fr_1fr]">
         <div className="bg-white px-5 py-4">
-          <span className="text-xs font-semibold text-stone-500">앞으로 들어올 돈</span>
+          <span className="text-xs font-semibold text-stone-500">앞으로 통장에 들어올 돈</span>
           <div className="mt-1 flex items-baseline gap-1 tabular-nums">
             <b className="text-3xl font-bold tracking-tight text-stone-900">{won(a.total)}</b>
             <span className="text-sm text-stone-500">원</span>
@@ -163,6 +163,14 @@ export default function SettlePage({ online, onPage }) {
           <p className="mt-1 text-xs text-stone-500">
             수수료 빼고 · 이미 결제·발송된 주문만{a.est > 0 ? ` · 그중 ${won(a.est)}원은 자동 구매확정일로 센 것(더 빨리 올 수 있어요)` : ""}
           </p>
+          {a.wallet > 0 && (
+            <p className="mt-1 text-xs text-stone-600">
+              <span className="inline-flex items-center gap-1">
+                <Dot k="npp" size={6} /> 따로 <b className="tabular-nums">{won(a.wallet)}원</b>
+              </span>
+              은 네이버 충전금으로 — 출금해야 통장에 와요
+            </p>
+          )}
         </div>
         <button type="button" onClick={() => a.next && setPick(a.next.day)} className="bg-white px-5 py-4 text-left hover:bg-stone-50">
           <span className="text-xs font-semibold text-stone-500">{a.next ? (a.next.day === today ? "오늘 들어올 돈" : `다음 입금 · ${mdw(a.next.day)}`) : "다음 입금"}</span>
@@ -172,7 +180,7 @@ export default function SettlePage({ online, onPage }) {
           </div>
           {a.next && (
             <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-stone-500">
-              {CHANNELS.filter((c) => a.next.ch[c.k]?.net).map((c) => (
+              {CHANNELS.filter((c) => !c.wallet && a.next.ch[c.k]?.net).map((c) => (
                 <span key={c.k} className="inline-flex items-center gap-1">
                   <Dot k={c.k} size={6} /> {c.name.replace("네이버페이 ", "네이버 ")} {man(a.next.ch[c.k].net)}
                 </span>
@@ -201,6 +209,15 @@ export default function SettlePage({ online, onPage }) {
               </span>
             ))}
             . 네이버 주문형은 발송하면 다음 영업일, 카카오는 배송완료 + 8일 뒤 다음 영업일에 들어와요.
+          </span>
+        </p>
+      )}
+      {a.wallet > 0 && (
+        <p className="mb-3 flex items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <span>
+            네이버페이 결제형 돈({won(a.wallet)}원)은 통장이 아니라 네이버 충전금으로 들어가요. 출금하기 전까지는 통장에 안 와요(11/8 확인: 출금은 손으로 하고 예약출금은 없음) —
+            네이버페이센터(결제형) › 정산관리 › 충전금 › 출금하기. 예약출금을 걸어 두면 저절로 들어와요.
           </span>
         </p>
       )}
@@ -290,12 +307,13 @@ function Calendar({ month, p, today, day, onPick, bank }) {
           const biz = isBiz(d, p.hol);
           const x = p.days[d];
           const v = x?.net || 0;
+          const w = x?.wallet || 0;
           const holiday = !biz && weekday(d) !== 0 && weekday(d) !== 6;
           const actual = bank?.[d] ? Object.values(bank[d]).reduce((s, n) => s + n, 0) : 0;
           const tip = x
             ? CHANNELS.filter((c) => x.ch[c.k]?.net)
-                .map((c) => `${c.name} ${won(x.ch[c.k].net)}원`)
-                .join("\n") + `\n합계 ${won(v)}원${actual ? `\n통장 실제 ${won(actual)}원` : ""}`
+                .map((c) => `${c.name} ${won(x.ch[c.k].net)}원${c.wallet ? " (충전금으로)" : ""}`)
+                .join("\n") + `\n통장으로 ${won(v)}원${actual ? `\n통장 실제 ${won(actual)}원` : ""}`
             : biz
               ? "들어올 돈 없음"
               : holiday
@@ -319,10 +337,14 @@ function Calendar({ month, p, today, day, onPick, bank }) {
                 {d === today && <span className="rounded bg-rose-700 px-1 text-[9px] font-semibold leading-tight text-white">오늘</span>}
               </span>
               {biz ? (
-                v !== 0 && (
+                (v > 0 || w > 0) && (
                   <>
-                    <span className={"mt-auto text-[11px] font-semibold tabular-nums sm:text-[13px] " + (d < today ? "text-stone-400" : "text-stone-900")}>{man(v)}</span>
-                    <StackBar ch={x.ch} total={Math.max(v, 1)} className="mt-0.5 h-1" />
+                    {v > 0 ? (
+                      <span className={"mt-auto text-[11px] font-semibold tabular-nums sm:text-[13px] " + (d < today ? "text-stone-400" : "text-stone-900")}>{man(v)}</span>
+                    ) : (
+                      <span className="mt-auto text-[10px] text-stone-400">충전금</span>
+                    )}
+                    <StackBar ch={x.ch} total={v + w} className="mt-0.5 h-1" />
                   </>
                 )
               ) : (
@@ -350,7 +372,12 @@ function DayDetail({ day, sel, p, today, bank }) {
         <h3 className="font-semibold text-stone-900">
           {mdw(day)} {day === today ? "· 오늘" : day < today ? "· 지난 날" : ""}
         </h3>
-        {sel && <b className="text-lg tabular-nums text-stone-900">{won(sel.net)}원</b>}
+        {sel && (
+          <span className="text-right">
+            <b className="text-lg tabular-nums text-stone-900">{won(sel.net)}원</b>
+            {sel.wallet > 0 && <span className="block text-[11px] tabular-nums text-stone-500">+ 충전금으로 {won(sel.wallet)}원</span>}
+          </span>
+        )}
       </div>
       {!biz ? (
         <p className="mt-1 text-sm text-stone-500">주말·공휴일이라 정산이 안 들어와요. 이날 몫은 다음 영업일에 같이 들어와요.</p>
@@ -369,6 +396,8 @@ function DayDetail({ day, sel, p, today, bank }) {
                 <span className="min-w-0 flex-1 text-xs text-stone-500">
                   {BASIS[r.basis].short} {fromText(x)} 몫 · {ruleText(r)} · 수수료 {r.fee}% 빼고
                   {x.refund > 0 && <span className="text-rose-600"> · 취소 {won(x.refund)}원 차감</span>}
+                  {x.owe > 0 && <span className="text-rose-600"> · 취소가 더 많아 0원 — 모자란 {won(x.owe)}원은 나중 정산에서 빠지거나 카드로 결제될 수 있어요</span>}
+                  {c.wallet && <span className="text-stone-600"> · 통장이 아니라 네이버 충전금으로 들어가요(출금하면 다음 영업일 통장)</span>}
                   {x.est > 0 && <span className="text-amber-700"> · 자동 구매확정으로 셈(더 빨리 올 수 있어요)</span>}
                 </span>
                 <span className="text-right">

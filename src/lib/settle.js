@@ -2,10 +2,10 @@
 //   돈이 언제 들어오고 언제 도는지 정확하게 아는 게 중요하니까."
 //
 // 규칙은 두 군데로 맞췄다 — ① 각 회사 공식 안내(어사이드로 찾음, 아래 CHANNELS.official) ② 우리 국민은행 통장 7~9월 입금(정산 입금 483건 ↔ 주문 3,186건).
-//   카페24 페이먼츠  결제일 + 5영업일           공식 "결제일로부터 D+5일(영업일 기준)"          통장: 하루 오차 8%, 수수료 실제 약 2.2%
-//   토스페이        결제일 + 7영업일           공식 "D+4 이상"(계약마다) — 우리 통장은 7이 맞음  통장: 하루 오차 7%, 약 2.8% · 'Toss정산MMDD'
+//   카페24 페이먼츠  결제일 + 5영업일           공식 "결제일로부터 D+5일(영업일 기준)"          통장: 하루 오차 2%, 수수료 실제 약 2.2%
+//   토스페이        결제일 + 7영업일           11/8 토스페이 파트너스: 카드·토스머니 D+7 휴일 제외, 예정액 원 단위까지 같음(수수료 3.85%) · 'Toss정산MMDD'
 //   네이버 주문형    발송(집화) 다음 영업일      공식 빠른정산 "집화처리일의 다음날 100%" — 8/1 발송분부터 이 모양(그 전엔 구매확정+1) · 'Npay정산'
-//   네이버 결제형    결제일 + 8영업일           공식 결제형 일정산 "결제일+7영업일" → 충전금으로 받아 다음 영업일 출금 · 'Npay충전금'
+//   네이버 결제형    결제일 + 7영업일 → **네이버 충전금**  11/8 센터 확인: 정산방식 충전금, 출금은 손으로(10/23 뒤 없음) — 통장 'Npay충전금'은 출금한 날 +1영업일
 //   카카오 톡체크아웃 구매결정 + 1영업일         공식 "구매결정 +1 영업일" · 자동 구매결정 = 배송완료 + 8일 · 통장: 26일 중 24일이 3% 안
 //   공휴일은 통장으로도 확인: 6/3 선거 · 7/17 제헌절(2026 공휴일) · 8/17 · 9/24~25 · 10/5 · 10/9 엔 정산이 안 들어왔다. 9/28(월)은 들어왔다(추석 대체공휴일 없음).
 //
@@ -39,24 +39,25 @@ export const CHANNELS = [
     name: "네이버페이 주문형",
     bank: "Npay정산",
     color: "#2a78d6",
-    rule: { basis: "ship", n: 1, fee: 3.0 },
-    note: "빠른정산 — 발송(택배 집화) 다음 영업일에 100%. 반품이 들어오면 그다음 영업일 정산에서 빠져요.",
+    rule: { basis: "ship", n: 1, fee: 3.6 },
+    note: "빠른정산 — 발송(택배 집화) 다음 영업일에 100%. 반품이 들어오면 그다음 영업일 정산에서 빠져요. 택배 집화가 안 잡힌 주문은 구매확정 + 1영업일로 와요.",
     official: [
       { q: "집화처리일의 다음날 바로 100% 정산 받을 수 있는 무료 서비스입니다. (영업일 기준)", url: "https://help.admin.pay.naver.com/faq/content.help?faqId=14148" },
       { q: "상품주문번호 단위로 주문종료(구매확정, 반품완료, 교환완료) 시점으로 부터, 1영업일째 정산됩니다.", url: "https://help.admin.pay.naver.com/faq/content.help?faqId=1131" },
     ],
-    checked: "우리 통장: 8/1 발송분부터 '발송 다음 영업일'로 들어옴(그 전 7월은 구매확정 + 1영업일). 빠른정산 조건(3개월 연속 20건↑ · 반품률 20% 미만)이 깨지면 구매확정 기준으로 바뀌어요.",
+    checked: "11/8 네이버페이센터 확인: 빠른정산 이용 중 · 계좌이체 · 10/26·10/27 정산액이 달력과 같음(수수료 3.6%). 통장으로도 8/1 발송분부터 이 모양. 빠른정산 조건(3개월 연속 20건↑ · 반품률 20% 미만)이 깨지면 구매확정 기준으로 바뀌어요.",
     alt: { basis: "conf", n: 1, label: "빠른정산이 꺼지면: 구매확정 + 1영업일" },
   },
   {
     k: "npp",
     name: "네이버페이 결제형",
-    bank: "Npay충전금",
+    bank: "Npay충전금(출금할 때)",
     color: "#eb6834",
-    rule: { basis: "pay", n: 8, fee: 2.8 },
-    note: "쇼핑몰 결제창에서 네이버페이로 낸 돈. 결제일 + 7영업일에 네이버 충전금으로 정산 → 다음 영업일 통장으로.",
+    wallet: true, // 통장이 아니라 네이버 충전금으로 정산 — 출금해야 통장으로 온다
+    rule: { basis: "pay", n: 7, fee: 3.4 },
+    note: "쇼핑몰 결제창에서 네이버페이로 낸 돈. 결제일 + 7영업일에 통장이 아니라 네이버 충전금으로 들어가요. 네이버페이센터에서 출금하면 다음 영업일 통장으로 와요(정산관리 › 충전금 › 출금하기 — 예약출금을 걸어 두면 저절로).",
     official: [{ q: "일 정산 : 전일 '결제건' 또는 '이용완료' 건을 선택한 정산 시점에 정산('결제일+7영업일', '이용완료일+1영업일' 중 선택)", url: "https://help.admin.pay.naver.com/faq/content.help?faqId=5849" }],
-    checked: "우리 통장: 'Npay충전금' 이름으로 결제일 + 8영업일에 들어옴(8월부터 잘 맞음). 가끔 하루 쉬었다가 다음 날 몰아서 들어와요.",
+    checked: "11/8 네이버페이센터 확인: 정산방식 충전금 · 결제일 + 7영업일 · 11/11·11/16·11/17 예정액이 달력과 같음. 출금은 전부 손으로 했고 10/23 뒤로는 출금이 없어요.",
   },
   {
     k: "c24",
@@ -69,7 +70,7 @@ export const CHANNELS = [
       { q: "결제일로부터 D+5일(영업일 기준)에 지급되어요.", url: "https://support.cafe24.com/hc/ko/articles/8468118380825" },
       { q: "최초 계약 시, 월 정산 한도 1000만 원이 설정되어요. / 매월 3영업일에 월 정산 한도가 초기화되어요.", url: "https://support.cafe24.com/hc/ko/articles/17394669621273" },
     ],
-    checked: "우리 통장: 7~9월 하루 오차 8% — 결제일 + 5영업일이 맞음. 실제로 빠지는 수수료 약 2.2%.",
+    checked: "우리 통장: 7~9월 하루 오차 2% — 결제일 + 5영업일이 맞음. 실제로 빠지는 수수료 약 2.2%. (카페24 정산 화면은 휴대폰 2차 인증이라 11/8 엔 직접 못 봄)",
     limit: 10000000,
   },
   {
@@ -77,20 +78,20 @@ export const CHANNELS = [
     name: "토스페이",
     bank: "Toss정산",
     color: "#eda100",
-    rule: { basis: "pay", n: 7, fee: 2.8 },
-    note: "결제창의 토스페이(토스 직접 계약). 통장에 'Toss정산 + 입금 날짜'로 찍혀요.",
+    rule: { basis: "pay", n: 7, fee: 3.85 },
+    note: "결제창의 토스페이(토스 직접 계약, 카드·토스머니). 통장에 'Toss정산 + 입금 날짜'로 찍혀요.",
     official: [{ q: "공휴일 및 주말은 '+N'에 포함되지 않습니다.", url: "https://docs.tosspayments.com/resources/glossary/settlement" }],
-    checked: "우리 통장: 7~9월 하루 오차 7% — 결제일 + 7영업일이 맞음(토스 안내는 'D+4 이상'이라 계약마다 다름). 수수료 약 2.8%.",
+    checked: "11/8 토스페이 파트너스 확인: 카드·토스머니 D+7 · 휴일 제외 · 11/11~11/17 예정액이 달력과 원 단위까지 같음(수수료 3.85%). 영세 수수료 차액(몇백 원)은 따로 2영업일쯤 뒤.",
   },
   {
     k: "kko",
     name: "카카오 톡체크아웃",
     bank: "톡체크아웃",
     color: "#e87ba4",
-    rule: { basis: "conf", n: 1, fee: 2.0 },
+    rule: { basis: "conf", n: 1, fee: 3.7 },
     note: "구매결정 다음 영업일. 손님이 안 누르면 배송완료 + 8일에 자동 구매결정 — 그 전에 누르면 더 빨리 들어와요.",
     official: [{ q: "톡체크아웃 서비스의 정산 주기는 일정산으로, 구매결정 +1 영업일에 구매자의 결제대금 및 공제내역을 합산하여 지급됩니다.", url: "https://kakaobusiness.gitbook.io/main/tool/checkout/calculate" }],
-    checked: "우리 통장: 구매결정 + 1영업일이 26일 중 24일 3% 안으로 맞음. 수수료 약 2%.",
+    checked: "11/8 판매자센터 확인: '구매결정 +1 영업일' · 11/2 34,461원(결제 35,800 − 수수료 3.74%). 통장으로도 26일 중 24일 3% 안.",
   },
 ];
 export const CH = Object.fromEntries(CHANNELS.map((c) => [c.k, c]));
@@ -205,18 +206,32 @@ export function plan(feed, savedRules) {
     for (const e of s) {
       const d = (days[e.day] = days[e.day] || { day: e.day, net: 0, gross: 0, n: 0, ch: {} });
       const c = (d.ch[k] = d.ch[k] || { net: 0, gross: 0, n: 0, est: 0, refund: 0, from: {} });
-      const v = net(e.gross, e.kind === "refund" ? 0 : rule.fee);
+      // 취소하면 수수료도 같이 돌려받는다 → 취소분도 수수료를 뺀 금액만큼 빠진다(같은 날 결제·취소면 0)
+      const v = net(e.gross, rule.fee);
       c.net += v;
       c.gross += e.gross;
-      d.net += v;
-      d.gross += e.gross;
-      if (e.kind === "refund") c.refund += -e.gross;
+      if (e.kind === "refund") c.refund += -v;
       else {
         c.n++;
         d.n++;
         if (e.est) c.est += v;
         c.from[e.basisDay] = (c.from[e.basisDay] || 0) + 1;
       }
+    }
+  }
+  // 취소가 더 많은 날은 그 채널 0원(마이너스는 다음 정산에서 바로 안 빠짐 — 11/8 화면 확인: 토스는 '잔액 −34,850' 으로 남기고
+  // 11/11 예정액은 그대로, 네이버는 '마이너스 충전금'으로 두거나 카드로 결제). 그래서 넘기지 않고 owe 로 알리기만 한다.
+  for (const d of Object.values(days)) {
+    d.net = 0;
+    d.wallet = 0;
+    d.gross = 0;
+    for (const [k, c] of Object.entries(d.ch)) {
+      c.raw = c.net;
+      c.owe = c.net < 0 ? -c.net : 0;
+      c.net = Math.max(0, c.net);
+      if (CH[k]?.wallet) d.wallet += c.net;
+      else d.net += c.net;
+      d.gross += c.gross;
     }
   }
   return { days, wait, rules, hol };
@@ -227,8 +242,9 @@ export function ahead(p, today) {
   const list = Object.values(p.days)
     .filter((d) => d.day >= today)
     .sort((a, b) => a.day.localeCompare(b.day));
-  const total = list.reduce((a, d) => a + d.net, 0);
-  const est = list.reduce((a, d) => a + Object.values(d.ch).reduce((x, c) => x + c.est, 0), 0);
+  const total = list.reduce((a, d) => a + d.net, 0); // 통장으로
+  const wallet = list.reduce((a, d) => a + d.wallet, 0); // 네이버 충전금으로(출금해야 통장)
+  const est = list.reduce((a, d) => a + Object.entries(d.ch).reduce((x, [k, c]) => x + (CH[k]?.wallet ? 0 : Math.min(c.est, c.net)), 0), 0);
   const next = list.find((d) => d.net > 0) || null;
   // 이번 주 = 오늘 ~ 그 주 일요일. 주말이면(정산이 없으니) 다가오는 월~일을 이번 주로 본다
   const w0 = weekday(today);
@@ -240,7 +256,8 @@ export function ahead(p, today) {
   const waitN = Object.values(p.wait).reduce((a, w) => a + w.n, 0);
   const byCh = {};
   for (const d of list) for (const [k, c] of Object.entries(d.ch)) byCh[k] = (byCh[k] || 0) + c.net;
-  return { list, total, est, next, week, nextWeek, sun, nextSun, waitNet, waitN, byCh };
+  const owe = list.reduce((a, d) => a + Object.values(d.ch).reduce((x, c) => x + (c.owe || 0), 0), 0);
+  return { list, total, wallet, est, next, week, nextWeek, sun, nextSun, waitNet, waitN, byCh, owe };
 }
 
 /** 이번 달 카페24 페이먼츠 결제 합계 — 월 정산 한도(처음 계약 1,000만 원) 넘으면 미뤄질 수 있다 */
@@ -272,11 +289,13 @@ export function compare(p, bank, today, since = "", count = 15) {
   while (out.length < count && guard++ < 70 && d >= since) {
     if (isBiz(d, p.hol) && bank[d]) {
       const ex = p.days[d];
-      const row = { day: d, expect: ex ? ex.net : 0, actual: 0, ch: {} };
+      const row = { day: d, expect: 0, actual: 0, ch: {} };
       for (const c of CHANNELS) {
+        if (c.wallet) continue; // 충전금은 손으로 출금한 날 들어와서 날짜를 못 맞춘다
         const e = ex?.ch[c.k]?.net || 0;
         const a = bank[d][c.k] || 0;
         if (e || a) row.ch[c.k] = { e, a };
+        row.expect += e;
         row.actual += a;
       }
       out.push(row);
