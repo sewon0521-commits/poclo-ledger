@@ -9,6 +9,9 @@ import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
 import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder, splitOpt, joinOpt, colorKey, vendorColors, colorMatch } from "../lib/soOrder";
 import { flowBoard } from "../lib/pending";
+import { displayName } from "../lib/stock";
+import { RESTOCK_CONF, DEFAULT_RESTOCK, restockFor, missingRestock, saleKey } from "../lib/restock";
+import SoRestock from "./SoRestock";
 
 /**
  * 돈 › 매입 › SO+ 발주 변환 (lib/soOrder.js 머리말).
@@ -127,6 +130,24 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const [stores, setStores] = useState({}); // 제조사 → 지난번 적은 매장명
   const [colors, setColors] = useState({}); // '제조사|도매 상품|원래 색' → 거래처가 부르는 색 (10/13)
   const [shootItems, setShootItems] = useState([]); // 신상 관리 상품 — 거래처 색상과 맞춰 보기 (10/13)
+  // 오늘출발 여유분 (11/8) — 옵션별 판매(settings opt_sales) · 재고(settings stock) · 계산 설정(이 기기)
+  const [optSales, setOptSales] = useState(null);
+  const [stockData, setStockData] = useState(null);
+  const [restockConf, setRestockConfState] = useState(() => {
+    try {
+      return { ...DEFAULT_RESTOCK, ...JSON.parse(localStorage.getItem(RESTOCK_CONF) || "{}") };
+    } catch {
+      return DEFAULT_RESTOCK;
+    }
+  });
+  const setRestockConf = (c) => {
+    setRestockConfState(c);
+    try {
+      localStorage.setItem(RESTOCK_CONF, JSON.stringify(c));
+    } catch {
+      /* 기억 못 해도 된다 */
+    }
+  };
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
@@ -174,6 +195,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       setShootItems((await loadKey("shoot_items", online, { items: [] })).items || []);
     } catch {
       /* 신상 관리 없이도 된다 — 색상 비교만 빠진다 */
+    }
+    try {
+      const [s, st] = await Promise.all([loadKey("opt_sales", online, null), loadKey("stock", online, null)]);
+      setOptSales(s?.byDay ? s : null);
+      setStockData(st || null);
+    } catch {
+      /* 판매·재고 없이도 된다 — 오늘출발 여유분만 빠진다 */
     }
   }, [online]);
   useEffect(() => {
@@ -234,7 +262,9 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const priced = useMemo(
     () =>
       withStore.map((r) => {
-        const f = found[r.id] || {};
+        let f = found[r.id] || {};
+        // 오늘출발 여유분으로 새로 넣은 줄(11/8)은 장끼·판매가 목록에 없으면 넥스트팩 원가·판매가 목록 공급가(priceHint)
+        if (!(f.price > 0) && r.priceHint > 0) f = { price: r.priceHint, from: "pricing", note: "재고 원가·판매가 목록", alt: "" };
         const price = r.manual != null ? r.manual : f.price;
         return { ...r, price: price > 0 ? price : null, auto: f };
       }),
@@ -265,22 +295,48 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       const m = misongFor(r, misong);
       const forced = m.loose.filter((l) => (r.misongForce || []).includes(l.key));
       const take = r.misongOff ? [] : [...m.exact, ...forced];
+      // 살 장수 = 밀린 주문(파일) + 오늘출발 여유분(11/8, r.extra) — 남은 미송은 둘을 합친 데서 뺀다
+      const need = r.qty + (r.extra || 0);
       let used = 0;
       const from = [];
       for (const l of take) {
-        const can = Math.min(left.get(l.key) || 0, r.qty - used);
+        const can = Math.min(left.get(l.key) || 0, need - used);
         if (can <= 0) continue;
         left.set(l.key, left.get(l.key) - can);
         used += can;
         from.push({ key: l.key, name: l.name, qty: can, date: l.lastDate });
         usedBy.set(l.key, r.id);
       }
-      return { ...r, want: r.qty, qty: r.qty - used, misUsed: used, misFrom: from, misExact: m.exact, misLoose: m.loose };
+      return { ...r, want: need, wantOrder: r.qty, qty: need - used, misUsed: used, misFrom: from, misExact: m.exact, misLoose: m.loose };
     });
     // 옵션이 다른 미송은 아직 남았고 다른 줄이 안 쓴 것만 알려 준다
     return out.map((r) => ({ ...r, misHint: r.misLoose.filter((l) => !usedBy.has(l.key) && (left.get(l.key) || 0) > 0 && !(r.misongForce || []).includes(l.key)) }));
   }, [priced, misong]);
   const dropRows = (ids) => setDraft((d) => ({ ...d, rows: d.rows.filter((x) => !ids.includes(x.id)) }));
+
+  // 오늘출발 여유분 (11/8, lib/restock.js) — 발주 줄마다 + 파일에 없는데 재고가 다 나간 잘 팔리는 옵션
+  const restockItems = useMemo(() => {
+    if (!optSales) return [];
+    const src = { sales: optSales, stock: stockData, pricing, conf: restockConf };
+    const fileItems = rows.map((r) => {
+      const opt = r.optionFile || r.option;
+      const x = restockFor(src, r.shopName || r.name, opt);
+      return { ...x, id: r.id, kind: r.restock && !r.wantOrder ? "new" : "file", name: displayName(r.shopName) || r.name, option: opt.replace(/^\[|\]$/g, ""), extra: r.extra || 0, order: r.wantOrder, canAdd: true };
+    });
+    const inFile = new Set(withStore.map((r) => saleKey(optSales, r)).filter(Boolean));
+    const missing = missingRestock(src, inFile).map((x) => ({ ...x, id: `rs-${x.key}`, kind: "new", name: displayName(x.name), extra: 0, order: 0, canAdd: !!x.row }));
+    return [...fileItems, ...missing];
+  }, [optSales, stockData, pricing, restockConf, rows, withStore]);
+  const addRestock = (list) =>
+    setDraft((d) => {
+      let next = d.rows;
+      for (const x of list) {
+        if (next.some((r) => r.id === x.id)) next = next.map((r) => (r.id === x.id ? { ...r, extra: x.add, off: false } : r));
+        else if (x.row) next = [...next, { ...x.row, id: x.id, qty: 0, extra: x.add, miss: null, manual: null, restock: true }];
+      }
+      return { ...d, rows: next };
+    });
+  const removeRestock = (x) => setDraft((d) => ({ ...d, rows: d.rows.flatMap((r) => (r.id !== x.id ? [r] : r.restock && !r.qty ? [] : [{ ...r, extra: 0 }])) }));
 
   /**
    * 파일 읽기 — 여러 개를 한 번에 넣으면 파일명 끝 시각이 늦은 것이 이번 발주, 바로 앞 것이 앞 차수.
@@ -455,8 +511,9 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     if (draft && !isSaved && !window.confirm("만들던 발주가 저장 안 된 채 바뀌어요. 저장한 발주를 불러올까요?")) return;
     const strip = (r) => {
       // 불러올 땐 요청 수량으로 — 미송은 지금 남은 걸로 다시 뺀다(두 번 빼지 않게)
-      const out = { ...r, qty: r.want ?? r.qty, option: r.optionFile || r.option };
-      for (const k of ["store", "addr", "price", "note", "want", "misUsed", "misFrom", "misExact", "misLoose", "misHint", "optionFile", "colorFrom", "colorAuto", "vc", "colorOk"]) delete out[k];
+      // 오늘출발 여유분(extra)은 따로 남아 있어서 수량은 밀린 주문(wantOrder)만 — 예전 저장은 want
+      const out = { ...r, qty: r.wantOrder ?? r.want ?? r.qty, option: r.optionFile || r.option };
+      for (const k of ["store", "addr", "price", "note", "want", "wantOrder", "misUsed", "misFrom", "misExact", "misLoose", "misHint", "optionFile", "colorFrom", "colorAuto", "vc", "colorOk"]) delete out[k];
       return out;
     };
     setDraft({
@@ -662,6 +719,21 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
             </div>
           )}
 
+          {/* 오늘출발 여유분 (11/8) */}
+          <div className="mt-3">
+            <SoRestock
+              items={restockItems}
+              conf={restockConf}
+              setConf={setRestockConf}
+              hasSales={!!optSales}
+              salesAt={optSales?.updated}
+              stockAt={stockData?.nextpack?.at}
+              onAdd={(x) => addRestock([x])}
+              onAddAll={addRestock}
+              onRemove={removeRestock}
+            />
+          </div>
+
           {/* 줄 */}
           <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white">
             {/* 11/4 세원: "PC 에서만 쓰니까 옆으로 드래그 안 하게" — 본문 칸을 넓히고(App) 칸 여백을 줄임. 메모 칸은 좁으면 6rem 까지 줄어든다 */}
@@ -741,6 +813,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           {r.name}
                         </div>
                         {r.shopName && <div className="truncate text-xs text-stone-400">{r.shopName}</div>}
+                        {r.restock && !r.wantOrder && <div className="text-[11px] font-semibold text-emerald-700">오늘출발용 — 발주 파일에 없던 줄</div>}
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap text-stone-700">
                         {/* 10/13 세원: "상품등록할 때 거래처랑 다르게 적은 색이 있어" — 색만 고친다(사이즈는 그대로). 고치면 같은 상품·같은 색 줄도 같이, 복사할 때 기억 */}
@@ -790,7 +863,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                               e.target.value = String(r.qty);
                               return;
                             }
-                            if (n !== r.qty) patchRow(r.id, { qty: n + r.misUsed, qtyFrom: r.qtyFrom ?? r.want });
+                            // 손으로 고치면 그 수량이 전부 — 오늘출발 여유분은 풀고 밀린 주문 칸에 넣는다
+                            if (n !== r.qty) patchRow(r.id, { qty: n + r.misUsed, extra: 0, qtyFrom: r.qtyFrom ?? r.wantOrder });
                           }}
                           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                           aria-label={`${r.name} 수량`}
@@ -799,10 +873,19 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             (r.qtyFrom != null && r.qtyFrom !== r.qty ? "border-rose-300 bg-rose-50/50" : "border-stone-200 bg-white")
                           }
                         />
-                        {r.qtyFrom != null && r.qtyFrom !== r.want && (
+                        {r.qtyFrom != null && r.qtyFrom !== r.wantOrder && (
                           <button type="button" onClick={() => patchRow(r.id, { qty: r.qtyFrom, qtyFrom: null })} title="원래 수량으로" className="mt-0.5 block w-full text-right text-[11px] text-stone-400 underline decoration-dotted">
                             원래 {r.qtyFrom}
                           </button>
+                        )}
+                        {/* 오늘출발 여유분 (11/8) */}
+                        {r.extra > 0 && (
+                          <div className="mt-1 max-w-[7rem] text-right text-[11px] leading-tight text-emerald-700" title="밀린 주문 위에 더 사는 오늘출발용 재고 — 위 '오늘출발 여유분' 칸의 계산식">
+                            {r.wantOrder > 0 ? `주문 ${r.wantOrder} + ` : ""}오늘출발 {r.extra}
+                            <button type="button" onClick={() => removeRestock(r)} className="ml-1 text-stone-400 underline decoration-dotted">
+                              빼기
+                            </button>
+                          </div>
                         )}
                         {r.prevQty > 0 && !draft.diff?.off && (
                           <div className="mt-1 text-right text-[11px] leading-tight text-stone-500" title="이지어드민 파일 수량 − 앞 차수 수량">
