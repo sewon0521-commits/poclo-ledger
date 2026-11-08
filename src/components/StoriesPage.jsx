@@ -505,7 +505,7 @@ function DayRow({ day, all, shops, srcOf, pending, onOpen }) {
         {day.items.map((x) => {
           const src = srcOf(x, "thumb");
           const wait = pending.has(x.id);
-          const line = [all ? shopName(shops.find((s) => s.id === x.shopId)) : "", x.memo].filter(Boolean).join(" · ");
+          const line = [all ? shopName(shops.find((s) => s.id === x.shopId)) : "", x.hl ? `하이라이트 ${x.hl}` : "", x.memo].filter(Boolean).join(" · ");
           return (
             <button
               key={x.id}
@@ -535,6 +535,9 @@ export default function StoriesPage({ online, accounts = [] }) {
   const [msg, setMsg] = useState("");
   const [sel, setSelState] = useState(() => read(SEL, "all"));
   const [q, setQ] = useState("");
+  // 11/9 세원 "하이라이트에 프리뷰, 선주문 가능도 저장" — 하이라이트에서 받은 캡처는 x.hl(하이라이트 이름).
+  // 경쟁사를 고르면 칩으로 거른다: "" 전체 · "__story" 하이라이트 아닌 스토리만 · 이름 = 그 하이라이트만. 날짜는 스토리가 처음 올라온 날 그대로.
+  const [hl, setHl] = useState("");
   const [limit, setLimit] = useState(PAGE);
   const [adding, setAdding] = useState(null); // 넣기 창 — 처음 사진들
   const [shopEdit, setShopEdit] = useState(null); // {shop} — shop 이 없으면 새로
@@ -547,6 +550,7 @@ export default function StoriesPage({ online, accounts = [] }) {
   const setSel = (v) => {
     setSelState(v);
     write(SEL, v);
+    setHl("");
     setLimit(PAGE);
   };
 
@@ -687,10 +691,20 @@ export default function StoriesPage({ online, accounts = [] }) {
     const n = q.trim().toLowerCase();
     const mine = [...items, ...pending].filter((x) => {
       if (current && x.shopId !== current.id) return false;
-      return !n || `${x.memo || ""} ${shopName(shopMap[x.shopId])}`.toLowerCase().includes(n);
+      if (current && hl === "__story" && x.hl) return false;
+      if (current && hl && hl !== "__story" && x.hl !== hl) return false;
+      return !n || `${x.memo || ""} ${x.hl || ""} ${shopName(shopMap[x.shopId])}`.toLowerCase().includes(n);
     });
     return byDay(mine);
-  }, [items, pending, current, q, shopMap]);
+  }, [items, pending, current, hl, q, shopMap]);
+  // 고른 경쟁사의 하이라이트 이름 · 장수 (먼저 넣은 순서)
+  const hlTabs = useMemo(() => {
+    if (!current) return [];
+    const mine = items.filter((x) => x.shopId === current.id);
+    const names = [...new Set(mine.filter((x) => x.hl).map((x) => x.hl))];
+    if (!names.length) return [];
+    return [["", "전체", mine.length], ["__story", "스토리", mine.filter((x) => !x.hl).length], ...names.map((h) => [h, h, mine.filter((x) => x.hl === h).length])];
+  }, [items, current]);
   const viewDays = useMemo(() => days.map((d) => ({ ...d, items: d.items.filter((x) => !pendingIds.has(x.id)) })).filter((d) => d.items.length), [days, pendingIds]);
   const shown = days.slice(0, limit);
 
@@ -827,6 +841,26 @@ export default function StoriesPage({ online, accounts = [] }) {
                 )}
               </label>
             </div>
+            {hlTabs.length > 0 && (
+              <nav className="mb-2 flex gap-1 overflow-x-auto rounded-xl bg-stone-100 p-1 text-sm" role="tablist" aria-label="스토리 · 하이라이트">
+                {hlTabs.map(([k, label, n], i) => (
+                  <button
+                    key={k || "all"}
+                    type="button"
+                    role="tab"
+                    aria-selected={hl === k}
+                    onClick={() => {
+                      setHl(k);
+                      setLimit(PAGE);
+                    }}
+                    className={"flex shrink-0 items-center gap-1 rounded-lg px-3 py-1.5 font-medium whitespace-nowrap " + (hl === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}
+                  >
+                    {i > 1 && <span className={"text-[11px] " + (hl === k ? "text-rose-700" : "text-stone-400")}>하이라이트</span>}
+                    {label} <span className={"tabular-nums " + (hl === k ? "text-rose-700" : "text-stone-400")}>{n}</span>
+                  </button>
+                ))}
+              </nav>
+            )}
             <p className="mb-3 text-xs text-stone-400">스토리를 캡처해서 화면 아무 데나 붙여넣기(Ctrl+V)하거나 끌어다 놓으면 넣기 창이 떠요. 폰은 '캡처 넣기'로 사진을 골라요.</p>
 
             {shown.length ? (
