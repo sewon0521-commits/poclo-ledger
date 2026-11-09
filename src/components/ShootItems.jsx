@@ -5,7 +5,7 @@ import { FIELD, md, won, upsert, remove, putPhoto, loadKey, onSettingsChange, wa
 import { starsOf, starLabel } from "../lib/lookStars";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
-import { MODELS, modelsOf, sortModels, suggestModel, sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf } from "../lib/sinsang";
+import { MODELS, modelsOf, sortModels, suggestModel, sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, fabricAsk, fabricText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -438,9 +438,17 @@ function ModelPick({ value, onChange, suggest, day }) {
         모델 <span className="font-normal text-stone-400">여러 명 골라도 돼요 · 상세페이지 맨 위 모델 정보가 이걸로 정해져요</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {MODELS.map((m) => {
+        {/* 지금 쓰는 모델 + 이 상품에 예전에 저장된 모델(연서·지원 — 11/9 목록에서 뺌)도 보여서 뺄 수 있게 */}
+        {[...MODELS, ...value.filter((v) => !MODELS.includes(v))].map((m) => {
           const on = value.includes(m);
           const soft = tip === m;
+          const old = !MODELS.includes(m);
+          if (old)
+            return (
+              <button key={m} type="button" onClick={() => flip(m)} aria-pressed title="예전에 고른 모델이에요(지금 목록엔 없음) — 누르면 빠져요" className="rounded-full border border-stone-500 bg-stone-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-600">
+                {m} <span className="text-[10px] font-normal text-stone-200">예전</span>
+              </button>
+            );
           return (
             <button
               key={m}
@@ -913,6 +921,7 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                   <input value={x.origin || ""} onChange={(e) => set({ origin: e.target.value })} className={FIELD} />
                 </Label>
               </div>
+              {fabricAsk(x) && <FabricAsk x={x} items={d.items} />}
               {(contactLines(x.contact).length > 0 || x.desc) && (
                 <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
                   <span className="font-semibold text-stone-500">거래처가 제품 설명에 적어 둔 것</span>
@@ -1195,6 +1204,64 @@ function extendOps(saveItems, today) {
     asked: (ids) => map(ids, (it) => ({ ...it, extendAskedOn: today })),
     undo: (id) => map([id], (it) => ({ ...it, extensions: (it.extensions || []).slice(0, -1) })),
   };
+}
+
+/**
+ * 혼용률 '도매문의' 멘트 (11/9 세원) — 상품 창 혼용률 칸 아래. 같은 거래처에 '도매문의' 상품이 더 있으면 칩으로 같이 넣는다(한 번에 물어보니까).
+ * 휴지통·보류·드랍 상품은 빼고, 처음엔 이 상품만. 고른 순서대로 [이름,이름].
+ */
+function FabricAsk({ x, items }) {
+  const same = (y) => (x.vendorId ? y.vendorId === x.vendorId : !!x.vendor && y.vendor === x.vendor);
+  const others = (items || []).map(normalize).filter((y) => y.id !== x.id && same(y) && fabricAsk(y) && !["trash", "drop"].includes(y.stage));
+  const [picks, setPicks] = useState([]);
+  const [note, setNote] = useState("");
+  const text = fabricText([x, ...others.filter((y) => picks.includes(y.id))].map((y) => y.name || y.fullName).filter(Boolean));
+  const friend = friendName(x.vendor, x.place);
+  const say = async (what, ok) => setNote((await copy(what)) ? ok : "복사가 막혔어요. 글을 끌어서 직접 복사해 주세요.");
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-amber-900">혼용률이 '도매문의'예요 — 거래처에 물어볼 멘트</span>
+        {friend && (
+          <button type="button" onClick={() => say(friend, `카톡 이름 '${friend}' 복사했어요.`)} className="text-[11px] text-amber-800 hover:text-amber-950">
+            카톡 이름 {friend} 복사
+          </button>
+        )}
+      </div>
+      {others.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-amber-800">같은 거래처 '도매문의' 상품도 같이</span>
+          {others.map((y) => {
+            const on = picks.includes(y.id);
+            return (
+              <button
+                key={y.id}
+                type="button"
+                onClick={() => setPicks(on ? picks.filter((k) => k !== y.id) : [...picks, y.id])}
+                aria-pressed={on}
+                className={"rounded-full border px-2.5 py-0.5 text-xs " + (on ? "border-amber-700 bg-amber-700 text-white" : "border-amber-200 bg-white text-stone-600 hover:border-amber-400")}
+              >
+                {on ? "✓ " : "+ "}
+                {y.name || "이름 없음"}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <p className="rounded-lg bg-white px-3 py-2 text-sm leading-relaxed whitespace-pre-line text-stone-800 select-all">{text}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => say(text, "멘트를 복사했어요. 카톡에서 거래처 방에 붙여넣기(Ctrl+V) 하세요.")}
+          className="flex items-center gap-1.5 rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white"
+        >
+          <Copy size={13} /> 멘트 복사
+        </button>
+        <span className="text-[11px] text-amber-800">답을 받으면 혼용률 칸을 고쳐 주세요 — '도매문의'가 빠지면 이 칸은 사라져요.</span>
+      </div>
+      {note && <p className="mt-1.5 text-xs text-emerald-700">{note}</p>}
+    </div>
+  );
 }
 
 /**
@@ -2019,6 +2086,38 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
   // 고른 날의 요청 상품이 다 넘어가 버렸으면 전체로
   const day = srcDays.some(([k]) => k === srcDay) ? srcDay : "";
+
+  // 등록 탭 촬영일 (11/9 세원: "4 등록에 코디에 촬영 날짜 짜놓은대로 버튼 — 요청에 소싱한 날 버튼 만든 것처럼") — 그 상품이 든 코디의 촬영일(shootDate).
+  // 한 상품이 여러 코디(아더컬러 재촬영)에 들었으면 그 날들 모두에 센다. 코디에 없으면 상품의 촬영 차수 날짜 → 촬영 끝난 날(shotOn), 그것도 없으면 '촬영일 없음'.
+  const [shotDay, setShotDay] = useState("");
+  const codiDays = useMemo(() => {
+    const byItem = new Map();
+    const ups = new Map(); // 촬영일 → 그날 코디의 업로드 날짜들 (칩에 마우스를 올리면)
+    for (const c of d.codis || []) {
+      if (!c.shootDate) continue;
+      for (const id of c.itemIds || []) byItem.set(id, [...new Set([...(byItem.get(id) || []), c.shootDate])]);
+      if (c.uploadOn) ups.set(c.shootDate, [...new Set([...(ups.get(c.shootDate) || []), c.uploadOn])].sort());
+    }
+    return { byItem, ups };
+  }, [d.codis]);
+  const shotDaysOf = (x) => {
+    const got = codiDays.byItem.get(x.id);
+    if (got) return got;
+    const rounds = [...new Set(shootsOf(x).map((r) => r.on).filter(Boolean))];
+    return rounds.length ? rounds : x.shotOn ? [x.shotOn] : [];
+  };
+  const regDays = useMemo(() => {
+    const m = new Map();
+    for (const x of items) {
+      if (x.stage !== "shot") continue;
+      const ks = shotDaysOf(x);
+      for (const k of ks.length ? ks : ["none"]) m.set(k, (m.get(k) || 0) + 1);
+    }
+    const dated = [...m.entries()].filter(([k]) => k !== "none").sort((a, b) => b[0].localeCompare(a[0]));
+    return m.has("none") ? [...dated, ["none", m.get("none")]] : dated;
+  }, [items, codiDays]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sday = regDays.some(([k]) => k === shotDay) ? shotDay : "";
+  const onShotDay = (x) => (sday === "none" ? !shotDaysOf(x).length : shotDaysOf(x).includes(sday));
   const shortTitle = (k) => dayTitle(k).replace(/^(\d+)월 (\d+)일/, "$1/$2");
 
   const weekAgo = shiftDay(today, -6);
@@ -2039,6 +2138,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!weekOnly || tab !== "pick" || (x.pickedOn || "") >= weekAgo) &&
         (!reqOnly || tab !== "request" || reqHit(x, reqOnly)) &&
         (!day || tab !== "request" || madeOn(x) === day) &&
+        (!sday || tab !== "shot" || onShotDay(x)) &&
         (!retryDay || reqOnly !== "retryOn" || x.retryOn === retryDay) &&
         (!dueDay || tab !== "returns" || dueOf(x) === dueDay) &&
         (!backOnly || tab !== "returns" || x.stage === "back") &&
@@ -2046,8 +2146,8 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         (!mateOf || tab !== "returns" || mateKey(x) === mateOf) &&
         hit(x),
     );
-  }, [items, tab, type, kind, dq, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf, starOnly, stars]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [limit, more] = useLimit(PAGE, [tab, type, kind, dq, weekOnly, reqOnly, retryDay, dueDay, backOnly, day, noDetail, mateOf, starOnly].join("|"));
+  }, [items, tab, type, kind, dq, weekOnly, weekAgo, reqOnly, retryDay, dueDay, backOnly, day, sday, codiDays, noDetail, mateOf, starOnly, stars]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [limit, more] = useLimit(PAGE, [tab, type, kind, dq, weekOnly, reqOnly, retryDay, dueDay, backOnly, day, sday, noDetail, mateOf, starOnly].join("|"));
 
   // 같은 거래처에 같이 반납할 것 (10/15 세원: "니트홀릭 1번 제품을 포장하는데 니트홀릭 상품을 2개 더 포장해야 되는데, 거래처 찾기에서 또 쳐서 확인해야 돼 —
   // 1번 포장하면서 알 수 있게, 옆에 쪼그맣게 안 거슬리게") — 반납·결제 예정에 있는 같은 거래처 상품(다른 기한 묶음 것도). 누르면 그 거래처만.
@@ -2298,6 +2398,27 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
           )}
           <span className="text-stone-400">하나만 바꾸려면 상품을 눌러 '진행' 칸에서</span>
         </label>
+      )}
+
+      {tab === "shot" && regDays.length > 0 && (
+        <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs [scrollbar-width:none]">
+          <span className="shrink-0 font-medium text-stone-500">촬영일</span>
+          {[["", "전체", items.filter((x) => x.stage === "shot").length], ...regDays.map(([k, n]) => [k, k === "none" ? "촬영일 없음" : shortTitle(k), n])].map(([k, label, n]) => {
+            const ups = codiDays.ups.get(k) || [];
+            return (
+              <button
+                key={k || "all"}
+                type="button"
+                onClick={() => setShotDay(k)}
+                aria-pressed={sday === k}
+                title={!k ? "등록 단계 상품 전부" : k === "none" ? "코디 촬영일도 촬영 차수 날짜도 없는 상품" : `${dayTitle(k)} 촬영 코디 상품만${ups.length ? ` · 업로드 ${ups.map(md).join(", ")}` : ""}`}
+                className={"shrink-0 rounded-full border px-3 py-1 font-medium whitespace-nowrap " + (sday === k ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-300")}
+              >
+                {label} <span className={sday === k ? "text-stone-300" : "text-stone-400"}>{n}</span>
+              </button>
+            );
+          })}
+        </div>
       )}
 
         </>

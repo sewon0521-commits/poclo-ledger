@@ -89,6 +89,16 @@ export const extendText = (names, days = 7) =>
   EXTEND_MSG.replace("[제품명]", `[${names.join(",")}]`).replace("일주일만", SPAN(Number(days) || 7));
 
 /**
+ * 혼용률 '도매문의' (11/9 세원: "혼용률에 도매문의 적혀 있으면 거래처에 바로 복붙할 수 있게 멘트 — 안녕하세요 사장님! / 저희 [제품명] 상품 혼용률 공유 부탁드립니다!!")
+ * 신마 혼용률 칸에 거래처가 '도매문의'를 적어 둔 상품('면 100%, 도매문의' 처럼 섞여서도). [제품명] 자리에 [상품명] — 여럿이면 [이름,이름].
+ * 거래처가 알려 주면 혼용률 칸을 고친다 → '도매문의' 가 빠지면 멘트 칸도 사라진다.
+ */
+export const FABRIC_MSG = `안녕하세요 사장님!
+저희 [제품명] 상품 혼용률 공유 부탁드립니다!!`;
+export const fabricAsk = (x) => /도매\s*문의/.test(x?.fabric || "");
+export const fabricText = (names) => FABRIC_MSG.replace("[제품명]", `[${names.join(",")}]`);
+
+/**
  * 촬영 기록 (10/3 세원: "터지는 상품은 아더컬러를 찍는 경우가 많아. 9/1 1차, 잘 팔려서 9/5 2차, 아더컬러 추가해서 또 터지면 9/10 3차 — + 로 늘리게")
  * shoots = [{on, opts}] (1차부터). 예전 칸 shootDate·shootOpts 는 1차로 읽고, 고치면 1차 값으로 같이 적어 둔다(코디 촬영일 등 예전 코드용).
  */
@@ -105,7 +115,8 @@ export const withShoots = (shoots) => ({ shoots, shootDate: shoots[0]?.on || "",
  * ⚠ 칸 이름 models 를 바꾸지 말 것: poclo-cafe24/erp_sync.py 가 이 값을 상품 메모 `모델:` 줄로 옮기고, 그걸로 상세페이지 맨 위 모델 정보 띠가 정해진다.
  * 짧은 이름으로 저장한다(촬영 관리엔 '이주현'·'남연서'처럼 성까지). 모델이 늘면 여기에 더한다 — 순서 = 칩 순서 = 저장 순서.
  */
-export const MODELS = ["주현", "연서", "지원"];
+// 11/9 세원: "모델 이주현, 김태은 두 명만 쓸 거야" — 연서·지원 칩은 뺐다(예전에 저장된 상품의 연서·지원은 그대로 남고, 상품 창에서 회색 칩으로 보여 뺄 수 있다)
+export const MODELS = ["주현", "태은"];
 export const modelsOf = (x) => (Array.isArray(x?.models) ? x.models.filter(Boolean) : []);
 /** '이주현' → '주현' (모르는 이름은 "") */
 export const modelShort = (name) => {
