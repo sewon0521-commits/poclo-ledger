@@ -25,7 +25,7 @@ export const inRangeRows = (rows, range) =>
  * 새벽 자동 갱신은 주문이 있는 날만 줄을 만든다 → 주문 0건인 날은 표에 칸이 없어 광고비를 적을 데가 없었다.
  * 첫 기록부터 오늘까지 빠진 날을 0원 줄로 채운다(empty: true). 광고비를 적으면 그때 서버에 줄이 생긴다.
  */
-function fillGaps(rows) {
+export function fillGaps(rows) {
   if (!rows.length) return rows;
   const have = new Set(rows.map((r) => r.date));
   const d = new Date(rows[0].date + "T00:00:00");

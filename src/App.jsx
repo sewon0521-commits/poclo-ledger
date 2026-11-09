@@ -25,6 +25,7 @@ import TxBreakdown from "./components/TxBreakdown";
 import InvoicePage, { RequestMessage } from "./components/InvoicePage";
 import SalesPage from "./components/SalesPage";
 import PnlPage from "./components/PnlPage";
+import AdScalePage from "./components/AdScalePage";
 import PendingPage from "./components/PendingPage";
 import PricingPage from "./components/PricingPage";
 import SoOrderPage from "./components/SoOrderPage";
@@ -429,6 +430,8 @@ pg === "home" ? (
                   onPage={go}
                   missingCost={S.missingCost}
                 />
+              ) : pg === "adScale" ? (
+                <AdScalePage rows={S.rows} conf={S.conf} online={L.mode === "remote" && !!L.session} onPage={go} />
               ) : pg === "pricing" ? (
                 <PricingPage
                   rows={S.rows}

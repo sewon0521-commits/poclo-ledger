@@ -39,6 +39,7 @@ import {
   HandCoins,
   SlidersHorizontal,
   FolderHeart,
+  Gauge,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -112,6 +113,8 @@ export const SECTIONS = [
         items: [
           { key: "sales", label: "포클로 매출 장부", icon: TrendingUp },
           { key: "pnl", label: "손익", icon: Scale },
+          // 11/9 세원: 쇼필공 강의 "터질 때 광고비를 많이 써야 — ROAS 는 떨어져도 남는 순수익은 커진다" 맞는지 확인 + ERP 로 (components/AdScalePage.jsx)
+          { key: "adScale", label: "광고 증액 판단", icon: Gauge },
           { key: "pricing", label: "판매가 계산기", icon: Calculator },
         ],
       },
