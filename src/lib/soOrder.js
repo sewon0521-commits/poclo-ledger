@@ -188,7 +188,10 @@ export function soLines(rows, type) {
     const pick = r.misUsed > 0 ? `미송 ${r.misUsed}장 ${r.qty > 0 ? "같이 " : ""}받기(결제함)` : "";
     // 미송·입금은 새로 사는 줄만 — 11/3 입금: 온라인 입금일 때만 '· 온라인입금'(대납은 안 적는다, 넥스트팩 변환기와 같게)
     const head = r.qty > 0 ? [r.miss === "no" ? "미송X" : r.miss === "yes" ? "미송가능" : "", r.pay === "online" ? "온라인입금" : ""].filter(Boolean).join(" · ") : "";
-    const memo = [head, pick, r.memo].filter(Boolean).join(" ");
+    // 11/9 세원: 미송 받을 게 있는 줄은 '총 N장'(새로 사는 수량 + 미송)을 끝에 — 수량 3 + '미송 1장'을 삼촌이 4장으로 읽지 않게.
+    // 수량 칸 = 새로 주문하는 장수만, 메모 = 미송가능/ 미송 1장 같이 받기(결제함)/ 총 3장 (세원 순서 그대로, '/ '로 나눔)
+    const total = r.misUsed > 0 ? `총 ${r.qty + r.misUsed}장` : "";
+    const memo = [head, pick, total, r.memo].filter(Boolean).join("/ ");
     const cells = [r.store || r.vendor, type || "주문", r.name, r.option, "", String(r.qty), r.price > 0 ? String(Math.round(r.price)) : "", memo, "", "", ""];
     return cells.map((c) => String(c).replace(/[\t\r\n]+/g, " ")).join("\t");
   });

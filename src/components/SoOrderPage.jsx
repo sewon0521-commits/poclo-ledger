@@ -1037,7 +1037,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 {misTaken.length > 0 && (
                   <div className="text-emerald-700">
                     남은 미송을 뺐어요 — {misTaken.map((r) => `${r.store} ${r.name} ${r.misUsed}장`).join(" · ")}
-                    {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 수량 0 · 메모 '미송 N장 받기(결제함)'로 넣어요 — 삼촌이 매장에 들르게)`}
+                    {" — 수량 칸은 새로 주문하는 장수만, 메모는 '미송가능/ 미송 N장 같이 받기(결제함)/ 총 N장'이에요"}
+                    {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 수량 0 · 메모 '미송 N장 받기(결제함)/ 총 N장'으로 넣어요 — 삼촌이 매장에 들르게)`}
                   </div>
                 )}
                 {offRows.length > 0 && <div className="text-stone-500">뺀 줄 {offRows.length}개는 안 넣어요 — 표 맨 아래에서 되살리거나 지워요.</div>}
