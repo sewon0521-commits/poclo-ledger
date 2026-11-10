@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Truck, RefreshCw, ChevronDown } from "lucide-react";
 import { changeKey, loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
-import { when } from "../lib/cs";
+import { when, DELAY_TEMPLATE, fillDelay, scheduleText, codeOf, mdKo } from "../lib/cs";
 
 /**
  * CS 관리 위 '네이버페이 발송지연' (11/10 세원: "네이버 페이센터에서 발송기한이 있거든? 발송지연 안내 자동화 — 매일 보고 답변해야 돼서 너무 귀찮아")
@@ -22,13 +22,16 @@ export default function NpayDelay({ online, always = false }) {
   const [v, setV] = useState(null);
   const [sel, setSel] = useState(() => new Set());
   const [dates, setDates] = useState({});
-  const [detail, setDetail] = useState("");
+  const [detail, setDetail] = useState(""); // 세원 틀(11/11) — () 칸은 줄마다 채움
+  const [sched, setSched] = useState({}); // 줄마다 (일정)·(예상일자)
+  const [inbound, setInbound] = useState(null);
   const [open, setOpen] = useState(true);
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
     let alive = true;
     const load = () => loadKey("npay_delay", online, { items: [] }).then((x) => alive && setV(x)).catch(() => {});
+    loadKey("inbound_eta", online, { items: [] }).then((x) => alive && setInbound(x)).catch(() => {});
     load();
     const off1 = onSettingsChange((k) => k === "npay_delay" && load());
     const off2 = watchKeys(["npay_delay"], load, 20000);
@@ -42,8 +45,11 @@ export default function NpayDelay({ online, always = false }) {
   const items = useMemo(() => (v?.items || []).filter((x) => ["new", "queued", "error", "elsewhere"].includes(x.status)).sort((a, b) => (a.deadline || "").localeCompare(b.deadline || "")), [v]);
   const doneN = (v?.items || []).filter((x) => x.status === "done").length;
   if (!v || (!always && !items.length && !v.error)) return null;
-  const base = detail || items.find((x) => x.detail)?.detail || "";
-  const busy = (x) => x.status === "queued" || x.status === "elsewhere"; // elsewhere = 다른 창이 직접 처리 중(11/10 테디)
+  // 11/11 세원 배송지연 틀 — 네이버 문단 포함, (일정)=출고 예정 · (2주뒤)=새 발송기한 · (예상일자)=실제 예상일
+  const base = detail || fillDelay(DELAY_TEMPLATE, { naver: true }).replace(/\(2주뒤\)|\(일정\)|\(예상일자\)/g, (m) => m);
+  const whenOf = (x) => sched[x.id] ?? scheduleText(inbound, codeOf(x.product), x.option);
+  const textOf = (x) => fillDelay(base, { when: whenOf(x), until: mdKo(dates[x.id] || x.newDeadline), expect: whenOf(x), naver: true });
+  const busy =(x) => x.status === "queued" || x.status === "elsewhere"; // elsewhere = 다른 창이 직접 처리 중(11/10 테디)
   const picked = items.filter((x) => sel.has(x.id) && !busy(x));
   const soon = items.filter((x) => !busy(x) && dday(x.deadline) <= 1);
   const toggle = (id) => setSel((s) => {
@@ -54,12 +60,14 @@ export default function NpayDelay({ online, always = false }) {
   });
   const go = async () => {
     if (!picked.length) return;
-    const lines = picked.map((x) => `${clean(x.product)} ${x.option} → ${md(dates[x.id] || x.newDeadline)}`).join("\n");
-    if (!window.confirm(`${picked.length}건 발송지연 처리할까요?\n${lines}\n\n손님에게 아래 글이 보이고, 한 주문에 한 번만 돼요.\n"${base}"`)) return;
+    if (picked.some((x) => !whenOf(x))) return window.alert("출고 예정(일정) 칸이 빈 줄이 있어요 — 채운 뒤 눌러 주세요.");
+    if (picked.some((x) => textOf(x).length > 500)) return window.alert("상세사유가 500자를 넘는 줄이 있어요 — 틀을 줄여 주세요.");
+    const lines = picked.map((x) => `${clean(x.product)} ${x.option} → 기한 ${md(dates[x.id] || x.newDeadline)} · 출고 예정 '${whenOf(x)}'`).join("\n");
+    if (!window.confirm(`${picked.length}건 발송지연 처리할까요? (기한이 가까운 것만 골랐는지 봐 주세요)\n${lines}\n\n손님에게 아래 글이 보이고, 한 주문에 한 번만 돼요.\n\n${textOf(picked[0])}`)) return;
     const ids = picked.map((x) => x.id);
     await changeKey("npay_delay", online, (w) => ({
       ...w,
-      items: (w.items || []).map((x) => (ids.includes(x.id) ? { ...x, status: "queued", newDeadline: dates[x.id] || x.newDeadline, detail: base, error: "", askedAt: new Date().toISOString() } : x)),
+      items: (w.items || []).map((x) => (ids.includes(x.id) ? { ...x, status: "queued", newDeadline: dates[x.id] || x.newDeadline, detail: textOf(x), error: "", askedAt: new Date().toISOString() } : x)),
     }));
     await changeKey("cs_queue", online, (q) => ({ ...q, items: [...(q.items || []), { id: `npay-${Date.now()}`, kind: "npay_delay", ids, at: new Date().toISOString() }] }));
     setSel(new Set());
@@ -98,7 +106,8 @@ export default function NpayDelay({ online, always = false }) {
                   <th className="py-1 pr-2">손님</th>
                   <th className="py-1 pr-2">결제</th>
                   <th className="py-1 pr-2">발송기한</th>
-                  <th className="py-1 pr-2">새 발송기한</th>
+                  <th className="py-1 pr-2">새 발송기한 (2주뒤)</th>
+                  <th className="py-1 pr-2">출고 예정 (일정)</th>
                   <th className="py-1">상태</th>
                 </tr>
               </thead>
@@ -121,6 +130,9 @@ export default function NpayDelay({ online, always = false }) {
                       <td className="py-1.5 pr-2">
                         <input type="date" value={dates[x.id] || x.newDeadline || ""} disabled={busy(x)} onChange={(e) => setDates((s) => ({ ...s, [x.id]: e.target.value }))} className="rounded-lg border border-stone-200 px-1.5 py-0.5 text-xs" />
                       </td>
+                      <td className="py-1.5 pr-2">
+                        <input value={whenOf(x) || ""} disabled={busy(x)} onChange={(e) => setSched((s) => ({ ...s, [x.id]: e.target.value }))} placeholder="예: 다음 주 주중" className={"w-28 rounded-lg border px-1.5 py-0.5 text-xs " + (whenOf(x) ? "border-stone-200" : "border-amber-300 bg-amber-50")} />
+                      </td>
                       <td className="py-1.5 text-xs">
                         {x.status === "elsewhere" ? <span className="text-stone-500" title={x.note}>다른 창이 처리 중</span> : x.status === "queued" ? <span className="text-sky-700">처리 중…</span> : x.status === "error" ? <span className="text-rose-700" title={x.error}>다시 확인</span> : <span className="text-stone-400">처리 전</span>}
                       </td>
@@ -131,8 +143,8 @@ export default function NpayDelay({ online, always = false }) {
             </table>
           </div>
           <label className="block">
-            <span className="mb-0.5 block text-[11px] font-medium text-stone-500">손님에게 보이는 상세사유 (고른 주문에 같이 들어가요 · 처리 뒤 못 고쳐요)</span>
-            <textarea value={base} onChange={(e) => setDetail(e.target.value)} rows={2} maxLength={500} className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-rose-600" />
+            <span className="mb-0.5 block text-[11px] font-medium text-stone-500">손님에게 보이는 상세사유 — 세원 틀(11/11). (일정)·(예상일자) = 줄의 '출고 예정', (2주뒤) = 새 발송기한으로 줄마다 채워요 · 500자까지 · 처리 뒤 못 고쳐요</span>
+            <textarea value={base} onChange={(e) => setDetail(e.target.value)} rows={10} className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm leading-relaxed outline-none focus:border-rose-600" />
           </label>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={rescan} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-stone-500 hover:text-stone-800">

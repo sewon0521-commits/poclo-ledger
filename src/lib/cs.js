@@ -127,7 +127,11 @@ AI가 답변 초안을 쓸 때 맨 먼저 읽어요. 세원이 고치면 다음 
 - 교환·반품(단순 변심): 받은 날부터 7일 안, 왕복 배송비 고객 부담, 착용·세탁 흔적이 있으면 어려움.
 - 주문 취소·옵션 변경: 출고 전이면 바로 해 드림, 출고됐으면 받으신 뒤 교환·반품으로.
 - ⭐ 부분 배송(세원 11/10): 한 주문 안에서 옵션마다 출고 가능일을 따로 봐요(같이 온 '거래처 입고 예정'·재고). 바로 나갈 수 있는 것과 늦는 것이 섞이면
-  어떤 옵션이 언제 나가는지 적고 "가능한 것부터 먼저 보내 드릴까요?"를 꼭 넣어요. 먼저 보낼 때 배송비 얘기는 하지 않아요(세원 확인 전). 날짜 도착은 약속하지 않아요.
+  어떤 옵션이 언제 나가는지 적고 "가능한 것부터 먼저 보내 드릴까요?"를 꼭 넣어요. 날짜 도착은 약속하지 않아요.
+  먼저 보내는 두 번째 택배비는 **지금은 저희가 내요**(세원 11/11) — 손님에게 배송비를 따로 받지 않아요.
+- 배송지연 안내 문자·네이버페이 상세사유는 세원 틀(11/11)대로: "현재 주문 폭주로 물량이 딸리고 있어요 … 공장에 긴급 리오더 요청 … (일정)에 출고될 예정이에요!"
+  네이버페이 주문만 "시스템상 배송 기한 연장을 위해 출고 예정일을 '(2주 뒤)'로 … 실제로는 (예상일자) 훨씬 빠르게" 문단을 더해요.
+- 취소 요청: 출고 전이면 바로 취소·전액 환불. 무통장(현금) 결제는 환불 계좌가 필요할 수 있어요 → [환불 계좌] 빈칸. 취소는 세원이 카페24에서 처리한 뒤에 '취소 완료' 답을 보내요.
 - 사이즈: 상품 페이지 실측 + 모델 정보로. "체형에 따라 개인차가 있을 수 있어요" 꼭.
 
 ## 자주 쓰는 것
@@ -300,6 +304,52 @@ export function etaFor(inbound, stock, code, option) {
 export function etaText(inbound, stock, lines) {
   return (lines || []).map((l) => `${l.name} · ${l.option || "옵션 없음"} · ${l.qty || 1}개 → ${etaFor(inbound, stock, codeOf(l.name), l.option).label}`).join(String.fromCharCode(10));
 }
+
+// ------------------------------------------------------------------ 배송지연 안내 틀 (11/11 세원이 직접 씀 — () 칸만 바꾼다)
+// (일정) = 출고 예정 · (2주뒤) = 네이버페이 연장 기한 · (예상일자) = 실제 예상일. 네이버 문단은 네이버페이 주문에만.
+export const DELAY_TEMPLATE = [
+  "안녕하세요 고객님 포클로입니다!",
+  "",
+  "지금 고객님께서 주문해주신 상품이 현재 주문 폭주로 물량이 딸리고 있어요ㅠㅠㅠ",
+  "빠르게 보내드리고 싶었는데 배송 지연으로 불편을 드려 너무 죄송합니다..",
+  "",
+  "현재 공장에 긴급 리오더 요청을 드려 입고 준비 중이며",
+  "(일정)에 출고될 예정이에요!",
+  "",
+  "@@NAVER@@",
+  "조금만 더 기다려주시면 꼼꼼하게 검수해서 최대한 빨리 예쁘게 보내드릴게요!",
+  "감사합니다!",
+].join(String.fromCharCode(10));
+export const DELAY_NAVER = [
+  "네이버 페이로 주문해 주신 고객님의 경우 시스템상 배송 기한 연장을 위해 출고 예정일을 '(2주뒤)'로 설정해 두었어요!",
+  "실제로는 공장 입고되는 대로(예상일자) 훨씬 빠르게 발송해 드릴 예정이니 날짜는 신경 쓰지 않으셔도 됩니다!",
+  "",
+].join(String.fromCharCode(10));
+/** 틀에 () 칸 채우기 — naver 면 네이버 문단 넣고, 아니면 뺀다 */
+export function fillDelay(tpl, { when = "", until = "", expect = "", naver = false } = {}) {
+  const NL = String.fromCharCode(10);
+  return String(tpl || DELAY_TEMPLATE)
+    .replace("@@NAVER@@" + NL, naver ? DELAY_NAVER : "")
+    .replace("@@NAVER@@", naver ? DELAY_NAVER : "")
+    .split("(일정)").join(when || "(일정)")
+    .split("(2주뒤)").join(until || "(2주뒤)")
+    .split("(예상일자)").join(expect || "(예상일자)");
+}
+const MD = (d) => (d ? `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일` : "");
+/** (일정)에 넣을 말 — 거래처 입고 예정에서. '밤 입고 → 11/13 출고' → '11/13' · '리오더 중 · 11/23~27 출고 예정' → '11/23~27' · '다음 주 주중 입고' → '다음 주 주중' */
+export function scheduleText(inbound, code, option) {
+  const rows = (inbound?.items || []).filter((x) => x.code === code);
+  const hit = rows.find((x) => x.option && String(option || "").includes(x.option)) || rows.find((x) => !x.option);
+  if (!hit) return "";
+  const memo = String(hit.memo || "");
+  const arrow = memo.match(/→\s*([^\s·]+)\s*출고/);
+  if (arrow) return arrow[1];
+  const range = memo.match(/(\d+\/\d+(?:~\d+(?:\/\d+)?)?)\s*출고/);
+  if (range) return range[1];
+  if (hit.status === "date" && hit.date) return `${Number(hit.date.slice(5, 7))}/${Number(hit.date.slice(8, 10))} 입고 뒤 바로`;
+  return memo.replace(/\s*입고.*$/, "").trim();
+}
+export const mdKo = MD;
 
 /** 몇 분 전 · 오늘 14:20 · 10/12 */
 export function when(iso, now = Date.now()) {

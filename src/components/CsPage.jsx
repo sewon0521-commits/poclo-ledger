@@ -585,6 +585,13 @@ function threadOf(x) {
 }
 function ChatThread({ v }) {
   const [big, setBig] = useState(null);
+  // 11/11 세원 "사진 누르면 더 크게" — 바깥을 누르거나 ESC 로 닫기
+  useEffect(() => {
+    if (!big) return;
+    const k = (e) => e.key === "Escape" && setBig(null);
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [big]);
   const t = threadOf(v);
   if (!t.length) return <div className="rounded-xl bg-stone-50 px-3.5 py-3 text-sm text-stone-500">(캡처에서 글을 못 읽었어요)</div>;
   return (
@@ -604,11 +611,81 @@ function ChatThread({ v }) {
         </div>
       ))}
       {big && (
-        <button type="button" onClick={() => setBig(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" aria-label="닫기">
-          <img src={big} alt="" className="max-h-full max-w-full rounded-lg" />
+        <button type="button" onClick={() => setBig(null)} className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/80 p-4" aria-label="닫기 (ESC)">
+          <img src={big} alt="손님이 보낸 사진 크게" className="max-h-[92vh] max-w-[92vw] rounded-lg object-contain shadow-2xl" style={{ minHeight: "60vh" }} />
+          <span className="absolute top-3 right-4 rounded-full bg-white/15 px-3 py-1 text-xs text-white">닫기 · ESC</span>
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * 11/11 세원 "카톡처럼 취소 CS 오면 옆에 버튼으로 카페24 해당 주문건 취소하기 누르면 취소되게 — 내가 누르면 너가"
+ * [카페24 주문 취소] → 사무실 PC 가 주문을 다시 읽어 확인(order_info) → 확인 창(주문번호·상품·옵션·결제수단·환불 금액·되는지) →
+ * [이 주문 취소하기] → PC 가 그 순간 한 번 더 읽고 막을 건 막은 뒤 카페24 주문 취소(cancel_order). 되돌릴 수 없어요.
+ * 네이버페이 주문형·톡체크아웃·출고된 주문은 막는다(그곳 관리자에서).
+ */
+function CancelBox({ v, D, pcOn }) {
+  const [mountAt] = useState(() => Date.now());
+  const [wait, setWait] = useState(null); // {kind: "info"|"cancel", at} — 맡긴 뒤 PC 답을 기다리는 중
+  const info = v.cancelInfo && v.cancelInfo.orderNo === v.orderNo ? v.cancelInfo : null;
+  const infoAt = info ? new Date(info.at).getTime() : 0;
+  const newer = wait ? infoAt >= wait.at - 60000 : false; // PC 시계가 조금 달라도
+  const waiting = wait && !(newer && (wait.kind === "info" || info?.done || info?.error || info?.ok === false));
+  const fresh = info && (newer || infoAt > mountAt - 15 * 60000); // 15분 넘은 확인은 다시 읽고 보여 준다
+  const check = async () => {
+    setWait({ kind: "info", at: Date.now() });
+    await D.enqueue({ id: v.id, kind: "order_info", orderNo: v.orderNo });
+  };
+  const cancel = async () => {
+    const lines = (info.items || []).map((i) => `${cleanName(i.name)} ${i.option || ""} ×${i.qty} (${i.status})`).join("\n");
+    if (!window.confirm(`이 주문을 취소할까요? 되돌릴 수 없어요.\n\n주문 ${info.orderNo}\n${lines}\n결제 ${(info.pays || []).join("+")} · 환불 ${Number(info.amount || 0).toLocaleString()}원${info.why ? `\n\n⚠ ${info.why}` : ""}`)) return;
+    setWait({ kind: "cancel", at: Date.now() });
+    await D.enqueue({ id: v.id, kind: "cancel", orderNo: v.orderNo });
+  };
+  return (
+    <section className="rounded-xl border border-rose-200 bg-rose-50/50 p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-rose-900">취소 요청이 있는 문의예요</span>
+        {info?.done ? (
+          <span className="ml-auto rounded-full bg-emerald-100 px-2 py-0.5 font-bold text-emerald-800">카페24 취소 완료 {when(info.doneAt)}</span>
+        ) : !fresh || (waiting && wait.kind === "info") ? (
+          <button type="button" onClick={check} disabled={!!waiting} className="ml-auto rounded-lg bg-rose-700 px-3 py-1.5 font-semibold text-white disabled:bg-stone-300">
+            {waiting ? "주문 확인 중…" : "카페24 주문 취소"}
+          </button>
+        ) : null}
+      </div>
+      {waiting && (
+        <p className="mt-1 text-stone-500">
+          {!pcOn ? "사무실 PC가 꺼져 있어요 — 켜지면 해요." : wait.kind === "cancel" ? "사무실 PC가 한 번 더 확인하고 취소하는 중이에요(1분 안)." : "사무실 PC가 주문을 읽고 있어요(1분 안)."}
+        </p>
+      )}
+      {fresh && !info.done && !(waiting && wait.kind === "info") && (
+        <div className="mt-2 space-y-1 text-stone-700">
+          <div>
+            주문 <b className="font-mono">{info.orderNo}</b> · {info.place} · 결제 {(info.pays || []).join("+")} · 환불 <b>{Number(info.amount || 0).toLocaleString()}원</b>
+          </div>
+          <ul className="list-disc pl-4">
+            {(info.items || []).map((i) => (
+              <li key={i.code}>
+                {cleanName(i.name)} · {i.option} · {i.qty}개 · {i.status}
+              </li>
+            ))}
+          </ul>
+          {info.why && <p className={info.ok ? "text-amber-800" : "font-semibold text-rose-700"}>⚠ {info.why}</p>}
+          {info.error && <p className="font-semibold text-rose-700">취소 못 함: {info.error}</p>}
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={check} className="rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-stone-600">
+              다시 확인
+            </button>
+            <button type="button" onClick={cancel} disabled={!info.ok || !!waiting} className="rounded-lg bg-rose-700 px-3 py-1 font-semibold text-white disabled:bg-stone-300">
+              {waiting ? "취소하는 중…" : "이 주문 취소하기"}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -758,6 +835,8 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
           )}
         </section>
       )}
+
+      {v.orderNo && (/취소/.test(v.type || "") || threadOf(v).some((m) => m.from === "them" && /취소/.test(m.text))) && <CancelBox v={v} D={D} pcOn={pcOn} />}
 
       {(() => {
         // 11/10 세원 "어떤 고객님인지 파악" — 같은 고객의 다른 문의(지금 목록 안)

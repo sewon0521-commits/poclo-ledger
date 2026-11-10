@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { MessageSquareText, AlertTriangle, PackageSearch, Trash2, Plus } from "lucide-react";
 import { changeKey, loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
-import { when, etaFor } from "../lib/cs";
+import { when, etaFor, DELAY_TEMPLATE, fillDelay, scheduleText, codeOf } from "../lib/cs";
 import NpayDelay from "./NpayDelay";
 
 /**
@@ -12,7 +12,8 @@ import NpayDelay from "./NpayDelay";
  * 흐름은 둘 다 같다: 대상 목록 → 문구·날짜 → 세원 버튼. 사람 확인 없이 안 나간다.
  */
 
-const DEFAULT_SMS = "[포클로] 주문하신 상품 출고 안내\n인기 상품에 주문이 몰려 거래처 입고가 조금 늦어지고 있어요.\n들어오는 대로 가장 먼저 꼼꼼히 검수해서 보내 드리고, 출고되면 송장번호를 다시 안내드릴게요.\n기다려 주셔서 감사합니다 🤍";
+// 11/11 세원 배송지연 안내 틀 그대로(네이버 문단 뺌) — (일정)은 주문마다 '거래처 입고 예정'에서 채운다
+const DEFAULT_SMS = fillDelay(DELAY_TEMPLATE, { naver: false });
 
 function DelaySms({ online }) {
   const [v, setV] = useState(null);
@@ -30,6 +31,17 @@ function DelaySms({ online }) {
     };
   }, [online]);
   const items = (v?.items || []).filter((x) => !x.gone);
+  const [inbound, setInbound] = useState(null);
+  useEffect(() => {
+    loadKey("inbound_eta", online, { items: [] }).then(setInbound).catch(() => {});
+  }, [online]);
+  const schedOf = (x) => {
+    for (const p of x.products || []) {
+      const t = scheduleText(inbound, codeOf(p), String(p).split("=").slice(1).join("="));
+      if (t) return t;
+    }
+    return "";
+  };
   const msg = text || v?.text || DEFAULT_SMS;
   const saveText = () => text && changeKey("delay_sms", online, (w) => ({ ...w, text })).catch(() => {});
   const rescan = () => changeKey("cs_queue", online, (q) => ({ ...q, items: [...(q.items || []).filter((j) => j.kind !== "sms_scan"), { id: "sms_scan", kind: "sms_scan", at: new Date().toISOString() }] }));
@@ -58,14 +70,15 @@ function DelaySms({ online }) {
                 <span className="min-w-0 flex-1 truncate text-stone-800">{(x.products || []).join(" · ")}</span>
                 <span className="text-xs text-stone-500">{x.buyer}</span>
                 <span className="text-xs font-semibold text-amber-700">{x.why || `평일 ${x.days}일째`}</span>
+                <span className={"text-[11px] " + (schedOf(x) ? "text-stone-500" : "text-rose-600")}>(일정) {schedOf(x) || "채워야 함"}</span>
                 <span className="text-[11px] text-stone-400">{x.status === "sent" ? `보냄 ${when(x.sentAt)}` : "안 보냄"}</span>
               </li>
             ))}
           </ul>
         )}
         <label className="block">
-          <span className="mb-0.5 block text-[11px] font-medium text-stone-500">문자 문구 (취소는 먼저 권하지 않아요)</span>
-          <textarea value={msg} onChange={(e) => setText(e.target.value)} onBlur={saveText} rows={4} className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-rose-600" />
+          <span className="mb-0.5 block text-[11px] font-medium text-stone-500">문자 문구 — 세원 틀(11/11). (일정)은 주문마다 채워져요 · 보내기 전 세원 OK</span>
+          <textarea value={msg} onChange={(e) => setText(e.target.value)} onBlur={saveText} rows={10} className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm leading-relaxed outline-none focus:border-rose-600" />
         </label>
         <div className="flex items-center gap-2">
           <button type="button" onClick={rescan} className="rounded-lg px-2 py-1.5 text-xs text-stone-500 hover:text-stone-800">
