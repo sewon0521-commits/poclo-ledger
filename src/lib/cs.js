@@ -255,6 +255,25 @@ export function stockFor(stock, productName) {
   return rows.slice(0, 30).join(" / ");
 }
 
+// ------------------------------------------------------------------ 고친 것 학습 (11/10 세원 "초안은 내가 고친 걸 너가 계속계속 학습해")
+// settings cs_learn {items:[{id, at, type, channel, product, before(AI 초안), after(보낸 글)}]} — 최근 200개.
+// 다음 초안 때 같은 유형(없으면 같은 채널)의 최근 것 3개를 예시로 같이 보낸다. '답변 틀'에서 고친 기록을 보고 지침서를 고친다.
+export const LEARN_MAX = 200;
+const norm = (t) => String(t || "").replace(/\s+/g, " ").trim();
+/** AI 초안과 실제로 보낸 글이 다르면 학습 한 줄, 같으면 null */
+export function learnRow(x, finalText) {
+  const before = String(x?.aiDraft || "").trim();
+  const after = String(finalText || "").trim();
+  if (!before || !after || norm(before) === norm(after)) return null;
+  return { id: `${x.id}-${Date.now().toString(36)}`, at: new Date().toISOString(), type: x.type || "", channel: x.channel || "", product: x.product?.name || "", before: before.slice(0, 1500), after: after.slice(0, 1500) };
+}
+export function pickExamples(learn, x, n = 3) {
+  const items = learn?.items || [];
+  const same = items.filter((l) => l.type && l.type === x.type);
+  const ch = items.filter((l) => !same.includes(l) && l.channel === x.channel);
+  return [...same, ...ch].slice(0, n).map((l) => ({ type: l.type, before: l.before.slice(0, 700), after: l.after.slice(0, 700) }));
+}
+
 /** 몇 분 전 · 오늘 14:20 · 10/12 */
 export function when(iso, now = Date.now()) {
   if (!iso) return "";

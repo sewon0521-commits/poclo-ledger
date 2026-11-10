@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, withDefaults, when } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, withDefaults, when } from "../lib/cs";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { newId } from "../lib/id";
@@ -58,6 +58,7 @@ function applyDraft(x, r) {
     blanks: r.blanks || [],
     fills,
     draft: r.draft || "",
+    aiDraft: r.draft || "", // 11/10 고친 것 학습 — 세원이 고친 뒤 보낸 글과 비교
     confirmed: false,
     status: "ready",
     error: "",
@@ -66,7 +67,7 @@ function applyDraft(x, r) {
   };
 }
 
-const requestOf = (x, tpl, extra = {}, stock = null) => ({
+const requestOf = (x, tpl, extra = {}, stock = null, learn = null) => ({
   channel: x.channel,
   customer: x.customer,
   title: x.title,
@@ -76,6 +77,7 @@ const requestOf = (x, tpl, extra = {}, stock = null) => ({
   order: x.order,
   stock: stockFor(stock, x.product?.name) || undefined, // 11/10 재고(넥스트팩 + 사무실 렉)도 같이 — 사실만 넣게
   templates: tpl,
+  examples: pickExamples(learn, x), // 세원이 예전에 고친 초안 → 고친 글 (같은 유형 먼저)
   ...extra,
 });
 
@@ -85,6 +87,7 @@ function useCs(online) {
   const [tpl, setTpl] = useState(() => withDefaults(null));
   const [worker, setWorker] = useState(null);
   const [stock, setStock] = useState(null);
+  const [learn, setLearn] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const lastInbox = useRef("");
 
@@ -101,6 +104,7 @@ function useCs(online) {
         const [v, t] = await Promise.all([loadKey("cs_inbox", online), loadKey("cs_templates", online, null)]);
         if (!alive) return;
         loadKey("stock", online, null).then((x) => alive && setStock(x)).catch(() => {});
+        loadKey("cs_learn", online, { items: [] }).then((x) => alive && setLearn(x)).catch(() => {});
         setTpl(withDefaults(t));
         // 한 번도 저장 안 했으면 기본 틀을 저장해 둔다 — 사무실 PC 가 카페24 문의 초안을 쓸 때 이걸 읽는다
         if (!t) changeKey("cs_templates", online, () => withDefaults(null), null).catch(() => {});
@@ -195,7 +199,17 @@ function useCs(online) {
     },
     [online],
   );
-  return { inbox, tpl, worker, stock, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend };
+  /** 고친 것 학습 한 줄 저장 (AI 초안과 보낸 글이 다를 때만) */
+  const learnFrom = useCallback(
+    async (x, text) => {
+      const row = learnRow(x, text);
+      if (!row) return;
+      const next = await changeKey("cs_learn", online, (v) => ({ ...v, items: [row, ...(v.items || []).filter((l) => !l.id.startsWith(`${x.id}-`))].slice(0, LEARN_MAX) })).catch(() => null);
+      if (next) setLearn(next);
+    },
+    [online],
+  );
+  return { inbox, tpl, worker, stock, learn, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend, learnFrom };
 }
 
 function ChannelBadge({ k, className = "" }) {
@@ -465,7 +479,7 @@ ${lines}
       )}
 
       {adding && <AddSheet init={adding} D={D} products={products} onClose={() => setAdding(null)} onAdded={(id) => (pickTab("todo"), setSel(id))} />}
-      {tplOpen && <TemplateSheet tpl={D.tpl} onSave={D.saveTpl} onClose={() => setTplOpen(false)} />}
+      {tplOpen && <TemplateSheet tpl={D.tpl} learn={D.learn} onSave={D.saveTpl} onClose={() => setTplOpen(false)} />}
     </div>
   );
 }
@@ -552,7 +566,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
     setBusy("draft");
     setErr("");
     try {
-      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }, D.stock));
+      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }, D.stock, D.learn));
       const next = applyDraft(v, r);
       setV(next);
       await D.saveItem(next);
@@ -571,6 +585,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       const patch = { status: "approved", final: text, approvedAt: new Date().toISOString(), error: "" };
       setV((p) => ({ ...p, ...patch }));
       await D.saveItem({ id: x.id, ...patch, draft: v.draft, fills: v.fills, basis: v.basis, confirmed: true });
+      D.learnFrom(v, text);
       onMsg("보낼 목록에 넣었어요 — 다 확인한 뒤 '보낼 준비'에서 [한꺼번에 보내기]를 눌러 주세요.");
     } finally {
       setBusy("");
@@ -585,6 +600,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       const patch = { status: "done", final: text, doneAt: new Date().toISOString() };
       setV((p) => ({ ...p, ...patch }));
       await D.saveItem({ id: x.id, ...patch, draft: v.draft, fills: v.fills, basis: v.basis, confirmed: v.confirmed });
+      D.learnFrom(v, text);
       onMsg(`복사했어요 — ${channelOf(v.channel).label} 채팅창에 붙여넣어 보내 주세요. '처리 완료'로 옮겼어요.`);
     }
   };
@@ -635,6 +651,25 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
           ))}
         </section>
       )}
+
+      {(() => {
+        // 11/10 세원 "어떤 고객님인지 파악" — 같은 고객의 다른 문의(지금 목록 안)
+        const past = v.customer ? D.inbox.filter((y) => y.id !== v.id && y.customer === v.customer).slice(0, 5) : [];
+        return past.length ? (
+          <section className="text-xs">
+            <div className="mb-1 text-[11px] font-semibold text-stone-400">이 고객의 다른 문의 {past.length}</div>
+            <ul className="space-y-0.5">
+              {past.map((y) => (
+                <li key={y.id} className="flex gap-2 text-stone-600">
+                  <span className="shrink-0 text-stone-400">{when(y.at || y.createdAt)}</span>
+                  <span className="truncate">{y.summary || (y.message || "").slice(0, 40)}</span>
+                  <span className="ml-auto shrink-0 text-stone-400">{STATUS[y.status || "new"]?.label}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null;
+      })()}
 
       {v.caution && (
         <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
@@ -859,7 +894,7 @@ function AddSheet({ init, D, products, onClose, onAdded }) {
       status: "drafting",
     };
     try {
-      const r = await draftApi({ ...requestOf(base, D.tpl, {}, D.stock), images });
+      const r = await draftApi({ ...requestOf(base, D.tpl, {}, D.stock, D.learn), images });
       const item = applyDraft(base, r);
       await D.saveItem(item);
       // 주문번호가 있으면 사무실 PC 가 카페24 주문을 찾아 붙인다(배송 상태·송장)
@@ -966,7 +1001,7 @@ function AddSheet({ init, D, products, onClose, onAdded }) {
 
 // ------------------------------------------------------------------ 답변 틀
 
-function TemplateSheet({ tpl, onSave, onClose }) {
+function TemplateSheet({ tpl, learn, onSave, onClose }) {
   const [t, setT] = useState(() => JSON.parse(JSON.stringify(tpl)));
   const [openType, setOpenType] = useState(t.items[0]?.type || "");
   const [saving, setSaving] = useState(false);
@@ -982,6 +1017,24 @@ function TemplateSheet({ tpl, onSave, onClose }) {
           <span className="mb-1 block text-xs font-semibold text-stone-500">CS 지침서 — AI가 가장 먼저 읽어요 (말투 · 사실 확인 · 하자·오배송·품절·지연·교환반품·취소 기준)</span>
           <textarea value={t.guide || ""} onChange={(e) => setT({ ...t, guide: e.target.value })} rows={14} className={FIELD + " font-mono text-xs leading-relaxed"} />
         </label>
+        {(learn?.items || []).length > 0 && (
+          <details className="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-stone-600">세원이 고친 기록 {learn.items.length}개 — 다음 초안에 예시로 들어가요 · 자주 고치는 건 위 지침서에 옮겨 주세요</summary>
+            <ul className="mt-2 space-y-2">
+              {learn.items.slice(0, 20).map((l) => (
+                <li key={l.id} className="rounded-lg bg-white p-2 text-[11px] leading-relaxed">
+                  <div className="mb-1 font-semibold text-stone-500">
+                    {l.type || "유형 없음"} · {l.product || ""} · {when(l.at)}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <p className="whitespace-pre-wrap text-stone-400 line-through decoration-stone-300">{l.before}</p>
+                    <p className="whitespace-pre-wrap text-stone-800">{l.after}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-stone-500">인사</span>

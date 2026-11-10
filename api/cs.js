@@ -101,6 +101,14 @@ ${String(t.guide).slice(0, 6000)}
   return lines.join("\n");
 }
 
+/** 11/10 세원이 예전에 고친 초안 → 고친 글 (세원: "내가 고친 걸 너가 계속계속 학습해") */
+function examplesText(xs) {
+  if (!Array.isArray(xs) || !xs.length) return "";
+  const NL = String.fromCharCode(10);
+  const out = xs.slice(0, 3).map((x, i) => [`예시 ${i + 1}${x.type ? ` (${x.type})` : ""}`, "AI 초안:", String(x.before || "").slice(0, 700), "세원이 고쳐서 보낸 글:", String(x.after || "").slice(0, 700)].join(NL));
+  return ["", "--- 세원이 예전에 고친 예 — 고친 글의 말투·길이·내용 방향을 따를 것(사실은 이번 문의 것만) ---", out.join(NL + NL)].join(NL);
+}
+
 function orderText(o) {
   if (!o || typeof o !== "object") return "";
   const rows = Array.isArray(o.orders) ? o.orders : [o];
@@ -170,6 +178,7 @@ export default async function handler(req, res) {
     body.title ? `제목: ${String(body.title).slice(0, 200)}` : "",
     text.trim() ? `--- 고객 문의 ---\n${text}` : "--- 고객 문의는 아래 캡처 사진 ---",
     orderText(body.order),
+    examplesText(body.examples),
     body.stock ? `
 --- 지금 재고 (넥스트팩 창고 + 사무실 렉, 11/10~) — 수량은 고객에게 말하지 말 것 ---
 ${String(body.stock).slice(0, 1500)}` : "",
