@@ -28,7 +28,8 @@ export const CHANNELS = [
   { k: "cafe24_qna", label: "카페24 상품 Q&A", short: "Q&A", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-sky-50 text-sky-800 ring-sky-200" },
   { k: "cafe24_consult", label: "카페24 1:1 상담", short: "1:1 상담", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
   { k: "npay", label: "네이버페이 주문형 문의", short: "N페이", via: "aside", pc: "npay", tone: "bg-green-50 text-green-800 ring-green-200" },
-  { k: "kakao", label: "카카오톡 채널", short: "카톡", via: "aside", pc: "kakao", tone: "bg-yellow-50 text-yellow-900 ring-yellow-200" },
+  // 11/10 세원 "카카오는 혹시 모르니까 카카오만 버튼 안 눌리게" — 카톡은 보내기 없음(초안 복사해서 세원이 채널 채팅창에 직접). 읽기만 어사이드
+  { k: "kakao", label: "카카오톡 채널", short: "카톡", via: "aside", pc: "kakao", noSend: true, tone: "bg-yellow-50 text-yellow-900 ring-yellow-200" },
   { k: "naver", label: "네이버 톡톡", short: "톡톡", via: "aside", pc: "talk", tone: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
   { k: "insta", label: "인스타 DM", short: "인스타", via: "paste", tone: "bg-rose-50 text-rose-800 ring-rose-200" },
   { k: "phone", label: "전화·문자", short: "전화", via: "paste", tone: "bg-stone-100 text-stone-700 ring-stone-200" },
@@ -37,14 +38,14 @@ export const CHANNELS = [
 export const channelOf = (k) => CHANNELS.find((c) => c.k === k) || CHANNELS[CHANNELS.length - 1];
 export const isAuto = (k) => !!channelOf(k).auto;
 /** 사무실 PC 가 보내 주는 채널인가 (카페24 API 또는 어사이드) */
-export const canSend = (k) => ["cafe24", "aside"].includes(channelOf(k).via);
+export const canSend = (k) => ["cafe24", "aside"].includes(channelOf(k).via) && !channelOf(k).noSend;
 /** PC 가 적은 채널 상태 {ok, msg, at} — 없으면 null */
 export const pcState = (worker, k) => (worker?.channels || {})[channelOf(k).pc] || null;
 /** PC 채널 상태 칸 — 화면 위 */
 export const PC_CHANNELS = [
   ["cafe24", "카페24 게시판"],
   ["npay", "네이버페이"],
-  ["kakao", "카톡 채널"],
+  ["kakao", "카톡 채널 (읽기만)"],
   ["talk", "톡톡"],
 ];
 
