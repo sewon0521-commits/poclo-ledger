@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, withDefaults, when } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, withDefaults, when } from "../lib/cs";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { newId } from "../lib/id";
@@ -79,7 +79,7 @@ function applyDraft(x, r) {
   };
 }
 
-const requestOf = (x, tpl, extra = {}, stock = null, learn = null) => ({
+const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = null) => ({
   channel: x.channel,
   customer: x.customer,
   title: x.title,
@@ -90,6 +90,8 @@ const requestOf = (x, tpl, extra = {}, stock = null, learn = null) => ({
   stock: stockFor(stock, x.product?.name) || undefined, // 11/10 재고(넥스트팩 + 사무실 렉)도 같이 — 사실만 넣게
   templates: tpl,
   examples: pickExamples(learn, x), // 세원이 예전에 고친 초안 → 고친 글 (같은 유형 먼저)
+  type: x.type || undefined, // 세원이 고른 '답변 유형' — 그 틀대로
+  eta: etaText(inbound, stock, orderLines(x)) || undefined, // 11/10 옵션별 출고 가능(거래처 입고 예정 + 재고) — 부분 배송 안내
   ...extra,
 });
 
@@ -100,6 +102,7 @@ function useCs(online) {
   const [worker, setWorker] = useState(null);
   const [stock, setStock] = useState(null);
   const [learn, setLearn] = useState(null);
+  const [inbound, setInbound] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const lastInbox = useRef("");
 
@@ -117,6 +120,7 @@ function useCs(online) {
         if (!alive) return;
         loadKey("stock", online, null).then((x) => alive && setStock(x)).catch(() => {});
         loadKey("cs_learn", online, { items: [] }).then((x) => alive && setLearn(x)).catch(() => {});
+        loadKey("inbound_eta", online, { items: [] }).then((x) => alive && setInbound(x)).catch(() => {});
         setTpl(withDefaults(t));
         // 한 번도 저장 안 했으면 기본 틀을 저장해 둔다 — 사무실 PC 가 카페24 문의 초안을 쓸 때 이걸 읽는다
         if (!t) changeKey("cs_templates", online, () => withDefaults(null), null).catch(() => {});
@@ -221,7 +225,7 @@ function useCs(online) {
     },
     [online],
   );
-  return { inbox, tpl, worker, stock, learn, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend, learnFrom };
+  return { inbox, tpl, worker, stock, learn, inbound, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend, learnFrom };
 }
 
 function ChannelBadge({ k, className = "" }) {
@@ -545,6 +549,69 @@ function ScopeHelp({ msg }) {
   );
 }
 
+// ------------------------------------------------------------------ 채팅방 모양 · 상품 줄 (11/10 세원)
+
+const cleanName = (n) => String(n || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").replace(/\s*\(\d+\s*colou?r\)\s*$/i, "").trim();
+/** 주문 상품 줄 [{name, option, qty}] — 새 문의는 lines, 예전 문의는 '이름 옵션 ×N' 글에서 */
+function orderLines(x) {
+  if (Array.isArray(x?.lines) && x.lines.length) return x.lines;
+  const out = [];
+  for (const o of x?.order?.orders || []) {
+    for (const it of [].concat(o.items || [])) {
+      if (typeof it !== "string") {
+        if (it?.name) out.push(it);
+        continue;
+      }
+      const m = it.match(/^(.*?)(?:\s+([^\s×]+(?:\s*\+\s*[^\s×]+)?))?\s*×\s*(\d+)/);
+      out.push(m ? { name: m[1], option: m[2] || "", qty: Number(m[3]) } : { name: it, option: "", qty: 1 });
+    }
+  }
+  return out;
+}
+const NL = String.fromCharCode(10);
+/** 대화 줄 [{from:'them'|'us', who, at, text, img}] — 새 문의는 thread, 예전 문의는 '[11/7 10:48] …' · '(11/8 23:06 지원 답: …)' 글에서 */
+function threadOf(x) {
+  if (Array.isArray(x?.thread) && x.thread.length) return x.thread;
+  const out = [];
+  for (const line of String(x?.message || "").split(NL)) {
+    const us = line.match(/^\((\d+\/\d+ \d+:\d+) (\S+?) 답: (.*)\)\s*$/);
+    const them = line.match(/^\[(\d+\/\d+ \d+:\d+)\]\s*(.*)$/);
+    if (us) out.push({ from: "us", who: us[2], at: us[1], text: us[3] });
+    else if (them) out.push({ from: "them", at: them[1], text: them[2] });
+    else if (line.trim() && out.length) out[out.length - 1].text += NL + line;
+    else if (line.trim()) out.push({ from: "them", at: "", text: line });
+  }
+  return out;
+}
+function ChatThread({ v }) {
+  const [big, setBig] = useState(null);
+  const t = threadOf(v);
+  if (!t.length) return <div className="rounded-xl bg-stone-50 px-3.5 py-3 text-sm text-stone-500">(캡처에서 글을 못 읽었어요)</div>;
+  return (
+    <div className="space-y-2 rounded-2xl bg-sky-50/60 p-3">
+      {t.map((m, i) => (
+        <div key={i} className={"flex items-end gap-1.5 " + (m.from === "us" ? "flex-row-reverse" : "")}>
+          <div className={"max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap shadow-sm " + (m.from === "us" ? "rounded-br-md bg-amber-200/80 text-stone-900" : "rounded-bl-md bg-white text-stone-900")}>
+            {m.from === "us" && m.who && <div className="mb-0.5 text-[10px] font-semibold text-stone-500">{m.who}</div>}
+            {m.img && (
+              <button type="button" onClick={() => setBig(m.img)} className="mb-1 block overflow-hidden rounded-lg">
+                <img src={m.img} alt="손님이 보낸 사진" className="max-h-48 w-auto" />
+              </button>
+            )}
+            {m.text}
+          </div>
+          <span className="shrink-0 pb-0.5 text-[10px] text-stone-400 tabular-nums">{m.at}</span>
+        </div>
+      ))}
+      {big && (
+        <button type="button" onClick={() => setBig(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" aria-label="닫기">
+          <img src={big} alt="" className="max-h-full max-w-full rounded-lg" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ 문의 하나
 
 function Detail({ x, D, pcOn, onMsg, bare = false }) {
@@ -581,7 +648,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
     setBusy("draft");
     setErr("");
     try {
-      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }, D.stock, D.learn));
+      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }, D.stock, D.learn, D.inbound));
       const next = applyDraft(v, r);
       setV(next);
       await D.saveItem(next);
@@ -645,25 +712,50 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
         </p>
       </header>
 
+      {/* 11/10 세원 "cs창 상단 ui를 실제 채팅방처럼" — 손님 왼쪽 · 우리 오른쪽 말풍선, 시각, 사진 */}
       <section>
-        <div className="mb-1 text-[11px] font-semibold text-stone-400">고객이 보낸 말</div>
         {v.title && <div className="mb-1 text-sm font-semibold text-stone-800">{v.title}</div>}
-        <div className="rounded-xl bg-stone-50 px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">{v.message || "(캡처에서 글을 못 읽었어요)"}</div>
+        <ChatThread v={v} />
       </section>
 
-      {(v.product?.name || v.product?.url || v.orderNo || v.order) && (
-        <section className="flex flex-wrap gap-2 text-xs">
-          {(v.product?.name || v.product?.url) && (
-            <a href={v.product.url || undefined} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg bg-stone-100 px-2 py-1 text-stone-700 hover:bg-stone-200">
-              <Package size={12} /> {v.product.name || "상품 페이지"}
-            </a>
+      {/* 11/10 세원 "제품 나오는 거 좋은데 옵션, 개수까지 — 눈에 확 안 들어와서" — 상품마다 한 줄 + 입고·재고 배지 */}
+      {(orderLines(v).length > 0 || v.orderNo || v.product?.name) && (
+        <section className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500">
+            {v.orderNo && <span className="rounded-md bg-stone-100 px-1.5 py-0.5 font-mono text-stone-700">주문 {v.orderNo}</span>}
+            {(v.order?.orders || []).slice(0, 3).map((o) => (
+              <span key={o.id}>{[o.date, o.status, o.invoice && `송장 ${o.invoice}`].filter(Boolean).join(" · ")}</span>
+            ))}
+            {v.product?.url && (
+              <a href={v.product.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-rose-700 hover:underline">
+                상품 페이지 <ExternalLink size={10} />
+              </a>
+            )}
+          </div>
+          {orderLines(v).length ? (
+            <ul className="space-y-1">
+              {orderLines(v).map((l, i) => {
+                const eta = etaFor(D.inbound, D.stock, codeOf(l.name), l.option);
+                return (
+                  <li key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2">
+                    <Package size={14} className="shrink-0 text-stone-400" />
+                    <span className="text-sm font-semibold text-stone-900">{cleanName(l.name)}</span>
+                    {l.option && <span className="rounded-md bg-stone-800 px-1.5 py-0.5 text-xs font-bold text-white">{l.option}</span>}
+                    <span className="text-sm font-bold text-stone-900">{l.qty || 1}{/1\+1/.test(l.name) ? "세트" : "개"}</span>
+                    <span title={eta.memo} className={"ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold " + (eta.tone === "ok" ? "bg-emerald-100 text-emerald-800" : eta.tone === "wait" ? "bg-amber-100 text-amber-900" : "bg-rose-100 text-rose-800")}>
+                      {eta.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            v.product?.name && (
+              <div className="inline-flex items-center gap-1 rounded-lg bg-stone-100 px-2 py-1 text-xs text-stone-700">
+                <Package size={12} /> {v.product.name}
+              </div>
+            )
           )}
-          {v.orderNo && <span className="rounded-lg bg-stone-100 px-2 py-1 text-stone-700">주문 {v.orderNo}</span>}
-          {(v.order?.orders || []).slice(0, 3).map((o) => (
-            <span key={o.id} className="rounded-lg bg-sky-50 px-2 py-1 text-sky-900">
-              {[o.id, o.status, o.invoice && `송장 ${o.invoice}`].filter(Boolean).join(" · ")}
-            </span>
-          ))}
         </section>
       )}
 
@@ -709,12 +801,17 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       <section className="space-y-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-stone-900">답변 초안</span>
-          <select value={v.type || ""} onChange={(e) => save({ type: e.target.value })} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700" aria-label="문의 유형">
-            <option value="">유형</option>
+          {/* 11/10 세원 "답변 초안 고를 수 있는 건 뭐여?" → 이름을 '답변 유형'으로 + 무엇이 바뀌는지 */}
+          <label className="flex items-center gap-1 text-[11px] text-stone-500" title="AI가 문의를 보고 고른 유형이에요. 바꾸고 '초안 다시 만들기'를 누르면 그 유형의 답변 틀(순서·예시)대로 다시 써요.">
+            답변 유형
+            <select value={v.type || ""} onChange={(e) => save({ type: e.target.value })} className="rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700" aria-label="답변 유형">
+              <option value="">고르기</option>
             {TYPES.map((t) => (
               <option key={t}>{t}</option>
             ))}
-          </select>
+            </select>
+          </label>
+          <span className="text-[11px] text-stone-400">바꾸고 '초안 다시 만들기' → 그 유형 틀대로</span>
           {busy === "draft" && (
             <span className="flex items-center gap-1 text-xs text-stone-400">
               <Loader2 size={13} className="animate-spin" /> 초안 쓰는 중…
@@ -909,7 +1006,7 @@ function AddSheet({ init, D, products, onClose, onAdded }) {
       status: "drafting",
     };
     try {
-      const r = await draftApi({ ...requestOf(base, D.tpl, {}, D.stock, D.learn), images });
+      const r = await draftApi({ ...requestOf(base, D.tpl, {}, D.stock, D.learn, D.inbound), images });
       const item = applyDraft(base, r);
       await D.saveItem(item);
       // 주문번호가 있으면 사무실 PC 가 카페24 주문을 찾아 붙인다(배송 상태·송장)

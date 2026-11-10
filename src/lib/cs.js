@@ -126,6 +126,8 @@ AI가 답변 초안을 쓸 때 맨 먼저 읽어요. 세원이 고치면 다음 
 - 품절: 사과 → 재입고는 확정일 때만 날짜, 아니면 약속하지 않기 → 비슷한 상품이 있으면 짧은 링크.
 - 교환·반품(단순 변심): 받은 날부터 7일 안, 왕복 배송비 고객 부담, 착용·세탁 흔적이 있으면 어려움.
 - 주문 취소·옵션 변경: 출고 전이면 바로 해 드림, 출고됐으면 받으신 뒤 교환·반품으로.
+- ⭐ 부분 배송(세원 11/10): 한 주문 안에서 옵션마다 출고 가능일을 따로 봐요(같이 온 '거래처 입고 예정'·재고). 바로 나갈 수 있는 것과 늦는 것이 섞이면
+  어떤 옵션이 언제 나가는지 적고 "가능한 것부터 먼저 보내 드릴까요?"를 꼭 넣어요. 먼저 보낼 때 배송비 얘기는 하지 않아요(세원 확인 전). 날짜 도착은 약속하지 않아요.
 - 사이즈: 상품 페이지 실측 + 모델 정보로. "체형에 따라 개인차가 있을 수 있어요" 꼭.
 
 ## 자주 쓰는 것
@@ -272,6 +274,31 @@ export function pickExamples(learn, x, n = 3) {
   const same = items.filter((l) => l.type && l.type === x.type);
   const ch = items.filter((l) => !same.includes(l) && l.channel === x.channel);
   return [...same, ...ch].slice(0, n).map((l) => ({ type: l.type, before: l.before.slice(0, 700), after: l.after.slice(0, 700) }));
+}
+
+// ------------------------------------------------------------------ 거래처 입고 예정 (11/10 세원 "투톤 네이비만 일밤, 그레이는 오늘 가능 — 이런 건 말해 주고 학습해서 다음에도")
+// settings inbound_eta {items:[{id, code(고유네임), option('네이비' · '' = 모든 색), status: now|date|later|unknown, date, memo, at, by}]}
+//   now = 지금 출고 가능 · date = 그 날 입고(memo 에 '밤 입고' 등) · later = 날짜 모름이지만 대략(memo: '다음 주 주중') · unknown = 모름
+// 화면: 일 › 배송지연 안내 '거래처 입고 예정' · 사무실 PC `python poclo-cafe24/inbound.py set 578 네이비 2026-11-15 "밤 입고"`
+const WD = ["일", "월", "화", "수", "목", "금", "토"];
+export const codeOf = (name) => (String(name || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").trim().split(/\s+/)[0] || "");
+export function etaFor(inbound, stock, code, option) {
+  const opt = String(option || "");
+  const rows = (inbound?.items || []).filter((x) => x.code && x.code === code);
+  const hit = rows.find((x) => x.option && opt.includes(x.option)) || rows.find((x) => !x.option);
+  const inStock = (stock?.nextpack?.rows || []).some((r) => String(r.name || "").includes(code) && (!opt || opt.split(/[,/+ ]/).some((o) => o && String(r.option || "").includes(o))) && (r.avail ?? r.qty ?? 0) > 0)
+    || (stock?.rack || []).some((r) => String(r.name || "").includes(code) && (!opt || opt.split(/[,/+ ]/).some((o) => o && String(r.option || "").includes(o))) && (r.qty ?? 0) > 0);
+  if (inStock || hit?.status === "now") return { tone: "ok", label: "지금 출고 가능", memo: hit?.memo || (inStock ? "재고 있음" : "") };
+  if (hit?.status === "date" && hit.date) {
+    const d = new Date(hit.date + "T00:00:00");
+    return { tone: "wait", label: `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]}) ${hit.memo || "입고"}`, memo: hit.memo || "" };
+  }
+  if (hit?.status === "later") return { tone: "wait", label: hit.memo || "입고 예정", memo: hit.memo || "" };
+  return { tone: "none", label: "입고일 모름", memo: "" };
+}
+/** 초안에 같이 보낼 '옵션별 출고 가능' 글 */
+export function etaText(inbound, stock, lines) {
+  return (lines || []).map((l) => `${l.name} · ${l.option || "옵션 없음"} · ${l.qty || 1}개 → ${etaFor(inbound, stock, codeOf(l.name), l.option).label}`).join(String.fromCharCode(10));
 }
 
 /** 몇 분 전 · 오늘 14:20 · 10/12 */

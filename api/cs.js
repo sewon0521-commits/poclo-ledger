@@ -179,6 +179,8 @@ export default async function handler(req, res) {
     text.trim() ? `--- 고객 문의 ---\n${text}` : "--- 고객 문의는 아래 캡처 사진 ---",
     orderText(body.order),
     examplesText(body.examples),
+    body.type ? `세원이 고른 답변 유형: ${String(body.type).slice(0, 20)} — 이 유형 틀(순서·예시)대로 쓸 것` : "",
+    body.eta ? ["", "--- 옵션별 출고 가능 (거래처 입고 예정 + 재고, 11/10~) — 섞여 있으면 부분 배송 안내('가능한 것부터 먼저 보내 드릴까요?'), 날짜는 범위 그대로·확정처럼 쓰지 말 것, 배송비 말은 하지 말 것 ---", String(body.eta).slice(0, 1500)].join(String.fromCharCode(10)) : "",
     body.stock ? `
 --- 지금 재고 (넥스트팩 창고 + 사무실 렉, 11/10~) — 수량은 고객에게 말하지 말 것 ---
 ${String(body.stock).slice(0, 1500)}` : "",
@@ -203,9 +205,11 @@ ${String(body.stock).slice(0, 1500)}` : "",
     if (r.stop_reason === "refusal") return fail(res, 422, "refusal", "이 문의로는 초안을 만들지 못했어요. 직접 써 주세요.");
     if (!r.parsed_output) return fail(res, 422, "unreadable", "초안이 잘렸어요. 다시 만들어 주세요.");
     const out = r.parsed_output;
+    // '[1+1]' · '[MD추천]' 같은 상품명 머리말은 빈칸이 아니다(11/10 강다인 초안에서 [1+1] 이 빈칸으로 잡혀 보내기가 막힘)
+    const notBlank = (m) => /^\[[\d+\s]+\]$/.test(m) || /추천|할인|얼리윈터|BEST|NEW/i.test(m);
     // 초안에 실제로 있는 빈칸만
-    const blanks = (out.blanks || []).filter((b) => b?.key && out.draft.includes(b.key));
-    for (const m of out.draft.match(/\[[^\]\n]{1,24}\]/g) || []) if (!blanks.some((b) => b.key === m)) blanks.push({ key: m, hint: "" });
+    const blanks = (out.blanks || []).filter((b) => b?.key && out.draft.includes(b.key) && !notBlank(b.key));
+    for (const m of out.draft.match(/\[[^\]\n]{1,24}\]/g) || []) if (!notBlank(m) && !blanks.some((b) => b.key === m)) blanks.push({ key: m, hint: "" });
     return res.status(200).json({ ...out, blanks, _cost: costOf(r.usage) });
   } catch (err) {
     const status = err?.status;
