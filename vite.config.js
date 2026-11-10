@@ -106,6 +106,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
         navigateFallbackDenylist: [/^\/api\//],
+        // 11/10 본 묶음(index-*.js)이 2MB 를 넘어 기본 한도(2MiB)에서 빌드가 멈췄다(배포 Error 두 번) → 4MiB.
+        // 나중에 화면을 나눠 불러오기(lazy)로 줄이면 이 줄은 그대로 둬도 된다.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),
   ],
