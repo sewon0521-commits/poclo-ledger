@@ -13,6 +13,18 @@ import { Sheet, SheetHead } from "./ShootBits";
  * 빈칸 채우기 → '확인했어요' 체크 → 보내기. 색·부품은 포클로ERP 것.
  */
 
+// 11/10 세원 "네이버페이, 카톡 등등 각 사이트에서 온 cs만 볼 수 있게 편하게 버튼" — 채널 버튼(안 답한 건수)
+const CH_GROUPS = [
+  ["", "전체", null],
+  ["kakao", "카톡", ["kakao"]],
+  ["npay", "네이버페이", ["npay"]],
+  ["naver", "톡톡", ["naver"]],
+  ["cafe24", "카페24 게시판", ["cafe24_qna", "cafe24_consult"]],
+  ["insta", "인스타", ["insta"]],
+  ["etc", "기타", ["phone", "etc"]],
+];
+const inGroup = (x, g) => !g || (CH_GROUPS.find(([k]) => k === g)?.[2] || []).includes(x.channel);
+
 const FIELD = "w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-rose-600 focus:ring-2 focus:ring-rose-100";
 
 async function copyText(text) {
@@ -287,7 +299,7 @@ export default function CsPage({ online, products = [] }) {
   const shown = useMemo(() => {
     const w = q.trim().toLowerCase();
     return D.inbox
-      .filter((x) => inTab(x, tab) && (!ch || x.channel === ch))
+      .filter((x) => inTab(x, tab) && inGroup(x, ch))
       .filter((x) => !w || [x.customer, x.summary, x.title, x.message, x.product?.name, x.orderNo, x.type].join(" ").toLowerCase().includes(w))
       .sort((a, b) => String(b.at || b.createdAt).localeCompare(String(a.at || a.createdAt)));
   }, [D.inbox, tab, ch, q]);
@@ -391,14 +403,17 @@ ${lines}
           <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-stone-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="고객·상품·문의 내용 찾기" className="w-full rounded-xl border border-stone-200 bg-white py-2 pr-3 pl-8 text-sm outline-none focus:border-rose-600" />
         </span>
-        <select value={ch} onChange={(e) => setCh(e.target.value)} className="rounded-xl border border-stone-200 bg-white px-2.5 py-2 text-sm text-stone-700">
-          <option value="">모든 채널</option>
-          {CHANNELS.map((c) => (
-            <option key={c.k} value={c.k}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {CH_GROUPS.map(([k, label]) => {
+          const n = D.inbox.filter((x) => inTab(x, "todo") && inGroup(x, k)).length;
+          return (
+            <button key={k || "all"} type="button" onClick={() => setCh(k)} className={"flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold " + (ch === k ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-rose-300")}>
+              {label}
+              {n > 0 && <span className={"rounded-full px-1.5 text-[10px] tabular-nums " + (ch === k ? "bg-white/25" : "bg-rose-100 text-rose-700")}>{n}</span>}
+            </button>
+          );
+        })}
       </div>
 
       {tab === "approved" && approvedList.length > 0 && (

@@ -41,6 +41,7 @@ import {
   FolderHeart,
   Gauge,
   Headset,
+  Truck,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -92,6 +93,8 @@ export const SECTIONS = [
           // 10/16 세원: "카톡·톡톡 같은 걸 못 읽으면 그냥 안 하는 게 낫다" → 메뉴에서 숨김(화면·코드는 남김, 다시 쓰려면 이 줄 주석만 풀면 됨)
           // 11/10 세원 "cs는 그냥 일단 진행해줘 — 너가 답변 만들어 놓고 내가 확인·수정, 버튼 하나 누르면 쫙 보내게" → 다시 켬(반자동 CS 초안함)
           { key: "cs", label: "CS 관리", icon: Headset },
+          // 11/10 세원 "네이버페이도 묶어서 배송지연 메시지 발송 카테고리" — 네이버페이 발송지연 처리 + 카페24 배송지연 문자 (components/DelayPage.jsx)
+          { key: "delay", label: "배송지연 안내", icon: Truck },
         ],
       },
       {

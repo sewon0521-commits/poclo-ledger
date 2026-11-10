@@ -18,6 +18,7 @@ const FILTERS = [
   ["on", "켜진 것"],
   ["kill", "끌 것"],
   ["gun1", "👑 1군"],
+  ["gun2", "🥈 2군"],
   ["comp", "구도 합격"],
   ["power", "상품 힘"],
   ["hopeful", "에이스 후보"],
@@ -25,7 +26,7 @@ const FILTERS = [
   ["week", "이번 주 새 소재"],
   ["all", "전체"],
 ];
-const GUN_KEYS = ["gun1", "comp", "power"];
+const GUN_KEYS = ["gun1", "gun2", "comp", "power"];
 // 만든 날 — 10/19 세원: "에이스 후보가 진짜 옛날 것까지 뜬다, 1달 기준으로. 지금 겨울 소재 준비해야 되는데 여름 소재가 보여서"
 const SPANS = [
   ["30", "최근 1달"],
@@ -128,6 +129,9 @@ function Rules() {
             · <b>👑 1군</b> = 광고비 {man(RULES.gun.spend)}원↑ · <b>링크 CPC {RULES.gun.cpc}원 미만</b>(고객이 눌러 들어온 값) · <b>클릭 후 1일</b> 구매 {RULES.gun.pu}건↑ · 1일 ROAS {RULES.gun.roas}↑. 구도도 좋고 팔리기까지 한 소재예요.
           </li>
           <li>
+            · <b>🥈 2군</b> = 링크 CPC {RULES.gun.cpc}~{RULES.gun.cpc2}원 + 1일 구매 {RULES.gun.pu}건↑ + 1일 ROAS {RULES.gun.roas}↑ — 팔리는 소재. 1군 구도로 다시 찍으면 1군이 될 수 있어요.
+          </li>
+          <li>
             · <b>구도 합격</b> = 링크 CPC {RULES.gun.cpc}원 미만인데 안 팔렸거나 1일 ROAS {RULES.gun.roas} 아래 — 구도는 다른 옷에 그대로 쓰고, 이 상품은 상세·가격을 점검해요.
           </li>
           <li>
@@ -218,10 +222,11 @@ function ModelBoard({ stats, info, onPick }) {
   const rows = MODELS.map(([m, label]) => {
     const mine = stats.filter((o) => hasModel(o, m) && o.gun);
     const g1 = mine.filter((o) => o.gun === "gun1").sort((a, b) => a.lcpc - b.lcpc);
+    const g2 = mine.filter((o) => o.gun === "gun2").sort((a, b) => a.lcpc - b.lcpc);
     const comp = mine.filter((o) => o.gun === "comp").sort((a, b) => a.lcpc - b.lcpc);
     const power = mine.filter((o) => o.gun === "power");
-    return { m, label, g1, comp, power, shown: [...g1, ...comp].slice(0, 14) };
-  }).filter((r) => r.g1.length || r.comp.length || r.power.length);
+    return { m, label, g1, g2, comp, power, shown: [...g1, ...g2, ...comp].slice(0, 14) };
+  }).filter((r) => r.g1.length || r.g2.length || r.comp.length || r.power.length);
   if (!rows.length) return null;
   return (
     <section className="rounded-2xl border border-stone-200 bg-white">
@@ -237,6 +242,7 @@ function ModelBoard({ stats, info, onPick }) {
             <button type="button" onClick={() => onPick(r.m, "gun1")} className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-left">
               <span className="text-sm font-bold text-stone-900">{r.label}</span>
               <span className="text-xs font-semibold text-amber-700">👑 1군 {r.g1.length}</span>
+              <span className="text-xs font-semibold text-slate-700">🥈 2군 {r.g2.length}</span>
               <span className="text-xs text-violet-700">구도 합격 {r.comp.length}</span>
               {r.power.length > 0 && <span className="text-xs text-indigo-700">상품 힘 {r.power.length}</span>}
             </button>
@@ -247,6 +253,7 @@ function ModelBoard({ stats, info, onPick }) {
                     <span className="relative block">
                       <Thumb o={o} img={info[o.code]} className="block aspect-[4/5] w-full rounded-none" />
                       {o.gun === "gun1" && <span className="absolute top-0.5 left-0.5 text-sm leading-none">👑</span>}
+                      {o.gun === "gun2" && <span className="absolute top-0.5 left-0.5 text-sm leading-none">🥈</span>}
                       {o.kind === "영상" && <span className="absolute right-0.5 bottom-0.5 rounded bg-black/55 px-1 text-[9px] text-white">영상</span>}
                     </span>
                     <span className="block px-1 py-0.5 text-[10px] leading-tight text-stone-600 tabular-nums">
@@ -463,7 +470,7 @@ export default function CreativesPage({ online, fileUrls }) {
             <Kpi icon={Trophy} label="지난 4주 에이스 · 후보" value={good4} unit={`/ ${made4}개`} sub={made4 ? `비율 ${((good4 / made4) * 100).toFixed(1)}% · 누르면 최근 1달 후보` : "누르면 최근 1달 후보"} tone="text-rose-700" onClick={() => (setFilter("hopeful"), setSpan("30"))} active={filter === "hopeful"} />
             <Kpi icon={Target} label="지금 켜진 소재" value={on.length} unit="개" sub={`오늘 광고비 ${man(spendToday)}원`} onClick={() => setFilter("on")} active={filter === "on"} />
             <Kpi icon={Power} label="끌 것" value={kill.length} unit="개" sub={kill.length ? `${man(kill.reduce((a, o) => a + (o.sT || 0), 0))}원이 오늘도 나가는 중` : "지금은 없어요"} tone={kill.length ? "text-amber-600" : "text-stone-900"} onClick={() => setFilter("kill")} active={filter === "kill"} />
-            <Kpi icon={Crown} label="1군 (전체 기간)" value={gunAll.length} unit="개" sub={`구도 합격 ${stats.filter((o) => o.gun === "comp").length} · 상품 힘 ${stats.filter((o) => o.gun === "power").length} · 링크 CPC ${RULES.gun.cpc}↓ + 1일 ROAS ${RULES.gun.roas}↑`} tone="text-amber-700" onClick={() => (setFilter("gun1"), setSpan("all"))} active={filter === "gun1"} />
+            <Kpi icon={Crown} label="1군 (전체 기간)" value={gunAll.length} unit="개" sub={`🥈 2군 ${stats.filter((o) => o.gun === "gun2").length} · 구도 합격 ${stats.filter((o) => o.gun === "comp").length} · 상품 힘 ${stats.filter((o) => o.gun === "power").length} · 링크 CPC ${RULES.gun.cpc}↓ + 1일 ROAS ${RULES.gun.roas}↑`} tone="text-amber-700" onClick={() => (setFilter("gun1"), setSpan("all"))} active={filter === "gun1"} />
           </div>
 
           <Weeks rows={weeks} />

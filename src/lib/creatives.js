@@ -15,12 +15,13 @@ export const RULES = {
   testMax: 15000, // 1.5만 원 전은 '시험 중'
   weekGoal: 25, // 주 새 소재 목표 — 에이스 비율 4%면 주 1개
   // 11/10 세원 "1군 왕관" (위키 topics/1군-원칙.md) — 링크 CPC = 광고비 ÷ 링크 클릭(lc). 전체 클릭(clk)은 20~30% 많아서 안 쓴다
-  gun: { spend: 10000, cpc: 200, pu: 1, roas: 2.5 },
+  gun: { spend: 10000, cpc: 200, cpc2: 300, pu: 1, roas: 2.5 },
 };
 
 /** 1군 판정 — 광고비 1만↑ 만. 👑 1군 = 링크 CPC 200 미만 + 클릭 후 1일 구매 1건↑ + 1일 ROAS 2.5↑ */
 export const GUN = {
   gun1: ["👑 1군", "bg-amber-100 text-amber-900 ring-1 ring-amber-300"],
+  gun2: ["🥈 2군", "bg-slate-100 text-slate-800 ring-1 ring-slate-300"],
   comp: ["구도 합격", "bg-violet-100 text-violet-800"],
   power: ["상품 힘", "bg-indigo-50 text-indigo-700"],
 };
@@ -30,6 +31,8 @@ export function gunOf(o) {
   if (o.spend < G.spend || o.lcpc == null) return "";
   const sold = (o.pu1 || 0) >= G.pu && o.roas1 >= G.roas;
   if (o.lcpc < G.cpc) return sold ? "gun1" : "comp";
+  // 11/10 세원 "2군도 만들어 줄 수 있나?" → A안: 링크 CPC 200~300 + 1일 구매 1↑ + 1일 ROAS 2.5↑ (10개 · 570만 · 합산 3.09)
+  if (o.lcpc < G.cpc2 && sold) return "gun2";
   return o.roas1 >= G.roas ? "power" : "";
 }
 

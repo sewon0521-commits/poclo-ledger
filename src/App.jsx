@@ -32,6 +32,7 @@ import SoOrderPage from "./components/SoOrderPage";
 import StockPage from "./components/StockPage";
 import FinancePage from "./components/FinancePage";
 import CsPage from "./components/CsPage";
+import DelayPage from "./components/DelayPage";
 import MusicPage from "./components/MusicPage";
 import ContractPage from "./components/ContractPage";
 import PartTimePage from "./components/PartTimePage";
@@ -581,6 +582,8 @@ pg === "home" ? (
                 <FinancePage key={pg} view={pg} vendors={vendors} tx={tx} pricing={S.pricing} salesRows={S.rows} salesConf={S.conf} onPage={go} online={L.mode === "remote" && !!L.session} />
               ) : pg === "cs" ? (
                 <CsPage online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
+              ) : pg === "delay" ? (
+                <DelayPage online={L.mode === "remote" && !!L.session} />
               ) : pg === "pending" ? (
                 <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} initialTab={pendingTab} />
               ) : pg === "vendors" ? (
@@ -636,7 +639,7 @@ pg === "home" ? (
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 · SO+ 발주 변환은 PC 전용이라 표가 옆으로 안 밀리게 더 넓게(11/4) */}
-        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "stories" || page === "stock" || page.startsWith("finance") || page === "cs" ? "max-w-6xl" : page === "events" || page === "settle" || page === "manual" ? "max-w-5xl" : page === "home" || page === "soOrder" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "stories" || page === "stock" || page.startsWith("finance") || page === "cs" || page === "delay" ? "max-w-6xl" : page === "events" || page === "settle" || page === "manual" ? "max-w-5xl" : page === "home" || page === "soOrder" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
           <div className="mb-4 flex items-center justify-end gap-2">
             {/* 11/10 세원 "넥스트팩처럼 알림이랑 언제 업데이트됐는지" — 답할 CS 문의 · 세원 할 일 */}
             {(L.mode !== "remote" || L.session) && <NotifyBell online={L.mode === "remote" && !!L.session} onPage={goMain} />}
