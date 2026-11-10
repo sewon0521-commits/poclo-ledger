@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Target, Rocket, Power, Trophy, Camera, ExternalLink } from "lucide-react";
+import { ChevronDown, Target, Rocket, Power, Trophy, Camera, ExternalLink, Crown } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { won } from "../lib/sales";
-import { readStats, weekly, weekOf, RULES, STATUS } from "../lib/creatives";
+import { readStats, weekly, weekOf, RULES, STATUS, GUN } from "../lib/creatives";
 import { codeOfName } from "../lib/reportPeriod";
 
 /**
@@ -17,11 +17,15 @@ const md = (d) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : ""
 const FILTERS = [
   ["on", "켜진 것"],
   ["kill", "끌 것"],
+  ["gun1", "👑 1군"],
+  ["comp", "구도 합격"],
+  ["power", "상품 힘"],
   ["hopeful", "에이스 후보"],
   ["ace", "에이스"],
   ["week", "이번 주 새 소재"],
   ["all", "전체"],
 ];
+const GUN_KEYS = ["gun1", "comp", "power"];
 // 만든 날 — 10/19 세원: "에이스 후보가 진짜 옛날 것까지 뜬다, 1달 기준으로. 지금 겨울 소재 준비해야 되는데 여름 소재가 보여서"
 const SPANS = [
   ["30", "최근 1달"],
@@ -120,23 +124,46 @@ function Rules() {
           <li>
             · 에이스가 4%쯤 나오면 주 {RULES.weekGoal}개를 쏴야 주 1개가 나와요. 돈을 덜 쓰려면 인스타에 먼저 올려 반응 좋은 것만 광고로(아래 '우리 인스타 게시물').
           </li>
-          <li>· 숫자는 메타 기준(7일 클릭). 1시간마다 새로 받아요.</li>
+          <li className="pt-1">
+            · <b>👑 1군</b> = 광고비 {man(RULES.gun.spend)}원↑ · <b>링크 CPC {RULES.gun.cpc}원 미만</b>(고객이 눌러 들어온 값) · <b>클릭 후 1일</b> 구매 {RULES.gun.pu}건↑ · 1일 ROAS {RULES.gun.roas}↑. 구도도 좋고 팔리기까지 한 소재예요.
+          </li>
+          <li>
+            · <b>구도 합격</b> = 링크 CPC {RULES.gun.cpc}원 미만인데 안 팔렸거나 1일 ROAS {RULES.gun.roas} 아래 — 구도는 다른 옷에 그대로 쓰고, 이 상품은 상세·가격을 점검해요.
+          </li>
+          <li>
+            · <b>상품 힘</b> = 링크 CPC {RULES.gun.cpc}원 이상인데 1일 ROAS {RULES.gun.roas}↑ — 옷이 팔리는 거라 1군 구도로 다시 찍어요.
+          </li>
+          <li>
+            · 링크 CPC 는 링크 클릭만 세요. 표의 CTR 은 전체 클릭(좋아요·프로필 눌림까지)이라 20~30% 높게 나와서 1군 판정엔 안 써요.
+          </li>
+          <li>· 숫자는 메타 기준(ROAS·구매는 7일 클릭, 1군은 1일 클릭). 1시간마다 새로 받아요.</li>
         </ul>
       )}
     </div>
   );
 }
 
+/** 광고 첫 장면(메타 썸네일, 며칠 뒤 만료) → 안 열리면 상품 사진 */
+function Thumb({ o, img, className }) {
+  const [bad, setBad] = useState(false);
+  const src = o.th && !bad ? o.th : img;
+  return <span className={"shrink-0 overflow-hidden rounded bg-stone-100 " + className}>{src && <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBad(true)} className="h-full w-full object-cover" />}</span>;
+}
+
 function Row({ o, img }) {
   const [label, tone] = STATUS[o.status];
+  const gun = o.gun && GUN[o.gun];
   return (
-    <tr className="hover:bg-stone-50/70">
+    <tr className={o.gun === "gun1" ? "bg-amber-50/40 hover:bg-amber-50/80" : "hover:bg-stone-50/70"}>
       <td className="px-3 py-2 align-middle">
-        <span className={"inline-block rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap " + tone}>{label}</span>
+        <span className="flex flex-col items-start gap-1">
+          <span className={"inline-block rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap " + tone}>{label}</span>
+          {gun && <span className={"inline-block rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap " + gun[1]}>{gun[0]}</span>}
+        </span>
       </td>
       <td className="px-2 py-2">
         <div className="flex items-center gap-2.5">
-          <span className="h-11 w-8 shrink-0 overflow-hidden rounded bg-stone-100">{img && <img src={img} alt="" loading="lazy" className="h-full w-full object-cover" />}</span>
+          <Thumb o={o} img={img} className="h-11 w-8" />
           <span className="min-w-0">
             <span className="line-clamp-1 font-medium text-stone-900" title={o.name}>
               {o.title}
@@ -144,6 +171,7 @@ function Row({ o, img }) {
             <span className="block text-[11px] text-stone-400">
               {md(o.created)} 만듦{o.kind && ` · ${o.kind}`}
               {o.maker && ` · ${o.maker}`}
+              {o.models.length > 0 && <span className="text-stone-500"> · 모델 {o.models.join("·")}</span>}
               {o.active ? <b className="ml-1 text-emerald-600">● 켜짐</b> : ""}
             </span>
           </span>
@@ -151,12 +179,15 @@ function Row({ o, img }) {
       </td>
       <td className="px-2 py-2 text-right font-semibold text-stone-900">{man(o.spend)}</td>
       <td className={"px-2 py-2 text-right font-semibold " + (o.roas >= 3 ? "text-emerald-700" : o.spend >= 10000 && o.roas < 1.5 ? "text-rose-600" : "text-stone-700")}>{o.spend ? o.roas.toFixed(2) : "—"}</td>
+      <td className={"px-2 py-2 text-right font-semibold " + (o.roas1 >= RULES.gun.roas ? "text-emerald-700" : "text-stone-600")}>{o.spend && o.lc != null ? o.roas1.toFixed(2) : "—"}</td>
       <td className="px-2 py-2 text-right text-stone-700">
         {o.pu ? Math.round(o.pu) : 0}
         <span className="text-stone-400"> ({Math.round(o.pu1 || 0)})</span>
       </td>
       <td className="px-2 py-2 text-right text-stone-600">{o.ctr != null ? `${o.ctr.toFixed(2)}%` : "—"}</td>
-      <td className="px-2 py-2 text-right text-stone-600">{o.cpc != null ? won(Math.round(o.cpc)) : "—"}</td>
+      <td className={"px-2 py-2 text-right " + (o.lcpc != null && o.lcpc < RULES.gun.cpc ? "font-semibold text-emerald-700" : "text-stone-600")} title={o.cpc != null ? `전체 클릭 CPC ${won(Math.round(o.cpc))}원` : ""}>
+        {o.lcpc != null ? won(Math.round(o.lcpc)) : "—"}
+      </td>
       <td className="px-2 py-2 text-right text-stone-600">{o.hook != null ? `${o.hook.toFixed(1)}%` : "—"}</td>
       <td className="px-2 py-2 text-right text-stone-600">
         {o.s7 ? (
@@ -169,6 +200,69 @@ function Row({ o, img }) {
       </td>
       <td className="px-3 py-2 text-right text-stone-600">{o.sT ? `${man(o.sT)}${o.puT ? ` · ${Math.round(o.puT)}건` : ""}` : <span className="text-stone-300">—</span>}</td>
     </tr>
+  );
+}
+
+// 11/10 세원 "모델별로 묶어도 될듯" — 광고 상품 → 상품 폴더 메모 '모델:' (ads_live.py mdl). 광고 이름 끝 기연·병만·관호는 쇼만마 담당자라 모델이 아니다
+const MODELS = [
+  ["주현", "이주현"],
+  ["태은", "김태은"],
+  ["연서", "남연서"],
+  ["지원", "예전(지원)"],
+  ["none", "모름"],
+];
+const hasModel = (o, m) => (m === "none" ? !o.models.length : o.models.includes(m));
+
+/** 모델별 1군 구도 — 모델마다 👑 1군 · 구도 합격 수와 첫 장면. 구도를 말로 정리한 건 위키 1군-원칙.md '모델별 1군 구도' 표 */
+function ModelBoard({ stats, info, onPick }) {
+  const rows = MODELS.map(([m, label]) => {
+    const mine = stats.filter((o) => hasModel(o, m) && o.gun);
+    const g1 = mine.filter((o) => o.gun === "gun1").sort((a, b) => a.lcpc - b.lcpc);
+    const comp = mine.filter((o) => o.gun === "comp").sort((a, b) => a.lcpc - b.lcpc);
+    const power = mine.filter((o) => o.gun === "power");
+    return { m, label, g1, comp, power, shown: [...g1, ...comp].slice(0, 14) };
+  }).filter((r) => r.g1.length || r.comp.length || r.power.length);
+  if (!rows.length) return null;
+  return (
+    <section className="rounded-2xl border border-stone-200 bg-white">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-stone-100 px-4 pt-3.5 pb-2.5">
+        <h3 className="flex items-center gap-1 text-sm font-bold text-stone-900">
+          <Crown size={14} className="text-amber-600" /> 모델별 1군 구도
+        </h3>
+        <span className="text-[11px] text-stone-400">광고 상품의 메모 '모델:' 기준 · 전체 기간 · 👑 먼저, 링크 CPC 낮은 순 · 누르면 그 모델 소재만 아래 표에</span>
+      </div>
+      <div className="divide-y divide-stone-100">
+        {rows.map((r) => (
+          <div key={r.m} className="px-4 py-3">
+            <button type="button" onClick={() => onPick(r.m, "gun1")} className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-left">
+              <span className="text-sm font-bold text-stone-900">{r.label}</span>
+              <span className="text-xs font-semibold text-amber-700">👑 1군 {r.g1.length}</span>
+              <span className="text-xs text-violet-700">구도 합격 {r.comp.length}</span>
+              {r.power.length > 0 && <span className="text-xs text-indigo-700">상품 힘 {r.power.length}</span>}
+            </button>
+            {r.shown.length > 0 ? (
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+                {r.shown.map((o) => (
+                  <button key={o.id} type="button" onClick={() => onPick(r.m, o.gun)} title={o.name} className={"w-[84px] shrink-0 overflow-hidden rounded-lg border text-left " + (o.gun === "gun1" ? "border-amber-300 ring-1 ring-amber-200" : "border-stone-200")}>
+                    <span className="relative block">
+                      <Thumb o={o} img={info[o.code]} className="block aspect-[4/5] w-full rounded-none" />
+                      {o.gun === "gun1" && <span className="absolute top-0.5 left-0.5 text-sm leading-none">👑</span>}
+                      {o.kind === "영상" && <span className="absolute right-0.5 bottom-0.5 rounded bg-black/55 px-1 text-[9px] text-white">영상</span>}
+                    </span>
+                    <span className="block px-1 py-0.5 text-[10px] leading-tight text-stone-600 tabular-nums">
+                      <span className="block truncate font-medium text-stone-800">{o.code}</span>
+                      {Math.round(o.lcpc)}원 · {o.roas1.toFixed(1)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-stone-400">아직 링크 CPC {RULES.gun.cpc}원 아래 소재가 없어요.</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -263,6 +357,7 @@ export default function CreativesPage({ online, fileUrls }) {
   const [sort, setSort] = useState("spend");
   const [q, setQ] = useState("");
   const [n, setN] = useState(50);
+  const [model, setModel] = useState("");
   const [span, setSpanState] = useState(readSpan);
   const setSpan = (v) => {
     setSpanState(v);
@@ -321,11 +416,12 @@ export default function CreativesPage({ online, fileUrls }) {
   // 켜진 것·끌 것은 지금 켜진 광고라 기간과 상관없이, 나머지는 '만든 날'로 거른다
   const since = sinceOf(span);
   const inSpan = (o) => filter === "on" || filter === "kill" || !since || (o.created || "") >= since;
+  const pick = (o, k) => (k === "all" ? true : k === "on" ? o.active : k === "week" ? o.created && weekOf(o.created) === curWeek : GUN_KEYS.includes(k) ? o.gun === k : o.status === k);
+  const gunAll = stats.filter((o) => o.gun === "gun1");
   const list = stats
     .filter(inSpan)
-    .filter((o) =>
-      filter === "all" ? true : filter === "on" ? o.active : filter === "week" ? o.created && weekOf(o.created) === curWeek : o.status === filter,
-    )
+    .filter((o) => pick(o, filter))
+    .filter((o) => !model || hasModel(o, model))
     .filter((o) => !words.length || words.every((w) => `${o.name} ${o.code}`.toLowerCase().includes(w)))
     .sort(
       {
@@ -337,7 +433,14 @@ export default function CreativesPage({ online, fileUrls }) {
     );
   const recent = (o) => !since || (o.created || "") >= since;
   const count = (k) =>
-    k === "on" ? on.length : k === "kill" ? kill.length : k === "all" ? stats.filter(recent).length : k === "week" ? stats.filter((o) => o.created && weekOf(o.created) === curWeek).length : stats.filter((o) => o.status === k && recent(o)).length;
+    k === "on" ? on.length : k === "kill" ? kill.length : k === "week" ? stats.filter((o) => pick(o, k)).length : stats.filter((o) => pick(o, k) && recent(o)).length;
+  const pickModel = (m, g) => {
+    setModel(m);
+    if (g) setFilter(g);
+    setSpan("all");
+  };
+  // 모델 칩 숫자 = 지금 고른 갈래·기간 안에서
+  const mCount = (m) => stats.filter((o) => inSpan(o) && pick(o, filter) && hasModel(o, m)).length;
 
   return (
     <div className="space-y-4">
@@ -355,17 +458,28 @@ export default function CreativesPage({ online, fileUrls }) {
 
       {state === "ready" && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Kpi icon={Rocket} label="이번 주 새 소재" value={thisWeek?.made ?? 0} unit={`/ ${RULES.weekGoal}개`} sub={`${md(curWeek)}부터 · 주 ${RULES.weekGoal}개면 에이스가 주 1개 꼴`} tone={(thisWeek?.made || 0) >= RULES.weekGoal ? "text-emerald-700" : "text-stone-900"} onClick={() => setFilter("week")} active={filter === "week"} />
             <Kpi icon={Trophy} label="지난 4주 에이스 · 후보" value={good4} unit={`/ ${made4}개`} sub={made4 ? `비율 ${((good4 / made4) * 100).toFixed(1)}% · 누르면 최근 1달 후보` : "누르면 최근 1달 후보"} tone="text-rose-700" onClick={() => (setFilter("hopeful"), setSpan("30"))} active={filter === "hopeful"} />
             <Kpi icon={Target} label="지금 켜진 소재" value={on.length} unit="개" sub={`오늘 광고비 ${man(spendToday)}원`} onClick={() => setFilter("on")} active={filter === "on"} />
             <Kpi icon={Power} label="끌 것" value={kill.length} unit="개" sub={kill.length ? `${man(kill.reduce((a, o) => a + (o.sT || 0), 0))}원이 오늘도 나가는 중` : "지금은 없어요"} tone={kill.length ? "text-amber-600" : "text-stone-900"} onClick={() => setFilter("kill")} active={filter === "kill"} />
+            <Kpi icon={Crown} label="1군 (전체 기간)" value={gunAll.length} unit="개" sub={`구도 합격 ${stats.filter((o) => o.gun === "comp").length} · 상품 힘 ${stats.filter((o) => o.gun === "power").length} · 링크 CPC ${RULES.gun.cpc}↓ + 1일 ROAS ${RULES.gun.roas}↑`} tone="text-amber-700" onClick={() => (setFilter("gun1"), setSpan("all"))} active={filter === "gun1"} />
           </div>
 
           <Weeks rows={weeks} />
           <Rules />
+          <ModelBoard stats={stats} info={info} onPick={pickModel} />
 
           <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-stone-100 px-3 pt-2.5">
+              <span className="text-[11px] font-semibold text-stone-500">모델</span>
+              {[["", "전체"], ...MODELS].map(([k, l]) => (
+                <button key={k || "all"} type="button" onClick={() => (setModel(k), setN(50))} className={"rounded-full border px-2.5 py-0.5 text-xs " + (model === k ? "border-rose-700 bg-rose-700 font-semibold text-white" : "border-stone-200 bg-white text-stone-600 hover:border-rose-300")}>
+                  {l}
+                  {k && <span className="ml-1 opacity-70">{mCount(k)}</span>}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap items-center gap-2 border-b border-stone-100 px-3 py-2.5">
               <div className="flex gap-0.5 overflow-x-auto rounded-full bg-stone-100 p-0.5 [scrollbar-width:none]">
                 {FILTERS.map(([k, l]) => (
@@ -394,16 +508,17 @@ export default function CreativesPage({ online, fileUrls }) {
               </a>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-sm tabular-nums">
+              <table className="w-full min-w-[1060px] text-sm tabular-nums">
                 <thead>
                   <tr className="border-b border-stone-200 bg-stone-50 text-left text-[11px] font-semibold text-stone-500">
                     <th className="px-3 py-2">상태</th>
                     <th className="px-2 py-2">소재</th>
                     <th className="px-2 py-2 text-right">누적 광고비</th>
                     <th className="px-2 py-2 text-right">ROAS</th>
+                    <th className="px-2 py-2 text-right">1일 ROAS</th>
                     <th className="px-2 py-2 text-right">구매 (1일)</th>
                     <th className="px-2 py-2 text-right">CTR</th>
-                    <th className="px-2 py-2 text-right">CPC</th>
+                    <th className="px-2 py-2 text-right">링크 CPC</th>
                     <th className="px-2 py-2 text-right">3초 시청</th>
                     <th className="px-2 py-2 text-right">7일 광고비 · ROAS</th>
                     <th className="px-3 py-2 text-right">오늘</th>
@@ -415,7 +530,7 @@ export default function CreativesPage({ online, fileUrls }) {
                   ))}
                   {!list.length && (
                     <tr>
-                      <td colSpan={10} className="px-4 py-8 text-center text-xs text-stone-400">
+                      <td colSpan={11} className="px-4 py-8 text-center text-xs text-stone-400">
                         해당하는 소재가 없어요.
                       </td>
                     </tr>

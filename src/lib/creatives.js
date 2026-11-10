@@ -14,7 +14,24 @@ export const RULES = {
   kill: { spend: 15000, lowSpend: 30000, lowRoas: 1.5 }, // 끌 것 = 켜져 있는데 1.5만 원 써도 구매 0, 또는 3만 원↑인데 ROAS 1.5 아래
   testMax: 15000, // 1.5만 원 전은 '시험 중'
   weekGoal: 25, // 주 새 소재 목표 — 에이스 비율 4%면 주 1개
+  // 11/10 세원 "1군 왕관" (위키 topics/1군-원칙.md) — 링크 CPC = 광고비 ÷ 링크 클릭(lc). 전체 클릭(clk)은 20~30% 많아서 안 쓴다
+  gun: { spend: 10000, cpc: 200, pu: 1, roas: 2.5 },
 };
+
+/** 1군 판정 — 광고비 1만↑ 만. 👑 1군 = 링크 CPC 200 미만 + 클릭 후 1일 구매 1건↑ + 1일 ROAS 2.5↑ */
+export const GUN = {
+  gun1: ["👑 1군", "bg-amber-100 text-amber-900 ring-1 ring-amber-300"],
+  comp: ["구도 합격", "bg-violet-100 text-violet-800"],
+  power: ["상품 힘", "bg-indigo-50 text-indigo-700"],
+};
+
+export function gunOf(o) {
+  const G = RULES.gun;
+  if (o.spend < G.spend || o.lcpc == null) return "";
+  const sold = (o.pu1 || 0) >= G.pu && o.roas1 >= G.roas;
+  if (o.lcpc < G.cpc) return sold ? "gun1" : "comp";
+  return o.roas1 >= G.roas ? "power" : "";
+}
 
 export const STATUS = {
   ace: ["에이스", "bg-rose-700 text-white"],
@@ -36,11 +53,16 @@ export function readStats(v) {
     o.cpc = o.clk ? o.spend / o.clk : null;
     o.hook = o.v3 && o.imp ? (o.v3 / o.imp) * 100 : null; // 영상 첫 3초 본 비율
     const parts = String(o.name || "").split(" - ").map((s) => s.trim());
-    o.format = parts.find((p) => /\d+:\d+|영상|이미지|캐러셀/.test(p)) || "";
+    // '(9:16) 261101 - 테디 … - 9:16 영상 - …' 처럼 맨 앞에도 비율이 붙는 이름이 있어서 형식 낱말이 든 칸을 먼저 (11/10)
+    o.format = parts.find((p) => /영상|이미지|캐러셀/.test(p)) || parts.find((p) => /\d+:\d+/.test(p)) || "";
     o.kind = /영상/.test(o.format) ? "영상" : /캐러셀/.test(o.format) ? "캐러셀" : /이미지/.test(o.format) ? "이미지" : "";
     o.maker = parts.length >= 4 ? parts[parts.length - 1] : "";
     o.title = parts.length >= 2 ? parts[1] : o.name;
     o.status = statusOf(o);
+    o.lcpc = o.lc ? o.spend / o.lc : null; // 링크 CPC (11/10)
+    o.roas1 = o.spend ? (o.pv1 || 0) / o.spend : 0; // 클릭 후 1일 ROAS
+    o.gun = gunOf(o);
+    o.models = String(o.mdl || "").split(",").filter(Boolean); // 상품 폴더 메모 '모델:' (ads_live.py)
     return o;
   });
 }
