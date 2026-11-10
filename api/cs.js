@@ -29,6 +29,7 @@ const CHANNEL_NAME = {
   cafe24_consult: "카페24 1:1 맞춤상담 게시판",
   kakao: "카카오톡 채널 채팅",
   naver: "네이버 톡톡 채팅",
+  npay: "네이버페이 주문형 문의(네이버페이센터 — 주문한 고객이 남긴 문의)",
   insta: "인스타그램 DM",
   phone: "전화·문자",
   etc: "기타",
@@ -83,6 +84,10 @@ async function ask(client, content, schema, effort) {
 /** 답변 틀 → 글 (앱의 cs_templates 를 그대로 받는다) */
 function templatesText(t = {}) {
   const lines = [];
+  // 11/10 CS 지침서(세원이 고치는 md) — 말투·사실 확인·경우별 기준. 틀보다 먼저 읽는다
+  if (t.guide) lines.push(`[CS 지침서 — 가장 먼저 지킬 것]
+${String(t.guide).slice(0, 6000)}
+`);
   if (t.greeting) lines.push(`인사: ${t.greeting}`);
   if (t.closing) lines.push(`맺음: ${t.closing}`);
   if (t.tone) lines.push(`말투: ${t.tone}`);
@@ -165,6 +170,9 @@ export default async function handler(req, res) {
     body.title ? `제목: ${String(body.title).slice(0, 200)}` : "",
     text.trim() ? `--- 고객 문의 ---\n${text}` : "--- 고객 문의는 아래 캡처 사진 ---",
     orderText(body.order),
+    body.stock ? `
+--- 지금 재고 (넥스트팩 창고 + 사무실 렉, 11/10~) — 수량은 고객에게 말하지 말 것 ---
+${String(body.stock).slice(0, 1500)}` : "",
     productText,
     body.previous ? `\n--- 앞서 만든 초안 ---\n${String(body.previous).slice(0, 3000)}` : "",
     body.instruct ? `\n--- 이렇게 고쳐서 다시 써 줘 (세원 지시 — 최우선) ---\n${String(body.instruct).slice(0, 600)}` : "",

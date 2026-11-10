@@ -20,17 +20,33 @@
 //        type, summary, caution, check[], blanks:[{key,hint}], fills:{key:값}, draft, basis(확인 근거·메모), confirmed,
 //        status, final(보낸 글), sentAt, doneAt, error, cost(원) }
 
+// ⭐ 11/10 세원 "반자동으로 — 고객 문의 → 너가 답변 만들어 놓고 → 내가 확인·수정 → 버튼 하나 누르면 쫙 보내게. 네이버페이·카카오도" · "카톡도 어사이드로 해"
+//   via: 'cafe24' = 사무실 PC 가 카페24 API 로 읽고 답글 / 'aside' = 사무실 PC 가 세원이 로그인해 둔 어사이드 브라우저로 읽고 보냄 / 'paste' = 붙여넣고 복사
+//   보내기는 늘 세원이 '보낼 준비'의 [한꺼번에 보내기]를 누를 때만. 사람 흉내(무작위 지연 등)는 쓰지 않는다.
+//   PC 는 cs_worker.channels[k] = {ok, msg, at} 로 그 채널이 지금 되는지(로그인·권한) 적는다.
 export const CHANNELS = [
-  { k: "cafe24_qna", label: "카페24 상품 Q&A", short: "Q&A", auto: true, tone: "bg-sky-50 text-sky-800 ring-sky-200" },
-  { k: "cafe24_consult", label: "카페24 1:1 상담", short: "1:1 상담", auto: true, tone: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
-  { k: "kakao", label: "카카오톡 채널", short: "카톡", tone: "bg-yellow-50 text-yellow-900 ring-yellow-200" },
-  { k: "naver", label: "네이버 톡톡", short: "톡톡", tone: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
-  { k: "insta", label: "인스타 DM", short: "인스타", tone: "bg-rose-50 text-rose-800 ring-rose-200" },
-  { k: "phone", label: "전화·문자", short: "전화", tone: "bg-stone-100 text-stone-700 ring-stone-200" },
-  { k: "etc", label: "기타", short: "기타", tone: "bg-stone-100 text-stone-700 ring-stone-200" },
+  { k: "cafe24_qna", label: "카페24 상품 Q&A", short: "Q&A", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-sky-50 text-sky-800 ring-sky-200" },
+  { k: "cafe24_consult", label: "카페24 1:1 상담", short: "1:1 상담", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
+  { k: "npay", label: "네이버페이 주문형 문의", short: "N페이", via: "aside", pc: "npay", tone: "bg-green-50 text-green-800 ring-green-200" },
+  { k: "kakao", label: "카카오톡 채널", short: "카톡", via: "aside", pc: "kakao", tone: "bg-yellow-50 text-yellow-900 ring-yellow-200" },
+  { k: "naver", label: "네이버 톡톡", short: "톡톡", via: "aside", pc: "talk", tone: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
+  { k: "insta", label: "인스타 DM", short: "인스타", via: "paste", tone: "bg-rose-50 text-rose-800 ring-rose-200" },
+  { k: "phone", label: "전화·문자", short: "전화", via: "paste", tone: "bg-stone-100 text-stone-700 ring-stone-200" },
+  { k: "etc", label: "기타", short: "기타", via: "paste", tone: "bg-stone-100 text-stone-700 ring-stone-200" },
 ];
 export const channelOf = (k) => CHANNELS.find((c) => c.k === k) || CHANNELS[CHANNELS.length - 1];
 export const isAuto = (k) => !!channelOf(k).auto;
+/** 사무실 PC 가 보내 주는 채널인가 (카페24 API 또는 어사이드) */
+export const canSend = (k) => ["cafe24", "aside"].includes(channelOf(k).via);
+/** PC 가 적은 채널 상태 {ok, msg, at} — 없으면 null */
+export const pcState = (worker, k) => (worker?.channels || {})[channelOf(k).pc] || null;
+/** PC 채널 상태 칸 — 화면 위 */
+export const PC_CHANNELS = [
+  ["cafe24", "카페24 게시판"],
+  ["npay", "네이버페이"],
+  ["kakao", "카톡 채널"],
+  ["talk", "톡톡"],
+];
 
 // 서버(api/cs.js TYPES)와 같은 이름·순서
 export const TYPES = ["배송", "교환", "반품·환불", "교환·반품 배송비", "사이즈", "재입고·입고", "불량·오배송", "주문 변경·취소", "할인·쿠폰", "상품 문의", "기타"];
@@ -85,7 +101,38 @@ export function productUrl(v) {
 // ------------------------------------------------------------------ 기본 답변 틀
 // 사실은 쇼핑몰 '이용안내'(10/13 ppoclo.kr/shopinfo/guide.html)에 적힌 것만 넣었다. 모르는 금액·날짜는 [빈칸] — 세원이 '답변 틀'에서 채운다.
 
+// 11/10 CS 지침서 — 쇼필공 단톡 사례(버킨: 업무 기준·예외를 AI 가 읽는 md 지침서로)를 따라 만든 첫 판. AI 가 초안 쓸 때 맨 먼저 읽고, 세원이 '답변 틀 › CS 지침서'에서 고친다.
+export const DEFAULT_GUIDE = `# 포클로 CS 지침서
+AI가 답변 초안을 쓸 때 맨 먼저 읽어요. 세원이 고치면 다음 초안부터 바뀌어요.
+
+## 말투
+- 부드러운 존댓말(~요), 두세 줄씩 끊기. 이모지는 맺음에 🤍 하나 정도. 🙏 는 쓰지 않아요.
+- 과한 사과·변명은 빼고, 고객 불편은 먼저 받아 줘요("기다리게 해 드려 죄송해요" 한 줄이면 충분).
+- 고객이 자세히 알려 주면 "꼼꼼하게 알려주셔서 감사합니다 ☺️"처럼 짧게.
+
+## 사실은 확인된 것만
+- 주문 상태·송장·출고일 = 같이 온 주문 정보에 있을 때만. 없으면 [주문 상태 확인]·[송장번호] 빈칸.
+- 재고 = 같이 온 재고(넥스트팩 창고 + 사무실 렉)로만. 있으면 "바로 출고 가능해요", 수량은 말하지 않아요. 모르면 [재고 확인].
+- 입고일 = 확정된 날만. 거래처 예정일이면 "○일 입고 예정"(약속처럼 쓰지 않기). 모르면 [입고 예정일].
+- 금액·혜택 = 쇼핑몰 규정에 적힌 것만. 교환·반품 배송비는 [교환·반품 배송비] 빈칸.
+
+## 경우별 기준
+- 배송 지연: 결제 다음 날부터 주말 빼고 3일 넘게 출고가 안 됐으면 지연 안내 — 사과 한 줄 → 입고·출고 예정 → "기다리기 어려우시면 바로 취소 도와드릴게요".
+- 미송(거래처 입고 대기): 들어오는 대로 검수해 바로 출고, 출고되면 송장 문자로 안내.
+- 하자(불량): 사과 → 불량 부분·택이 보이게 사진 부탁 → 확인되면 왕복 배송비 저희 부담으로 교환·반품.
+- 오배송: 사과 → 받으신 상품 사진 부탁 → 맞는 상품을 저희 부담으로 보내고 잘못 간 상품은 회수.
+- 품절: 사과 → 재입고는 확정일 때만 날짜, 아니면 약속하지 않기 → 비슷한 상품이 있으면 짧은 링크.
+- 교환·반품(단순 변심): 받은 날부터 7일 안, 왕복 배송비 고객 부담, 착용·세탁 흔적이 있으면 어려움.
+- 주문 취소·옵션 변경: 출고 전이면 바로 해 드림, 출고됐으면 받으신 뒤 교환·반품으로.
+- 사이즈: 상품 페이지 실측 + 모델 정보로. "체형에 따라 개인차가 있을 수 있어요" 꼭.
+
+## 자주 쓰는 것
+- 상품 짧은 링크: https://ppoclo.kr/surl/P/상품번호
+- 가입 혜택: 회원가입하고 쿠폰팩 받아 가세요 (3만 원 이상 3,000원 · 5만 원 이상 3,000원 · 7만 원 이상 4,000원) · 쿠폰은 주문당 한 장
+`;
+
 export const DEFAULT_TEMPLATES = {
+  guide: DEFAULT_GUIDE,
   greeting: "안녕하세요 고객님 :) 포클로입니다 🤍",
   closing: "더 궁금하신 점 있으시면 편하게 말씀 주세요. 감사합니다 🤍",
   tone: "부드러운 존댓말(~요). 짧은 문단으로 끊고, 이모지는 맺음에 하나 정도. 과한 사과·변명은 빼고, 고객 불편은 먼저 받아 준다.",
@@ -98,7 +145,7 @@ export const DEFAULT_TEMPLATES = {
     "반품·교환 불가: 착용 흔적·세탁·훼손으로 가치가 떨어진 경우, 시간이 지나 다시 팔 수 없는 경우",
     "환불: 반품 상품 확인 후 3영업일 이내 환불. 카드 결제는 승인 취소(카드사 사정으로 다음 달 청구 후 환급될 수 있음)",
     "적립금: 배송 완료 후 20일 뒤 사용 가능 · 1,000원부터 · 한 번에 최대 3,000원",
-    "회원가입 쿠폰: 5% 쿠폰 자동 발급, 받은 날부터 3일 사용",
+    "회원가입 쿠폰팩(10/19부터): 3만 원 이상 3,000원(7일) · 5만 원 이상 3,000원(30일) · 7만 원 이상 4,000원(30일). 쿠폰은 주문당 한 장",
     "모델: 상품마다 달라요 — 상품 페이지의 모델 정보(키·착용 사이즈)로 답하기",
     "고객센터: 070-4045-1169 · 평일 10:00~17:00 (점심 12~13시, 주말·공휴일 휴무)",
   ].join("\n"),
@@ -163,7 +210,7 @@ export const DEFAULT_TEMPLATES = {
       id: "t_coupon",
       type: "할인·쿠폰",
       title: "쿠폰·적립금·할인",
-      rules: "1. 회원가입 5% 쿠폰(받은 날부터 3일)\n2. 적립금 사용 조건(1,000원부터, 한 번에 3,000원까지, 배송 완료 20일 뒤)\n3. 진행 중인 할인은 [진행 중인 할인] 빈칸 — 지어내지 않기",
+      rules: "1. 회원가입 쿠폰팩(3만↑ 3,000 · 5만↑ 3,000 · 7만↑ 4,000, 주문당 한 장)\n2. 적립금 사용 조건(1,000원부터, 한 번에 3,000원까지, 배송 완료 20일 뒤)\n3. 진행 중인 할인은 [진행 중인 할인] 빈칸 — 지어내지 않기",
       body: "",
     },
     {
@@ -183,12 +230,27 @@ export function withDefaults(t) {
   const items = Array.isArray(v.items) ? v.items : [];
   const have = new Set(items.map((x) => x.type));
   return {
+    guide: v.guide ?? DEFAULT_TEMPLATES.guide,
     greeting: v.greeting ?? DEFAULT_TEMPLATES.greeting,
     closing: v.closing ?? DEFAULT_TEMPLATES.closing,
     tone: v.tone ?? DEFAULT_TEMPLATES.tone,
-    policy: v.policy ?? DEFAULT_TEMPLATES.policy,
+    // 10/19 회원가입 5% 쿠폰이 멈추고 쿠폰팩으로 바뀜 — 10/13 에 저장된 규정의 그 줄만 새것으로 (11/10)
+    policy: String(v.policy ?? DEFAULT_TEMPLATES.policy).replace(/회원가입 쿠폰: 5% 쿠폰 자동 발급, 받은 날부터 3일 사용/, "회원가입 쿠폰팩(10/19부터): 3만 원 이상 3,000원(7일) · 5만 원 이상 3,000원(30일) · 7만 원 이상 4,000원(30일). 쿠폰은 주문당 한 장"),
     items: [...items, ...DEFAULT_TEMPLATES.items.filter((x) => !have.has(x.type))],
   };
+}
+
+/** 재고(settings stock — 넥스트팩 창고 + 사무실 렉)에서 그 상품 줄만 → 초안에 같이 보낼 짧은 글. 이름이 겹치는 줄이 없으면 빈 글자 */
+export function stockFor(stock, productName) {
+  const name = String(productName || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").replace(/\(\d+\s*color\)/i, "").trim();
+  const code = name.split(/\s+/)[0] || "";
+  if (!code || code.length < 2) return "";
+  const hit = (n) => String(n || "").includes(code);
+  const rows = [
+    ...((stock?.nextpack?.rows || []).filter((r) => hit(r.name)).map((r) => `창고 ${r.option || ""} ${r.avail ?? r.qty ?? 0}`)),
+    ...((stock?.rack || []).filter((r) => hit(r.name)).map((r) => `사무실 렉 ${r.option || ""} ${r.qty ?? 0}`)),
+  ];
+  return rows.slice(0, 30).join(" / ");
 }
 
 /** 몇 분 전 · 오늘 14:20 · 10/12 */

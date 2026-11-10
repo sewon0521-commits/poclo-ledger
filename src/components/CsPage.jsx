@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, isAuto, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, withDefaults, when } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, withDefaults, when } from "../lib/cs";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { newId } from "../lib/id";
@@ -66,7 +66,7 @@ function applyDraft(x, r) {
   };
 }
 
-const requestOf = (x, tpl, extra = {}) => ({
+const requestOf = (x, tpl, extra = {}, stock = null) => ({
   channel: x.channel,
   customer: x.customer,
   title: x.title,
@@ -74,6 +74,7 @@ const requestOf = (x, tpl, extra = {}) => ({
   at: x.at,
   product: x.product?.url ? { url: x.product.url } : x.product?.name ? { name: x.product.name } : undefined,
   order: x.order,
+  stock: stockFor(stock, x.product?.name) || undefined, // 11/10 재고(넥스트팩 + 사무실 렉)도 같이 — 사실만 넣게
   templates: tpl,
   ...extra,
 });
@@ -83,6 +84,7 @@ function useCs(online) {
   const [inbox, setInbox] = useState([]);
   const [tpl, setTpl] = useState(() => withDefaults(null));
   const [worker, setWorker] = useState(null);
+  const [stock, setStock] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const lastInbox = useRef("");
 
@@ -98,6 +100,7 @@ function useCs(online) {
       try {
         const [v, t] = await Promise.all([loadKey("cs_inbox", online), loadKey("cs_templates", online, null)]);
         if (!alive) return;
+        loadKey("stock", online, null).then((x) => alive && setStock(x)).catch(() => {});
         setTpl(withDefaults(t));
         // 한 번도 저장 안 했으면 기본 틀을 저장해 둔다 — 사무실 PC 가 카페24 문의 초안을 쓸 때 이걸 읽는다
         if (!t) changeKey("cs_templates", online, () => withDefaults(null), null).catch(() => {});
@@ -177,7 +180,22 @@ function useCs(online) {
       })),
     [online],
   );
-  return { inbox, tpl, worker, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue };
+  /** [한꺼번에 보내기] — 고른 문의를 한 번에 '보내는 중'으로 바꾸고 사무실 PC 일감에 넣는다(문의 목록·일감 목록 한 번씩만 쓴다) */
+  const bulkSend = useCallback(
+    async (ids) => {
+      const set = new Set(ids);
+      const at = new Date().toISOString();
+      setInbox((l) => l.map((y) => (set.has(y.id) ? { ...y, status: "sending", sendAskedAt: at, error: "" } : y)));
+      const next = await changeKey("cs_inbox", online, (v) => ({ ...v, items: (v.items || []).map((y) => (set.has(y.id) && y.status === "approved" ? { ...y, status: "sending", sendAskedAt: at, error: "" } : y)) }));
+      setInbox(next.items || []);
+      await changeKey("cs_queue", online, (v) => ({
+        ...v,
+        items: [...(v.items || []).filter((j) => !(j.kind === "send" && set.has(j.id))), ...ids.map((id) => ({ id, kind: "send", at }))],
+      }));
+    },
+    [online],
+  );
+  return { inbox, tpl, worker, stock, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend };
 }
 
 function ChannelBadge({ k, className = "" }) {
@@ -265,6 +283,22 @@ export default function CsPage({ online, products = [] }) {
   const pcOn = w.at && now - new Date(w.at).getTime() < 3 * 60000;
   const c24 = w.channels?.cafe24 || null;
   const needsScope = c24 && !c24.ok && /권한|scope/i.test(c24.msg || "");
+  // 보낼 목록 — 채널이 지금 되는 것(PC 가 ok 라고 적은 것)만 [한꺼번에 보내기]에 들어간다
+  const approvedList = D.inbox.filter((x) => x.status === "approved" && canSend(x.channel));
+  const sendReady = approvedList.filter((x) => pcState(w, x.channel)?.ok);
+  const sendBlocked = approvedList.filter((x) => !pcState(w, x.channel)?.ok);
+  const sendAll = async () => {
+    if (!sendReady.length) return;
+    const byCh = {};
+    for (const x of sendReady) byCh[channelOf(x.channel).label] = (byCh[channelOf(x.channel).label] || 0) + 1;
+    const lines = Object.entries(byCh).map(([k, n]) => `${k} ${n}건`).join(" · ");
+    if (!window.confirm(`${sendReady.length}건을 보낼까요?
+${lines}
+
+보내면 손님에게 바로 가요.`)) return;
+    await D.bulkSend(sendReady.map((x) => x.id));
+    setMsg(pcOn ? `${sendReady.length}건을 사무실 PC에 맡겼어요 — 한 건씩 차례로 보내요.` : `${sendReady.length}건을 맡겼어요 — 사무실 PC가 켜지면 보내요.`);
+  };
 
   const collectNow = async () => {
     await D.enqueue({ id: "collect", kind: "collect" });
@@ -276,13 +310,13 @@ export default function CsPage({ online, products = [] }) {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-stone-900">CS 관리</h2>
-          <p className="mt-0.5 text-sm text-stone-500">흩어진 문의를 한곳에 모으고, 초안은 AI가 — 보내는 건 확인한 다음에.</p>
+          <p className="mt-0.5 text-sm text-stone-500">흩어진 문의를 한곳에 모으고, 초안은 AI가 — 확인하고 고친 다음 [한꺼번에 보내기] 한 번으로.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => setTplOpen(true)} className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:border-stone-400">
             <Settings2 size={15} /> 답변 틀
           </button>
-          <button type="button" onClick={collectNow} title="카페24 게시판(상품 Q&A · 1:1 상담)을 지금 모아요" className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:border-stone-400">
+          <button type="button" onClick={collectNow} title="카페24 게시판 · 네이버페이 문의 · 카톡 채널 · 톡톡을 지금 모아요(연결된 곳만)" className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:border-stone-400">
             <RefreshCw size={15} /> 지금 모으기
           </button>
           <button type="button" onClick={() => setAdding({})} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2 text-sm font-semibold text-white hover:bg-rose-800">
@@ -293,15 +327,24 @@ export default function CsPage({ online, products = [] }) {
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="답할 문의" value={counts.todo} sub="초안 확인하고 보내 주세요" tone={counts.todo ? "text-rose-700" : "text-stone-900"} onClick={() => pickTab("todo")} />
-        <Stat label="보낼 준비" value={counts.approved} sub="확인 끝 · 카페24로 나가는 중" onClick={() => pickTab("approved")} />
+        <Stat label="보낼 준비" value={counts.approved} sub="확인 끝 · [한꺼번에 보내기] 기다리는 중" onClick={() => pickTab("approved")} />
         <Stat label="오늘 처리" value={counts.doneToday} sub="보냈거나 처리 완료" onClick={() => pickTab("done")} />
         <div className="rounded-2xl border border-stone-200 bg-white p-3">
-          <div className="text-xs font-medium text-stone-500">카페24 자동 수집</div>
-          <div className="mt-1 flex items-center gap-1.5 text-sm font-semibold">
-            <span className={"h-2 w-2 rounded-full " + (pcOn && c24?.ok ? "bg-emerald-500" : pcOn ? "bg-amber-400" : "bg-stone-300")} />
-            {!pcOn ? "PC 꺼짐" : !c24 ? "준비 중" : c24.ok ? "10분마다" : "확인 필요"}
+          <div className="flex items-center justify-between text-xs font-medium text-stone-500">
+            사무실 PC가 모으고 보내는 곳 <span className={pcOn ? "text-emerald-600" : "text-stone-400"}>{pcOn ? "PC 켜짐" : "PC 꺼짐"}</span>
           </div>
-          <div className="mt-0.5 truncate text-[11px] text-stone-400">{c24?.at ? `마지막 ${when(c24.at)}` : "사무실 PC 가 모아요"}</div>
+          <ul className="mt-1 space-y-0.5 text-[11px]">
+            {PC_CHANNELS.map(([k, label]) => {
+              const st = (w.channels || {})[k];
+              return (
+                <li key={k} className="flex items-center gap-1.5" title={st?.msg || ""}>
+                  <span className={"h-1.5 w-1.5 shrink-0 rounded-full " + (pcOn && st?.ok ? "bg-emerald-500" : st && !st.ok ? "bg-amber-400" : "bg-stone-300")} />
+                  <span className="font-medium text-stone-700">{label}</span>
+                  <span className="truncate text-stone-400">{!st ? "준비 중" : st.ok ? `됨${st.at ? ` · ${when(st.at)}` : ""}` : st.msg || "확인 필요"}</span>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </section>
 
@@ -343,6 +386,27 @@ export default function CsPage({ online, products = [] }) {
           ))}
         </select>
       </div>
+
+      {tab === "approved" && approvedList.length > 0 && (
+        <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50/60 p-3">
+          <div className="min-w-0 flex-1 text-sm text-sky-950">
+            <b>보낼 목록 {approvedList.length}건</b>
+            <span className="ml-2 text-xs text-sky-800">
+              {CHANNELS.filter((c) => approvedList.some((x) => x.channel === c.k))
+                .map((c) => `${c.short} ${approvedList.filter((x) => x.channel === c.k).length}`)
+                .join(" · ")}
+            </span>
+            {sendBlocked.length > 0 && (
+              <p className="mt-0.5 text-[11px] text-amber-800">
+                {sendBlocked.length}건은 아직 못 보내요 — {[...new Set(sendBlocked.map((x) => channelOf(x.channel).label))].join(" · ")} 연결(로그인·권한)이 먼저예요. 위 '사무실 PC가 모으고 보내는 곳'을 봐 주세요.
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={sendAll} disabled={!sendReady.length} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:bg-stone-300">
+            <Send size={15} /> 한꺼번에 보내기 {sendReady.length}건
+          </button>
+        </section>
+      )}
 
       {!D.loaded ? (
         <div className="flex items-center gap-2 py-12 text-sm text-stone-400">
@@ -422,7 +486,7 @@ function Empty({ onAdd }) {
       <Inbox size={28} className="mx-auto text-stone-300" />
       <p className="mt-3 text-sm font-semibold text-stone-800">아직 들어온 문의가 없어요</p>
       <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-stone-500">
-        카페24 게시판(상품 Q&A · 1:1 상담)은 사무실 PC가 10분마다 모아 와요. 카톡 채널 · 톡톡 · 인스타 DM 은 문의를 복사하거나 캡처해서 여기에 붙여넣으면 초안이 바로 만들어져요.
+        카페24 게시판 · 네이버페이 문의 · 카톡 채널 · 톡톡은 사무실 PC가 모아 와요(연결된 곳부터). 인스타 DM 이나 아직 연결 안 된 곳은 문의를 복사하거나 캡처해서 붙여넣으면 초안이 바로 만들어져요.
       </p>
       <button type="button" onClick={onAdd} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white">
         <Plus size={15} /> 문의 붙여넣기
@@ -479,7 +543,8 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
 
   const text = finalText(v);
   const open = openBlanks(v);
-  const auto = isAuto(v.channel);
+  const auto = canSend(v.channel); // 사무실 PC 가 보내 주는 채널(카페24 API · 어사이드)
+  const chName = channelOf(v.channel).label;
   const ready = !!v.draft && !open.length && v.confirmed;
   const sentLike = ["approved", "sending", "sent", "done"].includes(v.status);
 
@@ -487,7 +552,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
     setBusy("draft");
     setErr("");
     try {
-      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }));
+      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }, D.stock));
       const next = applyDraft(v, r);
       setV(next);
       await D.saveItem(next);
@@ -498,6 +563,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       setBusy("");
     }
   };
+  // 11/10 반자동 — 여기서는 '보낼 목록'에 넣기만, 실제 보내기는 '보낼 준비'의 [한꺼번에 보내기] 한 번으로
   const send = async () => {
     if (!ready) return;
     setBusy("send");
@@ -505,12 +571,12 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       const patch = { status: "approved", final: text, approvedAt: new Date().toISOString(), error: "" };
       setV((p) => ({ ...p, ...patch }));
       await D.saveItem({ id: x.id, ...patch, draft: v.draft, fills: v.fills, basis: v.basis, confirmed: true });
-      await D.enqueue({ id: x.id, kind: "send" });
-      onMsg(pcOn ? "보낼 준비 끝 — 사무실 PC가 카페24에 답글을 달아요(1분 안)." : "보낼 준비 끝 — 사무실 PC가 꺼져 있어요. 켜지면 카페24에 답글을 달아요.");
+      onMsg("보낼 목록에 넣었어요 — 다 확인한 뒤 '보낼 준비'에서 [한꺼번에 보내기]를 눌러 주세요.");
     } finally {
       setBusy("");
     }
   };
+  const unapprove = () => save({ status: "ready", final: "", approvedAt: "" }, true);
   const copyDone = async (done) => {
     const ok = await copyText(text);
     setCopied(ok);
@@ -672,7 +738,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
             <span className="ml-auto flex flex-wrap gap-2">
               {auto ? (
                 <button type="button" onClick={send} disabled={!ready || busy === "send"} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:bg-stone-300">
-                  {busy === "send" ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} 카페24에 답변 보내기
+                  {busy === "send" ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} 보낼 목록에 넣기
                 </button>
               ) : (
                 <>
@@ -691,13 +757,17 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       ) : (
         <footer className="space-y-2 border-t border-stone-100 pt-3">
           <p className="flex items-center gap-1.5 text-sm text-stone-700">
-            {v.status === "sending" || v.status === "approved" ? (
+            {v.status === "approved" ? (
               <>
-                <Loader2 size={15} className="animate-spin text-sky-700" /> {pcOn ? "사무실 PC가 카페24에 답글을 다는 중이에요" : "사무실 PC가 켜지면 카페24에 답글을 달아요"}
+                <Send size={15} className="text-sky-700" /> 보낼 목록에 있어요 — '보낼 준비'에서 [한꺼번에 보내기]를 누르면 {chName}로 나가요
+              </>
+            ) : v.status === "sending" ? (
+              <>
+                <Loader2 size={15} className="animate-spin text-sky-700" /> {pcOn ? `사무실 PC가 ${chName}로 보내는 중이에요` : `사무실 PC가 켜지면 ${chName}로 보내요`}
               </>
             ) : (
               <>
-                <CircleCheck size={15} className="text-emerald-600" /> {v.status === "sent" ? `카페24에 보냈어요 ${when(v.sentAt)}` : `처리 완료 ${when(v.doneAt)}`}
+                <CircleCheck size={15} className="text-emerald-600" /> {v.status === "sent" ? `${chName}로 보냈어요 ${when(v.sentAt)}` : `처리 완료 ${when(v.doneAt)}`}
               </>
             )}
           </p>
@@ -706,7 +776,12 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
             <button type="button" onClick={() => copyDone(false)} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600">
               {copied ? <Check size={13} /> : <Copy size={13} />} 보낸 글 복사
             </button>
-            {v.status !== "sending" && (
+            {v.status === "approved" && (
+              <button type="button" onClick={unapprove} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600">
+                <Undo2 size={13} /> 보낼 목록에서 빼고 고치기
+              </button>
+            )}
+            {!["sending", "approved"].includes(v.status) && (
               <button type="button" onClick={reopen} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600">
                 <Undo2 size={13} /> 다시 답할 문의로
               </button>
@@ -784,7 +859,7 @@ function AddSheet({ init, D, products, onClose, onAdded }) {
       status: "drafting",
     };
     try {
-      const r = await draftApi({ ...requestOf(base, D.tpl), images });
+      const r = await draftApi({ ...requestOf(base, D.tpl, {}, D.stock), images });
       const item = applyDraft(base, r);
       await D.saveItem(item);
       // 주문번호가 있으면 사무실 PC 가 카페24 주문을 찾아 붙인다(배송 상태·송장)
@@ -903,6 +978,10 @@ function TemplateSheet({ tpl, onSave, onClose }) {
         <p className="text-xs leading-relaxed text-stone-500">
           AI가 초안을 쓸 때 이 틀을 바탕으로 써요. <b>답변의 질은 여기서 정해져요</b> — 우리 몰이 실제로 쓰는 말투·규정으로 고쳐 주세요. 모르는 금액·날짜는 [대괄호]로 두면 초안에 빈칸으로 남아요.
         </p>
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-stone-500">CS 지침서 — AI가 가장 먼저 읽어요 (말투 · 사실 확인 · 하자·오배송·품절·지연·교환반품·취소 기준)</span>
+          <textarea value={t.guide || ""} onChange={(e) => setT({ ...t, guide: e.target.value })} rows={14} className={FIELD + " font-mono text-xs leading-relaxed"} />
+        </label>
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-stone-500">인사</span>
