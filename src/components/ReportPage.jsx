@@ -6,6 +6,7 @@ import { SPANS, rangeOf, rangeLabel, vsLabel, spanStats, productRows, adCountsIn
 import { won } from "../lib/sales";
 import { dayTitle } from "../lib/journal";
 import { MarketBrief } from "./ReportMarket";
+import SewonTodo from "./SewonTodo";
 
 /**
  * 보고 › 매일 보고 (2026-10-19, 위키 topics/보고-체계-설계.md).
@@ -681,6 +682,9 @@ export default function ReportPage({ online, rows }) {
           </div>
         )}
       </div>
+
+      {/* 11/10 세원 "일일보고에 할 일 적어 주면 안 돼? 너가 말하는 것처럼" — 어느 창의 Claude 든 poclo-cafe24/todo.py 로 넣고 끝낸다 */}
+      <SewonTodo online={online} />
 
       {state === "loading" && <p className="py-10 text-center text-sm text-stone-400">불러오는 중…</p>}
       {state === "error" && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">보고를 불러오지 못했어요. 인터넷을 확인해 주세요.</p>}
