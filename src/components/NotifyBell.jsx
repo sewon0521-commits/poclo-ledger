@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Headset, ListChecks } from "lucide-react";
+import { Bell, Headset } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { channelOf, inTab } from "../lib/cs";
 
 /**
  * 위 오른쪽 알림 종 + 'HH:MM 기준' (11/10 세원: "넥스트팩처럼 알림이랑 언제 업데이트됐는지 보여줄 수 있어?")
- * 알림 = 답할 CS 문의(cs_inbox 의 답할 문의 탭) + 안 끝난 세원 할 일(sewon_todo). 이 기기에서 본 것(종을 열면 본 것으로)은 숫자에서 빠진다.
+ * 알림 = 답할 CS 문의(cs_inbox 의 답할 문의 탭). 이 기기에서 본 것(종을 열면 본 것으로)은 숫자에서 빠진다.
+ * 11/11 세원 "세원 할일에서 빼줘" → 세원 할 일(sewon_todo)은 종에서도 뺌(데이터는 그대로).
  * 기준 시각 = 이 화면이 서버에서 마지막으로 새로 읽은 시각. 30초마다 updated_at 만 보고, 바뀌었으면 그때만 다시 읽는다(가볍게).
  */
 
@@ -26,7 +27,6 @@ const md = (iso) => {
 
 export default function NotifyBell({ online, onPage }) {
   const [cs, setCs] = useState([]);
-  const [todo, setTodo] = useState([]);
   const [at, setAt] = useState(null);
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState(readSeen);
@@ -40,17 +40,16 @@ export default function NotifyBell({ online, onPage }) {
   useEffect(() => {
     let alive = true;
     const load = () =>
-      Promise.all([loadKey("cs_inbox", online, { items: [] }), loadKey("sewon_todo", online, { items: [] })])
-        .then(([c, t]) => {
+      loadKey("cs_inbox", online, { items: [] })
+        .then((c) => {
           if (!alive) return;
           setCs(c.items || []);
-          setTodo(t.items || []);
           setAt(new Date());
         })
         .catch(() => {});
     load();
-    const off1 = onSettingsChange((k) => (k === "cs_inbox" || k === "sewon_todo") && load());
-    const off2 = watchKeys(["cs_inbox", "sewon_todo"], load, 30000);
+    const off1 = onSettingsChange((k) => k === "cs_inbox" && load());
+    const off2 = watchKeys(["cs_inbox"], load, 30000);
     const vis = () => document.visibilityState === "visible" && load();
     document.addEventListener("visibilitychange", vis);
     return () => {
@@ -69,7 +68,7 @@ export default function NotifyBell({ online, onPage }) {
   }, [open]);
 
   const list = useMemo(() => {
-    const a = cs
+    return cs
       .filter((x) => inTab(x, "todo"))
       .map((x) => ({
         id: `cs:${x.id}`,
@@ -77,18 +76,9 @@ export default function NotifyBell({ online, onPage }) {
         when: x.at || x.createdAt || "",
         title: `${channelOf(x.channel).short} · ${x.customer || "고객"}`,
         text: x.summary || x.title || (x.message || "").slice(0, 40) || "새 문의",
-      }));
-    const b = todo
-      .filter((x) => !x.done)
-      .map((x) => ({
-        id: `todo:${x.id}`,
-        kind: "todo",
-        when: x.addedOn || "",
-        title: { urgent: "🔥 급함", office: "🏢 사무실에서", answer: "✋ 답만" }[x.group] || "할 일",
-        text: x.title,
-      }));
-    return [...a, ...b].sort((p, q) => String(q.when).localeCompare(String(p.when)));
-  }, [cs, todo]);
+      }))
+      .sort((p, q) => String(q.when).localeCompare(String(p.when)));
+  }, [cs]);
   const unread = list.filter((x) => !seen.has(x.id)).length;
 
   const toggle = () => {
@@ -127,7 +117,7 @@ export default function NotifyBell({ online, onPage }) {
         <div className="absolute top-full right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-lg">
           <div className="flex items-center justify-between border-b border-stone-100 px-3 py-2">
             <span className="text-sm font-bold text-stone-900">알림 {list.length}</span>
-            <span className="text-[11px] text-stone-400">답할 CS 문의 · 안 끝난 할 일</span>
+            <span className="text-[11px] text-stone-400">답할 CS 문의</span>
           </div>
           {!list.length ? (
             <p className="px-3 py-6 text-center text-xs text-stone-400">새 알림이 없어요.</p>
@@ -135,8 +125,8 @@ export default function NotifyBell({ online, onPage }) {
             <ul className="max-h-96 divide-y divide-stone-100 overflow-y-auto">
               {list.slice(0, 30).map((x) => (
                 <li key={x.id}>
-                  <button type="button" onClick={() => go(x.kind === "cs" ? "cs" : "reports")} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-stone-50">
-                    {x.kind === "cs" ? <Headset size={14} className="mt-0.5 shrink-0 text-rose-600" /> : <ListChecks size={14} className="mt-0.5 shrink-0 text-stone-500" />}
+                  <button type="button" onClick={() => go("cs")} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-stone-50">
+                    <Headset size={14} className="mt-0.5 shrink-0 text-rose-600" />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2 text-[11px] text-stone-500">
                         <span className="truncate font-semibold">{x.title}</span>
@@ -149,12 +139,9 @@ export default function NotifyBell({ online, onPage }) {
               ))}
             </ul>
           )}
-          <div className="grid grid-cols-2 border-t border-stone-100 text-xs">
-            <button type="button" onClick={() => go("cs")} className="py-2 font-semibold text-stone-600 hover:bg-stone-50">
+          <div className="border-t border-stone-100 text-xs">
+            <button type="button" onClick={() => go("cs")} className="w-full py-2 font-semibold text-stone-600 hover:bg-stone-50">
               CS 관리
-            </button>
-            <button type="button" onClick={() => go("reports")} className="border-l border-stone-100 py-2 font-semibold text-stone-600 hover:bg-stone-50">
-              세원 할 일
             </button>
           </div>
         </div>
