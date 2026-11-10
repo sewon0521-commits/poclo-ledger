@@ -950,6 +950,33 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
         ) : null}
         {open.length > 0 && v.draft && <p className="text-[11px] text-amber-700">빈칸 {open.length}개를 채우면 보낼 수 있어요: {open.map((b) => b.key).join(" · ")}</p>}
 
+        {/* 11/11 세원 "계좌 오면 [다음 답]" — 손님 답을 받은 뒤 보낼 글을 카드에 맡겨 둔다(지금은 안 보냄) */}
+        {v.nextReply?.text && (
+          <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-sky-900">다음 답</span>
+              <span className="text-sky-800">{v.nextReply.when || "손님 답이 오면"} 보낼 글 · 지금은 안 보내요{v.nextReply.by ? ` · ${v.nextReply.by}` : ""}</span>
+              <span className="ml-auto flex gap-1.5">
+                <button type="button" onClick={() => copyText(v.nextReply.text).then((ok) => ok && onMsg("다음 답을 복사했어요."))} className="flex items-center gap-1 rounded-lg border border-sky-200 bg-white px-2 py-1 text-sky-800">
+                  <Copy size={11} /> 복사
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!sentLike && v.draft && !window.confirm("지금 초안을 이 '다음 답'으로 바꿀까요? (지금 초안은 아직 안 보냈어요)")) return;
+                    save({ draft: v.nextReply.text, blanks: [], fills: {}, confirmed: false, status: "ready", final: "", approvedAt: "", nextReply: null, nextUsed: { ...v.nextReply, usedAt: new Date().toISOString() } }, true);
+                    onMsg("다음 답을 초안으로 옮겼어요 — 확인하고 보낼 목록에 넣어 주세요.");
+                  }}
+                  className="rounded-lg bg-sky-700 px-2.5 py-1 font-semibold text-white"
+                >
+                  이 글을 초안으로
+                </button>
+              </span>
+            </div>
+            <p className="mt-1.5 whitespace-pre-wrap leading-relaxed text-stone-700">{v.nextReply.text}</p>
+          </div>
+        )}
+
         <label className="block">
           <span className="mb-0.5 block text-[11px] font-medium text-stone-500">확인 근거 · 메모 (고객에겐 안 가요)</span>
           <input value={v.basis || ""} onChange={(e) => save({ basis: e.target.value })} placeholder="예: 넥스트팩 출고 10/14 확인, 송장 받음" className={FIELD} />
