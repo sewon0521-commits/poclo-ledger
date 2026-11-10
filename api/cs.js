@@ -18,6 +18,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { readProduct } from "./_product.js";
 import { costOf } from "./_cost.js";
+import { DEFAULT_GUIDE } from "../src/lib/cs.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "8mb" } }, maxDuration: 120 };
 
@@ -85,8 +86,10 @@ async function ask(client, content, schema, effort) {
 function templatesText(t = {}) {
   const lines = [];
   // 11/10 CS 지침서(세원이 고치는 md) — 말투·사실 확인·경우별 기준. 틀보다 먼저 읽는다
-  if (t.guide) lines.push(`[CS 지침서 — 가장 먼저 지킬 것]
-${String(t.guide).slice(0, 6000)}
+  // 서버에 저장된 지침서가 없으면 코드 기본 — 사무실 PC(cs_worker)는 저장된 틀을 그대로 보내서 지침서가 빠졌었다(11/11)
+  const guide = t.guide || DEFAULT_GUIDE;
+  lines.push(`[CS 지침서 — 가장 먼저 지킬 것]
+${String(guide).slice(0, 6000)}
 `);
   if (t.greeting) lines.push(`인사: ${t.greeting}`);
   if (t.closing) lines.push(`맺음: ${t.closing}`);
@@ -134,6 +137,8 @@ const PROMPT = `너는 여성 의류 쇼핑몰 '포클로'(ppoclo.kr, 카페24 �
 1. 유형을 고르고 그 유형의 틀을 바탕으로 쓴다. 틀에 '순서'가 있으면 그 순서대로(특히 교환·반품 배송비: 공감 → 규정 → 우리가 부담하는 경우 → 사진 요청).
 2. **지어내지 말 것.** 입고일·출고일·송장번호·재고·금액·환불 날짜·적립금 금액은 '주문 정보'·문의·규정에 있을 때만 쓴다.
    모르면 [입고 예정일]·[송장번호]·[교환 배송비]처럼 대괄호 빈칸으로 남기고 blanks 에 넣는다. 빈칸은 꼭 필요한 것만(3개 안쪽).
+   빈칸은 우리가 확인해서 채울 사실에만. 고객이 알려 줘야 하는 것(환불 계좌·연락처·주소·사진·사이즈)은 빈칸이 아니라 묻는 문장으로 쓴다
+   (예: "환불받으실 계좌(은행·계좌번호·예금주)를 알려 주시면 바로 환불해 드릴게요").
 3. 보상·환불·무료 처리 약속은 규정·틀에 있는 범위만. 화난 고객이면 먼저 불편을 받아 주는 한 줄, 변명이나 단정('단순변심이시죠') 금지.
 4. 사이즈 문의: 상품 페이지의 실측(사이즈 정보)과 상품 페이지의 모델 정보(키·착용 사이즈)로 답한다. 모델은 상품마다 달라서 그 페이지에 적힌 것만 쓰고, 없으면 [모델 정보] 빈칸.
    고객이 키·몸무게·평소 사이즈를 말했으면 추천 사이즈를 제안하되 '체형에 따라 개인차가 있을 수 있어요'를 꼭 넣는다. 실측을 모르면 빈칸.
@@ -141,7 +146,8 @@ const PROMPT = `너는 여성 의류 쇼핑몰 '포클로'(ppoclo.kr, 카페24 �
 6. 문의가 여러 가지를 물으면 하나씩 다 답한다.
 7. 캡처 사진이면 고객 말풍선과 우리(포클로) 말을 구분하고, 아직 답하지 않은 고객 말에 답한다.
 8. 채널에 맞게: 게시판(카페24)은 인사·맺음을 갖춘 정중한 글, 채팅(카톡·톡톡·DM)은 짧은 문단 2~5개.
-9. caution 에는 사람이 놓치면 사고 날 것만(배송비 부담 주체, 이미 반품 접수됐는지, 오래된 문의 등). check 는 답하기 전 확인할 사실.`;
+9. caution 에는 사람이 놓치면 사고 날 것만(배송비 부담 주체, 이미 반품 접수됐는지, 오래된 문의 등). check 는 답하기 전 확인할 사실.
+10. 그 방에서 우리가 이미 답한 적이 있으면 틀의 인사('안녕하세요 고객님 … 포클로입니다')는 빼고 바로 본론부터 쓴다. 첫 답일 때만 인사.`;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -179,7 +185,8 @@ export default async function handler(req, res) {
     text.trim() ? `--- 고객 문의 ---\n${text}` : "--- 고객 문의는 아래 캡처 사진 ---",
     orderText(body.order),
     examplesText(body.examples),
-    body.type ? `세원이 고른 답변 유형: ${String(body.type).slice(0, 20)} — 이 유형 틀(순서·예시)대로 쓸 것` : "",
+    body.replied ? "이 방에서 우리가 이미 답한 적이 있어요 — 인사말 없이 바로 본론부터(세원 11/11)" : "",
+    body.type ? `세원이 고른 답변 유형:${String(body.type).slice(0, 20)} — 이 유형 틀(순서·예시)대로 쓸 것` : "",
     body.eta ? ["", "--- 옵션별 출고 가능 (거래처 입고 예정 + 재고, 11/10~) — 섞여 있으면 부분 배송 안내('가능한 것부터 먼저 보내 드릴까요?'), 날짜는 범위 그대로·확정처럼 쓰지 말 것, 배송비 말은 하지 말 것 ---", String(body.eta).slice(0, 1500)].join(String.fromCharCode(10)) : "",
     body.stock ? `
 --- 지금 재고 (넥스트팩 창고 + 사무실 렉, 11/10~) — 수량은 고객에게 말하지 말 것 ---

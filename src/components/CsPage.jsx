@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, withDefaults, when } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when } from "../lib/cs";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { newId } from "../lib/id";
@@ -92,6 +92,7 @@ const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = nul
   examples: pickExamples(learn, x), // 세원이 예전에 고친 초안 → 고친 글 (같은 유형 먼저)
   type: x.type || undefined, // 세원이 고른 '답변 유형' — 그 틀대로
   eta: etaText(inbound, stock, orderLines(x)) || undefined, // 11/10 옵션별 출고 가능(거래처 입고 예정 + 재고) — 부분 배송 안내
+  replied: threadOf(x).some((m) => m.from === "us") || undefined, // 11/11 세원 "이미 답변을 했던 상태면 인삿말은 생략"
   ...extra,
 });
 
@@ -551,6 +552,16 @@ function ScopeHelp({ msg }) {
 
 // ------------------------------------------------------------------ 채팅방 모양 · 상품 줄 (11/10 세원)
 
+/** 주문번호 → 카페24 관리자 주문상세정보 새 창 (11/11 세원 "누르면 주문 상세정보칸 뜨게") */
+function OrderLink({ no }) {
+  const url = orderAdminUrl(no);
+  if (!url) return <span className="rounded-md bg-stone-100 px-1.5 py-0.5 font-mono text-stone-700">주문 {no}</span>;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title="카페24 주문 상세 (새 창)" className="inline-flex items-center gap-1 rounded-md bg-stone-100 px-1.5 py-0.5 font-mono text-stone-700 hover:bg-rose-50 hover:text-rose-800">
+      주문 {no} <ExternalLink size={10} />
+    </a>
+  );
+}
 const cleanName = (n) => String(n || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").replace(/\s*\(\d+\s*colou?r\)\s*$/i, "").trim();
 /** 주문 상품 줄 [{name, option, qty}] — 새 문의는 lines, 예전 문의는 '이름 옵션 ×N' 글에서 */
 function orderLines(x) {
@@ -559,11 +570,11 @@ function orderLines(x) {
   for (const o of x?.order?.orders || []) {
     for (const it of [].concat(o.items || [])) {
       if (typeof it !== "string") {
-        if (it?.name) out.push(it);
+        if (it?.name) out.push({ orderId: o.id, ...it });
         continue;
       }
       const m = it.match(/^(.*?)(?:\s+([^\s×]+(?:\s*\+\s*[^\s×]+)?))?\s*×\s*(\d+)/);
-      out.push(m ? { name: m[1], option: m[2] || "", qty: Number(m[3]) } : { name: it, option: "", qty: 1 });
+      out.push(m ? { orderId: o.id, name: m[1], option: m[2] || "", qty: Number(m[3]) } : { orderId: o.id, name: it, option: "", qty: 1 });
     }
   }
   return out;
@@ -664,7 +675,7 @@ function CancelBox({ v, D, pcOn }) {
       {fresh && !info.done && !(waiting && wait.kind === "info") && (
         <div className="mt-2 space-y-1 text-stone-700">
           <div>
-            주문 <b className="font-mono">{info.orderNo}</b> · {info.place} · 결제 {(info.pays || []).join("+")} · 환불 <b>{Number(info.amount || 0).toLocaleString()}원</b>
+            <OrderLink no={info.orderNo} /> · {info.place} · 결제 {(info.pays || []).join("+")} · 환불 <b>{Number(info.amount || 0).toLocaleString()}원</b>
           </div>
           <ul className="list-disc pl-4">
             {(info.items || []).map((i) => (
@@ -799,9 +810,12 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       {(orderLines(v).length > 0 || v.orderNo || v.product?.name) && (
         <section className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500">
-            {v.orderNo && <span className="rounded-md bg-stone-100 px-1.5 py-0.5 font-mono text-stone-700">주문 {v.orderNo}</span>}
+            {v.orderNo && <OrderLink no={v.orderNo} />}
             {(v.order?.orders || []).slice(0, 3).map((o) => (
-              <span key={o.id}>{[o.date, o.status, o.invoice && `송장 ${o.invoice}`].filter(Boolean).join(" · ")}</span>
+              <span key={o.id} className="inline-flex items-center gap-1.5">
+                {o.id && o.id !== v.orderNo && <OrderLink no={o.id} />}
+                {[o.date, o.status, o.invoice && `송장 ${o.invoice}`].filter(Boolean).join(" · ")}
+              </span>
             ))}
             {v.product?.url && (
               <a href={v.product.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-rose-700 hover:underline">
@@ -813,8 +827,14 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
             <ul className="space-y-1">
               {orderLines(v).map((l, i) => {
                 const eta = etaFor(D.inbound, D.stock, codeOf(l.name), l.option);
+                const url = orderAdminUrl(l.orderId || v.orderNo || v.order?.orders?.[0]?.id);
                 return (
-                  <li key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2">
+                  <li
+                    key={i}
+                    onClick={url ? () => window.open(url, "_blank", "noopener") : undefined}
+                    title={url ? "누르면 카페24 주문 상세가 새 창으로 열려요" : undefined}
+                    className={"flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2" + (url ? " cursor-pointer hover:border-rose-300 hover:bg-rose-50/40" : "")}
+                  >
                     <Package size={14} className="shrink-0 text-stone-400" />
                     <span className="text-sm font-semibold text-stone-900">{cleanName(l.name)}</span>
                     {l.option && <span className="rounded-md bg-stone-800 px-1.5 py-0.5 text-xs font-bold text-white">{l.option}</span>}
