@@ -731,7 +731,7 @@ function CancelBox({ v, D, pcOn }) {
   };
   const cancel = async () => {
     const lines = (info.items || []).map((i) => `${cleanName(i.name)} ${i.option || ""} ×${i.qty} (${i.status})`).join("\n");
-    if (!window.confirm(`이 주문을 취소할까요? 되돌릴 수 없어요.\n\n주문 ${info.orderNo}\n${lines}\n결제 ${(info.pays || []).join("+")} · 환불 ${Number(info.amount || 0).toLocaleString()}원${info.why ? `\n\n⚠ ${info.why}` : ""}`)) return;
+    if (!window.confirm(`이 주문을 취소할까요? 되돌릴 수 없어요.\n\n주문 ${info.orderNo}\n${lines}\n결제 ${(info.pays || []).join("+")} · 환불 ${Number(info.amount || 0).toLocaleString()}원${info.reasonLabel ? `\n취소 사유: ${info.reasonLabel} · 환불 방식: ${info.refundLabel || ""}` : ""}${info.why ? `\n\n⚠ ${info.why}` : ""}`)) return;
     setWait({ kind: "cancel", at: Date.now() });
     await D.enqueue({ id: v.id, kind: "cancel", orderNo: v.orderNo });
   };
@@ -757,6 +757,14 @@ function CancelBox({ v, D, pcOn }) {
           <div>
             <OrderLink no={info.orderNo} /> · {info.place} · 결제 {(info.pays || []).join("+")} · 환불 <b>{Number(info.amount || 0).toLocaleString()}원</b>
           </div>
+          {/* 11/11 카페24 취소 필수 칸 — 취소사유 구분(배송지연·고객변심, 세원 "너가 취소 사유 종류를 선택해서") · 무통장은 환불 방식 '현금'(기록만, 돈은 세원이 직접) */}
+          {info.reasonLabel ? (
+            <div className="text-stone-500">
+              취소 사유: <b className="text-stone-700">{info.reasonLabel}</b> · 환불 방식: {info.refundLabel}
+            </div>
+          ) : (
+            <div className="text-amber-700">'다시 확인'을 눌러 취소 사유·환불 방식을 채운 뒤 취소해 주세요</div>
+          )}
           <ul className="list-disc pl-4">
             {(info.items || []).map((i) => (
               <li key={i.code}>
@@ -770,7 +778,7 @@ function CancelBox({ v, D, pcOn }) {
             <button type="button" onClick={check} className="rounded-lg border border-stone-300 bg-white px-2.5 py-1 text-stone-600">
               다시 확인
             </button>
-            <button type="button" onClick={cancel} disabled={!info.ok || !!waiting} className="rounded-lg bg-rose-700 px-3 py-1 font-semibold text-white disabled:bg-stone-300">
+            <button type="button" onClick={cancel} disabled={!info.ok || !!waiting || !info.reasonLabel} className="rounded-lg bg-rose-700 px-3 py-1 font-semibold text-white disabled:bg-stone-300">
               {waiting ? "취소하는 중…" : "이 주문 취소하기"}
             </button>
           </div>

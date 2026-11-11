@@ -41,7 +41,6 @@ import {
   FolderHeart,
   Gauge,
   Headset,
-  Truck,
 } from "lucide-react";
 
 export const SECTIONS = [
@@ -94,7 +93,7 @@ export const SECTIONS = [
           // 11/10 세원 "cs는 그냥 일단 진행해줘 — 너가 답변 만들어 놓고 내가 확인·수정, 버튼 하나 누르면 쫙 보내게" → 다시 켬(반자동 CS 초안함)
           { key: "cs", label: "CS 관리", icon: Headset },
           // 11/10 세원 "네이버페이도 묶어서 배송지연 메시지 발송 카테고리" — 네이버페이 발송지연 처리 + 카페24 배송지연 문자 (components/DelayPage.jsx)
-          { key: "delay", label: "배송지연 안내", icon: Truck },
+          // 11/11 세원 "합쳐줘" → CS 관리 '먼저 연락' 탭으로 들어감 · "배송지연 칸도 그대로인데??" → 메뉴에서 뺌(주소 #delay 로 오면 App 이 CS 관리 먼저 연락 탭으로 연다)
         ],
       },
       {
