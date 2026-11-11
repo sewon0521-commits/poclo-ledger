@@ -32,7 +32,6 @@ import SoOrderPage from "./components/SoOrderPage";
 import StockPage from "./components/StockPage";
 import FinancePage from "./components/FinancePage";
 import CsPage from "./components/CsPage";
-import DelayPage from "./components/DelayPage";
 import MusicPage from "./components/MusicPage";
 import ContractPage from "./components/ContractPage";
 import PartTimePage from "./components/PartTimePage";
@@ -581,9 +580,10 @@ pg === "home" ? (
               ) : pg.startsWith("finance") ? (
                 <FinancePage key={pg} view={pg} vendors={vendors} tx={tx} pricing={S.pricing} salesRows={S.rows} salesConf={S.conf} onPage={go} online={L.mode === "remote" && !!L.session} />
               ) : pg === "cs" ? (
-                <CsPage online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
+                <CsPage key="cs" online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
               ) : pg === "delay" ? (
-                <DelayPage online={L.mode === "remote" && !!L.session} />
+                // 11/11 세원 "합쳐줘" — '배송지연 안내' 메뉴는 CS 관리의 '먼저 연락' 탭으로 연다
+                <CsPage key="delay" part="delay" online={L.mode === "remote" && !!L.session} products={S.productStats?.all || NO_PRODUCTS} />
               ) : pg === "pending" ? (
                 <PendingPage tx={tx} vendors={vendors} onOpenTx={editTx} initialTab={pendingTab} />
               ) : pg === "vendors" ? (

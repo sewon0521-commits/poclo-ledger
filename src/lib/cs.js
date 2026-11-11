@@ -422,3 +422,47 @@ export function when(iso, now = Date.now()) {
   if (t.toDateString() === y.toDateString()) return `어제 ${hm}`;
   return `${t.getMonth() + 1}/${t.getDate()} ${hm}`;
 }
+
+// ------------------------------------------------------------------ 같은 손님 연락 기록 잇기 (11/11 세원 "합쳐줘" — CS 관리 + 배송지연 안내)
+// 문의 답장과 지연 안내가 같은 손님에게 따로 두 번 나가지 않게. 주문번호로 맞추고, 네이버페이 행(주문번호가 네이버 것)은 이름 첫 글자 + 상품 고유네임으로 맞춘다(힌트).
+const first = (s) => String(s || "").trim().charAt(0);
+/** 문의 카드의 상품 고유네임들 */
+export function codesOfItem(x) {
+  const names = [
+    ...(x?.lines || []).map((l) => l.name),
+    x?.product?.name,
+    ...((x?.order?.orders || []).flatMap((o) => [...(o.lines || []).map((l) => l.name), ...(o.items || []).map((i) => (typeof i === "string" ? i : i?.name))])),
+  ];
+  return [...new Set(names.map(codeOf).filter((c) => c && c.length >= 2))];
+}
+const ordersOfItem = (x) => [x?.orderNo, ...((x?.order?.orders || []).map((o) => o.id))].filter(Boolean);
+/** 최근 days 일 안에 개별 답장을 받았거나(보냄·처리 완료) 보낼 목록에 든 문의 */
+export function recentReplies(inbox, now, days = 3) {
+  return (inbox || [])
+    .filter((x) => ["sent", "done", "approved", "sending"].includes(x.status))
+    .map((x) => ({ x, at: x.sentAt || x.doneAt || x.approvedAt || x.draftedAt || x.at || "" }))
+    .filter((r) => r.at && now - new Date(r.at).getTime() < days * 864e5);
+}
+/** 지연 안내 대상 한 줄 → 그 손님이 최근 개별 답장을 받았으면 {x, at, label} */
+export function repliedTo(replies, { orderNo, buyer, products = [] }) {
+  const codes = products.map(codeOf).filter((c) => c && c.length >= 2);
+  for (const r of replies || []) {
+    const hit = (orderNo && ordersOfItem(r.x).includes(orderNo)) || (buyer && first(buyer) === first(r.x.customer) && codes.some((c) => codesOfItem(r.x).includes(c)));
+    if (hit) {
+      const d = new Date(r.at);
+      return { ...r, label: `개별 답장 ${channelOf(r.x.channel).short} ${d.getMonth() + 1}/${d.getDate()}${r.x.status === "approved" || r.x.status === "sending" ? "(보낼 예정)" : ""} · ${r.x.customer || ""}` };
+    }
+  }
+  return null;
+}
+/** 문의 카드 → 그 손님에게 나간 지연 안내 [{kind, at}] — 네이버 발송지연 처리함 · 지연 문자 보냄 */
+export function delaysFor(x, npay, sms) {
+  const out = [];
+  const codes = codesOfItem(x);
+  for (const n of npay?.items || []) {
+    if (n.status === "done" && first(n.buyer) && first(n.buyer) === first(x?.customer) && codes.includes(codeOf(n.product))) out.push({ kind: "네이버 발송지연", at: n.doneAt || "" });
+  }
+  const orders = ordersOfItem(x);
+  for (const s of sms?.items || []) if (s.status === "sent" && orders.includes(s.orderNo)) out.push({ kind: "지연 문자", at: s.sentAt || "" });
+  return out;
+}

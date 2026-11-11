@@ -18,7 +18,7 @@ const dday = (d) => Math.round((new Date(d + "T00:00:00") - new Date(today() + "
 const md = (d) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : "");
 const clean = (p) => String(p || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").replace(/\s*\(\d+\s*co.*$/i, "");
 
-export default function NpayDelay({ online, always = false }) {
+export default function NpayDelay({ online, always = false, replied = null }) {
   const [v, setV] = useState(null);
   const [sel, setSel] = useState(() => new Set());
   const [dates, setDates] = useState({});
@@ -121,6 +121,11 @@ export default function NpayDelay({ online, always = false }) {
                       </td>
                       <td className="py-1.5 pr-2">
                         <span className="font-medium text-stone-900">{clean(x.product)}</span> <span className="text-stone-500">{x.option}</span>
+                        {(() => {
+                          // 11/11 같은 손님이 최근 3일 안에 개별 답장을 받았으면 표시(네이버 발송기한 연장은 그래도 필요해서 빼지는 않음)
+                          const r = replied?.({ buyer: x.buyer, products: [x.product] });
+                          return r ? <span className="ml-1 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800" title="같은 손님 같아요 — 이름 첫 글자·상품으로 맞춤">{r.label}</span> : null;
+                        })()}
                       </td>
                       <td className="py-1.5 pr-2 text-stone-500">{x.buyer}</td>
                       <td className="py-1.5 pr-2 text-xs text-stone-500 tabular-nums">{(x.paidAt || "").slice(5, 10).replace(".", "/")}</td>

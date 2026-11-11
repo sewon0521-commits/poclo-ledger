@@ -15,7 +15,7 @@ import NpayDelay from "./NpayDelay";
 // 11/11 세원 배송지연 안내 틀 그대로(네이버 문단 뺌) — (일정)은 주문마다 '거래처 입고 예정'에서 채운다
 const DEFAULT_SMS = fillDelay(DELAY_TEMPLATE, { naver: false });
 
-function DelaySms({ online }) {
+function DelaySms({ online, replied = null }) {
   const [v, setV] = useState(null);
   const [text, setText] = useState("");
   useEffect(() => {
@@ -31,6 +31,20 @@ function DelaySms({ online }) {
     };
   }, [online]);
   const items = (v?.items || []).filter((x) => !x.gone);
+  // 11/11 세원 "합쳐줘" — 최근 3일 안에 개별 답장을 받은 손님은 지연 문자에서 기본으로 뺀다(표시만, 누르면 다시 넣기)
+  const [keep, setKeep] = useState(() => new Set());
+  const rep = (x) => (replied && !keep.has(x.orderNo) ? replied({ orderNo: x.orderNo, buyer: x.buyer, products: x.products || [] }) : null);
+  const targets = items.filter((x) => !rep(x));
+  const [copied, setCopied] = useState(false);
+  const copyTargets = async () => {
+    try {
+      await navigator.clipboard.writeText(targets.map((x) => x.orderNo).join(String.fromCharCode(10)));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* 무시 */
+    }
+  };
   const [inbound, setInbound] = useState(null);
   useEffect(() => {
     loadKey("inbound_eta", online, { items: [] }).then(setInbound).catch(() => {});
@@ -50,7 +64,10 @@ function DelaySms({ online }) {
       <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-2">
         <MessageSquareText size={15} className="text-rose-700" />
         <span className="text-sm font-bold text-stone-900">카페24 배송지연 문자</span>
-        <span className="text-xs text-stone-500">평일 3일↑ 미출고 + 거래처 입고 예정으로 늦을 게 정해진 주문 · 네이버페이 주문형 빼고 · {items.length}건</span>
+        <span className="text-xs text-stone-500">
+          평일 3일↑ 미출고 + 거래처 입고 예정으로 늦을 게 정해진 주문 · 네이버페이 주문형 빼고 · 보낼 대상 {targets.length}건
+          {items.length > targets.length && ` (최근 3일 개별 답장 받은 ${items.length - targets.length}건 뺌)`}
+        </span>
         <span className="ml-auto text-[11px] text-stone-400">{v?.at ? `${when(v.at)} 읽음` : ""}</span>
       </div>
       <div className="space-y-2 px-4 pb-3">
@@ -64,16 +81,26 @@ function DelaySms({ online }) {
           <p className="py-2 text-xs text-stone-400">지금은 평일 3일 넘게 못 보낸 주문이 없어요.</p>
         ) : (
           <ul className="divide-y divide-stone-100 text-sm">
-            {items.map((x) => (
-              <li key={x.orderNo} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5">
+            {items.map((x) => {
+              const r = rep(x);
+              return (
+              <li key={x.orderNo} className={"flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5 " + (r ? "opacity-60" : "")}>
                 <span className="font-mono text-xs text-stone-500">{x.orderNo}</span>
                 <span className="min-w-0 flex-1 truncate text-stone-800">{(x.products || []).join(" · ")}</span>
                 <span className="text-xs text-stone-500">{x.buyer}</span>
                 <span className="text-xs font-semibold text-amber-700">{x.why || `평일 ${x.days}일째`}</span>
                 <span className={"text-[11px] " + (schedOf(x) ? "text-stone-500" : "text-rose-600")}>(일정) {schedOf(x) || "채워야 함"}</span>
                 <span className="text-[11px] text-stone-400">{x.status === "sent" ? `보냄 ${when(x.sentAt)}` : "안 보냄"}</span>
+                {r ? (
+                  <button type="button" onClick={() => setKeep((k) => new Set([...k, x.orderNo]))} title="그래도 문자 대상에 넣기" className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+                    {r.label} — 문자에서 뺌 · 다시 넣기
+                  </button>
+                ) : keep.has(x.orderNo) ? (
+                  <span className="text-[11px] text-sky-700">개별 답장 받았지만 다시 넣음</span>
+                ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
         <label className="block">
@@ -84,6 +111,11 @@ function DelaySms({ online }) {
           <button type="button" onClick={rescan} className="rounded-lg px-2 py-1.5 text-xs text-stone-500 hover:text-stone-800">
             지금 다시 읽기
           </button>
+          {targets.length > 0 && (
+            <button type="button" onClick={copyTargets} title="카페24 관리자에서 문자 보낼 때 쓰게 — 개별 답장 받은 손님은 빠져 있어요" className="rounded-lg border border-stone-200 px-2 py-1.5 text-xs text-stone-600 hover:border-rose-300">
+              {copied ? "복사했어요" : `보낼 대상 주문번호 ${targets.length}개 복사`}
+            </button>
+          )}
           <button type="button" disabled className="ml-auto rounded-xl bg-stone-300 px-4 py-2 text-sm font-semibold text-white" title="카페24 문자 권한이 열리면 보낼 수 있어요">
             문자 보내기 (권한 필요)
           </button>
@@ -212,7 +244,19 @@ function InboundEta({ online }) {
   );
 }
 
-export default function DelayPage({ online }) {
+/**
+ * 11/11 세원 "합쳐줘" — CS 관리 안 탭으로 들어감: part="delay"(먼저 연락 = 네이버 발송지연 + 지연 문자) · part="inbound"(입고 예정).
+ * ⚠ 세원: "지연 칸은 남겨둬야 된다" — 네이버 발송지연 처리 칸과 지연 문자 칸은 빼지 않는다.
+ */
+export default function DelayPage({ online, part = "all", replied = null }) {
+  if (part === "delay")
+    return (
+      <div className="space-y-4">
+        <NpayDelay online={online} always replied={replied} />
+        <DelaySms online={online} replied={replied} />
+      </div>
+    );
+  if (part === "inbound") return <InboundEta online={online} />;
   return (
     <div className="space-y-4">
       <div>

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
+import DelayPage from "./DelayPage";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { newId } from "../lib/id";
@@ -104,6 +105,8 @@ function useCs(online) {
   const [stock, setStock] = useState(null);
   const [learn, setLearn] = useState(null);
   const [inbound, setInbound] = useState(null);
+  const [npay, setNpay] = useState(null); // 11/11 지연 안내 기록(네이버 발송지연·지연 문자) — 문의 카드에 '지연 안내 보냄'
+  const [sms, setSms] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const lastInbox = useRef("");
 
@@ -122,6 +125,8 @@ function useCs(online) {
         loadKey("stock", online, null).then((x) => alive && setStock(x)).catch(() => {});
         loadKey("cs_learn", online, { items: [] }).then((x) => alive && setLearn(x)).catch(() => {});
         loadKey("inbound_eta", online, { items: [] }).then((x) => alive && setInbound(x)).catch(() => {});
+        loadKey("npay_delay", online, { items: [] }).then((x) => alive && setNpay(x)).catch(() => {});
+        loadKey("delay_sms", online, { items: [] }).then((x) => alive && setSms(x)).catch(() => {});
         setTpl(withDefaults(t));
         // 한 번도 저장 안 했으면 기본 틀을 저장해 둔다 — 사무실 PC 가 카페24 문의 초안을 쓸 때 이걸 읽는다
         if (!t) changeKey("cs_templates", online, () => withDefaults(null), null).catch(() => {});
@@ -226,7 +231,7 @@ function useCs(online) {
     },
     [online],
   );
-  return { inbox, tpl, worker, stock, learn, inbound, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend, learnFrom };
+  return { inbox, tpl, worker, stock, learn, inbound, npay, sms, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend, learnFrom };
 }
 
 function ChannelBadge({ k, className = "" }) {
@@ -238,8 +243,62 @@ function StatusChip({ s }) {
   return <span className={"shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold " + st.tone}>{st.label}</span>;
 }
 
-export default function CsPage({ online, products = [] }) {
+// 11/11 세원 "합쳐줘" — 일 › CS 관리 = [문의 답하기] [먼저 연락(배송지연)] [입고 예정]. 같은 손님 기록을 잇는다(lib/cs recentReplies·repliedTo·delaysFor).
+// ⚠ 세원: "지연 칸은 남겨둬야 된다" — 먼저 연락 탭에 네이버 발송지연 처리 + 지연 문자 그대로(DelayPage part="delay").
+const SECTIONS = [
+  ["inbox", "문의 답하기"],
+  ["delay", "먼저 연락 (배송지연)"],
+  ["inbound", "입고 예정"],
+];
+const SECTION_KEY = "poclo_cs_section";
+export default function CsPage({ online, products = [], part = "" }) {
   const D = useCs(online);
+  const [sec, setSec] = useState(() => {
+    if (part) return part;
+    try {
+      return localStorage.getItem(SECTION_KEY) || "inbox";
+    } catch {
+      return "inbox";
+    }
+  });
+  const pick = (k) => {
+    setSec(k);
+    try {
+      localStorage.setItem(SECTION_KEY, k);
+    } catch {
+      /* 무시 */
+    }
+  };
+  const [now] = useState(() => Date.now());
+  const replies = useMemo(() => recentReplies(D.inbox, now), [D.inbox, now]);
+  const replied = useCallback((row) => repliedTo(replies, row), [replies]);
+  const todo = D.inbox.filter((x) => inTab(x, "todo")).length;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h2 className="text-xl font-bold text-stone-900">CS 관리</h2>
+        <nav className="flex gap-1 rounded-xl bg-stone-100 p-1" aria-label="CS 관리 갈래">
+          {SECTIONS.map(([k, label]) => (
+            <button key={k} type="button" onClick={() => pick(k)} className={"rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors " + (sec === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800")}>
+              {label}
+              {k === "inbox" && todo > 0 && <span className="ml-1 rounded-full bg-rose-600 px-1.5 text-[10px] text-white">{todo}</span>}
+            </button>
+          ))}
+        </nav>
+      </div>
+      {sec === "inbox" ? (
+        <CsInbox products={products} D={D} />
+      ) : (
+        <>
+          {sec === "delay" && <p className="text-sm text-stone-500">늦어지는 주문에 우리가 먼저 연락 — 대상 목록 → 문구·날짜 → 버튼. 최근 3일 안에 개별 답장을 받은 손님은 표시돼요(문자에선 기본으로 빠져요).</p>}
+          <DelayPage online={online} part={sec} replied={replied} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function CsInbox({ products = [], D }) {
   const [tab, setTab] = useState(() => {
     try {
       return localStorage.getItem("poclo_cs_tab") || "todo";
@@ -340,8 +399,7 @@ ${lines}
     <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-stone-900">CS 관리</h2>
-          <p className="mt-0.5 text-sm text-stone-500">흩어진 문의를 한곳에 모으고, 초안은 AI가 — 확인하고 고친 다음 [한꺼번에 보내기] 한 번으로.</p>
+          <p className="text-sm text-stone-500">흩어진 문의를 한곳에 모으고, 초안은 AI가 — 확인하고 고친 다음 [한꺼번에 보내기] 한 번으로.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => setTplOpen(true)} className="flex items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:border-stone-400">
@@ -820,6 +878,12 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
             </a>
           )}
         </p>
+        {/* 11/11 세원 "계좌번호가 ERP에서 안 보이는데" — 계좌·전화번호는 개인정보라 끝 4자리만 저장. 전체는 원래 대화방에서 */}
+        {v.ext?.url && threadOf(v).some((m) => /\*\*\*\*\d{4}|\(전화번호\)/.test(m.text || "")) && (
+          <a href={v.ext.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100">
+            🔒 계좌·전화번호는 가려서 저장했어요 — 전체 번호는 원래 대화방에서 보기 <ExternalLink size={11} />
+          </a>
+        )}
       </header>
 
       {/* 11/10 세원 "cs창 상단 ui를 실제 채팅방처럼" — 손님 왼쪽 · 우리 오른쪽 말풍선, 시각, 사진 */}
@@ -877,6 +941,16 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
           )}
         </section>
       )}
+
+      {/* 11/11 세원 "합쳐줘" — 같은 손님에게 지연 안내가 이미 나갔으면 (네이버는 이름 첫 글자·상품으로 맞춘 힌트) */}
+      {(() => {
+        const ds = delaysFor(v, D.npay, D.sms);
+        return ds.length ? (
+          <p className="rounded-lg bg-sky-50 px-3 py-1.5 text-xs text-sky-900">
+            📮 지연 안내 보냄 — {ds.map((d) => `${d.kind}${d.at ? " " + when(d.at) : ""}`).join(" · ")} · 같은 내용을 또 보내지 않게 봐 주세요
+          </p>
+        ) : null;
+      })()}
 
       {/* 11/11 세원 "강다인님은 취소 요청 없는 사람인데 왜 취소 요청이 있다고 뜨냐" — '주문 취소' 유형에만 */}
       {v.orderNo && fixType(v.type, threadOf(v).filter((m) => m.from === "them").map((m) => m.text).join(" ")) === "주문 취소" && <CancelBox v={v} D={D} pcOn={pcOn} />}
