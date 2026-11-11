@@ -83,7 +83,18 @@ export default function App() {
 
   const S = useSales(L.session);
 
-  const [page, setPage] = useState("home");
+  // 11/11 사무실 PC 의 CS 알림(poclo-cafe24/pc_notify.py)을 누르면 …/#cs 로 열린다 → 바로 일 › CS 관리
+  const [page, setPage] = useState(() => (window.location.hash === "#cs" ? "cs" : "home"));
+  useEffect(() => {
+    const toCs = () => {
+      if (window.location.hash !== "#cs") return;
+      setPage("cs");
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    };
+    toCs();
+    window.addEventListener("hashchange", toCs);
+    return () => window.removeEventListener("hashchange", toCs);
+  }, []);
   // 창 나누기 (10/21 세원: "노션처럼 앱처럼 포클로 ERP 안에서 창을 나눌 수 있을까?") — 오른쪽에 다른 화면 하나. components/SplitPane.jsx
   const [split, setSplitState] = useState(() => {
     const v = readSplit();

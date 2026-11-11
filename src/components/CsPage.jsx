@@ -434,6 +434,7 @@ ${lines}
               );
             })}
           </ul>
+          <NotifyToggle online={online} last={w.notify} />
         </div>
       </section>
 
@@ -559,6 +560,39 @@ ${lines}
       {adding && <AddSheet init={adding} D={D} products={products} onClose={() => setAdding(null)} onAdded={(id) => (pickTab("todo"), setSel(id))} />}
       {tplOpen && <TemplateSheet tpl={D.tpl} learn={D.learn} onSave={D.saveTpl} onClose={() => setTplOpen(false)} />}
     </div>
+  );
+}
+
+/** 11/11 세원 "CS가 쌓이면 10분에 한번씩 pc 알림" — 사무실 PC 가 답할 문의를 세어 윈도우 알림(9~23시). settings cs_notify {on}, 없으면 켜짐 */
+function NotifyToggle({ online, last }) {
+  const [on, setOn] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    loadKey("cs_notify", online, {})
+      .then((v) => alive && setOn(v?.on !== false))
+      .catch(() => alive && setOn(true));
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  const flip = async () => {
+    const next = !on;
+    setOn(next);
+    try {
+      await changeKey("cs_notify", online, (v) => ({ ...(v || {}), on: next, at: new Date().toISOString() }));
+    } catch {
+      setOn(!next);
+    }
+  };
+  if (on === null) return null;
+  return (
+    <button type="button" onClick={flip} className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-1 py-0.5 text-left text-[11px] hover:bg-stone-50" title={last?.at ? `마지막 알림 ${when(last.at)} · ${last.msg || ""}` : "아직 알림 없음"}>
+      <span className={"relative h-3.5 w-6 shrink-0 rounded-full transition-colors " + (on ? "bg-emerald-500" : "bg-stone-300")}>
+        <span className={"absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white shadow transition-all " + (on ? "left-3" : "left-0.5")} />
+      </span>
+      <span className="font-medium text-stone-700">PC 알림</span>
+      <span className="truncate text-stone-400">{on ? "쌓이면 10분마다 · 9~23시" : "꺼짐"}</span>
+    </button>
   );
 }
 
