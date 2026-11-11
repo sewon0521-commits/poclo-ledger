@@ -120,7 +120,8 @@ AI가 답변 초안을 쓸 때 맨 먼저 읽어요. 세원이 고치면 다음 
 
 ## 사실은 확인된 것만
 - 주문 상태·송장·출고일 = 같이 온 주문 정보에 있을 때만. 없으면 [주문 상태 확인]·[송장번호] 빈칸.
-- 재고 = 같이 온 재고(넥스트팩 창고 + 사무실 렉)로만. 있으면 "바로 출고 가능해요", 수량은 말하지 않아요. 모르면 [재고 확인].
+- 재고 = 같이 온 '재고·입고 예정'(넥스트팩 창고 + 거래처 입고 예정 표)으로만. 출고는 넥스트팩에서만 해요(사무실 렉 출고 없음, 세원 11/11).
+  있으면 "바로 출고 가능해요", 수량은 말하지 않아요. ⭐ 이 정보로 답할 수 있으면 [재고 확인] 빈칸을 쓰지 않아요(세원 11/11) — 옵션 변경 문의면 바꿀 옵션의 출고 가능일로 답해요. 정보에 없을 때만 [재고 확인].
 - 입고일 = 확정된 날만. 거래처 예정일이면 "○일 입고 예정"(약속처럼 쓰지 않기). 모르면 [입고 예정일].
 - 금액·혜택 = 쇼핑몰 규정에 적힌 것만. 교환·반품 배송비는 [교환·반품 배송비] 빈칸.
 - ⭐ 빈칸은 **저희가 확인해서 채울 사실**(출고일·송장·재고·금액)에만 써요(세원 11/11). 손님이 알려 주셔야 하는 것(환불 계좌·연락처·주소·사진·사이즈 등)은
@@ -263,17 +264,38 @@ export function withDefaults(t) {
 }
 
 /** 재고(settings stock — 넥스트팩 창고 + 사무실 렉)에서 그 상품 줄만 → 초안에 같이 보낼 짧은 글. 이름이 겹치는 줄이 없으면 빈 글자 */
-export function stockFor(stock, productName) {
-  const name = String(productName || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").replace(/\(\d+\s*color\)/i, "").trim();
-  const code = name.split(/\s+/)[0] || "";
-  if (!code || code.length < 2) return "";
-  const hit = (n) => String(n || "").includes(code);
-  const rows = [
-    ...((stock?.nextpack?.rows || []).filter((r) => hit(r.name)).map((r) => `창고 ${r.option || ""} ${r.avail ?? r.qty ?? 0}`)),
-    ...((stock?.rack || []).filter((r) => hit(r.name)).map((r) => `사무실 렉 ${r.option || ""} ${r.qty ?? 0}`)),
-  ];
-  return rows.slice(0, 30).join(" / ");
+/**
+ * 11/11 세원 "답변 초안 만들 때 너가 재고 확인을 제대로 바로 해 주고" — 초안에 같이 보내는 '재고·입고 예정' 글.
+ * 출고는 넥스트팩에서만(사무실 렉 출고 없음, 11/11). 넥스트팩 현재고 파일은 재고 1장 이상인 옵션만 있어서 없으면 창고 0.
+ * 주문한 옵션만이 아니라 그 상품의 모든 옵션을 넣는다 — '네이비를 그레이로 바꿀 수 있나요' 같은 문의도 바로 답하게.
+ * 사무실 PC 초안(cs_worker.stock_eta)과 같은 글. → {text, at(현재고 기준 시각)}
+ */
+export function stockFor(stock, inbound, lines = [], names = []) {
+  const np = stock?.nextpack || {};
+  const rows = np.rows || [];
+  const codes = [];
+  for (const n of [...(lines || []).map((l) => l.name), ...names]) {
+    const c = codeOf(n);
+    if (c.length >= 2 && !codes.includes(c)) codes.push(c);
+  }
+  if (!codes.length) return { text: "", at: np.at || "" };
+  let head = "";
+  if (np.at) {
+    const t = new Date(np.at);
+    const hrs = (Date.now() - t.getTime()) / 3600000;
+    head = `(넥스트팩 현재고 ${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")} 기준${hrs >= 6 ? ` — ${Math.floor(hrs)}시간 전이라 그 뒤 들어온 것은 입고 예정 표로 볼 것` : ""} · 출고는 넥스트팩에서만, 현재고 파일은 재고 1장 이상인 옵션만 있어서 없으면 창고 재고 0)`;
+  }
+  const out = codes.slice(0, 4).map((c) => {
+    const sr = rows.filter((r) => String(r.name || "").includes(c));
+    const ir = (inbound?.items || []).filter((x) => x.code === c);
+    const st = sr.map((r) => `${r.option || ""} ${r.avail ?? r.qty ?? 0}`).join(" / ") || "없음";
+    const eta = ir.map((x) => `${x.option || "모든 색"}: ${etaLabel(x)}`).join(" / ") || "표에 없음";
+    return `${c} — 창고 재고: ${st} · 거래처 입고 예정: ${eta}`;
+  });
+  return { text: [head, ...out].filter(Boolean).join(String.fromCharCode(10)), at: np.at || "" };
 }
+/** 현재고 기준 시각이 몇 시간 전인지 (없으면 null) */
+export const stockAge = (stock) => (stock?.nextpack?.at ? (Date.now() - new Date(stock.nextpack.at).getTime()) / 3600000 : null);
 
 // ------------------------------------------------------------------ 고친 것 학습 (11/10 세원 "초안은 내가 고친 걸 너가 계속계속 학습해")
 // settings cs_learn {items:[{id, at, type, channel, product, before(AI 초안), after(보낸 글)}]} — 최근 200개.
@@ -300,17 +322,23 @@ export function pickExamples(learn, x, n = 3) {
 // 화면: 일 › 배송지연 안내 '거래처 입고 예정' · 사무실 PC `python poclo-cafe24/inbound.py set 578 네이비 2026-11-15 "밤 입고"`
 const WD = ["일", "월", "화", "수", "목", "금", "토"];
 export const codeOf = (name) => (String(name || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").trim().split(/\s+/)[0] || "");
+function etaLabel(x) {
+  if (x?.status === "now") return "지금 출고 가능" + (x.memo ? `(${x.memo})` : "");
+  if (x?.status === "date" && x.date) {
+    const d = new Date(x.date + "T00:00:00");
+    return `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]}) ${x.memo || "입고"}`;
+  }
+  if (x?.status === "later") return x.memo || "입고 예정";
+  return "입고일 모름";
+}
 export function etaFor(inbound, stock, code, option) {
   const opt = String(option || "");
   const rows = (inbound?.items || []).filter((x) => x.code && x.code === code);
   const hit = rows.find((x) => x.option && opt.includes(x.option)) || rows.find((x) => !x.option);
-  const inStock = (stock?.nextpack?.rows || []).some((r) => String(r.name || "").includes(code) && (!opt || opt.split(/[,/+ ]/).some((o) => o && String(r.option || "").includes(o))) && (r.avail ?? r.qty ?? 0) > 0)
-    || (stock?.rack || []).some((r) => String(r.name || "").includes(code) && (!opt || opt.split(/[,/+ ]/).some((o) => o && String(r.option || "").includes(o))) && (r.qty ?? 0) > 0);
+  // 11/11 출고는 넥스트팩에서만 — 사무실 렉 재고는 안 본다
+  const inStock = (stock?.nextpack?.rows || []).some((r) => String(r.name || "").includes(code) && (!opt || opt.split(/[,/+ ]/).some((o) => o && String(r.option || "").includes(o))) && (r.avail ?? r.qty ?? 0) > 0);
   if (inStock || hit?.status === "now") return { tone: "ok", label: "지금 출고 가능", memo: hit?.memo || (inStock ? "재고 있음" : "") };
-  if (hit?.status === "date" && hit.date) {
-    const d = new Date(hit.date + "T00:00:00");
-    return { tone: "wait", label: `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]}) ${hit.memo || "입고"}`, memo: hit.memo || "" };
-  }
+  if (hit?.status === "date" && hit.date) return { tone: "wait", label: etaLabel(hit), memo: hit.memo || "" };
   if (hit?.status === "later") return { tone: "wait", label: hit.memo || "입고 예정", memo: hit.memo || "" };
   return { tone: "none", label: "입고일 모름", memo: "" };
 }

@@ -87,7 +87,7 @@ const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = nul
   at: x.at,
   product: x.product?.url ? { url: x.product.url } : x.product?.name ? { name: x.product.name } : undefined,
   order: x.order,
-  stock: stockFor(stock, x.product?.name) || undefined, // 11/10 재고(넥스트팩 + 사무실 렉)도 같이 — 사실만 넣게
+  stock: stockFor(stock, inbound, orderLines(x), [x.product?.name]).text || undefined, // 11/11 넥스트팩 재고 + 입고 예정(상품의 모든 옵션) — 빈칸 없이 바로 답하게
   templates: tpl,
   examples: pickExamples(learn, x), // 세원이 예전에 고친 초안 → 고친 글 (같은 유형 먼저)
   type: x.type || undefined, // 세원이 고른 '답변 유형' — 그 틀대로
@@ -563,6 +563,21 @@ function OrderLink({ no }) {
   );
 }
 const cleanName = (n) => String(n || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").replace(/\s*\(\d+\s*colou?r\)\s*$/i, "").trim();
+/** 11/11 '재고 ○시 기준' — 초안은 넥스트팩 현재고 + 입고 예정으로 쓴다. 6시간 넘으면 노랗게 */
+function StockAt({ stock }) {
+  const [now] = useState(() => Date.now());
+  const at = stock?.nextpack?.at;
+  if (!at) return <span className="ml-auto rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800">재고 정보 없음 — 입고 예정 표로만 써요</span>;
+  const t = new Date(at);
+  const hrs = (now - t.getTime()) / 3600000;
+  const label = `재고 ${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")} 기준`;
+  return (
+    <span title="초안은 넥스트팩 현재고 + 거래처 입고 예정 표로 써요(출고는 넥스트팩에서만)" className={"ml-auto rounded-full px-2 py-0.5 text-[11px] " + (hrs >= 6 ? "bg-amber-100 font-semibold text-amber-900" : "bg-stone-100 text-stone-500")}>
+      {label}
+      {hrs >= 6 && ` · ${Math.floor(hrs)}시간 전`}
+    </span>
+  );
+}
 /** 목록 카드용 상품 짧게 — '테디 아이보리 +1' (고유네임 + 옵션, 상품이 더 있으면 +N) */
 function shortGoods(x) {
   const ls = orderLines(x);
@@ -918,6 +933,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
             </select>
           </label>
           <span className="text-[11px] text-stone-400">바꾸고 '초안 다시 만들기' → 그 유형 틀대로</span>
+          <StockAt stock={D.stock} />
           {busy === "draft" && (
             <span className="flex items-center gap-1 text-xs text-stone-400">
               <Loader2 size={13} className="animate-spin" /> 초안 쓰는 중…

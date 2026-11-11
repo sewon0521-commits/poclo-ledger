@@ -189,7 +189,8 @@ export default async function handler(req, res) {
     body.type ? `세원이 고른 답변 유형:${String(body.type).slice(0, 20)} — 이 유형 틀(순서·예시)대로 쓸 것` : "",
     body.eta ? ["", "--- 옵션별 출고 가능 (거래처 입고 예정 + 재고, 11/10~) — 섞여 있으면 부분 배송 안내('가능한 것부터 먼저 보내 드릴까요?'), 날짜는 범위 그대로·확정처럼 쓰지 말 것, 배송비 말은 하지 말 것 ---", String(body.eta).slice(0, 1500)].join(String.fromCharCode(10)) : "",
     body.stock ? `
---- 지금 재고 (넥스트팩 창고 + 사무실 렉, 11/10~) — 수량은 고객에게 말하지 말 것 ---
+--- 재고·입고 예정 (넥스트팩 창고 + 거래처 입고 예정 표, 11/11~) — 출고는 넥스트팩에서만. 수량은 고객에게 말하지 말 것.
+    이 정보로 답할 수 있으면 [재고 확인] 같은 빈칸을 쓰지 말고 바로 답할 것. 옵션을 바꾸고 싶다는 문의면 바꿀 옵션의 출고 가능일로 답할 것 ---
 ${String(body.stock).slice(0, 1500)}` : "",
     productText,
     body.previous ? `\n--- 앞서 만든 초안 ---\n${String(body.previous).slice(0, 3000)}` : "",
