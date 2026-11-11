@@ -3652,3 +3652,5 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - **신마 후보**(세원 "erp에만 올리면 돼, 짜피 신마 보고 해야 되니까", 임세원_개인 창이 어사이드로 찾아 넣음): settings **`sinma_finds_<소싱 회차 id>`** {folder, at, items:[{gid, url, name, store, loc, price, mix, kind, refId, refNo, cls(같은 옷|비슷|더 싼 대안), pick, why, photo(reels 버킷 sinsang/<gid>.jpg), addedOn}]}.
   `SinmaFinds.jsx` — 소싱 회차 창 레퍼런스 사진 '신마 N · ★n' 배지 · 사진 크게 보기(LookView) 안 '신마 후보'(추천만/전부) · 회차 창 아래 `SinmaBoard`(★추천·전체·같은 옷·비슷·더 싼 대안, 사진 번호별). 누르면 신마 상품 새 창. 신상 관리 '요청'과는 안 섞음.
   11/6 회차 `ssmw4rkkow82n0a` 70개(추천 26, 사진 37 — 나머지는 넣는 중). 커밋 c2f1853.
+- 11/11 오후 세원 "강다인님은 취소 요청 없는 사람인데 왜 취소 요청이 있다고 뜨냐" → 유형 '주문 변경·취소'를 **'주문 변경' / '주문 취소'** 로 나눔(`TYPES`·API enum·틀 t_change/t_cancel, 예전 값은 `fixType`·`withDefaults` 가 읽음, 서버 cs_inbox 3건·cs_templates 고침 — 백업 scratchpad `*_before_typesplit.json`).
+  '주문 취소' = 손님 말에 취소·환불이 직접 있을 때만. [카페24 주문 취소] 칸은 '주문 취소'에만. 세원 "카페24 메시지엔 네이버 문단 빼버려" → 지침서: 문자·카톡·톡톡은 일반판, 2주 연장 문단은 네이버 발송지연 상세사유에만. 커밋 f40940d.
