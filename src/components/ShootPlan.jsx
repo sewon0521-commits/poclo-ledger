@@ -1,3 +1,4 @@
+import { useSinma, SinmaStrip, SinmaBoard } from "./SinmaFinds";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
@@ -822,7 +823,7 @@ function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose }) {
  * 왼쪽 레퍼런스 사진 크게(←·→ 로 이 소싱의 다른 사진) · 오른쪽 적어 둔 룩 + 고른 우리 상품(사진·이름·거래처·색상·사이즈).
  * 상품 사진을 누르면 그 상품 사진 크게(신마 사진 전부). 고치기는 '룩·상품 고치기'(LookSheet). 폰은 위아래로.
  */
-function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onClose, paused }) {
+function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onClose, paused, sinma }) {
   const [at, setAt] = useState(start);
   const [big, setBig] = useState(null); // {urls, i}
   const [sel, setSel] = useState(() => new Set()); // 고른 상품 중 잡은 것 (끌어 옮길 것)
@@ -925,6 +926,8 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onC
                 </button>
               </div>
             )}
+            {/* 11/11 신마 후보 — 이 사진으로 어사이드가 찾은 것 */}
+            {sinma?.data && <SinmaStrip key={r.id} items={(sinma.data.items || []).filter((x) => x.refId === r.id)} urls={sinma.urls} />}
           </div>
         </div>
       </div>
@@ -1173,7 +1176,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   );
 }
 
-function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook, cats, onCats }) {
+function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook, cats, onCats, sinma }) {
   const [pick, setPick] = useState(false);
   const [view, setView] = useState(null);
   const [open, setOpen] = useState(null); // 룩 창 — 레퍼런스 id
@@ -1340,6 +1343,18 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
             <span key={r.id} className="group relative block min-w-0">
               <button type="button" onClick={() => setSee({ ids: shownRefs.map((x) => x.id), i })} title="크게 보기 — 고른 우리 상품까지" className="relative block aspect-[3/4] w-full overflow-hidden rounded-lg bg-stone-100">
                 {src(r) && <img src={src(r)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />}
+                {(() => {
+                  // 11/11 신마 후보 수 — 누르면 크게 보기에서 후보까지
+                  const f = (sinma?.data?.items || []).filter((x) => x.refId === r.id);
+                  if (!f.length) return null;
+                  const pk = f.filter((x) => x.pick).length;
+                  return (
+                    <span className="absolute right-1 bottom-1 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-white shadow" title={`신마 후보 ${f.length}개 · 추천 ${pk}`}>
+                      신마 {f.length}
+                      {pk > 0 && ` · ★${pk}`}
+                    </span>
+                  );
+                })()}
                 {(looks[r.id]?.itemIds || []).length > 0 && (
                   <span className="absolute bottom-1 left-1 flex -space-x-1.5">
                     {lookOrder(d, looks[r.id]).ids.slice(0, 4).map((id) => {
@@ -1413,7 +1428,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
         />
       )}
       {see != null && seeRefs.length > 0 && (
-        <LookView d={d} refs={seeRefs} start={Math.min(see.i, seeRefs.length - 1)} src={src} looks={looks} cats={cats} onEdit={(id) => setOpen(id)} onLook={onLook} onRef={patchRef} onClose={() => setSee(null)} paused={!!open || editCats} />
+        <LookView d={d} refs={seeRefs} start={Math.min(see.i, seeRefs.length - 1)} src={src} looks={looks} cats={cats} onEdit={(id) => setOpen(id)} onLook={onLook} onRef={patchRef} onClose={() => setSee(null)} paused={!!open || editCats} sinma={sinma} />
       )}
       {editCats && (
         <CatEditor
@@ -1470,6 +1485,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
   const upDays = [...new Set(uploads.filter(Boolean))].sort();
   const dayCodis = codis.filter((c) => c.uploadOn && upDays.includes(c.uploadOn));
   const [styling, setStyling] = useState(null); // 코디를 누르면 스타일링 창
+  const sinma = useSinma(session.id, online); // 11/11 신마 후보 (임세원_개인 창이 넣음)
   const liveStyling = styling && codis.find((c) => c.id === styling.id);
   const cats = catsOf(d.tags);
   // 예전 '쇼핑몰 BEST 컷' 칸 사진 → 촬영 레퍼런스(쇼핑몰 레퍼런스 + 그 쇼핑몰)로 (10/21 칸을 없애면서)
@@ -1596,7 +1612,16 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
             onHot={() => {}}
             cats={cats}
             onCats={(next) => d.saveTags((v) => ({ ...v, refCats: next }))}
+            sinma={sinma}
           />
+          {sinma.data && (
+            <SinmaBoard
+              data={sinma.data}
+              urls={sinma.urls}
+              refs={(s.refIds || []).map((id) => d.refs.find((r) => r.id === id)).filter(Boolean)}
+              src={(r) => d.urls[r.photo] || r.photoUrl || ""}
+            />
+          )}
           {msg && (
             <p className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {msg}
