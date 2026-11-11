@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType } from "../lib/cs";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { newId } from "../lib/id";
@@ -878,7 +878,8 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
         </section>
       )}
 
-      {v.orderNo && (/취소/.test(v.type || "") || threadOf(v).some((m) => m.from === "them" && /취소/.test(m.text))) && <CancelBox v={v} D={D} pcOn={pcOn} />}
+      {/* 11/11 세원 "강다인님은 취소 요청 없는 사람인데 왜 취소 요청이 있다고 뜨냐" — '주문 취소' 유형에만 */}
+      {v.orderNo && fixType(v.type, threadOf(v).filter((m) => m.from === "them").map((m) => m.text).join(" ")) === "주문 취소" && <CancelBox v={v} D={D} pcOn={pcOn} />}
 
       {(() => {
         // 11/10 세원 "어떤 고객님인지 파악" — 같은 고객의 다른 문의(지금 목록 안)
