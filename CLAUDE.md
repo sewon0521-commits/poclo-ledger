@@ -3638,3 +3638,5 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - 11/11 01시 세원 "세원 할일에서 빼줘 — 뭔가 있으니까 더 복잡해, 그냥 내가 여기서 물어볼게" → 매일 보고 맨 위 '세원 할 일'·알림 종의 할 일을 화면에서 뺌(84장 화면만 없앰 — settings `sewon_todo`·`todo.py`·`SewonTodo.jsx` 는 그대로). 할 일은 포클로_방향성 창이 대화로 챙긴다. 커밋 4a74973.
 - 카페24 SMS API(`POST /api/v2/admin/sms`, scope WRITE_NOTIFICATION, 1회/초): 칸 = shop_no · sender_no(발신자 일련번호) · content · recipients(전화번호) · member_id · group_no · exclude_unsubscriber · type(SMS 90byte / LMS 2000byte) · title → 응답 queue_code.
   **예약 발송 칸이 없다**(바로 보냄). 저녁 7시에 보내려면 사무실 PC 가 그 시각에 부르는 수밖에 없다. API 는 관리자 화면 보안인증(폰)이 필요 없다(OAuth 토큰).
+- 11/11 13시 세원 "cs업데이트 안되는데" — 카톡·톡톡은 자동으로 모으는 게 없었다 → 사무실 PC `poclo-cafe24/chat_collect.py` 가 10분마다 목록을 읽고 새 손님 말이 있는 방만 열어 초안함에 넣는다(다시 열기·'다음 답'·마스킹, 자세한 건 poclo-cafe24 CLAUDE.md '11/11 13시'). 앱 쪽은 바뀐 것 없음.
+  채널 상태 글: 톡톡 '10분마다 자동으로 모음 · 보내기는 버튼 · 마지막 HH:MM', 카톡 '… 보내기는 복사해서'. 첫 수집 13:15 — 강다인(카톡, AI 초안 빈칸 [재고 확인]·[출고 예정일]) · 양혜영(톡톡, 맡겨 둔 다음 답).
