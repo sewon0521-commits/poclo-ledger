@@ -287,7 +287,7 @@ function ProductTable({ rows, waste, title }) {
       )}
       {waste.length > 0 && (
         <p className="border-t border-stone-100 bg-amber-50/60 px-4 py-2 text-xs text-amber-900">
-          1만 원 넘게 썼는데 광고 구매 0: {waste.map((x) => `${x.name || x.code} ${won(x.spend)}원`).join(" · ")}
+          1만 원 넘게 썼는데 클릭 후 1일 구매 0: {waste.map((x) => `${x.name || x.code} ${won(x.spend)}원`).join(" · ")}
         </p>
       )}
     </section>
@@ -426,7 +426,7 @@ function Report({ r, hist, rows, journals }) {
   const pwRaw = canSpan ? spanStats(rows, hist.meta.days, rg.prevStart, rg.prevEnd) : r.prevWeek || {};
   const pw = canSpan && pwRaw.noData ? {} : pwRaw;
   const prodRows = canSpan && hist.prod?.days ? productRows({ prod: hist.prod, metaProd: hist.metaProd, metaAds: hist.ads, s: rg.start, e: rg.end }) : fromReport(r.products);
-  const wasteLine = canSpan && hist.prod?.days ? prodRows.filter((p) => p.spend >= Math.max(5000, Math.round((10000 * rg.n) / 7)) && !p.pu) : r.waste || [];
+  const wasteLine = canSpan && hist.prod?.days ? prodRows.filter((p) => p.spend >= Math.max(5000, Math.round((10000 * rg.n) / 7)) && !p.pu1) : r.waste || [];
   const counts = hist?.ads ? adCountsIn(hist.ads, rg.start, rg.end) : r.adCounts ? { ...r.adCounts, made: r.adCounts.made7 } : null;
   const spanName = { 1: "하루", 7: "최근 7일", 30: "최근 한 달", 90: "최근 3개월", 180: "최근 6개월" }[spanId] || `직접 지정 ${rg.n}일`;
   const title = canSpan || spanId === "7" ? `${spanName} · ${rangeLabel(rg)}` : "최근 7일";

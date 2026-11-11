@@ -8,17 +8,21 @@
  * 판정 규칙은 여기 한 곳에서만 바꾼다(RULES). 화면이 늘 같은 기준으로 본다.
  */
 
+// ⭐ 11/12 세원 광고 판단 기준(포클로_방향성 창): "보수적으로 2.7 잡아" · "클릭 후 1일로 통일 — 이 광고를 보고 오늘 산 사람이니까" · 옛 기준은 쇼만마 쓰니까 안 씀
+//   → **판단에 쓰는 ROAS·구매는 전부 클릭 후 1일**(roas1 · pu1). 결과 ROAS(7일 클릭 + 1일 조회 = roas·pu)는 표에 보여 주기만.
+//   테스트 = 소재당 1만 원 · 1만 원 넘게 썼는데 판매 0 → 끔 · 팔림 = 1일 ROAS 2.7↑ + 결과당 비용 1만 원↓.
+//   (예전 '3만 원↑인데 ROAS 1.5 아래 끔' · 시험 1.5만 원은 새 기준에 없어서 뺐다)
 export const RULES = {
-  ace: { spend: 50000, roas: 3 }, // 에이스 = 누적 5만 원 넘게 쓰고 ROAS 3 이상
-  hopeful: { spend: 10000, roas: 3, pu: 2 }, // 에이스 후보 = 1만 원↑ · ROAS 3↑ · 구매 2건↑ (아직 5만 원 전)
-  kill: { spend: 15000, lowSpend: 30000, lowRoas: 1.5 }, // 끌 것 = 켜져 있는데 1.5만 원 써도 구매 0, 또는 3만 원↑인데 ROAS 1.5 아래
-  testMax: 15000, // 1.5만 원 전은 '시험 중'
+  ace: { spend: 50000, roas: 3 }, // 에이스 = 누적 5만 원 넘게 쓰고 1일 ROAS 3 이상
+  hopeful: { spend: 10000, roas: 2.7, cpr: 10000 }, // 팔림 = 1만 원↑ · 1일 ROAS 2.7↑ · 결과당 비용(광고비 ÷ 1일 구매) 1만 원↓
+  kill: { spend: 10000 }, // 끌 것 = 켜져 있는데 1만 원 넘게 써도 1일 구매 0
+  testMax: 10000, // 1만 원 전은 '시험 중'(테스트 소재당 1만 원)
   weekGoal: 25, // 주 새 소재 목표 — 에이스 비율 4%면 주 1개
   // 11/10 세원 "1군 왕관" (위키 topics/1군-원칙.md) — 링크 CPC = 광고비 ÷ 링크 클릭(lc). 전체 클릭(clk)은 20~30% 많아서 안 쓴다
-  gun: { spend: 10000, cpc: 200, cpc2: 300, pu: 1, roas: 2.5 },
+  gun: { spend: 10000, cpc: 200, cpc2: 300, pu: 1, roas: 2.7 }, // 11/12 1일 ROAS 하한 2.5 → 2.7 (1군·2군·상품 힘 같이)
 };
 
-/** 1군 판정 — 광고비 1만↑ 만. 👑 1군 = 링크 CPC 200 미만 + 클릭 후 1일 구매 1건↑ + 1일 ROAS 2.5↑ */
+/** 1군 판정 — 광고비 1만↑ 만. 👑 1군 = 링크 CPC 200 미만 + 클릭 후 1일 구매 1건↑ + 1일 ROAS 2.7↑ */
 export const GUN = {
   gun1: ["👑 1군", "bg-amber-100 text-amber-900 ring-1 ring-amber-300"],
   gun2: ["🥈 2군", "bg-slate-100 text-slate-800 ring-1 ring-slate-300"],
@@ -31,14 +35,14 @@ export function gunOf(o) {
   if (o.spend < G.spend || o.lcpc == null) return "";
   const sold = (o.pu1 || 0) >= G.pu && o.roas1 >= G.roas;
   if (o.lcpc < G.cpc) return sold ? "gun1" : "comp";
-  // 11/10 세원 "2군도 만들어 줄 수 있나?" → A안: 링크 CPC 200~300 + 1일 구매 1↑ + 1일 ROAS 2.5↑ (10개 · 570만 · 합산 3.09)
+  // 11/10 세원 "2군도 만들어 줄 수 있나?" → A안: 링크 CPC 200~300 + 1일 구매 1↑ + 1일 ROAS 2.7↑ (11/12 2.5 → 2.7)
   if (o.lcpc < G.cpc2 && sold) return "gun2";
   return o.roas1 >= G.roas ? "power" : "";
 }
 
 export const STATUS = {
   ace: ["에이스", "bg-rose-700 text-white"],
-  hopeful: ["에이스 후보", "bg-emerald-600 text-white"],
+  hopeful: ["팔림", "bg-emerald-600 text-white"], // 11/12 '에이스 후보' → 세원 기준 '팔림'(키 이름은 그대로)
   kill: ["끌 것", "bg-amber-400 text-amber-950"],
   test: ["시험 중", "bg-sky-100 text-sky-800"],
   watch: ["지켜보기", "bg-stone-200 text-stone-700"],
@@ -70,12 +74,15 @@ export function readStats(v) {
   });
 }
 
+/** 판정 — ROAS·구매는 클릭 후 1일만(11/12). readStats 가 roas1 을 먼저 채운 뒤 부른다 */
 export function statusOf(o) {
   const R = RULES;
-  if (o.spend >= R.ace.spend && o.roas >= R.ace.roas) return "ace";
-  if (o.spend >= R.hopeful.spend && o.roas >= R.hopeful.roas && o.pu >= R.hopeful.pu) return "hopeful";
+  const pu1 = o.pu1 || 0;
+  const roas1 = o.spend ? (o.pv1 || 0) / o.spend : 0;
+  if (o.spend >= R.ace.spend && roas1 >= R.ace.roas) return "ace";
+  if (o.spend >= R.hopeful.spend && roas1 >= R.hopeful.roas && pu1 > 0 && o.spend / pu1 <= R.hopeful.cpr) return "hopeful";
   if (!o.active) return "off";
-  if ((o.spend >= R.kill.spend && !o.pu) || (o.spend >= R.kill.lowSpend && o.roas < R.kill.lowRoas)) return "kill";
+  if (o.spend > R.kill.spend && !pu1) return "kill";
   if (o.spend < R.testMax) return "test";
   return "watch";
 }
@@ -102,7 +109,7 @@ export function weekly(stats, metaAds, n = 12, today = new Date()) {
     const w = created && weekOf(created);
     if (w in made) made[w] += 1;
   }
-  const good = Object.fromEntries(weeks.map((w) => [w, { ace: 0, hopeful: 0, spend: 0, pv: 0 }]));
+  const good = Object.fromEntries(weeks.map((w) => [w, { ace: 0, hopeful: 0, spend: 0, pv: 0 }])); // pv = 결과 매출(보여 주기만)
   for (const o of stats) {
     const w = o.created && weekOf(o.created);
     if (!(w in good)) continue;

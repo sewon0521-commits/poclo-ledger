@@ -140,7 +140,7 @@ export function productRows({ prod, metaProd, metaAds, s, e }) {
     pu1: Math.round(r.pu1),
     spend: Math.round(r.spend),
     value: Math.round(r.value),
-    kind: r.spend ? (r.pu ? "광고 구매" : "광고 비효율") : r.q >= want ? "광고 추천" : "",
+    kind: r.spend ? (r.pu1 > 0 ? "광고 구매" : "광고 비효율") : r.q >= want ? "광고 추천" : "", // 11/12 판단은 클릭 후 1일 구매로
   }));
   const top = new Set([...list].sort((a, b) => b.q - a.q).filter((r) => r.q > 0).slice(0, 5).map((r) => r.code));
   return list.map((r) => ({ ...r, top: top.has(r.code) })).sort((a, b) => b.q - a.q || b.spend - a.spend);

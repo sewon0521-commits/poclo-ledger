@@ -21,7 +21,7 @@ const FILTERS = [
   ["gun2", "🥈 2군"],
   ["comp", "구도 합격"],
   ["power", "상품 힘"],
-  ["hopeful", "에이스 후보"],
+  ["hopeful", "팔림"],
   ["ace", "에이스"],
   ["week", "이번 주 새 소재"],
   ["all", "전체"],
@@ -76,7 +76,7 @@ function Weeks({ rows }) {
             <span className="h-2 w-2 rounded-sm bg-stone-300" /> 새 소재
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-emerald-500" /> 에이스 후보
+            <span className="h-2 w-2 rounded-sm bg-emerald-500" /> 팔림
           </span>
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-sm bg-rose-700" /> 에이스
@@ -87,7 +87,7 @@ function Weeks({ rows }) {
       <div className="relative flex h-40 items-end gap-1.5">
         <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-rose-300" style={{ bottom: `${(RULES.weekGoal / max) * 100}%` }} />
         {rows.map((r) => (
-          <div key={r.week} className="flex h-full flex-1 flex-col items-center gap-1" title={`${md(r.week)} 주 · 새 소재 ${r.made}개 · 에이스 ${r.ace} · 후보 ${r.hopeful}`}>
+          <div key={r.week} className="flex h-full flex-1 flex-col items-center gap-1" title={`${md(r.week)} 주 · 새 소재 ${r.made}개 · 에이스 ${r.ace} · 팔림 ${r.hopeful}`}>
             <div className="flex w-full flex-1 flex-col justify-end">
               <span className="mb-0.5 text-center text-[10px] text-stone-500 tabular-nums">{r.made || ""}</span>
               <div className="flex w-full flex-col-reverse overflow-hidden rounded-t bg-stone-300" style={{ height: `${(r.made / max) * 100}%` }}>
@@ -113,15 +113,15 @@ function Rules() {
       {open && (
         <ul className="space-y-1 px-3 pb-3 leading-relaxed">
           <li>
-            · <b>에이스</b> = 누적 {man(RULES.ace.spend)}원 넘게 쓰고 ROAS {RULES.ace.roas} 이상. 광고 매출의 절반 이상이 이런 소재 몇 개에서 나와요(3월~10월 상위 5개 = 55%).
+            · <b>에이스</b> = 누적 {man(RULES.ace.spend)}원 넘게 쓰고 클릭 후 1일 ROAS {RULES.ace.roas} 이상. 광고 매출의 절반 이상이 이런 소재 몇 개에서 나와요(3월~10월 상위 5개 = 55%).
           </li>
           <li>
-            · <b>에이스 후보</b> = {man(RULES.hopeful.spend)}원↑ · ROAS {RULES.hopeful.roas}↑ · 구매 {RULES.hopeful.pu}건↑ — 예산을 조금씩 올려 보고, 같은 상품으로 변형(첫 3초·색)을 5~10개 더 만들어요.
+            · <b>팔림</b> = {man(RULES.hopeful.spend)}원↑ · 클릭 후 1일 ROAS {RULES.hopeful.roas}↑ · 결과당 비용(광고비 ÷ 1일 구매) {man(RULES.hopeful.cpr)}원↓ — 예산을 조금씩 올려 보고, 같은 상품으로 변형(첫 3초·색)을 5~10개 더 만들어요.
           </li>
           <li>
-            · <b>끌 것</b> = 켜져 있는데 {man(RULES.kill.spend)}원 써도 구매 0, 또는 {man(RULES.kill.lowSpend)}원↑인데 ROAS {RULES.kill.lowRoas} 아래.
+            · <b>끌 것</b> = 켜져 있는데 {man(RULES.kill.spend)}원 넘게 써도 클릭 후 1일 구매 0.
           </li>
-          <li>· <b>시험 중</b> = 아직 {man(RULES.testMax)}원 전 — 판단하기 이르니 둬요.</li>
+          <li>· <b>시험 중</b> = 아직 {man(RULES.testMax)}원 전 — 테스트는 소재당 {man(RULES.testMax)}원, 판단하기 이르니 둬요.</li>
           <li>
             · 에이스가 4%쯤 나오면 주 {RULES.weekGoal}개를 쏴야 주 1개가 나와요. 돈을 덜 쓰려면 인스타에 먼저 올려 반응 좋은 것만 광고로(아래 '우리 인스타 게시물').
           </li>
@@ -140,7 +140,7 @@ function Rules() {
           <li>
             · 링크 CPC 는 링크 클릭만 세요. 표의 CTR 은 전체 클릭(좋아요·프로필 눌림까지)이라 20~30% 높게 나와서 1군 판정엔 안 써요.
           </li>
-          <li>· 숫자는 메타 기준(ROAS·구매는 7일 클릭, 1군은 1일 클릭). 1시간마다 새로 받아요.</li>
+          <li>· 판정은 전부 <b>클릭 후 1일</b>(이 광고를 보고 그날 산 사람 — 세원 11/12). 표의 ROAS·구매·7일 ROAS 는 메타 결과(7일 클릭 + 1일 조회)라 보여 주기만 해요. 1시간마다 새로 받아요.</li>
         </ul>
       )}
     </div>
@@ -182,7 +182,7 @@ function Row({ o, img }) {
         </div>
       </td>
       <td className="px-2 py-2 text-right font-semibold text-stone-900">{man(o.spend)}</td>
-      <td className={"px-2 py-2 text-right font-semibold " + (o.roas >= 3 ? "text-emerald-700" : o.spend >= 10000 && o.roas < 1.5 ? "text-rose-600" : "text-stone-700")}>{o.spend ? o.roas.toFixed(2) : "—"}</td>
+      <td className={"px-2 py-2 text-right font-semibold " + "text-stone-500"}>{o.spend ? o.roas.toFixed(2) : "—"}</td>
       <td className={"px-2 py-2 text-right font-semibold " + (o.roas1 >= RULES.gun.roas ? "text-emerald-700" : "text-stone-600")}>{o.spend && o.lc != null ? o.roas1.toFixed(2) : "—"}</td>
       <td className="px-2 py-2 text-right text-stone-700">
         {o.pu ? Math.round(o.pu) : 0}
@@ -196,7 +196,7 @@ function Row({ o, img }) {
       <td className="px-2 py-2 text-right text-stone-600">
         {o.s7 ? (
           <>
-            {man(o.s7)} <span className={o.roas7 >= 3 ? "text-emerald-700" : "text-stone-400"}>· {o.roas7.toFixed(1)}</span>
+            {man(o.s7)} <span className="text-stone-400">· {o.roas7.toFixed(1)}</span>
           </>
         ) : (
           <span className="text-stone-300">—</span>
@@ -467,7 +467,7 @@ export default function CreativesPage({ online, fileUrls }) {
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Kpi icon={Rocket} label="이번 주 새 소재" value={thisWeek?.made ?? 0} unit={`/ ${RULES.weekGoal}개`} sub={`${md(curWeek)}부터 · 주 ${RULES.weekGoal}개면 에이스가 주 1개 꼴`} tone={(thisWeek?.made || 0) >= RULES.weekGoal ? "text-emerald-700" : "text-stone-900"} onClick={() => setFilter("week")} active={filter === "week"} />
-            <Kpi icon={Trophy} label="지난 4주 에이스 · 후보" value={good4} unit={`/ ${made4}개`} sub={made4 ? `비율 ${((good4 / made4) * 100).toFixed(1)}% · 누르면 최근 1달 후보` : "누르면 최근 1달 후보"} tone="text-rose-700" onClick={() => (setFilter("hopeful"), setSpan("30"))} active={filter === "hopeful"} />
+            <Kpi icon={Trophy} label="지난 4주 에이스 · 팔림" value={good4} unit={`/ ${made4}개`} sub={made4 ? `비율 ${((good4 / made4) * 100).toFixed(1)}% · 누르면 최근 1달 팔림` : "누르면 최근 1달 팔림"} tone="text-rose-700" onClick={() => (setFilter("hopeful"), setSpan("30"))} active={filter === "hopeful"} />
             <Kpi icon={Target} label="지금 켜진 소재" value={on.length} unit="개" sub={`오늘 광고비 ${man(spendToday)}원`} onClick={() => setFilter("on")} active={filter === "on"} />
             <Kpi icon={Power} label="끌 것" value={kill.length} unit="개" sub={kill.length ? `${man(kill.reduce((a, o) => a + (o.sT || 0), 0))}원이 오늘도 나가는 중` : "지금은 없어요"} tone={kill.length ? "text-amber-600" : "text-stone-900"} onClick={() => setFilter("kill")} active={filter === "kill"} />
             <Kpi icon={Crown} label="1군 (전체 기간)" value={gunAll.length} unit="개" sub={`🥈 2군 ${stats.filter((o) => o.gun === "gun2").length} · 구도 합격 ${stats.filter((o) => o.gun === "comp").length} · 상품 힘 ${stats.filter((o) => o.gun === "power").length} · 링크 CPC ${RULES.gun.cpc}↓ + 1일 ROAS ${RULES.gun.roas}↑`} tone="text-amber-700" onClick={() => (setFilter("gun1"), setSpan("all"))} active={filter === "gun1"} />
@@ -495,7 +495,7 @@ export default function CreativesPage({ online, fileUrls }) {
                   </button>
                 ))}
               </div>
-              <select value={span} onChange={(e) => setSpan(e.target.value)} title="에이스 후보·에이스·전체는 이 기간에 만든 소재만" className="rounded-lg border border-rose-200 bg-rose-50/60 px-2 py-1 text-xs font-semibold text-rose-800">
+              <select value={span} onChange={(e) => setSpan(e.target.value)} title="팔림·에이스·전체는 이 기간에 만든 소재만" className="rounded-lg border border-rose-200 bg-rose-50/60 px-2 py-1 text-xs font-semibold text-rose-800">
                 {SPANS.map(([k, l]) => (
                   <option key={k} value={k}>
                     만든 날: {l}
@@ -521,9 +521,9 @@ export default function CreativesPage({ online, fileUrls }) {
                     <th className="px-3 py-2">상태</th>
                     <th className="px-2 py-2">소재</th>
                     <th className="px-2 py-2 text-right">누적 광고비</th>
-                    <th className="px-2 py-2 text-right">ROAS</th>
+                    <th className="px-2 py-2 text-right" title="메타 결과 ROAS(7일 클릭 + 1일 조회) — 보여 주기만, 판정엔 안 씀">결과 ROAS</th>
                     <th className="px-2 py-2 text-right">1일 ROAS</th>
-                    <th className="px-2 py-2 text-right">구매 (1일)</th>
+                    <th className="px-2 py-2 text-right">구매 결과 (1일)</th>
                     <th className="px-2 py-2 text-right">CTR</th>
                     <th className="px-2 py-2 text-right">링크 CPC</th>
                     <th className="px-2 py-2 text-right">3초 시청</th>
