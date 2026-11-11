@@ -93,7 +93,7 @@ const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = nul
   examples: pickExamples(learn, x), // 세원이 예전에 고친 초안 → 고친 글 (같은 유형 먼저)
   type: x.type || undefined, // 세원이 고른 '답변 유형' — 그 틀대로
   eta: etaText(inbound, stock, orderLines(x)) || undefined, // 11/10 옵션별 출고 가능(거래처 입고 예정 + 재고) — 부분 배송 안내
-  replied: threadOf(x).some((m) => m.from === "us") || undefined, // 11/11 세원 "이미 답변을 했던 상태면 인삿말은 생략"
+  replied: threadOf(x).some((m) => m.from === "us" && m.who !== "자동") || undefined, // 11/11 세원 "이미 답변을 했던 상태면 인삿말은 생략" — 카톡·톡톡 자동 인사·부재중은 답으로 안 침
   ...extra,
 });
 
