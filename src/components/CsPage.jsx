@@ -462,18 +462,18 @@ ${lines}
                     (current?.id === x.id && wide ? "border-rose-300 ring-2 ring-rose-100" : "border-stone-200 hover:border-stone-300")
                   }
                 >
+                  {/* 11/11 세원 "왼쪽에 이렇게 뜨는 거 확 줄여 — 성함, 주문번호, 마지막 상담 날짜 같이 중요한 것만" → 두 줄. 대화 전문은 오른쪽 말풍선에서만 */}
                   <span className="flex items-center gap-1.5">
                     <ChannelBadge k={x.channel} />
-                    {x.type && <span className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[11px] font-medium text-stone-600">{x.type}</span>}
-                    <span className="ml-auto">
-                      <StatusChip s={x.status} />
-                    </span>
+                    {(x.urgent || /^🔥/.test(x.caution || "")) && <span title="급함" className="text-xs leading-none">🔥</span>}
+                    <span className="min-w-0 truncate text-sm font-semibold text-stone-900">{x.customer || "고객"}</span>
+                    <StatusChip s={x.status} />
+                    <span className="ml-auto shrink-0 text-[11px] text-stone-400 tabular-nums">{when(x.at || x.createdAt)}</span>
                   </span>
-                  <span className="mt-1.5 block truncate text-sm font-semibold text-stone-900">{x.summary || x.title || (x.message || "").slice(0, 40) || "문의"}</span>
-                  {x.message && <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-stone-500">{x.message}</span>}
-                  <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-stone-400">
-                    <span className="truncate">{[x.customer, x.product?.name].filter(Boolean).join(" · ") || "고객 정보 없음"}</span>
-                    <span className="ml-auto shrink-0">{when(x.at || x.createdAt)}</span>
+                  <span className="mt-1 flex items-center gap-1.5 text-[11px] text-stone-500">
+                    {x.orderNo && <span className="shrink-0 font-mono text-stone-600">{x.orderNo}</span>}
+                    <span className="min-w-0 truncate">{shortGoods(x) || (x.summary || x.title || "").slice(0, 30)}</span>
+                    {x.type && <span className="ml-auto shrink-0 rounded-md bg-stone-100 px-1.5 py-0.5 font-medium text-stone-600">{x.type}</span>}
                   </span>
                 </button>
               </li>
@@ -563,6 +563,13 @@ function OrderLink({ no }) {
   );
 }
 const cleanName = (n) => String(n || "").replace(/^\s*(\[[^\]]*\]\s*)+/, "").replace(/\s*\(\d+\s*colou?r\)\s*$/i, "").trim();
+/** 목록 카드용 상품 짧게 — '테디 아이보리 +1' (고유네임 + 옵션, 상품이 더 있으면 +N) */
+function shortGoods(x) {
+  const ls = orderLines(x);
+  if (!ls.length) return x.product?.name ? cleanName(x.product.name).split(/\s+/)[0] : "";
+  const first = `${cleanName(ls[0].name).split(/\s+/)[0]} ${String(ls[0].option || "").replace(/^색상=/, "")}`.trim();
+  return ls.length > 1 ? `${first} +${ls.length - 1}` : first;
+}
 /** 주문 상품 줄 [{name, option, qty}] — 새 문의는 lines, 예전 문의는 '이름 옵션 ×N' 글에서 */
 function orderLines(x) {
   if (Array.isArray(x?.lines) && x.lines.length) return x.lines;
