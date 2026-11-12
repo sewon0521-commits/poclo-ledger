@@ -33,7 +33,8 @@ const who = () => {
 // 요청 탭 모아보기 — 'neither' 는 요청함·픽업 요청 둘 다 안 켠 것 (10/14)
 // 같은 거래처 — 돈 › 거래처와 이어져 있으면 그 id, 아니면 이름(띄어쓰기·대소문자 무시) (10/15)
 const mateKey = (x) => x.vendorId || String(x.vendor || "").replace(/\s+/g, "").toLowerCase();
-const reqHit = (x, k) => (k === "neither" ? !x.asked && !x.pickup : !!x[k]);
+// 11/12 세원 "요청함 모아보기 → 요청함만 모아보기, 누르면 요청함만 누른 것만" — 'asked' 는 요청함은 켜고 픽업 요청은 안 켠 것
+const reqHit = (x, k) => (k === "neither" ? !x.asked && !x.pickup : k === "asked" ? !!x.asked && !x.pickup : !!x[k]);
 
 const srcOf = (x, urls) => urls[x.photo] || x.photoUrl || "";
 const list = (s) =>
@@ -2003,7 +2004,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
   // 보통은 지금처럼, 소싱한 날짜를 누르면 그날 신마에서 담기를 누른 상품만") — 담은 날(createdAt, 이 기기 시각)
   const [srcDay, setSrcDay] = useState("");
   const [dayTo, setDayTo] = useState(""); // 고른 날 상품을 옮길 날
-  const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함) | "pickup"(픽업 요청) | "retryOn"(재요청) | "neither"(둘 다 안 함)
+  const [reqOnly, setReqOnly] = useState(""); // 요청 탭 모아보기: "" | "asked"(요청함만 — 픽업 요청 안 켠 것) | "pickup"(픽업 요청) | "retryOn"(재요청) | "neither"(둘 다 안 함)
   const [retryDay, setRetryDay] = useState(""); // 재요청 달력에서 고른 날 (비우면 전부)
   const [dueDay, setDueDay] = useState(""); // 반납 달력에서 고른 날
   const [backOnly, setBackOnly] = useState(false); // 반납·결제 예정 — 반납 등록한 것만
@@ -2437,7 +2438,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
         </div>
         {tab === "request" &&
           [
-            ["asked", "요청함"],
+            ["asked", "요청함만"],
             ["pickup", "픽업 요청"],
             ["retryOn", "재요청"], // 세원 10/1: "재요청 따로 모아볼 수 있는 칸" — 재요청 날짜를 적은 상품
             // 10/14 세원: "소싱한 날 누르고 요청함·픽업 요청 둘 다 체크 안 돼 있는 거 확인할 수 있는 버튼" — 숫자는 고른 소싱한 날 안에서
