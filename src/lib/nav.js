@@ -2,6 +2,7 @@
 // 큰 갈래는 다섯 — 홈 / 일 / 돈 / 촬영 / 콘텐츠. ('사람'은 9/23 세원 요청으로 뺐다 — 쓸 일이 없어서)
 import {
   Home,
+  Truck,
   ListChecks,
   NotebookPen,
   Wallet,
@@ -82,6 +83,8 @@ export const SECTIONS = [
           { key: "journal", label: "업무일지", icon: NotebookPen },
           // 10/31 세원: "재고가 넥스트팩과 사무실 렉 두 곳에 나뉘어 한눈에 안 보인다" (components/StockPage.jsx). 11/1 세원: "일로 옮겨야 할 듯, 업무일지 밑으로" (처음엔 촬영 › 신상 관리 옆)
           { key: "stock", label: "재고", icon: Boxes },
+          // 11/12 세원 "요런 식으로 제작 가능? erp 일 칸에" — 쇼핑몰 주문이 창고에서 어디까지 갔는지 (components/OrdersPage.jsx, 자료 poclo-cafe24/orders_track.py)
+          { key: "orders", label: "주문내역", icon: Truck },
           // 10/6 세원: "넥스트팩 발주 변환기를 ERP 에 넣고 단가 칸에 단가를 넣어 줘" → 이지어드민 발주 → SO+ 붙여넣기. "일 카테고리로"
           { key: "soOrder", label: "SO+ 발주 변환", icon: FileSpreadsheet },
           // 10/17 세원: "재구매 쿠폰·이벤트를 배너로 알리는 계획을 짜는 틀 — 이벤트 캘린더"
