@@ -109,3 +109,38 @@ export function inPeriod(r, period, today) {
   const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return day >= from;
 }
+
+/** 11/12 세원 "보낸 사람은 이미 보냄이라고 뜨게" — orders_track_live.sent(열쇠 = 카페24·네이버페이 주문번호·상품주문번호) → 이 주문에 나간 연락 */
+export function sentOf(r, sent) {
+  if (!sent) return [];
+  const keys = new Set([r.id, r.mno, ...(r.items || []).map((i) => i.np)].filter(Boolean));
+  const out = [];
+  const seen = new Set();
+  for (const k of keys)
+    for (const e of sent[k] || []) {
+      const id = `${e.on}|${e.via}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(e);
+    }
+  return out.sort((a, b) => String(a.on).localeCompare(String(b.on)));
+}
+/** '2026-11-11T19:00:00+09:00' → '11/11' */
+export const mdOf = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()}`;
+};
+
+/** 11/12 세원 "송장 누르면 해당 택배사 송장 조회로 넘어가서 송장까지 자동으로 검색" — 넥스트팩이 쓰는 4곳, 11/12 실제 송장으로 열어 확인함 */
+const TRACK = [
+  [/CJ|대한통운/, (n) => `https://trace.cjlogistics.com/next/tracking.html?wblNo=${n}`],
+  [/우체국/, (n) => `https://service.epost.go.kr/trace.RetrieveDomRigiTraceList.comm?sid1=${n}`],
+  [/롯데/, (n) => `https://www.lotteglogis.com/home/reservation/tracking/linkView?InvNo=${n}`],
+  [/로젠/, (n) => `https://www.ilogen.com/web/personal/trace/${n}`],
+];
+export function trackUrl(carrier, no) {
+  const n = String(no || "").replace(/\D/g, "");
+  if (!n) return "";
+  const hit = TRACK.find(([re]) => re.test(carrier || ""));
+  return hit ? hit[1](n) : "";
+}

@@ -10,7 +10,7 @@ import { orderAdminUrl } from "../lib/cs";
 import { won } from "../lib/sales";
 import { newId } from "../lib/id";
 import { Empty } from "./ui";
-import { ORDER_KEYS, LATE_DAYS, STAGES, PERIODS, mergeOrders, stageOf, waitDays, todayStr, mdhm, cleanName, qtyOf, trackingOf, hit, inPeriod } from "../lib/orderTrack";
+import { ORDER_KEYS, LATE_DAYS, STAGES, PERIODS, mergeOrders, stageOf, waitDays, todayStr, mdhm, cleanName, qtyOf, trackingOf, hit, inPeriod, sentOf, mdOf, trackUrl } from "../lib/orderTrack";
 
 const PERIOD_KEY = "poclo_orders_period";
 const read = (k, d) => {
@@ -53,7 +53,7 @@ function useOrders(online) {
   return { full, live, state, load };
 }
 
-function StageMark({ r, stage, today, onDelay }) {
+function StageMark({ r, stage, today, onDelay, sent }) {
   const d = waitDays(r, stage, today);
   const its = r.items || [];
   if (stage === "claim") return <span className="text-stone-400">{its[0]?.st || "취소·반품"}</span>;
@@ -63,7 +63,12 @@ function StageMark({ r, stage, today, onDelay }) {
     return (
       <span className={"inline-flex flex-wrap items-center gap-x-1.5 " + (late ? "font-semibold text-rose-700" : "text-stone-700")}>
         ○ {stage === "recv" ? "접수" : "송장 나옴"} · {late ? `${d}일 지연` : d ? `${d}일째` : "오늘"}
-        {late && onDelay && (
+        {late && sent?.length > 0 && (
+          <span className="rounded-full bg-stone-100 px-1.5 py-px text-[11px] font-medium text-stone-600" title={sent.map((e) => `${mdhm(e.on)} ${e.via}${e.note ? ` · ${e.note}` : ""}`).join(" / ")}>
+            이미 보냄 · {mdOf(sent[sent.length - 1].on)} {sent[sent.length - 1].via}
+          </span>
+        )}
+        {late && !sent?.length && onDelay && (
           <button type="button" onClick={(e) => (e.stopPropagation(), onDelay())} className="rounded-full bg-rose-50 px-1.5 py-px text-[11px] font-medium text-rose-700 ring-1 ring-rose-200 hover:bg-rose-100">
             먼저 연락
           </button>
@@ -75,6 +80,17 @@ function StageMark({ r, stage, today, onDelay }) {
   const dl = its.find((i) => i.dl)?.dl;
   if (stage === "ship") return <span className="text-stone-900">● 배송 {sh ? mdhm(sh) : ""}</span>;
   return <span className="text-stone-500">● 완료 {dl ? mdhm(dl).slice(0, 5) : ""}</span>;
+}
+
+/** 송장번호 → 그 택배사 조회 화면(번호까지 채워서, 새 탭). 모르는 택배사면 번호만 */
+function TrackLink({ carrier, no }) {
+  const url = trackUrl(carrier, no);
+  if (!url) return <span className="text-stone-800">{no}</span>;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={`${carrier || "택배사"}에서 배송 조회`} className="inline-flex items-center gap-0.5 font-medium text-stone-800 underline decoration-stone-300 underline-offset-2 hover:text-rose-700 hover:decoration-rose-300">
+      {no} <ExternalLink size={11} className="text-stone-400" />
+    </a>
+  );
 }
 
 function CopyBtn({ text, label }) {
@@ -94,7 +110,7 @@ function CopyBtn({ text, label }) {
   );
 }
 
-function Detail({ r }) {
+function Detail({ r, sent }) {
   const admin = orderAdminUrl(r.id);
   return (
     <div className="space-y-2 bg-stone-50/80 px-4 py-3 text-xs">
@@ -113,6 +129,17 @@ function Detail({ r }) {
           </a>
         )}
       </div>
+      {sent?.length > 0 && (
+        <p className="text-stone-600">
+          <span className="font-semibold text-stone-700">손님에게 나간 연락</span>{" "}
+          {sent.map((e, k) => (
+            <span key={k} className="mr-2 inline-block rounded bg-white px-1.5 py-0.5 ring-1 ring-stone-200">
+              {mdhm(e.on)} {e.via}
+              {e.note && <span className="text-stone-400"> · {e.note}</span>}
+            </span>
+          ))}
+        </p>
+      )}
       <ul className="divide-y divide-stone-200/70 rounded-lg bg-white ring-1 ring-stone-200">
         {(r.items || []).map((i, k) => (
           <li key={k} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2">
@@ -124,7 +151,7 @@ function Detail({ r }) {
             <span className="tabular-nums text-stone-500">
               {i.t ? (
                 <>
-                  {i.c} {i.t} <CopyBtn text={i.t} label="송장번호" />
+                  {i.c} <TrackLink carrier={i.c} no={i.t} /> <CopyBtn text={i.t} label="송장번호" />
                 </>
               ) : (
                 "송장 아직 없음"
@@ -137,7 +164,7 @@ function Detail({ r }) {
   );
 }
 
-function Row({ r, stage, today, open, onToggle, onDelay }) {
+function Row({ r, stage, today, open, onToggle, onDelay, sent }) {
   const its = r.items || [];
   const first = its.find((i) => !/^[CRE]/.test(i.s)) || its[0] || {};
   const more = its.length - 1;
@@ -167,14 +194,14 @@ function Row({ r, stage, today, open, onToggle, onDelay }) {
           {q}장{its.length > 1 && <span className="ml-0.5 text-stone-400">합포</span>}
         </td>
         <td className="px-2 py-2.5 whitespace-nowrap">
-          <StageMark r={r} stage={stage} today={today} onDelay={onDelay} />
+          <StageMark r={r} stage={stage} today={today} onDelay={onDelay} sent={sent} />
         </td>
-        <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{tk ? <span className="text-stone-800">{tk.no}</span> : <span className="text-stone-400">아직 없음</span>}</td>
+        <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{tk ? <TrackLink carrier={tk.carrier} no={tk.no} /> : <span className="text-stone-400">아직 없음</span>}</td>
       </tr>
       {open && (
         <tr className="border-b border-stone-200">
           <td colSpan={6} className="p-0">
-            <Detail r={r} />
+            <Detail r={r} sent={sent} />
           </td>
         </tr>
       )}
@@ -212,8 +239,11 @@ export default function OrdersPage({ online, onPage }) {
     }
     return c;
   }, [inRange]);
+  const sent = D.live?.sent;
   const isLate = ({ r, stage: s }) => (waitDays(r, s, today) ?? 0) >= LATE_DAYS;
-  const late = inRange.filter(isLate).length;
+  const lateRows = inRange.filter(isLate);
+  const late = lateRows.length;
+  const lateNew = lateRows.filter(({ r }) => !sentOf(r, sent).length).length;
   const rows = (stage === "all" ? inRange : inRange.filter((x) => x.stage === stage)).filter((x) => !lateOnly || isLate(x));
   const at = [D.live?.at, D.full?.at].filter(Boolean).sort().pop();
   const atText = at ? new Date(at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
@@ -243,7 +273,7 @@ export default function OrdersPage({ online, onPage }) {
               {atText ? `${atText} 기준` : "아직 읽은 기록이 없어요"}
               {(late > 0 || lateOnly) && (
                 <button type="button" onClick={() => (setLateOnly(!lateOnly), setN(150))} className={"ml-2 rounded-full px-2 py-px font-semibold " + (lateOnly ? "bg-rose-700 text-white" : "text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50")}>
-                  지연 {late}건{lateOnly ? " · 전체 보기" : " · 모아 보기"}
+                  지연 {late}건{late ? ` (연락 전 ${lateNew})` : ""}{lateOnly ? " · 전체 보기" : " · 모아 보기"}
                 </button>
               )}
             </p>
@@ -307,7 +337,7 @@ export default function OrdersPage({ online, onPage }) {
               </thead>
               <tbody>
                 {rows.slice(0, n).map(({ r, stage: s }) => (
-                  <Row key={r.id} r={r} stage={s} today={today} open={open === r.id} onToggle={() => setOpen(open === r.id ? null : r.id)} onDelay={onPage ? () => onPage("delay") : null} />
+                  <Row key={r.id} r={r} stage={s} today={today} sent={sentOf(r, sent)} open={open === r.id} onToggle={() => setOpen(open === r.id ? null : r.id)} onDelay={onPage ? () => onPage("delay") : null} />
                 ))}
               </tbody>
             </table>
