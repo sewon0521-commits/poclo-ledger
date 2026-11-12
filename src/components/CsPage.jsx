@@ -287,7 +287,7 @@ export default function CsPage({ online, products = [], part = "" }) {
         </nav>
       </div>
       {sec === "inbox" ? (
-        <CsInbox products={products} D={D} />
+        <CsInbox products={products} D={D} online={online} />
       ) : (
         <>
           {sec === "delay" && <p className="text-sm text-stone-500">늦어지는 주문에 우리가 먼저 연락 — 대상 목록 → 문구·날짜 → 버튼. 최근 3일 안에 개별 답장을 받은 손님은 표시돼요(문자에선 기본으로 빠져요).</p>}
@@ -298,7 +298,7 @@ export default function CsPage({ online, products = [], part = "" }) {
   );
 }
 
-function CsInbox({ products = [], D }) {
+function CsInbox({ products = [], D, online }) {
   const [tab, setTab] = useState(() => {
     try {
       return localStorage.getItem("poclo_cs_tab") || "todo";
