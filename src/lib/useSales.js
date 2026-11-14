@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isRemote, supabase } from "./supabase";
 import { changeKey } from "./shoot";
+import { safeSet } from "./localCache";
 import { DEFAULT_COSTS, EMPTY_DAY } from "./sales";
 import { SEED_DAYS, SEED_MONTHLY } from "./seed";
 
@@ -30,7 +31,9 @@ const readLocal = (key, fallback) => {
     return fallback;
   }
 };
+// 공유 장부면 서버 값의 사본이라 자리가 없으면 안 남긴다(로그인 자리를 지키려고 — lib/localCache.js), 이 기기 저장 모드면 그대로
 const writeLocal = (key, value) => {
+  if (isRemote) return void safeSet(key, JSON.stringify(value));
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {

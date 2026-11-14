@@ -13,6 +13,7 @@
 // 신상마켓 링크(url)는 지금은 적어만 둔다 — 연동하면 이 칸에서 사진·이름·거래처·위치·가격을 채운다.
 
 import { isRemote, supabase } from "./supabase";
+import { DATED, safeSet } from "./localCache";
 import { newId } from "./id";
 import { guessMeasureCat } from "./measure";
 
@@ -119,23 +120,22 @@ export async function loadKey(key, online, fallback = { items: [] }) {
   const older = data?.updated_at && seen[key] && Date.parse(data.updated_at) < Date.parse(seen[key]);
   if (data?.updated_at && !older) seen[key] = data.updated_at;
   const v = data?.value || fallback;
-  if (!older)
-    try {
-      localStorage.setItem(local(key), JSON.stringify(v));
-    } catch {
-      /* 가득 참 — 서버엔 있다 */
-    }
+  // 이 기기 사본 — 가득 차면 안 남긴다(서버엔 있다). 날짜별 사본(tracker_2026-10-23 …)은 아예 안 남긴다 — 하나에 400K 넘게 쌓여 로그인 자리까지 막았다 (11/14, lib/localCache.js)
+  if (!older && !DATED.test(key)) safeSet(local(key), JSON.stringify(v));
   return v;
 }
 
 /** 서버 최신을 읽어 change(value) 로 바꿔 쓴다 (둘이 동시에 고쳐도 서로 안 지워지게 — 위 '둘이 같이 쓰기') */
 export async function changeKey(key, online, change, fallback = { items: [] }) {
+  // 이 기기 저장 모드면 이게 진짜 장부라 그대로 쓰고, 공유 장부면 사본이라 자리가 없으면 안 남긴다(로그인 자리를 지키려고 — lib/localCache.js)
   const keep = (next) => {
-    try {
-      localStorage.setItem(local(key), JSON.stringify(next));
-    } catch {
-      /* 무시 */
-    }
+    if (!(isRemote && online)) {
+      try {
+        localStorage.setItem(local(key), JSON.stringify(next));
+      } catch {
+        /* 무시 */
+      }
+    } else if (!DATED.test(key)) safeSet(local(key), JSON.stringify(next));
   };
   if (!(isRemote && online)) {
     const next = change(await loadKey(key, online, fallback));
