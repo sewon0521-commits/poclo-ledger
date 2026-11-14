@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bell, Headset } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { channelOf, inTab } from "../lib/cs";
@@ -60,6 +60,25 @@ export default function NotifyBell({ online, onPage }) {
     };
   }, [online]);
 
+  // 창 자리 — 종 묶음 오른쪽에 맞추되 화면 밖으로 안 나가게(11/14 세원 "휴대폰에서 erp 알림 누르면 안 보여":
+  // 폰은 종 오른쪽에 '공유 장부 · 실시간 연결됨 · 새로 읽기'가 있어서 right-0 창이 왼쪽 화면 밖으로 밀렸다)
+  const [pos, setPos] = useState(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const el = box.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const vw = document.documentElement.clientWidth || window.innerWidth;
+      const w = Math.min(320, vw - 32);
+      const left = Math.min(Math.max(16, r.right - w), vw - 16 - w);
+      setPos({ left: left - r.left, width: w });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const close = (e) => box.current && !box.current.contains(e.target) && setOpen(false);
@@ -114,7 +133,7 @@ export default function NotifyBell({ online, onPage }) {
         </span>
       )}
       {open && (
-        <div className="absolute top-full right-0 z-40 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-lg">
+        <div style={pos || { right: 0, width: 320 }} className="absolute top-full z-40 mt-2 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-lg">
           <div className="flex items-center justify-between border-b border-stone-100 px-3 py-2">
             <span className="text-sm font-bold text-stone-900">알림 {list.length}</span>
             <span className="text-[11px] text-stone-400">답할 CS 문의</span>
