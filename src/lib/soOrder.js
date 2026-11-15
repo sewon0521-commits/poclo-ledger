@@ -28,6 +28,21 @@ const head = (cells, names) => cells.findIndex((c) => names.includes(squash(c)))
 
 /** 도매 상품명에서 뒤에 붙은 '(디오트 1층 c26 / 오드)' 위치를 뗀 이름 — 비교용 */
 export const wholesaleKey = (s) => squash(String(s || "").replace(/\s*\([^)]*\)\s*$/, ""));
+
+/**
+ * 장끼 품목 이름(/ 앞, squash) ↔ 발주 도매 상품명(wholesaleKey) — 2 같음·앞부분 일치 / 1 앞 번호만 다름 / 0 다름.
+ * 11/15 세원 "블루밍은 미송도 안 뜨네": 장끼 '1865 로로니트반바지' ↔ 발주 '로로니트반바지' — 거래처 품번이 한쪽에만 붙는다.
+ * 번호만 떼고 같은 것(1)은 같은 거래처에 비슷한 이름이 여럿이면 헷갈릴 수 있어 부르는 쪽이 따로 다룬다.
+ */
+const lead = (s) => s.replace(/^\d{2,}(?=\D)/, "");
+export function nameHit(b, w) {
+  if (!b || !w) return 0;
+  if (b === w || (w.length >= 3 && b.startsWith(w)) || (b.length >= 3 && w.startsWith(b))) return 2;
+  const b2 = lead(b);
+  const w2 = lead(w);
+  if ((b2 !== b || w2 !== w) && b2.length >= 3 && w2.length >= 3 && (b2 === w2 || b2.startsWith(w2) || w2.startsWith(b2))) return 1;
+  return 0;
+}
 /** 우리 상품명 비교용 — 앞 [주문폭주] 꼬리표, (3color) 떼기 */
 export const shopKey = (s) =>
   squash(
@@ -112,6 +127,7 @@ export function findPrice(row, { tx, vendors, pricing, memory }) {
   // ① 매입 장부 — 같은 거래처, 같은 도매 상품명(장끼 품목은 '이름/ 색상' 꼴이라 / 앞만)
   let led = null;
   if (w) {
+    // 같은 이름(2)이 있으면 그것, 없을 때만 앞 품번만 다른 이름(1) — 11/15 블루밍 '1865 로로니트반바지'
     for (const t of tx || []) {
       const vn = vname[t.vendorId] || "";
       if (!sameVendor(vn, row.store || row.vendor) && !sameVendor(vn, row.vendor)) continue;
@@ -119,8 +135,8 @@ export function findPrice(row, { tx, vendors, pricing, memory }) {
         const base = squash(String(it.name || "").split("/")[0]);
         const price = Math.round(Number(it.unitPrice) || 0);
         if (!base || price <= 0) continue;
-        const hit = base === w || (w.length >= 3 && base.startsWith(w)) || (base.length >= 3 && w.startsWith(base));
-        if (hit && (!led || t.date > led.date)) led = { price, date: t.date, item: it.name };
+        const hit = nameHit(base, w);
+        if (hit && (!led || hit > led.hit || (hit === led.hit && t.date > led.date))) led = { price, date: t.date, item: it.name, hit };
       }
     }
   }
@@ -205,13 +221,37 @@ export function soLines(rows, type) {
 //   exact = 같은 거래처 · 같은 상품 · 미송 품목의 색상·사이즈 낱말이 발주 옵션에 다 들어 있음 → 저절로 뺀다
 //   loose = 같은 상품인데 옵션이 없거나 다름(연두 vs 파스텔그린 같은) → 안 빼고 알려만 준다('빼기'로 직접)
 
-/** 옵션 글 → 낱말 ([진청-M] → 진청, m) */
+/**
+ * 같은 색 다른 이름 — 장끼는 거래처 말(검정), 이지어드민은 우리 말(블랙)로 적는다 (11/15 블루밍 '검정' ↔ [블랙]).
+ * 한 가지 이름으로 모아 비교만 한다(화면·복사 글의 색은 그대로).
+ */
+const COLOR_SAME = [
+  ["블랙", "검정", "검", "black", "blk"],
+  ["화이트", "흰색", "흰", "white", "wh"],
+  ["아이보리", "아이", "ivory"],
+  ["네이비", "곤색", "곤", "남색", "navy"],
+  ["그레이", "회색", "회", "gray", "grey"],
+  ["베이지", "beige"],
+  ["브라운", "갈색", "brown"],
+  ["차콜", "charcoal"],
+  ["카키", "khaki"],
+  ["핑크", "분홍", "pink"],
+  ["레드", "빨강", "red"],
+  ["블루", "파랑", "blue"],
+  ["그린", "초록", "green"],
+  ["퍼플", "보라", "purple"],
+  ["크림", "cream"],
+];
+const COLOR_ONE = Object.fromEntries(COLOR_SAME.flatMap((g) => g.map((x) => [x, g[0]])));
+
+/** 옵션 글 → 낱말 ([진청-M] → 진청, m · [블랙] / 검정 → 블랙) */
 const optTokens = (s) =>
   String(s || "")
     .replace(/[[\]()]/g, " ")
     .split(/[-/,\s]+/)
     .map(squash)
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((t) => COLOR_ONE[t] || t);
 
 /** 남은 미송 줄 중 이 발주 줄과 같은 상품 → {exact, loose} */
 export function misongFor(row, lines) {
@@ -220,17 +260,22 @@ export function misongFor(row, lines) {
   if (!w) return out;
   // 색상을 고친 줄(10/13)은 고친 색·원래 색 둘 다로 맞춰 본다
   const want = [...optTokens(row.option), ...optTokens(row.optionFile)];
+  const fuzzy = []; // 앞 품번만 다른 이름(11/15) — 그런 상품이 그 거래처에 한 가지일 때만 같은 상품으로 본다
   for (const l of lines || []) {
     if (!(l.left > 0)) continue;
     if (!sameVendor(l.vendor, row.store || row.vendor) && !sameVendor(l.vendor, row.vendor)) continue;
     const [base, ...opt] = String(l.name || "").split("/");
     const b = squash(base);
-    const hit = b && (b === w || (w.length >= 3 && b.startsWith(w)) || (b.length >= 3 && w.startsWith(b)));
+    const hit = nameHit(b, w);
     if (!hit) continue;
     const got = opt.flatMap(optTokens);
-    if (got.length && got.every((t) => want.includes(t))) out.exact.push(l);
+    const same = got.length && got.every((t) => want.includes(t));
+    if (hit === 1) fuzzy.push({ l, b, same });
+    else if (same) out.exact.push(l);
     else out.loose.push(l);
   }
+  const one = new Set(fuzzy.map((f) => f.b)).size === 1 && !out.exact.length && !out.loose.length;
+  for (const f of fuzzy) (one && f.same ? out.exact : out.loose).push(f.l);
   return out;
 }
 
