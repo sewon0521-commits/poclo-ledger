@@ -74,7 +74,7 @@ function Detail({ item, online, onClose, onLoad, onDelete, copyText }) {
                       <td className="px-3 py-2 whitespace-nowrap text-stone-700">{r.option}</td>
                       <td className="px-3 py-2 text-right text-stone-900 tabular-nums">
                         {r.qty}
-                        {r.misUsed > 0 && <div className="text-[11px] whitespace-nowrap text-emerald-700">요청 {r.want} · 미송 −{r.misUsed}</div>}
+                        {r.misUsed > 0 && <div className="text-[11px] whitespace-nowrap text-emerald-700">요청 {r.want} · 미송 {r.misUsed}장 받기</div>}
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap text-stone-900 tabular-nums">{r.price ? won(r.price) : <span className="text-amber-700">없음</span>}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap text-stone-500 tabular-nums">{r.price ? won(r.price * r.qty) : ""}</td>

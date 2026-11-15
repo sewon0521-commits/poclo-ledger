@@ -296,18 +296,20 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       const forced = m.loose.filter((l) => (r.misongForce || []).includes(l.key));
       const take = r.misongOff ? [] : [...m.exact, ...forced];
       // 살 장수 = 밀린 주문(파일) + 오늘출발 여유분(11/8, r.extra) — 남은 미송은 둘을 합친 데서 뺀다
+      // ⭐ 11/15 세원: 남은 미송은 필요한 만큼이 아니라 **전부** 받아 온다("미송 23장 받기 … 그래야 삼촌이 다 받아오고 나머지 9장을 오늘배송으로").
+      //   요청 14 · 미송 23 → 새로 사는 것 0 · '미송 23장 받기(결제함)/ 총 23장', 남는 9장은 재고(오늘출발)로.
       const need = r.qty + (r.extra || 0);
       let used = 0;
       const from = [];
       for (const l of take) {
-        const can = Math.min(left.get(l.key) || 0, need - used);
+        const can = left.get(l.key) || 0;
         if (can <= 0) continue;
-        left.set(l.key, left.get(l.key) - can);
+        left.set(l.key, 0);
         used += can;
         from.push({ key: l.key, name: l.name, qty: can, date: l.lastDate });
         usedBy.set(l.key, r.id);
       }
-      return { ...r, want: need, wantOrder: r.qty, qty: need - used, misUsed: used, misFrom: from, misExact: m.exact, misLoose: m.loose };
+      return { ...r, want: need, wantOrder: r.qty, qty: Math.max(0, need - used), misUsed: used, misSpare: Math.max(0, used - need), misFrom: from, misExact: m.exact, misLoose: m.loose };
     });
     // 옵션이 다른 미송은 아직 남았고 다른 줄이 안 쓴 것만 알려 준다
     return out.map((r) => ({ ...r, misHint: r.misLoose.filter((l) => !usedBy.has(l.key) && (left.get(l.key) || 0) > 0 && !(r.misongForce || []).includes(l.key)) }));
@@ -513,7 +515,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       // 불러올 땐 요청 수량으로 — 미송은 지금 남은 걸로 다시 뺀다(두 번 빼지 않게)
       // 오늘출발 여유분(extra)은 따로 남아 있어서 수량은 밀린 주문(wantOrder)만 — 예전 저장은 want
       const out = { ...r, qty: r.wantOrder ?? r.want ?? r.qty, option: r.optionFile || r.option };
-      for (const k of ["store", "addr", "price", "note", "want", "wantOrder", "misUsed", "misFrom", "misExact", "misLoose", "misHint", "optionFile", "colorFrom", "colorAuto", "vc", "colorOk"]) delete out[k];
+      for (const k of ["store", "addr", "price", "note", "want", "wantOrder", "misUsed", "misSpare", "misFrom", "misExact", "misLoose", "misHint", "optionFile", "colorFrom", "colorAuto", "vc", "colorOk"]) delete out[k];
       return out;
     };
     setDraft({
@@ -898,7 +900,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             className="mt-1 max-w-[7rem] text-right text-[11px] leading-tight text-emerald-700"
                             title={r.misFrom.map((x) => `${x.name} ${x.qty}장 (${x.date} 잡음)`).join("\n")}
                           >
-                            요청 {r.want} · 미송 −{r.misUsed}
+                            요청 {r.want} · 미송 {r.misUsed}장 다 받기
+                            {r.misSpare > 0 && <div>남는 {r.misSpare}장은 재고(오늘출발)로</div>}
                             {r.qty <= 0 && <div className="font-semibold">미송으로 다 채워져요 — 수량 0 · '미송 받기' 메모로 넣어요(삼촌이 들르게)</div>}
                             <button type="button" onClick={() => patchRow(r.id, { misongOff: true, misongForce: null })} className="ml-1 text-stone-400 underline decoration-dotted">
                               안 빼기
@@ -1036,7 +1039,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 </div>
                 {misTaken.length > 0 && (
                   <div className="text-emerald-700">
-                    남은 미송을 뺐어요 — {misTaken.map((r) => `${r.store} ${r.name} ${r.misUsed}장`).join(" · ")}
+                    남은 미송을 전부 받아요 — {misTaken.map((r) => `${r.store} ${r.name} ${r.misUsed}장${r.misSpare > 0 ? `(${r.misSpare}장 재고로)` : ""}`).join(" · ")}
                     {" — 수량 칸은 새로 주문하는 장수만, 메모는 '미송가능/ 미송 N장 같이 받기(결제함)/ 총 N장'이에요"}
                     {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 수량 0 · 메모 '미송 N장 받기(결제함)/ 총 N장'으로 넣어요 — 삼촌이 매장에 들르게)`}
                   </div>
