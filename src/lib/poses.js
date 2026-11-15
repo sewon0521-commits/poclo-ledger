@@ -33,6 +33,24 @@ export function poseCards(sets) {
   return { cards: cards.filter((c) => c.ok !== false), hidden: cards.filter((c) => c.ok === false) };
 }
 
+// 아우터 종류 (11/16 세원: "아우터 포즈 개빡이야. 코트, 패딩, 무스탕 등등 카테고리별로") — 종류 포즈 카드는 fits ["아우터:코트"] 처럼.
+// 상품 이름으로 종류를 읽어 그 종류 카드만 추천한다. fits ["아우터"] 카드(종류 없는 것)는 아우터면 다 추천.
+export const OUTER_TYPES = [
+  { t: "무스탕", re: /무스탕|레더|가죽|덤블/ },
+  { t: "패딩", re: /패딩|다운|푸퍼/ },
+  { t: "퍼", re: /(?<!지)퍼\s?(자켓|재킷|점퍼|코트|베스트|jk)|에코퍼|페이크퍼|(^|\s)퍼(\s|$)|\bfur\b/i },
+  { t: "코트", re: /코트|트렌치|(?<![a-z])ct(?![a-z])/i },
+  { t: "자켓", re: /자켓|재킷|점퍼|블레이저|바람막이|야상|아노락|ma-?1|(?<![a-z])(jk|jp)(?![a-z])/i },
+];
+/** 아우터 종류 하나 — 우리 상품명 먼저(신마 긴 이름은 꾸밈말이 많아 여러 종류에 걸린다), 앞 순서가 먼저('퍼 자켓' = 퍼 · '무스탕 코트' = 무스탕) */
+export function outerTypes(x) {
+  for (const s of [x?.name, x?.fullName]) {
+    const o = OUTER_TYPES.find((o) => o.re.test(s || ""));
+    if (o) return ["아우터:" + o.t];
+  }
+  return [];
+}
+
 /** 코디가 무엇을 입는지 → 추천에 쓰는 자리. 원피스·세트는 위·아래 둘 다 */
 export function codiFits(c, items) {
   const out = new Set();
@@ -40,8 +58,11 @@ export function codiFits(c, items) {
     const x = (items || []).find((y) => y.id === id);
     if (!x) continue;
     const p = wearPart(x);
-    if (p === "아우터") out.add("아우터");
-    else if (p === "상의" || p === "이너") out.add("상의");
+    if (p === "아우터") {
+      out.add("아우터");
+      for (const t of outerTypes(x)) out.add(t);
+    }
+    if (p === "상의" || p === "이너") out.add("상의");
     else if (p === "하의") out.add("하의");
     else if (p === "원피스·세트") {
       out.add("상의");
@@ -55,11 +76,11 @@ export function codiFits(c, items) {
  * 추천 — 세원(방향성 창) 예: "아우터는 전신·걷기, 하의 포인트는 하반신·앉은 컷"
  *   전신 포즈는 늘 · 아우터가 있으면 아우터 포즈 · 하의가 있으면 하반신·앉은 포즈 · 아우터 없이 상의만 있으면 상반신 포즈
  */
-export const RECO_RULE = "전신은 늘 · 아우터 있으면 아우터 컷 · 하의 있으면 하반신·앉은 컷 · 아우터 없이 상의면 상반신 컷";
+export const RECO_RULE = "전신은 늘 · 아우터 있으면 그 종류(코트·패딩·무스탕·자켓·퍼) 컷 · 하의 있으면 하반신·앉은 컷 · 아우터 없이 상의면 상반신 컷";
 export function recommend(cards, c, items) {
   const f = codiFits(c, items);
   const want = new Set(["전신"]);
-  if (f.has("아우터")) want.add("아우터");
+  if (f.has("아우터")) for (const t of f) if (t.startsWith("아우터")) want.add(t);
   if (f.has("하의")) want.add("하의");
   if (f.has("상의") && !f.has("아우터")) want.add("상의");
   return cards.filter((k) => k.fits.some((t) => want.has(t))).map((k) => k.id);
