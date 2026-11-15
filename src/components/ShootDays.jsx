@@ -18,6 +18,8 @@ import { REFS_KEY, clothsOf, refItems, refFileKeys, countsOf } from "../lib/mode
 import { signedUrls } from "../lib/refClips";
 import { ClothTabs, GuideSections } from "./BaseGuide";
 import { ClipBig } from "./LoopClip";
+import PoseBoard from "./PoseBoard";
+import { poseSetsFor, poseCards, picksOf, doneOf } from "../lib/poses";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -291,7 +293,9 @@ function useRefList(online) {
       alive = false;
     };
   }, [online]);
-  return { items: v.items || [], cloths: clothsOf(v) };
+  // 11/16 포즈 판에서 포즈 카드 OK · 빼기 (서버 최신 위에서 — lib/poses setPoseOk)
+  const change = useCallback(async (fn) => setV(await changeKey(REFS_KEY, online, fn)), [online]);
+  return { items: v.items || [], cloths: clothsOf(v), change };
 }
 
 function RefSetBox({ s, set, refs, online, d }) {
@@ -402,7 +406,7 @@ export function Models({ value = [], onChange }) {
 }
 
 /** 그날 코디 카드 — 누르면 스타일링. 같은 날 촬영이 둘 이상이면(rows) 아래에 '누구 촬영' 고르기 */
-function CodiRow({ c, d, onStyle, rows, onMove, look }) {
+function CodiRow({ c, d, onStyle, rows, onMove, look, pose }) {
   const its = codiItems(c, d.items);
   const line = stylingLine(c.styling, d.items);
   // 11/6 찍을 컷 · 영상 칸을 뺐다가 11/7 찍을 영상만 되살림 — 그날 룩북(필수) + 이 코디 것, 끝낸 수 / 전체
@@ -414,6 +418,7 @@ function CodiRow({ c, d, onStyle, rows, onMove, look }) {
     vt.all > 0 && `찍을 영상 ${vt.done}/${vt.all}`,
     nVid && `참고 영상 ${nVid}`,
     nPic && `참고 사진 ${nPic}`,
+    pose, // 11/16 포즈 판에서 고른 포즈 — '포즈 P1·P3·P7 (추천)'
   ]
     .filter(Boolean)
     .join(" · ");
@@ -674,11 +679,11 @@ function SheetLink({ day, set, codis, d, online, refs }) {
     setErr("");
     try {
       if (what === "make") {
-        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths);
+        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths, refs.items);
         const token = await createSheet(online, data);
         set({ sheetToken: token, sheetAt: new Date().toISOString(), sheetClosed: false });
       } else if (what === "refresh") {
-        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths);
+        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths, refs.items);
         await updateSheet(online, day.sheetToken, { data, closed: false });
         set({ sheetAt: new Date().toISOString(), sheetClosed: false });
       } else if (what === "close") {
@@ -702,7 +707,7 @@ function SheetLink({ day, set, codis, d, online, refs }) {
         <Link2 size={15} className="text-rose-700" /> 모델에게 보낼 촬영 시트
       </div>
       <p className="mb-2 text-xs text-stone-500">
-        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 찍을 코디(작은 상품 사진) · 촬영 기본 가이드 · 고른 모델 레퍼런스</b>만 봐요. 코디 사진·참고 사진·참고 영상·상품 이름·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
+        모델은 로그인 없이 이 날 <b>시간·장소 · 전할 말 · 찍을 코디(작은 상품 사진 · OK 난 포즈) · 촬영 기본 가이드 · 고른 모델 레퍼런스</b>만 봐요. 코디 사진·참고 사진·참고 영상·상품 이름·가격·거래처는 안 들어가요(코디는 찍을 때 우리가 디렉).
       </p>
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white px-2.5 py-1.5 text-xs ring-1 ring-stone-200">
         <BookOpen size={13} className="shrink-0 text-rose-700" />
@@ -875,6 +880,21 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
   const lb = useLookbook(online);
   const look = lookOf(lb.all, s.on);
   const nLook = lookItems(look).length;
+  // 11/16 포즈 판 — 이 촬영 포즈 카드(lib/poses). 코디 줄 · 스타일링 창에 고른 포즈를 같이 보여 준다
+  const poseList = poseCards(poseSetsFor(s, refs.items)).cards;
+  const posesOf = (c) => {
+    if (!poseList.length) return [];
+    const p = picksOf(s, c, poseList, d.items);
+    const dn = doneOf(s, c);
+    return poseList.filter((k) => p.ids.includes(k.id)).map((k) => ({ code: k.code, title: k.title.replace(/^P\d+\s*/, ""), done: dn.includes(k.id), auto: p.auto }));
+  };
+  const poseLine = (c) => {
+    const ps = posesOf(c);
+    if (!poseList.length) return "";
+    if (!ps.length) return "포즈 안 고름";
+    const nd = ps.filter((x) => x.done).length;
+    return `포즈 ${ps.map((x) => x.code).join("·")}${ps[0].auto ? " (추천)" : ""}${nd ? ` · 찍음 ${nd}/${ps.length}` : ""}`;
+  };
   return (
     <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
@@ -977,7 +997,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
                       {codis.length > 1 && <Grip onPointerDown={(e) => sort.start(e, i)} />}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <CodiRow c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} look={look} />
+                      <CodiRow c={c} d={d} onStyle={() => setStyling(c)} rows={dayRows} onMove={moveCodi} look={look} pose={poseLine(c)} />
                     </div>
                   </div>
                 ))}
@@ -1002,6 +1022,9 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
               </div>
             )}
           </div>
+
+          {/* 11/16 포즈 판 — 줄 = 이 촬영 코디, 칸 = 포즈 카드(모델 레퍼런스). 옷 종류로 추천을 깔아 두고 세원은 바꾸기만 */}
+          <PoseBoard s={s} set={set} codis={codis} d={d} refs={refs} online={online} />
 
           {/* 10/27 세원: "찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" → 11/6 "스타일링에 찍을 컷, 찍을 영상 없애도 될 듯"(코디마다 칸도 뺌).
               예전에 촬영 전체로 적어 둔 것만 아래에 남겨 보여 준다(지우면 사라짐). */}
@@ -1049,7 +1072,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
           </button>
         </footer>
       </div>
-      {live && <StylingSheet codi={live} d={d} online={online} onClose={() => setStyling(null)} />}
+      {live && <StylingSheet codi={live} d={d} online={online} poses={posesOf(live)} onClose={() => setStyling(null)} />}
     </div>
   );
 }

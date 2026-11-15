@@ -28,6 +28,7 @@ import { GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "./modelGuide";
 import { CLOTHS, clothGroups, clothKey, withCloth } from "./modelRefs";
 import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
+import { poseSetsFor, poseCards, picksOf } from "./poses";
 
 const LOCAL = "poclo_shoot_sheets";
 export const SHEET_DAYS = 7; // 사진 서명 주소가 살아 있는 날
@@ -160,16 +161,28 @@ async function peekOf(codis, d, online) {
  * 그날 시트 내용 — day = shoot_days 한 줄, codis = 그날 코디, d = 신상 관리 데이터(items·refs·urls)
  * 이 기기 저장 모드면 사진은 화면에 이미 있는 주소(d.urls)를 쓴다.
  */
-export async function buildSheet(day, codis, d, online, refSets = [], cloths = CLOTHS) {
+export async function buildSheet(day, codis, d, online, refSets = [], cloths = CLOTHS, allSets = []) {
   // 10/29 모델 기본 가이드 — 모든 시트에 같이(lib/modelGuide). 한 번도 저장 안 했으면 기본 동선
   const g = await loadKey(GUIDE_KEY, online, null).catch(() => null);
   const baseItems = filledItems(g ? g.items : DEFAULT_GUIDE.items);
-  const keys = sectionKeys(baseItems);
+  // 11/16 포즈 판 — 세원이 OK 한 포즈 카드만(lib/poses), 코디마다 고른 것. 확인 전 · 뺀 포즈는 안 간다
+  const okCards = poseCards(poseSetsFor(day, allSets)).cards.filter((k) => k.ok === true);
+  const allCards = poseCards(poseSetsFor(day, allSets)).cards;
+  const codiPoses = codis.map((c) => {
+    const ids = picksOf(day, c, allCards, d.items).ids;
+    return okCards.filter((k) => ids.includes(k.id));
+  });
+  const usedPoses = okCards.filter((k) => codiPoses.some((l) => l.includes(k)));
+  const poseItems = filledItems(usedPoses.map((k) => k.sec));
+  const keys = [...sectionKeys(baseItems), ...sectionKeys(poseItems)];
   for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
   const urlOf = (k) => (k && (k.startsWith("data:") ? k : signed[k] || (!(isRemote && online) ? d.urls[k] : ""))) || "";
-  // 찍을 코디 미리 보기 — 촬영 창에서 끌 수 있다(day.sheetPeek === false). 사진이 하나도 없는 코디는 뺀다
-  const peek = day.sheetPeek === false ? [] : (await peekOf(codis, d, online)).filter((l) => l.length);
+  // 찍을 코디 미리 보기 — 촬영 창에서 끌 수 있다(day.sheetPeek === false). 사진도 포즈도 없는 코디는 뺀다
+  const pk = day.sheetPeek === false ? codis.map(() => []) : await peekOf(codis, d, online);
+  const pp = codiPoses.map((l) => l.map((k) => ({ code: k.code, title: k.title.replace(/^P\d+\s*/, "") })));
+  const keepAt = codis.map((_, i) => i).filter((i) => pk[i].length || pp[i].length);
+  const peek = keepAt.map((i) => pk[i]);
   return {
     on: day.on || "",
     time: day.time || "",
@@ -181,6 +194,8 @@ export async function buildSheet(day, codis, d, online, refSets = [], cloths = C
     // 10/29 v4 — 코디 칸 없음(날짜·장소 · 전할 말 · 영상 가이드만). 이미 보낸 v1~v3 시트는 SheetPage 가 예전 모양 그대로 그린다
     v: 4,
     peek, // 10/29 밤 찍을 코디 미리 보기 [[작은 사진 data URL…] 코디마다]
+    peekPoses: keepAt.map((i) => pp[i]), // 11/16 코디마다 고른 포즈 [{code, title}] (peek 와 같은 순서)
+    poses: sectionsData(poseItems, urlOf), // 11/16 그 포즈 카드들 — 사진 · 설명(고른 이유 · 원본 쇼핑몰은 안 감)
     // 10/29 촬영 기본 가이드(모든 촬영 공통 — 동선·찍을 영상·포즈…) — 글은 그대로, 시트(SheetPage → BaseGuide)가 번호 단계·사진/영상 표시로 그린다
     base: sectionsData(baseItems, urlOf),
     // 11/2 모델 레퍼런스 — 촬영 창에서 고른 모음(촬영 › 모델 레퍼런스). 모음 링크와 같은 스냅숏(사진·영상 30일), 카테고리 탭 그대로

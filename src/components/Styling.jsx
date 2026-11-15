@@ -305,7 +305,7 @@ function Section({ title, hint, children, ...rest }) {
 }
 
 /** 스타일링 고르기 창 */
-export default function StylingSheet({ codi, d, online, onClose }) {
+export default function StylingSheet({ codi, d, online, onClose, poses }) {
   const [st, setSt] = useState(() => ({ ...EMPTY_STYLING, ...(codi.styling || {}) }));
   const [opts, setOpts] = useState(DEFAULT_OPTS);
   const [editOpts, setEditOpts] = useState(""); // "hair" | "acc"
@@ -575,6 +575,20 @@ export default function StylingSheet({ codi, d, online, onClose }) {
             )
           }
         />
+        {/* 11/16 포즈 — 촬영 관리 › 촬영 창 › 포즈 판에서 고른 것(lib/poses). 여기선 보기만 */}
+        {poses?.length > 0 && (
+          <Section title="포즈" hint="촬영 관리 › 촬영 창 › 포즈 판에서 바꿔요">
+            <ul className="flex flex-wrap gap-1.5">
+              {poses.map((x) => (
+                <li key={x.code} className={"rounded-full px-2.5 py-1 text-xs font-medium " + (x.done ? "bg-emerald-50 text-emerald-800" : x.auto ? "border border-dashed border-rose-300 text-rose-700" : "bg-rose-50 text-rose-800")}>
+                  <b>{x.code}</b> {x.title}
+                  {x.done && " ✓"}
+                </li>
+              ))}
+            </ul>
+            {poses[0].auto && <p className="text-[11px] text-stone-400">옷 종류로 고른 추천이에요 — 포즈 판에서 한 칸이라도 누르면 고른 그대로 남아요</p>}
+          </Section>
+        )}
         {/* 11/6 카테고리 탭 → 컷 → 사진 (모델 레퍼런스처럼, components/StylingRefs) */}
         <Section title="참고 사진" hint="카테고리 안에 컷을 만들어 담기 · 레퍼런스에서 고르기 · 캡처 Ctrl+V · 끌어다 놓기">
           <RefCutsBox
