@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, CalendarDays, Camera, Clock, Film, FolderHeart, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
+import { BookOpen, CalendarDays, Clock, Film, FolderHeart, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
 import { ClothTabs, GuideSections, RefLinks, RefSetHead } from "./BaseGuide";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
@@ -152,35 +152,43 @@ function CodiCardV3({ c, n, onBig, onClip }) {
  * 찍을 코디 미리 보기 (10/29 밤 세원: "대충 요런 코디 찍는다는 것도 보여 주고 싶은데, 우리가 촬영해서 보내는 건 안 하고 신마 썸네일 작게")
  * 코디마다 상품 사진 한 줄 — 파일 자체가 작은 사진(긴 변 128px, lib/shootSheet peekOf)이라 확대해도 거래처 워터마크가 안 읽힌다. 눌러도 안 커진다.
  */
-function PeekCard({ peek, poses }) {
+function PeekCard({ peek, shots, onBig }) {
   if (!peek?.length) return null;
+  const anyShot = shots?.some((l) => l?.length);
   return (
     <Card className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
         <div className="flex items-center gap-1.5 text-base font-bold text-stone-900">
-          <Shirt size={18} className="text-rose-700" /> 찍을 코디
+          <Shirt size={18} className="text-rose-700" /> {anyShot ? "코디별 포즈" : "찍을 코디"}
         </div>
-        <span className="text-xs text-stone-400">대략 이런 옷이에요 · 촬영 때 바뀔 수 있어요</span>
+        <span className="text-xs text-stone-400">{anyShot ? "코디마다 이 포즈로 찍어요 · 사진을 누르면 크게" : "대략 이런 옷이에요 · 촬영 때 바뀔 수 있어요"}</span>
       </div>
       {/* 10/30 세원 "너무 안 보여, 살짝만 크게" → "5개 꽉 차게 들어갈 때까지 키워도" — 한 줄을 꽉 채운다: 넓은 화면 5칸, 폰 4칸(폰에서 5칸이면 오히려 작아져서) */}
-      <ul className="space-y-3">
+      <ul className="space-y-5">
         {peek.map((photos, i) => (
-          <li key={i}>
-            <div className="mb-1 text-xs font-semibold text-rose-700">코디 {i + 1}</div>
+          <li key={i} className={i ? "border-t border-stone-200 pt-4" : ""}>
+            <div className="mb-1.5 text-sm font-bold text-rose-700">코디 {i + 1}</div>
             {photos.length > 0 && (
-              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
+              <div className={"grid gap-1.5 " + (shots?.[i]?.length ? "grid-cols-6" : "grid-cols-4 sm:grid-cols-5")}>
                 {photos.map((u, k) => (
                   <img key={k} src={u} alt="" className="aspect-[3/4] w-full rounded-lg bg-stone-100 object-cover" />
                 ))}
               </div>
             )}
-            {/* 11/16 이 코디에서 찍을 포즈 — 아래 '포즈' 카드에 사진 */}
-            {poses?.[i]?.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {poses[i].map((x) => (
-                  <span key={x.code} className="rounded-full bg-rose-50 px-2 py-0.5 text-xs text-rose-900">
-                    <b>{x.code}</b> {x.title}
-                  </span>
+            {/* 11/16 이 코디에서 찍을 포즈 사진 — 크게, 옆으로 넘겨요 */}
+            {shots?.[i]?.length > 0 && (
+              <div className="-mx-4 mt-2.5 flex snap-x gap-2.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+                {shots[i].map((x, k) => (
+                  <figure key={k} className={(shots[i].length > 1 ? "w-[74%]" : "w-full") + " shrink-0 snap-start"}>
+                    <button type="button" onClick={() => onBig(shots[i].map((y) => y.url), k)} className="block w-full overflow-hidden rounded-xl bg-stone-100">
+                      <img src={x.url} alt="" loading="lazy" className="aspect-[3/4] w-full object-cover" />
+                    </button>
+                    <figcaption className="mt-1.5 text-[13px] leading-snug text-stone-800">
+                      {x.code && <b className="mr-1 text-rose-700">{x.code}</b>}
+                      {x.title}
+                      {(x.cap || x.text) && <span className="mt-0.5 block text-xs text-stone-500">{[x.cap, x.text].filter(Boolean).join(" · ")}</span>}
+                    </figcaption>
+                  </figure>
                 ))}
               </div>
             )}
@@ -367,17 +375,7 @@ export default function SheetPage() {
 
       <PrepCard note={s.note} prep={s.prep} />
 
-      <PeekCard peek={s.peek} poses={s.peekPoses} />
-
-      {/* 11/16 포즈 — 포즈 판에서 코디마다 고른 것 중 세원이 OK 한 카드만(사진 · 설명) */}
-      {s.poses?.length > 0 && (
-        <Card className="space-y-4">
-          <div className="flex items-center gap-1.5 text-base font-bold text-stone-900">
-            <Camera size={18} className="text-rose-700" /> 포즈
-          </div>
-          <GuideSections items={s.poses} onBig={(urls, at) => setBig({ urls, at })} onClip={(clips, at) => setClipBig({ clips, at })} />
-        </Card>
-      )}
+      <PeekCard peek={s.peek} shots={s.codiShots} onBig={(urls, at) => setBig({ urls, at })} />
 
       {/* 10/29 촬영 기본 가이드 — 모든 촬영 공통(동선 · 찍을 영상 · 포즈 …), ERP 촬영 관리 '모델 기본 가이드'에서 쌓아 간다 */}
       {s.base?.length > 0 && (
@@ -419,7 +417,7 @@ export default function SheetPage() {
 
       <p className="px-1 pb-6 text-center text-xs text-stone-400">
         궁금한 점은 포클로 DM 으로 편하게 물어봐 주세요 💗
-        {until && ((s.v || 1) < 4 || s.guide?.photos?.length > 0 || s.base?.some((x) => x.photos?.length) || s.refs?.length > 0 || s.poses?.length > 0) && (
+        {until && ((s.v || 1) < 4 || s.guide?.photos?.length > 0 || s.base?.some((x) => x.photos?.length) || s.refs?.length > 0 || s.codiShots?.some((l) => l.length)) && (
           <span className="mt-1 block">
             {(s.v || 1) >= 4 ? "가이드 사진" : (s.v || 1) >= 3 ? "사진·영상" : "사진"}은 {until.getMonth() + 1}/{until.getDate()}까지 보여요
           </span>

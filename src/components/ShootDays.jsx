@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, FolderHeart, ImagePlus, Link2, Loader2, Lock, MapPin, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
+import { ArrowUp, BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, FolderHeart, ImagePlus, Link2, Loader2, Lock, MapPin, Play, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
 import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, photoUrls, fixUrl } from "../lib/shoot";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
@@ -19,7 +19,8 @@ import { signedUrls } from "../lib/refClips";
 import { ClothTabs, GuideSections } from "./BaseGuide";
 import { ClipBig } from "./LoopClip";
 import PoseBoard from "./PoseBoard";
-import { poseSetsFor, poseCards, picksOf, doneOf } from "../lib/poses";
+import { poseSetsFor, poseCards, shotsOf } from "../lib/poses";
+import { ShootRun, CodiPoseSheet } from "./PoseRun";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -835,7 +836,7 @@ function ModelPrep({ s, set, rows }) {
 }
 
 /** 촬영 창 — 고치는 대로 저장. rows = 촬영 전체(같은 날 다른 촬영 찾기), onOpen = 다른 촬영 열기, onAddSibling = 같은 날 새 촬영 */
-function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onRemove, onClose, onOpen, onAddSibling, canRemove }) {
+function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onRemove, onClose, onOpen, onAddSibling, canRemove, startRun }) {
   const [s, setS] = useState(start);
   const latest = useRef(s);
   const timer = useRef(null);
@@ -882,19 +883,35 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
   const nLook = lookItems(look).length;
   // 11/16 포즈 판 — 이 촬영 포즈 카드(lib/poses). 코디 줄 · 스타일링 창에 고른 포즈를 같이 보여 준다
   const poseList = poseCards(poseSetsFor(s, refs.items)).cards;
+  const [run, setRun] = useState(!!startRun);
+  const [codiPose, setCodiPose] = useState(null); // 이 코디 포즈 창 — 코디 id
+  /** 스타일링 창 칩 — 카드마다(이 코디만 사진은 한 칩), 다 찍었으면 done */
   const posesOf = (c) => {
     if (!poseList.length) return [];
-    const p = picksOf(s, c, poseList, d.items);
-    const dn = doneOf(s, c);
-    return poseList.filter((k) => p.ids.includes(k.id)).map((k) => ({ code: k.code, title: k.title.replace(/^P\d+\s*/, ""), done: dn.includes(k.id), auto: p.auto }));
+    const { shots, auto } = shotsOf(s, c, poseList, d.items);
+    const out = [];
+    for (const x of shots) {
+      const key = x.own ? "own" : x.cardId;
+      const o = out.find((y) => y.key === key);
+      if (o) {
+        o.n++;
+        o.done = o.done && x.done;
+      } else out.push({ key, code: x.own ? "이 코디만" : x.code, title: x.own ? "" : x.title, done: x.done, auto, n: 1 });
+    }
+    return out;
   };
   const poseLine = (c) => {
-    const ps = posesOf(c);
     if (!poseList.length) return "";
-    if (!ps.length) return "포즈 안 고름";
-    const nd = ps.filter((x) => x.done).length;
-    return `포즈 ${ps.map((x) => x.code).join("·")}${ps[0].auto ? " (추천)" : ""}${nd ? ` · 찍음 ${nd}/${ps.length}` : ""}`;
+    const { shots, auto } = shotsOf(s, c, poseList, d.items);
+    if (!shots.length) return "포즈 안 고름";
+    const codes = [...new Set(shots.map((x) => (x.own ? "" : x.code)).filter(Boolean))];
+    const own = shots.filter((x) => x.own).length;
+    const nd = shots.filter((x) => x.done).length;
+    return `포즈 ${codes.join("·")}${own ? `${codes.length ? " + " : ""}이 코디만 ${own}` : ""}${auto ? " (추천)" : ""} · ${nd ? `찍음 ${nd}/${shots.length}` : `${shots.length}장`}`;
   };
+  const totalShots = codis.reduce((n, c) => n + (poseList.length ? shotsOf(s, c, poseList, d.items).shots.length : 0), 0);
+  const doneShots = codis.reduce((n, c) => n + (poseList.length ? shotsOf(s, c, poseList, d.items).shots.filter((x) => x.done).length : 0), 0);
+  const liveCodiPose = codiPose && codis.find((c) => c.id === codiPose);
   return (
     <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
@@ -913,6 +930,18 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
           </button>
         </header>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4">
+          {/* 11/16 밤 촬영 날 화면 — 폰에서 코디 하나씩 포즈 사진 크게 보며 찍음 ✓ */}
+          {poseList.length > 0 && codis.length > 0 && (
+            <button type="button" onClick={() => setRun(true)} className="flex w-full items-center justify-between gap-2 rounded-xl bg-rose-700 px-4 py-3 text-left text-white hover:bg-rose-800">
+              <span>
+                <span className="block text-sm font-bold">촬영 시작</span>
+                <span className="block text-xs text-rose-100">
+                  코디 {codis.length}개 · 포즈 사진 {totalShots}장{doneShots ? ` · 찍음 ${doneShots}` : ""} — 폰에서 코디 하나씩 넘겨 봐요
+                </span>
+              </span>
+              <Play size={20} className="shrink-0" />
+            </button>
+          )}
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <label className="block text-xs font-medium text-stone-500">
               촬영일
@@ -1024,7 +1053,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
           </div>
 
           {/* 11/16 포즈 판 — 줄 = 이 촬영 코디, 칸 = 포즈 카드(모델 레퍼런스). 옷 종류로 추천을 깔아 두고 세원은 바꾸기만 */}
-          <PoseBoard s={s} set={set} codis={codis} d={d} refs={refs} online={online} />
+          <PoseBoard s={s} set={set} codis={codis} d={d} refs={refs} online={online} onRun={() => setRun(true)} onCodi={(c) => setCodiPose(c.id)} />
 
           {/* 10/27 세원: "찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" → 11/6 "스타일링에 찍을 컷, 찍을 영상 없애도 될 듯"(코디마다 칸도 뺌).
               예전에 촬영 전체로 적어 둔 것만 아래에 남겨 보여 준다(지우면 사라짐). */}
@@ -1073,6 +1102,10 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
         </footer>
       </div>
       {live && <StylingSheet codi={live} d={d} online={online} poses={posesOf(live)} onClose={() => setStyling(null)} />}
+      {run && codis.length > 0 && poseList.length > 0 && (
+        <ShootRun s={s} set={set} codis={codis} d={d} cards={poseList} online={online} onClose={() => setRun(false)} onCodi={(c) => setCodiPose(c.id)} />
+      )}
+      {liveCodiPose && <CodiPoseSheet s={s} set={set} c={liveCodiPose} n={codis.indexOf(liveCodiPose) + 1} d={d} cards={poseList} online={online} onClose={() => setCodiPose(null)} />}
     </div>
   );
 }
@@ -1139,6 +1172,7 @@ export default function ShootDays({ d, online }) {
   const [open, setOpen] = useState(null); // 날짜 또는 기록 id
   const [styling, setStyling] = useState(null); // 촬영일 미정 코디 id
   const [guide, setGuide] = useState(false); // 모델 기본 가이드 고치기 창
+  const [runFirst, setRunFirst] = useState(false); // 목록 카드 '촬영 시작' → 촬영 창을 촬영 날 화면부터
   const today = dayKey();
   const undated = useMemo(() => d.codis.filter((c) => !c.shootDate && !c.done), [d.codis]);
   const liveStyling = styling && d.codis.find((c) => c.id === styling);
@@ -1170,12 +1204,17 @@ export default function ShootDays({ d, online }) {
     const who = (rec.models || []).filter(Boolean).join(", ");
     // 같은 날 같은 모델 촬영이 또 있으면(잘못 두 번 만든 것일 수 있음) 알려 준다
     const dup = r.rec && r.n > 1 && who && days.items.some((x) => x.id !== rec.id && x.on === r.on && (x.models || []).filter(Boolean).join(", ") === who);
+    // 11/16 밤 촬영 날 화면 바로 열기 — 오늘·다가오는 촬영에 코디와 포즈 카드가 있으면
+    const canRun = r.on >= today && r.codis.length > 0 && poseCards(poseSetsFor(rec.on ? rec : { on: r.on }, refs.items)).cards.length > 0;
+    const openIt = () => setOpen(r.rec || blank(r.on));
     return (
-      <button
+      <div
         key={rec.id || r.on}
-        type="button"
-        onClick={() => setOpen(r.rec || blank(r.on))}
-        className="rounded-2xl border border-stone-200 bg-white p-4 text-left transition hover:border-rose-300 hover:shadow-sm"
+        role="button"
+        tabIndex={0}
+        onClick={openIt}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), openIt())}
+        className="cursor-pointer rounded-2xl border border-stone-200 bg-white p-4 text-left transition hover:border-rose-300 hover:shadow-sm"
       >
         <div className="flex items-start justify-between gap-2">
           <span className="min-w-0 text-lg font-bold text-stone-900 tabular-nums">
@@ -1212,7 +1251,20 @@ export default function ShootDays({ d, online }) {
           {rec.sheetToken && <span className={"flex items-center gap-0.5 " + (rec.sheetClosed ? "text-stone-400" : "text-rose-700")}>{rec.sheetClosed ? <Lock size={11} /> : <Link2 size={11} />} 시트 {rec.sheetClosed ? "닫힘" : "보냄"}</span>}
         </div>
         {dup && <div className="mt-1.5 text-[11px] text-amber-700">같은 날 {who} 촬영이 또 있어요 — 잘못 두 번 만든 거면 하나는 지워 주세요</div>}
-      </button>
+        {canRun && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setRunFirst(true);
+              openIt();
+            }}
+            className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-700 py-2 text-sm font-semibold text-white hover:bg-rose-800"
+          >
+            <Play size={14} /> 촬영 시작
+          </button>
+        )}
+      </div>
     );
   };
 
@@ -1280,9 +1332,13 @@ export default function ShootDays({ d, online }) {
           onOpen={(r) => setOpen(r)}
           onAddSibling={addSibling}
           canRemove={days.items.some((x) => x.id === openDay.id)}
+          startRun={runFirst}
           onSave={days.save}
           onRemove={days.drop}
-          onClose={() => setOpen(null)}
+          onClose={() => {
+            setOpen(null);
+            setRunFirst(false);
+          }}
         />
       )}
       {liveStyling && <StylingSheet codi={liveStyling} d={d} online={online} onClose={() => setStyling(null)} />}

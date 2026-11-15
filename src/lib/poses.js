@@ -111,3 +111,71 @@ export const setPoseOk = (secId, ok) => (v) => ({
       : x,
   ),
 });
+
+// ---------------------------------------------------------------- 코디마다 찍을 사진 (11/16 밤 세원: "포즈판 개어려운데 이거 보면서 촬영할 수 있는 거 맞아?" ·
+//   "이 코디에 이 포즈를 고를 수 있게 — 이 코디에만 적용되는 포즈")
+// 찍는 단위 = 사진 한 장. 촬영 줄(shoot_days)에:
+//   posePicks {코디 id: [카드 id]}        카드째 고른 것(위 picksOf — 없으면 추천)
+//   posePhotoOff {코디 id: [보관 키]}     고른 카드 안에서 이 코디엔 안 쓰는 사진(카드에서 한 장만 골라 쓸 때)
+//   poseOwn {코디 id: [{id, key, cap, refId}]}  이 코디만 쓰는 포즈 사진(공용 카드엔 안 들어감)
+//   poseDone {코디 id: [보관 키]}         찍은 사진(예전엔 카드 id — 카드 id 가 있으면 그 카드 사진 전부 찍은 것으로)
+
+/** 이 코디에서 찍을 사진 — 고른 카드 순서대로 그 카드 사진(뺀 것 빼고), 그다음 이 코디만 사진 */
+export function shotsOf(day, c, cards, items) {
+  const { ids, auto } = picksOf(day, c, cards, items);
+  const off = new Set(day?.posePhotoOff?.[c.id] || []);
+  const done = new Set(day?.poseDone?.[c.id] || []);
+  const shots = [];
+  for (const k of cards) {
+    if (!ids.includes(k.id)) continue;
+    for (const p of k.sec.photos || []) {
+      if (!p?.key || off.has(p.key)) continue;
+      shots.push({ key: p.key, cap: p.cap || "", cardId: k.id, code: k.code, title: k.title.replace(/^P\d+\s*/, ""), text: k.sec.text || "", ok: k.ok === true, done: done.has(p.key) || done.has(k.id) });
+    }
+  }
+  for (const p of day?.poseOwn?.[c.id] || [])
+    if (p?.key) shots.push({ key: p.key, cap: p.cap || "", own: true, ownId: p.id, code: "이 코디", title: p.cap || "이 코디만", text: "", ok: true, done: done.has(p.key) });
+  return { shots, auto, ids };
+}
+
+/** 사진 한 장 찍음 켜고 끄기 → 촬영 줄 patch (고른 것도 그대로 굳힌다 — 추천이 바뀌어도 찍던 목록이 안 흔들리게) */
+export function flipDone(day, c, cards, items, key) {
+  const { shots, ids } = shotsOf(day, c, cards, items);
+  const now = new Set(shots.filter((s) => s.done).map((s) => s.key));
+  if (now.has(key)) now.delete(key);
+  else now.add(key);
+  return {
+    posePicks: { ...(day.posePicks || {}), [c.id]: ids },
+    poseDone: { ...(day.poseDone || {}), [c.id]: [...now] },
+  };
+}
+
+/** 고른 카드 안 사진 한 장 쓰기/안 쓰기. 카드 사진을 다 끄면 그 카드를 뺀다 */
+export function flipPhoto(day, c, cards, items, k, key) {
+  const { ids } = picksOf(day, c, cards, items);
+  let off = new Set(day.posePhotoOff?.[c.id] || []);
+  let picks = ids;
+  if (!ids.includes(k.id)) {
+    // 안 고른 카드의 사진을 누르면 → 그 카드를 넣고 그 사진만 켠다
+    picks = cards.map((x) => x.id).filter((id) => id === k.id || ids.includes(id));
+    for (const p of k.sec.photos || []) if (p.key !== key) off.add(p.key);
+    off.delete(key);
+  } else if (off.has(key)) off.delete(key);
+  else off.add(key);
+  const keys = (k.sec.photos || []).map((p) => p.key);
+  if (keys.length && keys.every((x) => off.has(x))) {
+    picks = picks.filter((id) => id !== k.id);
+    off = new Set([...off].filter((x) => !keys.includes(x)));
+  }
+  return { posePicks: { ...(day.posePicks || {}), [c.id]: picks }, posePhotoOff: { ...(day.posePhotoOff || {}), [c.id]: [...off] } };
+}
+
+/** 카드째 넣기/빼기 (빼면 그 카드에서 꺼 둔 사진 표시도 지운다) */
+export function flipCard(day, c, cards, items, k) {
+  const { ids } = picksOf(day, c, cards, items);
+  const on = ids.includes(k.id);
+  const picks = cards.map((x) => x.id).filter((id) => (id === k.id ? !on : ids.includes(id)));
+  const keys = new Set((k.sec.photos || []).map((p) => p.key));
+  const off = (day.posePhotoOff?.[c.id] || []).filter((x) => !keys.has(x));
+  return { posePicks: { ...(day.posePicks || {}), [c.id]: picks }, posePhotoOff: { ...(day.posePhotoOff || {}), [c.id]: off } };
+}

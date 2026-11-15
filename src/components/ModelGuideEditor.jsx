@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ImagePlus, Images, Link2, Loader2, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ImagePlus, Images, Link2, Loader2, Plus, Trash2, X } from "lucide-react";
 import { FIELD, loadKey, changeKey, fixUrl } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -21,7 +21,7 @@ import { ClipBig } from "./LoopClip";
 const TIP = "한 줄에 하나 · 들여 쓰면 아래 단계 · '→' 로 이으면 순서(번호) · (사진)/(영상) 을 붙이면 표시";
 
 // 11/1 모델 레퍼런스 모음(ModelRefsPage)도 같이 쓴다 — d 가 있으면 '촬영 레퍼런스에서 고르기', hint = 글 칸 안내, videoOpen = 참고 영상 펼쳐 두기
-export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFresh, d, hint, videoOpen, titleHint, extra }) {
+export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove, onFresh, d, hint, videoOpen, titleHint, extra, bare }) {
   const [pending, setPending] = useState([]);
   const [err, setErr] = useState("");
   const [picking, setPicking] = useState(false);
@@ -91,21 +91,41 @@ export function SectionEdit({ x, i, n, online, urlOf, onChange, onMove, onRemove
       <div className="mb-2 flex items-center gap-1.5">
         <input value={x.title || ""} onChange={(e) => onChange({ ...x, title: e.target.value })} placeholder={titleHint || "칸 이름 (예: 셀카 포즈)"} aria-label="칸 이름" className={FIELD + " min-w-0 font-semibold"} />
         {extra}
-        <button type="button" disabled={i === 0} onClick={() => onMove(-1)} aria-label="위로" className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
-          <ArrowUp size={15} />
-        </button>
-        <button type="button" disabled={i === n - 1} onClick={() => onMove(1)} aria-label="아래로" className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
-          <ArrowDown size={15} />
-        </button>
-        <button type="button" onClick={onRemove} aria-label="칸 지우기" className="rounded-lg p-2 text-stone-300 hover:bg-stone-100 hover:text-rose-700">
-          <Trash2 size={15} />
-        </button>
+        {/* bare = 포즈 판 카드 창에서 사진만 고칠 때(11/16) — 칸 순서·지우기는 모델 레퍼런스에서 */}
+        {!bare && (
+          <>
+            <button type="button" disabled={i === 0} onClick={() => onMove(-1)} aria-label="위로" className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
+              <ArrowUp size={15} />
+            </button>
+            <button type="button" disabled={i === n - 1} onClick={() => onMove(1)} aria-label="아래로" className="rounded-lg p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30">
+              <ArrowDown size={15} />
+            </button>
+            <button type="button" onClick={onRemove} aria-label="칸 지우기" className="rounded-lg p-2 text-stone-300 hover:bg-stone-100 hover:text-rose-700">
+              <Trash2 size={15} />
+            </button>
+          </>
+        )}
       </div>
       <textarea value={x.text || ""} onChange={(e) => onChange({ ...x, text: e.target.value })} rows={hint ? 2 : rows} placeholder={hint || SUGGEST.find((s) => s.title === (x.title || "").trim())?.hint || "예: * 휴대폰을 든 반대 팔은 허리 뒤로"} aria-label={`${x.title || "칸"} 글`} className={FIELD + " resize-y leading-relaxed"} />
       <div className="mt-2 flex flex-wrap items-start gap-2">
         {photos.map((p, k) => (
           <div key={p.key.slice(0, 80) + k} className="group relative w-24">
             <span className="block aspect-[3/4] overflow-hidden rounded-lg bg-stone-100">{urlOf(p.key) && <img src={urlOf(p.key)} alt="" className="h-full w-full object-cover" />}</span>
+            {/* 11/16 사진 순서 (세원: "포즈 사진을 우리가 변경할 수 있나?") — 앞으로 · 뒤로 */}
+            {photos.length > 1 && (
+              <span className="absolute top-1 left-1 flex gap-0.5 opacity-0 group-hover:opacity-100 max-sm:opacity-80">
+                {k > 0 && (
+                  <button type="button" onClick={() => onChange({ ...x, photos: photos.map((q, j) => (j === k - 1 ? photos[k] : j === k ? photos[k - 1] : q)) })} aria-label="사진 앞으로" className="flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white">
+                    <ArrowLeft size={12} />
+                  </button>
+                )}
+                {k < photos.length - 1 && (
+                  <button type="button" onClick={() => onChange({ ...x, photos: photos.map((q, j) => (j === k + 1 ? photos[k] : j === k ? photos[k + 1] : q)) })} aria-label="사진 뒤로" className="flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white">
+                    <ArrowRight size={12} />
+                  </button>
+                )}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => onChange({ ...x, photos: photos.filter((_, j) => j !== k) })}

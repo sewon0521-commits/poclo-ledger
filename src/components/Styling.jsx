@@ -581,7 +581,7 @@ export default function StylingSheet({ codi, d, online, onClose, poses }) {
             <ul className="flex flex-wrap gap-1.5">
               {poses.map((x) => (
                 <li key={x.code} className={"rounded-full px-2.5 py-1 text-xs font-medium " + (x.done ? "bg-emerald-50 text-emerald-800" : x.auto ? "border border-dashed border-rose-300 text-rose-700" : "bg-rose-50 text-rose-800")}>
-                  <b>{x.code}</b> {x.title}
+                  <b>{x.code}</b> {x.title || `${x.n}장`}
                   {x.done && " ✓"}
                 </li>
               ))}
