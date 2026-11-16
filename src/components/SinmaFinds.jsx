@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Star, ExternalLink, Search } from "lucide-react";
+import { Star, ExternalLink, Search, AlertTriangle } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys, photoUrls } from "../lib/shoot";
+import { dropOf, refDrops, lostText, partText } from "../lib/sinmaDrop";
 
 /**
  * 신마 후보 (11/11 세원 "erp에만 올리면 돼, 짜피 신마 보고 해야 되니까" — 임세원_개인 창이 어사이드로 찾아 넣는다)
@@ -8,6 +9,7 @@ import { loadKey, onSettingsChange, watchKeys, photoUrls } from "../lib/shoot";
  *   refId(회차 refIds 의 촬영 레퍼런스), refNo(세원이 부르는 사진 번호), cls(같은 옷|비슷|더 싼 대안), pick(추천), why, photo(reels 버킷 sinsang/<gid>.jpg), addedOn}]}
  * 화면: 소싱 회차 창 — 레퍼런스 사진 칸 '신마 N' 배지 · 사진 크게 보기 안 '신마 후보' · 회차 창 아래 '신마 후보' 전체(사진 번호별).
  * 신상 관리 '요청'과는 섞지 않는다(실제 픽업 요청이 아니라서). 고르기·담기는 세원이 신마에서 직접.
+ * 11/16 드랍 표시: 같은 상품번호의 신상 관리 상품이 드랍·샘플 거절이면 카드에 빨간 띠, 레퍼 사진마다 ★추천한 같은 옷 종류가 전부 빠지면 '⚠ 핵심 빠짐' (lib/sinmaDrop).
  */
 
 const sinmaKey = (sessionId) => `sinma_finds_${sessionId}`;
@@ -43,7 +45,7 @@ export function useSinma(sessionId, online) {
       alive = false;
     };
   }, [keys, online]);
-  return { data, urls };
+  return useMemo(() => ({ data, urls }), [data, urls]);
 }
 
 const CLS_STYLE = {
@@ -53,18 +55,18 @@ const CLS_STYLE = {
 };
 const won = (n) => (Number(n) ? `${Number(n).toLocaleString()}원` : "");
 
-export function SinmaCard({ x, url }) {
+export function SinmaCard({ x, url, drop }) {
   return (
     <a
       href={x.url || (x.gid ? `https://sinsangmarket.kr/goods/${x.gid}/0` : undefined)}
       target="_blank"
       rel="noreferrer"
       title="신마에서 열기"
-      className={"group block min-w-0 overflow-hidden rounded-xl border bg-white transition-colors hover:border-rose-300 " + (x.pick ? "border-amber-300" : "border-stone-200")}
+      className={"group block min-w-0 overflow-hidden rounded-xl border bg-white transition-colors hover:border-rose-300 " + (drop ? "border-rose-300" : x.pick ? "border-amber-300" : "border-stone-200")}
     >
       <span className="relative block aspect-[3/4] w-full bg-stone-100">
         {url ? (
-          <img src={url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+          <img src={url} alt="" loading="lazy" decoding="async" className={"h-full w-full object-cover " + (drop ? "opacity-55 grayscale-[60%]" : "")} />
         ) : (
           <span className="absolute inset-0 flex items-center justify-center text-[11px] text-stone-400">사진 준비 중</span>
         )}
@@ -74,7 +76,8 @@ export function SinmaCard({ x, url }) {
           </span>
         )}
         {x.cls && <span className={"absolute top-1 right-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold shadow-sm " + (CLS_STYLE[x.cls] || "bg-white text-stone-600")}>{x.cls}</span>}
-        <ExternalLink size={13} className="absolute right-1.5 bottom-1.5 text-white opacity-0 drop-shadow transition-opacity group-hover:opacity-100" />
+        {drop && <span className="absolute inset-x-0 bottom-0 bg-rose-600/90 py-0.5 text-center text-[11px] font-bold text-white">드랍 · {drop.label}</span>}
+        <ExternalLink size={13} className={"absolute right-1.5 text-white opacity-0 drop-shadow transition-opacity group-hover:opacity-100 " + (drop ? "bottom-6" : "bottom-1.5")} />
       </span>
       <span className="block space-y-0.5 p-2">
         <span className="flex items-baseline justify-between gap-1">
@@ -87,7 +90,12 @@ export function SinmaCard({ x, url }) {
         <span className="block truncate text-[11px] text-stone-400" title={[x.store, x.loc].filter(Boolean).join(" · ")}>
           {[x.store, x.loc].filter(Boolean).join(" · ")}
         </span>
-        {x.why && <span className="line-clamp-2 block text-[11px] leading-snug text-stone-700">{x.why}</span>}
+        {drop && (
+          <span className="line-clamp-2 block text-[11px] leading-snug font-medium text-rose-700" title={drop.line}>
+            {drop.line}
+          </span>
+        )}
+        {x.why && <span className={"line-clamp-2 block text-[11px] leading-snug " + (drop ? "text-stone-400" : "text-stone-700")}>{x.why}</span>}
       </span>
     </a>
   );
@@ -97,8 +105,25 @@ export function SinmaCard({ x, url }) {
 const CLS_ORDER = { "같은 옷": 0, 비슷: 1, "더 싼 대안": 2 };
 const sortFinds = (xs) => [...xs].sort((a, b) => (b.pick ? 1 : 0) - (a.pick ? 1 : 0) || (CLS_ORDER[a.cls] ?? 3) - (CLS_ORDER[b.cls] ?? 3) || (a.price || 0) - (b.price || 0));
 
+/** 레퍼 사진 하나 — ★추천한 같은 옷 종류가 전부 드랍이면 ⚠ 핵심 빠짐, 일부면 작게 (11/16) */
+export function SinmaWarn({ finds, drops, className = "" }) {
+  const { lost, part } = refDrops(finds, drops);
+  if (!lost.length && !part.length) return null;
+  return (
+    <span className={"block space-y-0.5 " + className}>
+      {lost.length > 0 && (
+        <span className="flex items-start gap-1 rounded-lg bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+          <AlertTriangle size={13} className="mt-px shrink-0" />
+          <span>핵심 빠짐: {lostText(lost)} — 고른 게 전부 드랍됐어요</span>
+        </span>
+      )}
+      {part.length > 0 && <span className="block text-[11px] text-stone-500">{part.map(partText).join(" · ")}</span>}
+    </span>
+  );
+}
+
 /** 사진 크게 보기 안 — 그 레퍼런스 사진의 후보만 */
-export function SinmaStrip({ items, urls }) {
+export function SinmaStrip({ items, urls, drops }) {
   const [all, setAll] = useState(false);
   if (!items?.length) return null;
   const picks = items.filter((x) => x.pick);
@@ -115,9 +140,10 @@ export function SinmaStrip({ items, urls }) {
           </button>
         )}
       </div>
+      <SinmaWarn finds={items} drops={drops} className="mb-2" />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {shown.map((x) => (
-          <SinmaCard key={x.gid + (x.refId || "")} x={x} url={urls[x.photo]} />
+          <SinmaCard key={x.gid + (x.refId || "")} x={x} url={urls[x.photo]} drop={dropOf(drops, x)} />
         ))}
       </div>
     </section>
@@ -125,16 +151,19 @@ export function SinmaStrip({ items, urls }) {
 }
 
 /** 회차 창 아래 — 전체 후보를 사진 번호별로 */
-export function SinmaBoard({ data, urls, refs, src }) {
-  const [only, setOnly] = useState("pick"); // pick | all | 같은 옷 | 비슷 | 더 싼 대안
+export function SinmaBoard({ data, urls, refs, src, drops }) {
+  const [only, setOnly] = useState("pick"); // pick | all | drop | 같은 옷 | 비슷 | 더 싼 대안
   const [open, setOpen] = useState(true);
   const items = data?.items || [];
   if (!items.length) return null;
   const picks = items.filter((x) => x.pick).length;
-  const pass = (x) => (only === "all" ? true : only === "pick" ? x.pick : x.cls === only);
+  const refKey = (x) => x.refId || `n${x.refNo ?? ""}`;
+  const dropN = items.filter((x) => dropOf(drops, x)).length;
+  const lostRefs = [...new Set(items.map(refKey))].filter((k) => refDrops(items.filter((x) => refKey(x) === k), drops).lost.length).length;
+  const pass = (x) => (only === "all" ? true : only === "pick" ? x.pick : only === "drop" ? !!dropOf(drops, x) : x.cls === only);
   const groups = new Map();
   for (const x of sortFinds(items.filter(pass))) {
-    const k = x.refId || `n${x.refNo ?? ""}`;
+    const k = refKey(x);
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(x);
   }
@@ -156,6 +185,12 @@ export function SinmaBoard({ data, urls, refs, src }) {
         <b className="text-sm text-stone-900">신마 후보 {items.length}</b>
         <span className="text-xs text-amber-800">★ 추천 {picks}</span>
         {data.folder && <span className="text-xs text-stone-400">· 신마 찜 폴더 '{data.folder}'</span>}
+        {dropN > 0 && <span className="text-xs font-semibold text-rose-700">· 드랍 {dropN}</span>}
+        {lostRefs > 0 && (
+          <span className="flex items-center gap-0.5 rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white">
+            <AlertTriangle size={11} /> 핵심 빠진 사진 {lostRefs}
+          </span>
+        )}
         <span className="ml-auto text-xs text-stone-400">{open ? "접기" : "펼치기"}</span>
       </button>
       {open && (
@@ -168,6 +203,7 @@ export function SinmaBoard({ data, urls, refs, src }) {
               const n = items.filter((x) => x.cls === c).length;
               return n ? chip(c, `${c} ${n}`) : null;
             })}
+            {dropN > 0 && chip("drop", `드랍 ${dropN}`)}
           </div>
           {!keys.length && <p className="mt-3 text-xs text-stone-400">이 조건에 맞는 후보가 없어요.</p>}
           <div className="mt-3 space-y-4">
@@ -179,13 +215,17 @@ export function SinmaBoard({ data, urls, refs, src }) {
                 <div key={k}>
                   <div className="mb-1.5 flex items-center gap-2">
                     {pic && <img src={pic} alt="" className="h-12 w-9 shrink-0 rounded object-cover" />}
-                    <span className="text-xs font-semibold text-stone-700">
-                      {list[0].refNo != null ? `${list[0].refNo}번 사진` : "레퍼런스"} · 후보 {list.length}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-semibold text-stone-700">
+                        {list[0].refNo != null ? `${list[0].refNo}번 사진` : "레퍼런스"} · 후보 {list.length}
+                      </span>
+                      {/* 핵심 판단은 보고 있는 칩과 상관없이 그 사진의 후보 전부로 */}
+                      <SinmaWarn finds={items.filter((x) => refKey(x) === k)} drops={drops} className="mt-1" />
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-5">
                     {list.map((x) => (
-                      <SinmaCard key={x.gid + k} x={x} url={urls[x.photo]} />
+                      <SinmaCard key={x.gid + k} x={x} url={urls[x.photo]} drop={dropOf(drops, x)} />
                     ))}
                   </div>
                 </div>

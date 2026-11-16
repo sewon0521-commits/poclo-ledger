@@ -1,4 +1,5 @@
 import { useSinma, SinmaStrip, SinmaBoard } from "./SinmaFinds";
+import { sinmaDrops, refDrops, lostText, partText } from "../lib/sinmaDrop";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
@@ -927,7 +928,7 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onC
               </div>
             )}
             {/* 11/11 신마 후보 — 이 사진으로 어사이드가 찾은 것 */}
-            {sinma?.data && <SinmaStrip key={r.id} items={(sinma.data.items || []).filter((x) => x.refId === r.id)} urls={sinma.urls} />}
+            {sinma?.data && <SinmaStrip key={r.id} items={(sinma.data.items || []).filter((x) => x.refId === r.id)} urls={sinma.urls} drops={sinma.drops} />}
           </div>
         </div>
       </div>
@@ -1348,10 +1349,13 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
                   const f = (sinma?.data?.items || []).filter((x) => x.refId === r.id);
                   if (!f.length) return null;
                   const pk = f.filter((x) => x.pick).length;
+                  // 11/16 ★추천한 같은 옷 종류가 전부 드랍이면 빨갛게 (신상 관리 드랍·샘플 거절)
+                  const { lost, part } = refDrops(f, sinma.drops);
+                  const tip = [`신마 후보 ${f.length}개 · 추천 ${pk}`, lost.length ? `⚠ 핵심 빠짐: ${lostText(lost)}` : "", ...part.map(partText)].filter(Boolean).join("\n");
                   return (
-                    <span className="absolute right-1 bottom-1 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-white shadow" title={`신마 후보 ${f.length}개 · 추천 ${pk}`}>
-                      신마 {f.length}
-                      {pk > 0 && ` · ★${pk}`}
+                    <span className={"absolute right-1 bottom-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white shadow " + (lost.length ? "bg-rose-600" : "bg-amber-400")} title={tip}>
+                      {lost.length ? `⚠ ${lost.map((l) => l.kind).join("·")} 빠짐` : `신마 ${f.length}`}
+                      {!lost.length && pk > 0 && ` · ★${pk}`}
                     </span>
                   );
                 })()}
@@ -1485,7 +1489,10 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
   const upDays = [...new Set(uploads.filter(Boolean))].sort();
   const dayCodis = codis.filter((c) => c.uploadOn && upDays.includes(c.uploadOn));
   const [styling, setStyling] = useState(null); // 코디를 누르면 스타일링 창
-  const sinma = useSinma(session.id, online); // 11/11 신마 후보 (임세원_개인 창이 넣음)
+  const sinma0 = useSinma(session.id, online); // 11/11 신마 후보 (임세원_개인 창이 넣음)
+  // 11/16 신마 후보 중 신상 관리에서 드랍·샘플 거절된 것 (상품번호로 잇기, 저장 없음)
+  const drops = useMemo(() => sinmaDrops(d.items, d.refusals), [d.items, d.refusals]);
+  const sinma = useMemo(() => ({ ...sinma0, drops }), [sinma0, drops]);
   const liveStyling = styling && codis.find((c) => c.id === styling.id);
   const cats = catsOf(d.tags);
   // 예전 '쇼핑몰 BEST 컷' 칸 사진 → 촬영 레퍼런스(쇼핑몰 레퍼런스 + 그 쇼핑몰)로 (10/21 칸을 없애면서)
@@ -1618,6 +1625,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
             <SinmaBoard
               data={sinma.data}
               urls={sinma.urls}
+              drops={drops}
               refs={(s.refIds || []).map((id) => d.refs.find((r) => r.id === id)).filter(Boolean)}
               src={(r) => d.urls[r.photo] || r.photoUrl || ""}
             />
