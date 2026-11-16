@@ -14,6 +14,7 @@ import VendorEditor from "./VendorEditor";
 import PriceBox from "./PriceBox";
 import { SlideViewer } from "./ContentBits";
 import { PricingCtx, priceSummary, pricingRowOf, pricingChange, toNum } from "../lib/priceKit";
+import { needsSinma } from "../lib/sinmaPick";
 
 /**
  * 신상 관리 — 상품 한 장이 요청 → 입고·픽 → 촬영 → 등록 → 업데이트 완료로 옮겨 다닌다 (lib/sinsang.js 머리말).
@@ -196,6 +197,12 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
             {x.returning && !closed(x) && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납 예정</span>}
             {extendDays(x) > 0 && !closed(x) && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">연장 +{extendDays(x)}일</span>}
             {x.refused && gone && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">샘플 안 됨</span>}
+            {/* 11/16 소싱 관리 신마 후보에서 '촬영 담기'로 넣은 상품 — 색상·사이즈 등은 신마에서 '포클로에 담기' 하면 채워진다 (lib/sinmaPick) */}
+            {needsSinma(x) && (
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white" title="소싱 관리 신마 후보에서 담았어요 — 신마에서 이 상품을 '포클로에 담기' 하면 색상·사이즈·제품 설명이 채워져요">
+                신마 정보 채우기
+              </span>
+            )}
             {x.packed && !x.returnedOn && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white">포장 완료</span>}
             {x.paid && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-medium text-white">결제함</span>}
             {x.returnedOn && <span className="rounded-full bg-stone-800/85 px-2 py-0.5 text-[10px] font-medium text-white">반납함</span>}

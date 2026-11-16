@@ -1722,7 +1722,7 @@ export default function ShootPage({ view, online, vendors = [], onVendor, dealt,
       ) : view === "refs" ? (
         <RefsView d={d} online={online} />
       ) : view === "plan" ? (
-        <ShootPlan d={d} online={online} reelKit={reelKit} />
+        <ShootPlan d={d} online={online} reelKit={reelKit} vendors={vendors} />
       ) : view === "days" ? (
         <ShootDays d={d} online={online} />
       ) : view === "modelRefs" ? (

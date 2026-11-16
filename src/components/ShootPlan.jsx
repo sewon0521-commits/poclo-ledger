@@ -1,5 +1,6 @@
 import { useSinma, SinmaStrip, SinmaBoard } from "./SinmaFinds";
 import { sinmaDrops, refDrops, lostText, partText } from "../lib/sinmaDrop";
+import { pickedMap, sinmaItem, addOnce, canUndo } from "../lib/sinmaPick";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
@@ -928,7 +929,7 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onC
               </div>
             )}
             {/* 11/11 신마 후보 — 이 사진으로 어사이드가 찾은 것 */}
-            {sinma?.data && <SinmaStrip key={r.id} items={(sinma.data.items || []).filter((x) => x.refId === r.id)} urls={sinma.urls} drops={sinma.drops} />}
+            {sinma?.data && <SinmaStrip key={r.id} items={(sinma.data.items || []).filter((x) => x.refId === r.id)} urls={sinma.urls} drops={sinma.drops} act={sinma.act} />}
           </div>
         </div>
       </div>
@@ -1462,7 +1463,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
   );
 }
 
-function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, online }) {
+function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, online, vendors = [] }) {
   const [msg, setMsg] = useState("");
   const [s, setS] = useState(session);
   const latest = useRef(s);
@@ -1492,7 +1493,42 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
   const sinma0 = useSinma(session.id, online); // 11/11 신마 후보 (임세원_개인 창이 넣음)
   // 11/16 신마 후보 중 신상 관리에서 드랍·샘플 거절된 것 (상품번호로 잇기, 저장 없음)
   const drops = useMemo(() => sinmaDrops(d.items, d.refusals), [d.items, d.refusals]);
-  const sinma = useMemo(() => ({ ...sinma0, drops }), [sinma0, drops]);
+  // 11/16 세원 "신마 후보에서 바로바로 촬영 상품 고를 수 있게" — 후보 카드 '촬영 담기' → 신상 관리 '요청' (lib/sinmaPick)
+  const picked = useMemo(() => pickedMap(d.items), [d.items]);
+  const [picking, setPicking] = useState({});
+  // 그 레퍼 사진의 '이 사진에 쓸 우리 상품'에도 넣고 빼기 (코디 짤 때 그 레퍼 상품으로 보이게)
+  const lookItem = (refId, itemId, on) => {
+    if (!refId || !(latest.current.refIds || []).includes(refId)) return;
+    const all = latest.current.refLooks || {};
+    const cur = all[refId] || {};
+    const ids = (cur.itemIds || []).filter((x) => x !== itemId);
+    const next = { ...cur, itemIds: on ? [...ids, itemId] : ids };
+    const rest = Object.fromEntries(Object.entries(all).filter(([k]) => k !== refId));
+    set({ refLooks: next.text || next.memo || next.cat || next.itemIds.length ? { ...rest, [refId]: next } : rest });
+  };
+  const act = {
+    itemOf: (gid) => picked.get(String(gid ?? "")) || null,
+    busy: picking,
+    pick: async (f) => {
+      const g = String(f.gid ?? "");
+      if (!g || picking[g] || picked.get(g)) return;
+      setPicking((p) => ({ ...p, [g]: true }));
+      const made = sinmaItem(f, { session: latest.current, vendors, clothes: d.tags?.clothes || [] });
+      try {
+        await d.saveItems(addOnce(made)); // 서버 최신을 다시 읽고 같은 상품번호가 없을 때만 그 하나를 더한다
+        lookItem(f.refId, made.id, true);
+      } finally {
+        setPicking((p) => Object.fromEntries(Object.entries(p).filter(([k]) => k !== g)));
+      }
+    },
+    undo: async (f, it) => {
+      if (!canUndo(it)) return;
+      lookItem(it.sinmaRef?.refId || f.refId, it.id, false);
+      // 그새 누가 요청함·픽업을 눌렀으면 안 지운다 (서버 최신 기준)
+      await d.saveItems((v) => ({ ...v, items: (v.items || []).filter((x) => !(x.id === it.id && canUndo(x))) }));
+    },
+  };
+  const sinma = { ...sinma0, drops, act };
   const liveStyling = styling && codis.find((c) => c.id === styling.id);
   const cats = catsOf(d.tags);
   // 예전 '쇼핑몰 BEST 컷' 칸 사진 → 촬영 레퍼런스(쇼핑몰 레퍼런스 + 그 쇼핑몰)로 (10/21 칸을 없애면서)
@@ -1621,11 +1657,12 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
             onCats={(next) => d.saveTags((v) => ({ ...v, refCats: next }))}
             sinma={sinma}
           />
-          {sinma.data && (
+          {sinma0.data && (
             <SinmaBoard
-              data={sinma.data}
-              urls={sinma.urls}
+              data={sinma0.data}
+              urls={sinma0.urls}
               drops={drops}
+              act={act}
               refs={(s.refIds || []).map((id) => d.refs.find((r) => r.id === id)).filter(Boolean)}
               src={(r) => d.urls[r.photo] || r.photoUrl || ""}
             />
@@ -1714,7 +1751,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
   );
 }
 
-function SessionsTab({ sessions, d, codis, items, online, openId, onOpened }) {
+function SessionsTab({ sessions, d, codis, items, online, openId, onOpened, vendors }) {
   // openId = 다른 탭에서 '소싱에 담기' 뒤 '열어 보기' (10/24)
   const [open, setOpen] = useState(() => (openId && sessions.items.find((s) => s.id === openId)) || null);
   useEffect(() => {
@@ -1815,6 +1852,7 @@ function SessionsTab({ sessions, d, codis, items, online, openId, onOpened }) {
           onSave={sessions.save}
           onRemove={sessions.drop}
           online={online}
+          vendors={vendors}
           onClose={() => setOpen(null)}
         />
       )}
@@ -1837,7 +1875,7 @@ const TABS = [
 ];
 const TAB_KEY = "poclo_shoot_plan_tab";
 
-export default function ShootPlan({ d, online, reelKit }) {
+export default function ShootPlan({ d, online, reelKit, vendors = [] }) {
   const sessions = useList(KEYS.sessions, online);
   const [tab, setTabState] = useState(() => {
     try {
@@ -1937,6 +1975,7 @@ export default function ShootPlan({ d, online, reelKit }) {
           codis={d.codis}
           items={d.items}
           online={online}
+          vendors={vendors}
           openId={openId}
           onOpened={() => setOpenId("")}
         />

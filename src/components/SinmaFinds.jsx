@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Star, ExternalLink, Search, AlertTriangle } from "lucide-react";
+import { Star, ExternalLink, Search, AlertTriangle, Plus, Check, Undo2, Loader2 } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys, photoUrls } from "../lib/shoot";
 import { dropOf, refDrops, lostText, partText } from "../lib/sinmaDrop";
+import { canUndo, needsSinma } from "../lib/sinmaPick";
+import { stageName } from "../lib/sinsang";
 
 /**
  * 신마 후보 (11/11 세원 "erp에만 올리면 돼, 짜피 신마 보고 해야 되니까" — 임세원_개인 창이 어사이드로 찾아 넣는다)
  * 저장: settings `sinma_finds_<소싱 회차 id>` = {folder(신마 찜 폴더), at, items:[{gid, url, name, store, loc, price, mix, kind,
  *   refId(회차 refIds 의 촬영 레퍼런스), refNo(세원이 부르는 사진 번호), cls(같은 옷|비슷|더 싼 대안), pick(추천), why, photo(reels 버킷 sinsang/<gid>.jpg), addedOn}]}
  * 화면: 소싱 회차 창 — 레퍼런스 사진 칸 '신마 N' 배지 · 사진 크게 보기 안 '신마 후보' · 회차 창 아래 '신마 후보' 전체(사진 번호별).
- * 신상 관리 '요청'과는 섞지 않는다(실제 픽업 요청이 아니라서). 고르기·담기는 세원이 신마에서 직접.
+ * (11/11) 신상 관리 '요청'과는 섞지 않았다 → 11/16 세원 "신마 후보에서 바로바로 촬영 상품 고를 수 있게" — 카드 아래 '촬영 담기'(lib/sinmaPick).
  * 11/16 드랍 표시: 같은 상품번호의 신상 관리 상품이 드랍·샘플 거절이면 카드에 빨간 띠, 레퍼 사진마다 ★추천한 같은 옷 종류가 전부 빠지면 '⚠ 핵심 빠짐' (lib/sinmaDrop).
  */
 
@@ -55,15 +57,57 @@ const CLS_STYLE = {
 };
 const won = (n) => (Number(n) ? `${Number(n).toLocaleString()}원` : "");
 
-export function SinmaCard({ x, url, drop }) {
+/** 카드 아래 '촬영 담기' 줄 — act = {itemOf(gid), busy{gid:true}, pick(f), undo(f, item)} (ShootPlan 소싱 회차 창) */
+function PickRow({ x, act }) {
+  const it = act.itemOf(x.gid);
+  if (act.busy[String(x.gid)])
+    return (
+      <span className="flex items-center justify-center gap-1 py-1.5 text-[11px] text-stone-500">
+        <Loader2 size={12} className="animate-spin" /> 담는 중…
+      </span>
+    );
+  if (!it)
+    return (
+      <button
+        type="button"
+        onClick={() => act.pick(x)}
+        title="신상 관리 '요청'에 넣어요 — 색상·사이즈는 신마에서 채워요"
+        className="flex w-full items-center justify-center gap-1 rounded-lg border border-rose-200 bg-rose-50 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100"
+      >
+        <Plus size={13} /> 촬영 담기
+      </button>
+    );
+  const gone = it.stage === "drop" || it.stage === "trash" || it.refused;
+  const sub = it.stage === "request" ? (it.pickup ? " · 픽업 요청" : it.asked ? " · 요청함" : "") : "";
   return (
-    <a
-      href={x.url || (x.gid ? `https://sinsangmarket.kr/goods/${x.gid}/0` : undefined)}
-      target="_blank"
-      rel="noreferrer"
-      title="신마에서 열기"
-      className={"group block min-w-0 overflow-hidden rounded-xl border bg-white transition-colors hover:border-rose-300 " + (drop ? "border-rose-300" : x.pick ? "border-amber-300" : "border-stone-200")}
+    <span className="block">
+      <span className="flex items-center gap-1">
+        <span className={"flex min-w-0 flex-1 items-center gap-0.5 truncate text-[11px] font-semibold " + (gone ? "text-stone-400" : "text-emerald-700")} title={`신상 관리 · ${it.name || ""}`}>
+          {!gone && <Check size={12} className="shrink-0" />}
+          담김 · {it.refused ? "샘플 안 됨" : stageName(it.stage)}
+          {sub}
+        </span>
+        {canUndo(it) && (
+          <button type="button" onClick={() => act.undo(x, it)} title="잘못 담았으면 빼요 (신상 관리에서도 빠져요)" className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-stone-500 hover:bg-stone-100 hover:text-rose-700">
+            <Undo2 size={11} /> 빼기
+          </button>
+        )}
+      </span>
+      {needsSinma(it) && <span className="block text-[10px] text-amber-700">신마 정보 채우기 필요 · 색상·사이즈</span>}
+    </span>
+  );
+}
+
+export function SinmaCard({ x, url, drop, act }) {
+  const it = act?.itemOf(x.gid);
+  return (
+    <div
+      className={
+        "group flex min-w-0 flex-col overflow-hidden rounded-xl border bg-white transition-colors hover:border-rose-300 " +
+        (drop ? "border-rose-300" : it && !act.busy[String(x.gid)] ? "border-emerald-300" : x.pick ? "border-amber-300" : "border-stone-200")
+      }
     >
+    <a href={x.url || (x.gid ? `https://sinsangmarket.kr/goods/${x.gid}/0` : undefined)} target="_blank" rel="noreferrer" title="신마에서 열기" className="block min-w-0">
       <span className="relative block aspect-[3/4] w-full bg-stone-100">
         {url ? (
           <img src={url} alt="" loading="lazy" decoding="async" className={"h-full w-full object-cover " + (drop ? "opacity-55 grayscale-[60%]" : "")} />
@@ -98,6 +142,12 @@ export function SinmaCard({ x, url, drop }) {
         {x.why && <span className={"line-clamp-2 block text-[11px] leading-snug " + (drop ? "text-stone-400" : "text-stone-700")}>{x.why}</span>}
       </span>
     </a>
+      {act && (
+        <span className="mt-auto block border-t border-stone-100 px-2 py-1.5">
+          <PickRow x={x} act={act} />
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -114,7 +164,7 @@ export function SinmaWarn({ finds, drops, className = "" }) {
       {lost.length > 0 && (
         <span className="flex items-start gap-1 rounded-lg bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
           <AlertTriangle size={13} className="mt-px shrink-0" />
-          <span>핵심 빠짐: {lostText(lost)} — 고른 게 전부 드랍됐어요</span>
+          <span>핵심 빠짐: {lostText(lost)} — 전부 드랍됐어요</span>
         </span>
       )}
       {part.length > 0 && <span className="block text-[11px] text-stone-500">{part.map(partText).join(" · ")}</span>}
@@ -123,7 +173,7 @@ export function SinmaWarn({ finds, drops, className = "" }) {
 }
 
 /** 사진 크게 보기 안 — 그 레퍼런스 사진의 후보만 */
-export function SinmaStrip({ items, urls, drops }) {
+export function SinmaStrip({ items, urls, drops, act }) {
   const [all, setAll] = useState(false);
   if (!items?.length) return null;
   const picks = items.filter((x) => x.pick);
@@ -143,7 +193,7 @@ export function SinmaStrip({ items, urls, drops }) {
       <SinmaWarn finds={items} drops={drops} className="mb-2" />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {shown.map((x) => (
-          <SinmaCard key={x.gid + (x.refId || "")} x={x} url={urls[x.photo]} drop={dropOf(drops, x)} />
+          <SinmaCard key={x.gid + (x.refId || "")} x={x} url={urls[x.photo]} drop={dropOf(drops, x)} act={act} />
         ))}
       </div>
     </section>
@@ -151,7 +201,7 @@ export function SinmaStrip({ items, urls, drops }) {
 }
 
 /** 회차 창 아래 — 전체 후보를 사진 번호별로 */
-export function SinmaBoard({ data, urls, refs, src, drops }) {
+export function SinmaBoard({ data, urls, refs, src, drops, act }) {
   const [only, setOnly] = useState("pick"); // pick | all | drop | 같은 옷 | 비슷 | 더 싼 대안
   const [open, setOpen] = useState(true);
   const items = data?.items || [];
@@ -159,6 +209,8 @@ export function SinmaBoard({ data, urls, refs, src, drops }) {
   const picks = items.filter((x) => x.pick).length;
   const refKey = (x) => x.refId || `n${x.refNo ?? ""}`;
   const dropN = items.filter((x) => dropOf(drops, x)).length;
+  // 담김 = 신상 관리에 살아 있는 것 (드랍·거절은 '드랍 N' 쪽으로)
+  const inN = act ? new Set(items.filter((x) => act.itemOf(x.gid) && !dropOf(drops, x)).map((x) => String(x.gid))).size : 0;
   const lostRefs = [...new Set(items.map(refKey))].filter((k) => refDrops(items.filter((x) => refKey(x) === k), drops).lost.length).length;
   const pass = (x) => (only === "all" ? true : only === "pick" ? x.pick : only === "drop" ? !!dropOf(drops, x) : x.cls === only);
   const groups = new Map();
@@ -185,6 +237,7 @@ export function SinmaBoard({ data, urls, refs, src, drops }) {
         <b className="text-sm text-stone-900">신마 후보 {items.length}</b>
         <span className="text-xs text-amber-800">★ 추천 {picks}</span>
         {data.folder && <span className="text-xs text-stone-400">· 신마 찜 폴더 '{data.folder}'</span>}
+        {inN > 0 && <span className="text-xs font-semibold text-emerald-700">· 담김 {inN}</span>}
         {dropN > 0 && <span className="text-xs font-semibold text-rose-700">· 드랍 {dropN}</span>}
         {lostRefs > 0 && (
           <span className="flex items-center gap-0.5 rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white">
@@ -195,7 +248,7 @@ export function SinmaBoard({ data, urls, refs, src, drops }) {
       </button>
       {open && (
         <>
-          <p className="mt-1 text-[11px] text-stone-500">어사이드가 레퍼런스 사진마다 신마에서 찾은 후보예요. 누르면 신마 상품이 열려요 — 고르기·샘플 요청은 신마에서.</p>
+          <p className="mt-1 text-[11px] text-stone-500">어사이드가 레퍼런스 사진마다 신마에서 찾은 후보예요. 사진을 누르면 신마 상품이 열려요 · '촬영 담기'를 누르면 신상 관리 '요청'에 바로 들어가요(색상·사이즈는 신마에서 채움).</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {chip("pick", `★ 추천 ${picks}`)}
             {chip("all", `전체 ${items.length}`)}
@@ -225,7 +278,7 @@ export function SinmaBoard({ data, urls, refs, src, drops }) {
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-5">
                     {list.map((x) => (
-                      <SinmaCard key={x.gid + k} x={x} url={urls[x.photo]} drop={dropOf(drops, x)} />
+                      <SinmaCard key={x.gid + k} x={x} url={urls[x.photo]} drop={dropOf(drops, x)} act={act} />
                     ))}
                   </div>
                 </div>

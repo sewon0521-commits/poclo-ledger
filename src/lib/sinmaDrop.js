@@ -36,28 +36,33 @@ export function sinmaDrops(items, refusals) {
 export const dropOf = (drops, f) => (drops && f?.gid != null ? drops.get(String(f.gid)) : undefined) || null;
 
 /**
- * 레퍼 사진 하나의 후보(finds) → 고른 것(★추천) 중 드랍
- *   lost = 그 옷 종류에서 고른 게 전부 드랍 [{kind, names}] (⚠ 핵심 빠짐)
- *   part = 일부만 [{kind, n, d}] ('고른 것 2개 중 1개 드랍')
+ * 레퍼 사진 하나의 후보(finds) → 자리마다 드랍
+ *   자리 = 후보의 slot(레퍼 안 옷 자리 — '반팔 니트'·'이너'·'아우터'·'신발', 소싱 창이 넣음) · 없으면 옷 종류(kind)
+ *   (11/16 방향성: kind 로만 보면 놓친다 — 1번 사진 차콜 반팔 니트 후보 둘이 다 거절인데 같은 '상의'인 스트라이프 이너가 살아 있어서 경고가 안 떴다)
+ *   보는 후보 = 그 자리에서 ★추천한 것. slot 자리는 ★추천이 하나도 없으면 그 자리 후보 전부(자리가 통째로 비었는지).
+ *   lost = 보는 후보가 전부 드랍 [{kind(자리 이름), names}] (⚠ 핵심 빠짐) · part = 일부만 [{kind, n, d}] ('고른 것 2개 중 1개 드랍')
  */
 export function refDrops(finds, drops) {
-  const kinds = new Map();
+  const slots = new Map();
   for (const f of finds || []) {
-    if (!f.pick) continue;
-    const k = f.kind || "기타";
-    if (!kinds.has(k)) kinds.set(k, []);
-    kinds.get(k).push(f);
+    const slot = String(f.slot || "").trim();
+    const k = slot ? `s:${slot}` : `k:${f.kind || "기타"}`;
+    if (!slots.has(k)) slots.set(k, { name: slot || f.kind || "기타", bySlot: !!slot, all: [] });
+    slots.get(k).all.push(f);
   }
   const lost = [];
   const part = [];
-  for (const [kind, fs] of kinds) {
+  for (const { name, bySlot, all } of slots.values()) {
+    const picks = all.filter((f) => f.pick);
+    const fs = picks.length ? picks : bySlot ? all : [];
+    if (!fs.length) continue;
     const dd = fs.filter((f) => dropOf(drops, f));
     if (!dd.length) continue;
-    if (dd.length === fs.length) lost.push({ kind, names: dd.map((f) => f.name || f.gid) });
-    else part.push({ kind, n: fs.length, d: dd.length });
+    if (dd.length === fs.length) lost.push({ kind: name, names: dd.map((f) => f.name || f.gid) });
+    else part.push({ kind: name, n: fs.length, d: dd.length, all: !picks.length });
   }
   return { lost, part };
 }
 
 export const lostText = (lost) => lost.map((l) => `${l.kind}(${l.names.join("·")})`).join(", ");
-export const partText = (p) => `${p.kind} 고른 것 ${p.n}개 중 ${p.d}개 드랍`;
+export const partText = (p) => `${p.kind} ${p.all ? "후보" : "고른 것"} ${p.n}개 중 ${p.d}개 드랍`;

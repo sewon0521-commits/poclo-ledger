@@ -24,6 +24,38 @@ function tellKnown(payload, vendors, items) {
 }
 
 /**
+ * 돈 › 거래처와 잇기 — 같은 곳이 있으면 그 이름으로, 없으면 새로 등록 (한글 이름 먼저).
+ * 제품 설명의 전화·카톡·인스타도 같이 — 새 거래처는 다 넣고, 있는 거래처는 빈 칸만 채운다
+ */
+function linkVendor(p, payload, vendors, onVendor) {
+  const found = findVendor(p.vendor, p.place, vendors, p.contact);
+  const told = contactLines(p.contact);
+  let v = found;
+  let filled = false;
+  if (v && onVendor) {
+    const fill = vendorFill(v, p.contact);
+    if (fill) {
+      v = onVendor({ id: v.id, ...fill });
+      filled = true;
+    }
+  } else if (p.vendor && onVendor) {
+    const fill = vendorFill({ phone: "", memo: "" }, p.contact) || { phone: "", memo: "" };
+    v = onVendor({ name: p.vendor, address: p.place || "", phone: fill.phone, memo: [fill.memo, "신상 관리에서 등록"].filter(Boolean).join(" / ") });
+  }
+  const note = !v
+    ? ""
+    : (found ? `거래처 '${v.name}' 와 이었어요` : `거래처 '${v.name}' 을(를) 새로 등록했어요`) +
+      (told.length
+        ? found && !filled
+          ? " (연락처는 이미 있어요)"
+          : ` · 연락처도 넣었어요${p.contact.from ? ` (${p.contact.from}에서)` : ""}: ${told.join(", ")}`
+        : payload.sc?.known
+          ? " · 이미 아는 거래처라 매장 정보는 건너뛰었어요"
+          : " · 제품 설명·매장 정보에서 연락처를 못 찾았어요");
+  return { v, note };
+}
+
+/**
  * 넘어온 담기 하나를 저장 — 한 개 담기 창(ClipPage)·여러 개 담기 창(ClipBatch)이 같이 쓴다.
  * → {state: saved|dup|error, item, photo, note(거래처 안내), refused(그 거래처 거절 기록), msg, vendor(이은·만든 거래처)}
  */
@@ -54,14 +86,32 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     if (!hasWear(same.wear) && hasWear(p.wear)) Object.assign(fill, { wear: p.wear, wearFrom: "신마" });
     // 예전에 담은 상품을 다시 누르면 신마 사진 전부를 채운다(10/14)
     if ((same.photos || []).length < 2 && p.photos.length > 1) fill.photos = p.photos;
+    // 11/16 소싱 관리 '신마 후보'에서 담아 둔 상품(needsSinma) — 신마 화면에만 있는 값을 채우고 표시를 끈다 (lib/sinmaPick)
+    let sinmaNote = "";
+    if (same.needsSinma) {
+      for (const k of ["colors", "sizes", "origin", "desc", "place"]) if (p[k] && !String(same[k] || "").trim()) fill[k] = p[k];
+      if (p.fabric) fill.fabric = p.fabric; // 후보의 혼용률은 짧게 적힌 것 — 신마 상세정보가 맞다
+      if (p.fullName) fill.fullName = p.fullName;
+      if (!same.price && p.price) fill.price = p.price;
+      if (!same.contact && p.contact) fill.contact = p.contact;
+      fill.needsSinma = false;
+      fill.sinmaFilledOn = new Date().toISOString().slice(0, 10);
+      sinmaNote = "신마 후보에서 담아 둔 상품이라 색상·사이즈·제품 설명을 채웠어요";
+    }
     // 매장 정보에서 읽은 연락처로 그 거래처의 빈 칸 채우기 (10/14 — 예전에 담은 상품을 다시 눌러도 연락처가 들어오게)
     let vNote = "";
+    if (same.needsSinma && !same.vendorId && onVendor) {
+      // 신마 후보에서 담을 땐 돈 › 거래처와 이름으로만 이었다 — 못 이었으면 지금 잇는다(없으면 새로 등록)
+      const got = linkVendor(p, payload, vendors, onVendor);
+      if (got.v) Object.assign(fill, { vendor: got.v.name, vendorId: got.v.id });
+      vNote = got.note;
+    }
     const linked = same.vendorId && vendors.find((x) => x.id === same.vendorId);
-    if (linked && onVendor && p.contact?.from) {
+    if (linked && onVendor && (p.contact?.from || same.needsSinma)) {
       const vf = vendorFill(linked, p.contact);
       if (vf) {
         onVendor({ id: linked.id, ...vf });
-        vNote = `거래처 '${linked.name}' 연락처를 ${p.contact.from}에서 채웠어요: ${contactLines(p.contact).join(", ")}`;
+        vNote = `거래처 '${linked.name}' 연락처를 ${p.contact.from || "제품 설명"}에서 채웠어요: ${contactLines(p.contact).join(", ")}`;
       }
       if (!same.contact?.mobile && !same.contact?.kakao) fill.contact = { ...(same.contact || {}), ...p.contact };
     }
@@ -70,6 +120,7 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
       fill.hasDetailCut != null || fill.sizeText || fill.wear || fill.photos
         ? [fill.photos && `신마 사진 ${fill.photos.length}장`, fill.hasDetailCut != null && `디테일컷 ${fill.hasDetailCut ? "있음" : "없음"}`, fill.sizeText && "실측", fill.wear && `착용정보(${wearSummary(fill.wear)})`].filter(Boolean).join(" · ") + "을(를) 더 담았어요"
         : "",
+      sinmaNote,
       vNote,
     ]
       .filter(Boolean)
@@ -86,32 +137,7 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
       key = "";
     }
   }
-  // 돈 › 거래처와 잇기 — 같은 곳이 있으면 그 이름으로, 없으면 새로 등록 (한글 이름 먼저).
-  // 제품 설명의 전화·카톡·인스타도 같이 — 새 거래처는 다 넣고, 있는 거래처는 빈 칸만 채운다
-  const found = findVendor(p.vendor, p.place, vendors, p.contact);
-  const told = contactLines(p.contact);
-  let v = found;
-  let filled = false;
-  if (v && onVendor) {
-    const fill = vendorFill(v, p.contact);
-    if (fill) {
-      v = onVendor({ id: v.id, ...fill });
-      filled = true;
-    }
-  } else if (p.vendor && onVendor) {
-    const fill = vendorFill({ phone: "", memo: "" }, p.contact) || { phone: "", memo: "" };
-    v = onVendor({ name: p.vendor, address: p.place || "", phone: fill.phone, memo: [fill.memo, "신상 관리에서 등록"].filter(Boolean).join(" / ") });
-  }
-  const note = !v
-    ? ""
-    : (found ? `거래처 '${v.name}' 와 이었어요` : `거래처 '${v.name}' 을(를) 새로 등록했어요`) +
-      (told.length
-        ? found && !filled
-          ? " (연락처는 이미 있어요)"
-          : ` · 연락처도 넣었어요${p.contact.from ? ` (${p.contact.from}에서)` : ""}: ${told.join(", ")}`
-        : payload.sc?.known
-          ? " · 이미 아는 거래처라 매장 정보는 건너뛰었어요"
-          : " · 제품 설명·매장 정보에서 연락처를 못 찾았어요");
+  const { v, note } = linkVendor(p, payload, vendors, onVendor);
   const made = {
     id: newId("i"),
     type: "sample",
