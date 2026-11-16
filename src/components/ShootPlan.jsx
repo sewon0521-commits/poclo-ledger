@@ -28,9 +28,10 @@ import {
 import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, codiName } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
-import { stageName } from "../lib/sinsang";
+import { stageName, moveTo, normalize } from "../lib/sinsang";
+import { refCodiOf, codiDayFor, toggleRefCodi } from "../lib/refCodi";
 import { BigSlides } from "./ContentBits";
-import { lookKinds, lookGroupOf, lookBest, bestPatch } from "../lib/lookStars";
+import { lookKinds, lookGroupOf, lookBest, bestPatch, isBest } from "../lib/lookStars";
 import { catsOf, mixOf, isShopCat } from "../lib/sourceMix";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { ordered } from "../lib/reelFolders";
@@ -598,7 +599,7 @@ const lookOrder = (d, look) => {
   const items = (look.itemIds || []).map((id) => d.items.find((x) => x.id === id)).filter(Boolean);
   const kinds = lookKinds(d.tags);
   const best = lookBest(look, items, lookGroupOf(kinds, look.groups));
-  const picks = kinds.map((k) => best[k]).filter(Boolean);
+  const picks = kinds.flatMap((k) => best[k] || []);
   const ids = [...picks, ...items.map((x) => x.id).filter((id) => !picks.includes(id))];
   const name = (id) => items.find((x) => x.id === id)?.name || "";
   const line = picks.length ? `★ ${picks.map(name).join(" + ")}${items.length > picks.length ? ` · 후보 ${items.length - picks.length}` : ""}` : items.map((x) => x.name).filter(Boolean).join(" + ");
@@ -606,7 +607,49 @@ const lookOrder = (d, look) => {
 };
 const itemSrc = (x, urls) => urls[x.photo] || x.photoUrl || "";
 
-function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose }) {
+// 11/16 레퍼 사진 → 코디 바로 만들기 (lib/refCodi) — 고른 우리 상품 카드마다 '코디 +', 칸 위에 그 코디 한 줄 + '코디 보기'
+function CodiToggle({ on, onClick, className = "" }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      title={on ? "누르면 이 레퍼 코디에서 빼요" : "이 레퍼 코디에 넣어요 — 처음이면 일 › 코디에 코디가 새로 생겨요"}
+      className={
+        "flex w-full items-center justify-center gap-1 rounded-lg border py-1 text-[11px] font-semibold transition-colors " +
+        (on ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100") +
+        " " +
+        className
+      }
+    >
+      {on ? (
+        <>
+          <Check size={12} strokeWidth={3} /> 코디에 있음
+        </>
+      ) : (
+        "코디 +"
+      )}
+    </button>
+  );
+}
+function CodiLine({ codi }) {
+  if (!codi?.codi) return null;
+  const c = codi.codi;
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-900 ring-1 ring-emerald-200">
+      <b className="font-semibold">코디</b>
+      <span className="min-w-0 truncate">{c.name || "이름 없는 코디"}</span>
+      <span className="text-emerald-800/70">
+        · 상품 {(c.itemIds || []).length} · {c.shootDate ? `촬영일 ${md(c.shootDate)}` : "촬영일 미정"}
+      </span>
+      <button type="button" onClick={codi.show} className="ml-auto font-semibold text-emerald-800 underline underline-offset-2 hover:text-emerald-950">
+        코디 보기
+      </button>
+    </div>
+  );
+}
+
+function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose, codi }) {
   const [q, setQ] = useState("");
   const [more, setMore] = useState(false);
   // 옷 종류로 나눠 고르기 (10/14 세원: "하의·상의·아우터·기타 등등 카테고리별로 나눠서 고를 수 있게") — "" 전체 · "__etc" 종류 없음/그 밖
@@ -707,37 +750,39 @@ function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose }) {
               <LookMemo value={lookMemo(look)} onSave={(memo) => onSave({ memo, text: "" })} />
               {picked.length > 0 && (
                 <div className="mt-3 space-y-2.5">
+                  <CodiLine codi={codi} />
                   <div className="text-xs font-medium text-stone-500">
                     고른 우리 상품 {picked.length} <span className="font-normal text-stone-400">· ☆ 를 누르면 그 칸에서 제일 잘 맞는 것 · 사진을 누르면 빼기</span>
                   </div>
                   {gKinds
                     .filter((k) => picked.some((x) => groupOf(x) === k))
                     .map((k) => {
-                      const xs = picked.filter((x) => groupOf(x) === k).sort((a, b) => (b.id === best[k]) - (a.id === best[k]));
+                      const xs = picked.filter((x) => groupOf(x) === k).sort((a, b) => isBest(best, k, b.id) - isBest(best, k, a.id));
                       return (
                         <div key={k}>
                           <div className="mb-1 flex items-baseline gap-1.5 text-xs">
                             <b className="font-semibold text-stone-700">{k}</b>
                             <span className="text-stone-400 tabular-nums">{xs.length}</span>
-                            {best[k] && <span className="min-w-0 truncate font-semibold text-amber-700">★ {xs[0].name}</span>}
+                            {best[k] && <span className="min-w-0 truncate font-semibold text-amber-700">★ {xs.filter((x) => isBest(best, k, x.id)).map((x) => x.name).join(" + ")}</span>}
                           </div>
                           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                             {xs.map((x) => (
                               <div key={x.id} className="relative">
-                                {item(x, true, best[k] === x.id)}
+                                {item(x, true, isBest(best, k, x.id))}
                                 <button
                                   type="button"
                                   onClick={() => onSave(bestPatch(look, k, x.id))}
-                                  aria-pressed={best[k] === x.id}
-                                  title={best[k] === x.id ? "제일 잘 맞음 빼기" : `${k} 중에서 제일 잘 맞음으로`}
+                                  aria-pressed={isBest(best, k, x.id)}
+                                  title={isBest(best, k, x.id) ? "제일 잘 맞음 빼기" : `${k} 중에서 제일 잘 맞음으로 (여러 개 가능 — 레이어드)`}
                                   className={
                                     "absolute top-1 left-1 flex h-6 items-center gap-0.5 rounded-full px-1.5 text-[10px] font-semibold shadow " +
-                                    (best[k] === x.id ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-400 hover:text-amber-600")
+                                    (isBest(best, k, x.id) ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-400 hover:text-amber-600")
                                   }
                                 >
-                                  <Star size={12} className={best[k] === x.id ? "fill-amber-950" : ""} />
-                                  {best[k] === x.id && "제일"}
+                                  <Star size={12} className={isBest(best, k, x.id) ? "fill-amber-950" : ""} />
+                                  {isBest(best, k, x.id) && "제일"}
                                 </button>
+                                {codi && <CodiToggle on={codi.has(x.id)} onClick={() => codi.toggle(x)} className="mt-1" />}
                               </div>
                             ))}
                           </div>
@@ -825,7 +870,7 @@ function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose }) {
  * 왼쪽 레퍼런스 사진 크게(←·→ 로 이 소싱의 다른 사진) · 오른쪽 적어 둔 룩 + 고른 우리 상품(사진·이름·거래처·색상·사이즈).
  * 상품 사진을 누르면 그 상품 사진 크게(신마 사진 전부). 고치기는 '룩·상품 고치기'(LookSheet). 폰은 위아래로.
  */
-function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onClose, paused, sinma }) {
+function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onClose, paused, sinma, codiKit }) {
   const [at, setAt] = useState(start);
   const [big, setBig] = useState(null); // {urls, i}
   const [sel, setSel] = useState(() => new Set()); // 고른 상품 중 잡은 것 (끌어 옮길 것)
@@ -919,6 +964,7 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onC
                   const g = gallery(x);
                   if (g.length) setBig({ urls: g, i: 0 });
                 }}
+                codi={codiKit?.(r.id)}
               />
             ) : (
               <div className="rounded-xl border border-dashed border-stone-200 px-4 py-8 text-center text-sm text-stone-400">
@@ -947,12 +993,12 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onC
  * 잡은 것을 끌어 다른 칸에 놓으면 한꺼번에 옮겨진다. 끌기가 안 되는 폰에서는 잡으면 뜨는 '→ 칸' 단추로.
  * 사진 크게 = 두 번 누르기 또는 사진 위 '크게'.
  */
-function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMove, onBig, onBest }) {
+function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMove, onBig, onBest, codi }) {
   const kinds = lookKinds(d.tags);
   const groupOf = lookGroupOf(kinds, groups);
   const best = lookBest({ best: bestRaw }, items, groupOf);
   // 칸 안에서는 제일 잘 맞는 상품이 맨 앞
-  const inGroup = (k) => items.filter((x) => groupOf(x) === k).sort((a, b) => (b.id === best[k]) - (a.id === best[k]));
+  const inGroup = (k) => items.filter((x) => groupOf(x) === k).sort((a, b) => isBest(best, k, b.id) - isBest(best, k, a.id));
   const order = kinds.flatMap(inGroup); // 화면 순서 (Shift 범위)
   const [drag, setDrag] = useState(null); // 끄는 중인 상품 id 들
   const [over, setOver] = useState("");
@@ -1038,6 +1084,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   const shown = kinds.filter((k) => order.some((x) => groupOf(x) === k) || drag || sel.size);
   return (
     <div ref={wrap} onPointerDown={down} className="relative min-h-full select-none">
+      <CodiLine codi={codi} />
       <div className="mb-2 text-xs font-medium text-stone-500">
         고른 우리 상품 {items.length}{" "}
         <span className="font-normal text-stone-400">
@@ -1082,7 +1129,15 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
               <div className="mb-1.5 flex items-baseline gap-1.5 px-0.5">
                 <span className="text-sm font-semibold text-stone-800">{k}</span>
                 <span className="text-xs text-stone-400 tabular-nums">{xs.length}</span>
-                {best[k] && <span className="min-w-0 truncate text-xs font-semibold text-amber-700">★ {items.find((x) => x.id === best[k])?.name}</span>}
+                {best[k] && (
+                  <span className="min-w-0 truncate text-xs font-semibold text-amber-700">
+                    ★{" "}
+                    {best[k]
+                      .map((id) => items.find((x) => x.id === id)?.name)
+                      .filter(Boolean)
+                      .join(" + ")}
+                  </span>
+                )}
               </div>
               {xs.length ? (
                 <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
@@ -1111,7 +1166,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                         className={
                           "relative overflow-hidden rounded-xl border bg-white transition " +
                           (fine ? "cursor-grab active:cursor-grabbing " : "") +
-                          (on ? "border-rose-600 ring-2 ring-rose-600" : x.id === best[k] ? "border-amber-400 ring-2 ring-amber-400" : "border-stone-200 hover:border-stone-300") +
+                          (on ? "border-rose-600 ring-2 ring-rose-600" : isBest(best, k, x.id) ? "border-amber-400 ring-2 ring-amber-400" : "border-stone-200 hover:border-stone-300") +
                           (drag?.includes(x.id) ? " opacity-40" : "")
                         }
                       >
@@ -1131,15 +1186,15 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                               e.stopPropagation();
                               onBest(k, x.id);
                             }}
-                            aria-pressed={x.id === best[k]}
-                            title={x.id === best[k] ? "제일 잘 맞음 빼기" : `${k} 중에서 제일 잘 맞음으로`}
+                            aria-pressed={isBest(best, k, x.id)}
+                            title={isBest(best, k, x.id) ? "제일 잘 맞음 빼기" : `${k} 중에서 제일 잘 맞음으로 (여러 개 가능 — 레이어드)`}
                             className={
                               "absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded-full px-1.5 py-1 text-[11px] font-semibold shadow " +
-                              (x.id === best[k] ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-400 hover:text-amber-600")
+                              (isBest(best, k, x.id) ? "bg-amber-400 text-amber-950" : "bg-white/90 text-stone-400 hover:text-amber-600")
                             }
                           >
-                            <Star size={13} className={x.id === best[k] ? "fill-amber-950" : ""} />
-                            {x.id === best[k] && "제일 잘 맞음"}
+                            <Star size={13} className={isBest(best, k, x.id) ? "fill-amber-950" : ""} />
+                            {isBest(best, k, x.id) && "제일 잘 맞음"}
                           </button>
                           <button
                             type="button"
@@ -1161,6 +1216,16 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                             {stageLabel(x)}
                             {x.kind && x.kind !== k ? ` · 원래 ${x.kind}` : ""}
                           </div>
+                          {codi && (
+                            <CodiToggle
+                              on={codi.has(x.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                codi.toggle(x);
+                              }}
+                              className="mt-1.5"
+                            />
+                          )}
                         </div>
                       </div>
                     );
@@ -1178,11 +1243,25 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   );
 }
 
-function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook, cats, onCats, sinma }) {
+function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook, cats, onCats, sinma, codiKit: kit }) {
   const [pick, setPick] = useState(false);
   const [view, setView] = useState(null);
   const [open, setOpen] = useState(null); // 룩 창 — 레퍼런스 id
   const [see, setSee] = useState(null); // 크게 보기 — {ids: 그때 보이던 순서, i} (10/20)
+  // 11/16 '코디 보기' — 떠 있는 크게 보기·룩 창을 닫고 코디(스타일링) 창을 연다 (그 창이 이 창들 밑에 깔려서)
+  const codiKit = kit
+    ? (refId) => {
+        const k = kit(refId);
+        return {
+          ...k,
+          show: () => {
+            setSee(null);
+            setOpen(null);
+            k.show();
+          },
+        };
+      }
+    : null;
   const [only, setOnly] = useState(""); // 비율 바에서 고른 분류만 (10/21) — "__none" = 분류 안 함
   const [editCats, setEditCats] = useState(false);
   const [basis, setBasisState] = useState(() => {
@@ -1433,7 +1512,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
         />
       )}
       {see != null && seeRefs.length > 0 && (
-        <LookView d={d} refs={seeRefs} start={Math.min(see.i, seeRefs.length - 1)} src={src} looks={looks} cats={cats} onEdit={(id) => setOpen(id)} onLook={onLook} onRef={patchRef} onClose={() => setSee(null)} paused={!!open || editCats} sinma={sinma} />
+        <LookView d={d} refs={seeRefs} start={Math.min(see.i, seeRefs.length - 1)} src={src} looks={looks} cats={cats} onEdit={(id) => setOpen(id)} onLook={onLook} onRef={patchRef} onClose={() => setSee(null)} paused={!!open || editCats} sinma={sinma} codiKit={codiKit} />
       )}
       {editCats && (
         <CatEditor
@@ -1456,6 +1535,7 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           onSave={(p) => onLook(open, p)}
           onBig={() => setView(refs.findIndex((r) => r.id === open))}
           onClose={() => setOpen(null)}
+          codi={codiKit?.(open)}
         />
       )}
       {view != null && <BigSlides urls={refs.map(src)} start={view} onClose={() => setView(null)} />}
@@ -1529,6 +1609,50 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
     },
   };
   const sinma = { ...sinma0, drops, act };
+  // 11/16 레퍼 사진 → 코디 바로 만들기 (lib/refCodi) — 촬영일은 회차 모델의 다가오는 촬영(shoot_days)
+  const [days, setDays] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    loadKey("shoot_days", online)
+      .then((v) => alive && setDays(v?.items || []))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [online]);
+  const refNoOf = (refId) => {
+    const f = (sinma0.data?.items || []).find((x) => x.refId === refId && x.refNo != null);
+    return f ? f.refNo : (s.refIds || []).indexOf(refId) + 1;
+  };
+  const codiKit = (refId) => {
+    const c = refCodiOf(codis, session.id, refId);
+    return {
+      codi: c,
+      has: (id) => !!c && (c.itemIds || []).includes(id),
+      show: () => {
+        const live = refCodiOf(d.codis, session.id, refId);
+        if (live) setStyling(live);
+      },
+      toggle: async (x) => {
+        const adding = !(c && (c.itemIds || []).includes(x.id));
+        const day = codiDayFor(days, s.title);
+        const made = { id: newId("c"), name: `${(s.title || "소싱").trim()} ${refNoOf(refId)}번`, shootDate: day?.on || "", shootId: day?.id || "" };
+        await d.saveCodis(toggleRefCodi({ sessionId: session.id, refId, itemId: x.id, made }));
+        if (!adding) return;
+        // 코디 만들기와 같이 — 입고·픽 상품은 '샘플 픽'으로, 촬영일도 (요청 단계는 그대로 — 아직 안 온 상품이라 요청 목록에 남겨 둔다)
+        const on = c?.shootDate || made.shootDate;
+        await d.saveItems((v) => ({
+          ...v,
+          items: (v.items || []).map((raw) => {
+            if (raw.id !== x.id) return raw;
+            const y = normalize(raw);
+            if (!["arrived", "pick"].includes(y.stage)) return raw;
+            return { ...moveTo(y, "pick", dayKey()), shootDate: on || y.shootDate || "" };
+          }),
+        }));
+      },
+    };
+  };
   const liveStyling = styling && codis.find((c) => c.id === styling.id);
   const cats = catsOf(d.tags);
   // 예전 '쇼핑몰 BEST 컷' 칸 사진 → 촬영 레퍼런스(쇼핑몰 레퍼런스 + 그 쇼핑몰)로 (10/21 칸을 없애면서)
@@ -1656,6 +1780,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
             cats={cats}
             onCats={(next) => d.saveTags((v) => ({ ...v, refCats: next }))}
             sinma={sinma}
+            codiKit={codiKit}
           />
           {sinma0.data && (
             <SinmaBoard
