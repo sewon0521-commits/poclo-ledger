@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, FolderHeart, ImagePlus, Link2, Loader2, Lock, MapPin, Play, Plus, RefreshCw, Shirt, Sun, Trash2, Unlock, Users, X } from "lucide-react";
-import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, photoUrls, fixUrl } from "../lib/shoot";
+import { ArrowUp, BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, FolderHeart, Footprints, ImagePlus, Link2, Loader2, Lock, MapPin, Play, Plus, RefreshCw, Shirt, Sun, Trash2, Unlock, Users, X } from "lucide-react";
+import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, photoUrls, fixUrl, onSettingsChange, watchKeys } from "../lib/shoot";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
 import { newId } from "../lib/id";
@@ -20,7 +20,8 @@ import { signedUrls } from "../lib/refClips";
 import { ClothTabs, GuideSections } from "./BaseGuide";
 import { ClipBig } from "./LoopClip";
 import PoseBoard from "./PoseBoard";
-import { poseSetsFor, poseCards, shotsOf } from "../lib/poses";
+import { posePool, shotsOf, POSES_KEY } from "../lib/poses";
+import PosesTab from "./PosesTab";
 import { ShootRun, CodiPoseSheet } from "./PoseRun";
 
 /**
@@ -278,6 +279,36 @@ function StudioPick({ value, onChange, studios }) {
 // 모음 자체는 촬영 › 모델 레퍼런스에서 만든다(settings model_refs). 예전 '모델에게 보낼 가이드'(guidePhotos·guideLinks)는 있던 촬영에서만 접어서 보인다.
 
 /** model_refs 읽기만 — 화면을 열 때 한 번 */
+// 11/17 촬영 관리 › 포즈 — settings shoot_poses (lib/poses '포즈 칸'). 포즈판·모델 시트·포즈 탭이 같이 쓴다
+function usePoses(online) {
+  const [lib, setLib] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("poclo_" + POSES_KEY) || "null") || { items: [] };
+    } catch {
+      return { items: [] };
+    }
+  });
+  const [loaded, setLoaded] = useState(false);
+  const load = useCallback(
+    () =>
+      loadKey(POSES_KEY, online)
+        .then((x) => (setLib(x || { items: [] }), setLoaded(true)))
+        .catch(() => setLoaded(true)),
+    [online],
+  );
+  useEffect(() => {
+    load();
+    const off = onSettingsChange((k) => k === POSES_KEY && load());
+    const stop = watchKeys([POSES_KEY], load, 6000);
+    return () => {
+      off();
+      stop();
+    };
+  }, [load]);
+  const change = useCallback(async (fn) => setLib(await changeKey(POSES_KEY, online, fn)), [online]);
+  return { lib, loaded, change };
+}
+
 function useRefList(online) {
   const [v, setV] = useState(() => {
     try {
@@ -659,7 +690,7 @@ function GuideBox({ s, set, online }) {
 }
 
 /** 모델에게 보낼 촬영 시트 링크 */
-function SheetLink({ day, set, codis, d, online, refs }) {
+function SheetLink({ day, set, codis, d, online, refs, poses }) {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const today = dayKey();
@@ -681,11 +712,11 @@ function SheetLink({ day, set, codis, d, online, refs }) {
     setErr("");
     try {
       if (what === "make") {
-        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths, refs.items);
+        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths, poses.lib);
         const token = await createSheet(online, data);
         set({ sheetToken: token, sheetAt: new Date().toISOString(), sheetClosed: false });
       } else if (what === "refresh") {
-        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths, refs.items);
+        const data = await buildSheet(day, codis, d, online, (day.refSetIds || []).map((id) => refs.items.find((x) => x.id === id)).filter(Boolean), refs.cloths, poses.lib);
         await updateSheet(online, day.sheetToken, { data, closed: false });
         set({ sheetAt: new Date().toISOString(), sheetClosed: false });
       } else if (what === "close") {
@@ -871,14 +902,14 @@ function OutdoorBox({ s, set, poseList }) {
             <p className="mt-1 text-[11px] text-stone-400">코디마다 고르기는 아래 '포즈 판', 촬영 날엔 위 '촬영 시작'으로 폰에서 넘겨 봐요. 초록 = OK(모델 시트에 감).</p>
           </>
         ) : (
-          <p className="text-[11px] text-stone-400">이 촬영 포즈 모음이 없어요 — 아래 포즈 판 위 '포즈 모음'에서 바깥 포즈 모음을 골라요.</p>
+          <p className="text-[11px] text-stone-400">이 촬영 포즈 모음이 없어요 — 아래 포즈 판 위 '포즈 카테고리'에서 '바깥'을 고르거나, 위 '포즈' 탭에서 바깥 포즈를 만들어요.</p>
         )}
       </div>
     </div>
   );
 }
 
-function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onRemove, onClose, onOpen, onAddSibling, canRemove, startRun }) {
+function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSave, onRemove, onClose, onOpen, onAddSibling, canRemove, startRun }) {
   const [s, setS] = useState(start);
   const latest = useRef(s);
   const timer = useRef(null);
@@ -924,7 +955,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
   const look = lookOf(lb.all, s.on);
   const nLook = lookItems(look).length;
   // 11/16 포즈 판 — 이 촬영 포즈 카드(lib/poses). 코디 줄 · 스타일링 창에 고른 포즈를 같이 보여 준다
-  const poseList = poseCards(poseSetsFor(s, refs.items)).cards;
+  const poseList = posePool(s, poses.lib).cards;
   const [run, setRun] = useState(!!startRun);
   const [codiPose, setCodiPose] = useState(null); // 이 코디 포즈 창 — 코디 id
   /** 스타일링 창 칩 — 카드마다(이 코디만 사진은 한 칩), 다 찍었으면 done */
@@ -1107,7 +1138,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
           </div>
 
           {/* 11/16 포즈 판 — 줄 = 이 촬영 코디, 칸 = 포즈 카드(모델 레퍼런스). 옷 종류로 추천을 깔아 두고 세원은 바꾸기만 */}
-          <PoseBoard s={s} set={set} codis={codis} d={d} refs={refs} online={online} onRun={() => setRun(true)} onCodi={(c) => setCodiPose(c.id)} />
+          <PoseBoard s={s} set={set} codis={codis} d={d} poses={poses} online={online} onRun={() => setRun(true)} onCodi={(c) => setCodiPose(c.id)} />
 
           {/* 10/27 세원: "찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" → 11/6 "스타일링에 찍을 컷, 찍을 영상 없애도 될 듯"(코디마다 칸도 뺌).
               예전에 촬영 전체로 적어 둔 것만 아래에 남겨 보여 준다(지우면 사라짐). */}
@@ -1123,7 +1154,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
             </div>
           )}
 
-          <SheetLink day={s} set={set} codis={codis} d={d} online={online} refs={refs} />
+          <SheetLink day={s} set={set} codis={codis} d={d} online={online} refs={refs} poses={poses} />
 
           <div>
             <div className="mb-1 text-xs font-medium text-stone-500">메모 (우리만 봐요)</div>
@@ -1223,6 +1254,23 @@ export default function ShootDays({ d, online }) {
   const days = useDays(online);
   const studios = useStudios(online);
   const refs = useRefList(online);
+  const poses = usePoses(online);
+  // 11/17 위 탭 — 촬영 · 포즈 (세원: "촬영 관리 안에 소싱관리처럼 '포즈' 버튼") — 기기마다 기억
+  const [tab, setTabRaw] = useState(() => {
+    try {
+      return localStorage.getItem("poclo_shoot_days_view") === "poses" ? "poses" : "days";
+    } catch {
+      return "days";
+    }
+  });
+  const setTab = (t) => {
+    setTabRaw(t);
+    try {
+      localStorage.setItem("poclo_shoot_days_view", t);
+    } catch {
+      /* 시크릿 창 */
+    }
+  };
   const [open, setOpen] = useState(null); // 날짜 또는 기록 id
   const [styling, setStyling] = useState(null); // 촬영일 미정 코디 id
   const [guide, setGuide] = useState(false); // 모델 기본 가이드 고치기 창
@@ -1259,7 +1307,7 @@ export default function ShootDays({ d, online }) {
     // 같은 날 같은 모델 촬영이 또 있으면(잘못 두 번 만든 것일 수 있음) 알려 준다
     const dup = r.rec && r.n > 1 && who && days.items.some((x) => x.id !== rec.id && x.on === r.on && (x.models || []).filter(Boolean).join(", ") === who);
     // 11/16 밤 촬영 날 화면 바로 열기 — 오늘·다가오는 촬영에 코디와 포즈 카드가 있으면
-    const canRun = r.on >= today && r.codis.length > 0 && poseCards(poseSetsFor(rec.on ? rec : { on: r.on }, refs.items)).cards.length > 0;
+    const canRun = r.on >= today && r.codis.length > 0 && posePool(rec.on ? rec : { on: r.on }, poses.lib).cards.length > 0;
     const openIt = () => setOpen(r.rec || blank(r.on));
     return (
       <div
@@ -1335,21 +1383,45 @@ export default function ShootDays({ d, online }) {
           <button type="button" onClick={() => setGuide(true)} className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800">
             <BookOpen size={16} /> 모델 기본 가이드
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              const t = new Date();
-              t.setDate(t.getDate() + 1);
-              const x = blank(dayKey(t));
-              days.save(x);
-              setOpen(x);
-            }}
-            className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
-          >
-            <Plus size={16} /> 새 촬영
-          </button>
+          {tab === "days" && (
+            <button
+              type="button"
+              onClick={() => {
+                const t = new Date();
+                t.setDate(t.getDate() + 1);
+                const x = blank(dayKey(t));
+                days.save(x);
+                setOpen(x);
+              }}
+              className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white"
+            >
+              <Plus size={16} /> 새 촬영
+            </button>
+          )}
         </div>
       </div>
+      {/* 11/17 위 탭 — 소싱 관리('소싱 회차 · 쇼만마 코디 노트')와 같은 모양 */}
+      <div className="mb-4 flex gap-1 rounded-xl bg-stone-100 p-1 text-sm">
+        {[
+          ["days", "촬영", <CalendarDays key="i" size={15} />],
+          ["poses", "포즈", <Footprints key="i" size={15} />],
+        ].map(([k, label, icon]) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={tab === k}
+            onClick={() => setTab(k)}
+            className={"flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 font-medium " + (tab === k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-800")}
+          >
+            {icon} {label}
+            {k === "poses" && (poses.lib.items || []).length > 0 && <span className={tab === k ? "text-rose-700" : "text-stone-400"}>{(poses.lib.items || []).length}</span>}
+          </button>
+        ))}
+      </div>
+      {tab === "poses" ? (
+        <PosesTab poses={poses} d={d} online={online} />
+      ) : (
+      <>
       {days.msg && (
         <p className="mb-3 flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {days.msg}
@@ -1375,6 +1447,8 @@ export default function ShootDays({ d, online }) {
           )}
         </>
       )}
+      </>
+      )}
       {open && openDay && (
         <DaySheet
           key={openDay.id}
@@ -1384,6 +1458,7 @@ export default function ShootDays({ d, online }) {
           rows={days.items}
           studios={studios}
           refs={refs}
+          poses={poses}
           onOpen={(r) => setOpen(r)}
           onAddSibling={addSibling}
           canRemove={days.items.some((x) => x.id === openDay.id)}

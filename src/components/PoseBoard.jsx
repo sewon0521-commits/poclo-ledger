@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, X } from "lucide-react";
 import { md, codiItems, codiName } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
-import { isPoseSet, poseSetsFor, poseCards, picksOf, shotsOf, setPoseOk, RECO_RULE } from "../lib/poses";
+import { posePool, poolCats, poseCatsOf, OUTDOOR_CAT, picksOf, shotsOf, setLibOk, RECO_RULE } from "../lib/poses";
 import { Photo } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
 import { SectionEdit } from "./ModelGuideEditor";
@@ -14,6 +14,7 @@ import { SectionEdit } from "./ModelGuideEditor";
  *   코디 이름을 누르면 그 코디 포즈 창(PoseRun.CodiPoseSheet) — 카드에서 사진 한 장만 골라 쓰기 · 이 코디만 사진 넣기.
  *   촬영 날엔 '촬영 시작'(PoseRun.ShootRun) — 폰에서 코디 하나씩, 포즈 사진을 크게 넘기며 찍음 ✓. (11/16 밤 세원: "포즈판 개어려운데 이거 보면서 촬영할 수 있는 거 맞아?")
  *   칸 머리를 누르면 포즈 카드(사진 · 설명 · 고른 이유 · 원본) + 세원 확인(OK · 확인 전 · 빼기) + 사진 고치기(빼기 · 더하기 · 순서).
+ *   11/17 포즈 카드는 촬영 관리 › 포즈(settings shoot_poses — lib/poses '포즈 칸')에서 온다. 위 칩 = 이 촬영에 깔 카테고리(촬영 줄 poseCats).
  */
 
 const cell = "flex h-11 w-full items-center justify-center rounded-lg text-xs font-bold transition";
@@ -73,7 +74,7 @@ function PoseCardSheet({ k, urlOf, setFresh, onOk, onEdit, onClose, d, online })
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {edit ? (
             <>
-              <p className="text-xs text-stone-500">사진 위 × = 빼기 · ← → = 순서 · '새 사진'이나 칸 위에서 Ctrl+V · 끌어다 놓기 = 더하기. 고친 건 모든 코디·모델 레퍼런스에 같이 바뀌어요.</p>
+              <p className="text-xs text-stone-500">사진 위 × = 빼기 · ← → = 순서 · '새 사진'이나 칸 위에서 Ctrl+V · 끌어다 놓기 = 더하기. 고친 건 촬영 관리 › 포즈와 모든 촬영에 같이 바뀌어요.</p>
               <SectionEdit x={sec} i={0} n={1} online={online} urlOf={urlOf} onChange={change} onFresh={setFresh} d={d} bare titleHint="포즈 이름" />
             </>
           ) : (
@@ -152,22 +153,24 @@ function PoseCardSheet({ k, urlOf, setFresh, onOk, onEdit, onClose, d, online })
   );
 }
 
-export default function PoseBoard({ s, set, codis, d, refs, online, onRun, onCodi }) {
+export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCodi }) {
   const [err, setErr] = useState("");
   const [open, setOpen] = useState(null); // 포즈 카드 id
-  const allSets = refs.items.filter(isPoseSet);
-  const sets = poseSetsFor(s, refs.items);
-  const { cards, hidden } = poseCards(sets);
+  const lib = poses.lib;
+  const cats = poseCatsOf(lib);
+  const pool = poolCats(s, lib);
+  const { cards, hidden } = posePool(s, lib);
   const { urlOf } = usePoseUrls(
     cards.map((k) => k.sec.photos?.[0]?.key),
     online,
     d,
   );
   const cardUrls = usePoseUrls(open ? ([...cards, ...hidden].find((k) => k.id === open)?.sec.photos || []).map((p) => p.key) : [], online, d);
-  if (!allSets.length) return null;
+  if (!(lib?.items || []).length) return null;
 
-  const setIds = sets.map((x) => x.id);
-  const flipSet = (id) => set({ poseSetIds: setIds.includes(id) ? setIds.filter((x) => x !== id) : [...setIds, id] });
+  // 카테고리 칩 — 누르면 이 촬영에 깔 카테고리를 고른 것(poseCats)으로 굳힌다. '처음대로' = 바깥 촬영이면 바깥, 아니면 바깥 뺀 전부
+  const flipCat = (c) => set({ poseCats: (pool.includes(c) ? pool.filter((x) => x !== c) : [...pool, c]).filter((x) => x === "" || cats.includes(x)) });
+  const nOf = (c) => (lib.items || []).filter((x) => x.pose && x.pose.ok !== false && (cats.includes(x.cloth) ? x.cloth : "") === c).length;
   const order = cards.map((k) => k.id);
   const tap = (c, k) => {
     const { ids } = picksOf(s, c, cards, d.items);
@@ -180,16 +183,13 @@ export default function PoseBoard({ s, set, codis, d, refs, online, onRun, onCod
   };
   const okChange = (id, ok) => {
     setErr("");
-    refs.change(setPoseOk(id, ok)).catch((e) => setErr(e.message || "포즈 확인을 저장하지 못했어요."));
+    poses.change(setLibOk(id, ok)).catch((e) => setErr(e.message || "포즈 확인을 저장하지 못했어요."));
   };
-  // 카드 사진 고치기 — 모델 레퍼런스 그 칸을 통째로(사진·설명·이름), 서버 최신 위에서. pose(확인·고른 이유)는 서버 것 그대로
+  // 카드 사진 고치기 — 포즈 칸 그 카드를 통째로(사진·설명·이름), 서버 최신 위에서. pose(확인·고른 이유)는 서버 것 그대로
   const editCard = (sec) => {
     setErr("");
-    refs
-      .change((v) => ({
-        ...v,
-        items: (v.items || []).map((x) => ((x.sections || []).some((y) => y.id === sec.id) ? { ...x, sections: x.sections.map((y) => (y.id === sec.id ? { ...y, ...sec, pose: y.pose } : y)) } : x)),
-      }))
+    poses
+      .change((v) => ({ ...v, items: (v.items || []).map((y) => (y.id === sec.id ? { ...y, ...sec, pose: y.pose } : y)) }))
       .catch((e) => setErr(e.message || "포즈 사진을 저장하지 못했어요."));
   };
   const rows = codis.map((c) => ({ c, ...shotsOf(s, c, cards, d.items) }));
@@ -219,26 +219,34 @@ export default function PoseBoard({ s, set, codis, d, refs, online, onRun, onCod
         PC에서 미리 골라 두는 판이에요. 칸을 눌러 카드째 넣고 빼요 · 점선 칸 = 추천({RECO_RULE}). <b className="font-semibold text-stone-700">코디 이름</b>이나 '이 코디만'을 누르면 카드에서 사진 한 장만 고르거나 이 코디만 쓰는 사진을 넣어요.
         촬영 날엔 '촬영 시작'으로 폰에서 코디 하나씩 넘겨 봐요.
       </p>
-      {/* 어느 포즈 모음을 쓸지 — 처음엔 촬영일과 같은 날짜로 만든 모음 */}
+      {/* 11/17 이 촬영에 깔 포즈 카테고리 — 처음엔 바깥 촬영이면 '바깥', 스튜디오면 '바깥' 뺀 전부. 카드는 촬영 관리 › 포즈 */}
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-medium text-stone-400">포즈 모음</span>
-        {allSets.map((x) => {
-          const on = setIds.includes(x.id);
+        <span className="text-[11px] font-medium text-stone-400">포즈 카테고리</span>
+        {[...cats, ...(nOf("") ? [""] : [])].map((c) => {
+          const on = pool.includes(c);
           return (
             <button
-              key={x.id}
+              key={c || "none"}
               type="button"
               aria-pressed={on}
-              onClick={() => flipSet(x.id)}
-              className={"flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium " + (on ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-rose-300")}
+              onClick={() => flipCat(c)}
+              className={
+                "flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium " +
+                (on ? (c === OUTDOOR_CAT ? "border-sky-600 bg-sky-600 text-white" : "border-rose-700 bg-rose-700 text-white") : "border-stone-200 bg-white text-stone-600 hover:border-rose-300")
+              }
             >
-              {on && <Check size={11} />} {x.title || "이름 없는 모음"}
+              {on && <Check size={11} />} {c || "미분류"} <span className={on ? "opacity-70" : "text-stone-400"}>{nOf(c)}</span>
             </button>
           );
         })}
+        {Array.isArray(s.poseCats) && (
+          <button type="button" onClick={() => set({ poseCats: null })} className="text-[11px] text-stone-400 underline-offset-2 hover:text-rose-700 hover:underline" title={s.outdoor?.on ? "바깥 촬영이라 '바깥'만" : "스튜디오 촬영이라 '바깥' 뺀 전부"}>
+            처음대로
+          </button>
+        )}
       </div>
       {!cards.length ? (
-        <p className="rounded-lg bg-stone-50 px-3 py-3 text-xs text-stone-500">위에서 이 촬영에 쓸 포즈 모음을 골라요. 포즈 카드는 촬영 › 모델 레퍼런스에 있어요.</p>
+        <p className="rounded-lg bg-stone-50 px-3 py-3 text-xs text-stone-500">위에서 이 촬영에 쓸 포즈 카테고리를 골라요. 포즈 카드는 촬영 관리 › 포즈에서 만들어요.</p>
       ) : !codis.length ? (
         <p className="rounded-lg bg-stone-50 px-3 py-3 text-xs text-stone-500">
           이 촬영 코디가 아직 없어요 — 신상 관리 › 코디에서 촬영일을 {s.on ? md(s.on) : "이날"}로 넣으면 여기 줄이 생기고, 옷 종류로 포즈를 먼저 골라 둬요.

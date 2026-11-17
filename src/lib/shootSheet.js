@@ -28,7 +28,7 @@ import { GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "./modelGuide";
 import { CLOTHS, clothGroups, clothKey, withCloth } from "./modelRefs";
 import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
-import { poseSetsFor, poseCards, shotsOf } from "./poses";
+import { posePool, shotsOf } from "./poses";
 
 const LOCAL = "poclo_shoot_sheets";
 export const SHEET_DAYS = 7; // 사진 서명 주소가 살아 있는 날
@@ -167,13 +167,14 @@ async function peekOf(codis, d, online) {
  * 그날 시트 내용 — day = shoot_days 한 줄, codis = 그날 코디, d = 신상 관리 데이터(items·refs·urls)
  * 이 기기 저장 모드면 사진은 화면에 이미 있는 주소(d.urls)를 쓴다.
  */
-export async function buildSheet(day, codis, d, online, refSets = [], cloths = CLOTHS, allSets = []) {
+export async function buildSheet(day, codis, d, online, refSets = [], cloths = CLOTHS, poseLib = null) {
   // 10/29 모델 기본 가이드 — 모든 시트에 같이(lib/modelGuide). 한 번도 저장 안 했으면 기본 동선
   const g = await loadKey(GUIDE_KEY, online, null).catch(() => null);
   const baseItems = filledItems(g ? g.items : DEFAULT_GUIDE.items);
   // 11/16 포즈 판 — 코디마다 찍을 포즈 사진(lib/poses shotsOf): 세원이 OK 한 카드의 고른 사진 + 이 코디만 사진. 확인 전 · 뺀 포즈는 안 간다
   //   11/16 밤 방향성: "모델 촬영 시트를 코디별로 묶어서, 그 코디에서 찍을 셀카 포즈 사진이 크게 보이게"
-  const allCards = poseCards(poseSetsFor(day, allSets)).cards;
+  // 11/17 포즈 카드는 촬영 관리 › 포즈(settings shoot_poses)에서 — 이 촬영 포즈판과 같은 카드
+  const allCards = posePool(day, poseLib).cards;
   const shotList = codis.map((c) => (allCards.length || day.poseOwn?.[c.id]?.length ? shotsOf(day, c, allCards, d.items).shots.filter((x) => x.ok) : []));
   const keys = [...sectionKeys(baseItems), ...shotList.flat().map((x) => x.key).filter((k) => k && !k.startsWith("data:"))];
   for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);

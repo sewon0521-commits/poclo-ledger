@@ -16,6 +16,44 @@ export const FITS = ["전신", "아우터", "상의", "하의"];
 /** 포즈 카드가 든 모음인지 */
 export const isPoseSet = (x) => (x?.sections || []).some((s) => s.pose);
 
+// ---------------------------------------------------------------- 포즈 칸 (11/17)
+// 세원(방향성 창): "모델 레퍼런스 칸에 넣은 건 그대로 냅두고, 촬영 관리 안에 소싱 관리처럼 '포즈' 버튼 만들어서 포즈 카테고리 모델 레퍼런스처럼 나누고
+//   거기서 제대로 만들어서 포즈판에서 고를 수 있게"
+// → settings shoot_poses {cats:[카테고리 이름 — 순서 = 탭 순서], items:[포즈 카드]}. 카드 = 모델 레퍼런스 칸과 같은 모양
+//   {id, title, text, photos:[{key, cap, refId}], cloth(카테고리), pose:{code, fits, why, src, ok}, from?, createdAt} — 고치기는 같은 SectionEdit.
+//   모델 레퍼런스의 P1~P16 은 같은 id · 같은 사진 파일로 복사했다(11/17) — 그래서 촬영 줄의 posePicks · poseDone 이 끊기지 않는다. 모델 레퍼런스 쪽은 그대로.
+// 포즈판에 깔리는 카드(촬영마다) = 촬영 줄 poseCats(고른 카테고리) — 없으면 바깥 촬영이면 '바깥', 스튜디오면 '바깥' 뺀 전부(카테고리 없는 카드 포함).
+//   예전 poseSetIds(모델 레퍼런스 모음 고르기)는 이제 안 본다.
+export const POSES_KEY = "shoot_poses";
+export const OUTDOOR_CAT = "바깥";
+export const POSE_CATS = ["전신", "아우터", "상의", "하의", "앉은컷", OUTDOOR_CAT];
+export const poseCatsOf = (lib) => (lib?.cats?.length ? lib.cats : POSE_CATS);
+const codeNo = (s) => Number(String(s?.pose?.code || s?.title || "").match(/^P(\d+)/i)?.[1] || 1e6);
+/** 카드 순서 — P 번호 순, 번호 없는 건 뒤(만든 순) */
+export const byCode = (a, b) => codeNo(a) - codeNo(b) || String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+/** 이 촬영 포즈판의 카테고리 — 고른 게 있으면 그것, 없으면 바깥/스튜디오로 */
+export function poolCats(day, lib) {
+  const cats = poseCatsOf(lib);
+  if (Array.isArray(day?.poseCats)) return day.poseCats.filter((c) => cats.includes(c) || c === "");
+  return day?.outdoor?.on ? [OUTDOOR_CAT] : ["", ...cats.filter((c) => c !== OUTDOOR_CAT)];
+}
+/** 이 촬영 포즈판 카드 — poseCards 와 같은 모양({cards, hidden}) */
+export function posePool(day, lib) {
+  const want = new Set(poolCats(day, lib));
+  const cats = poseCatsOf(lib);
+  const items = (lib?.items || []).filter((s) => s.pose && want.has(cats.includes(s.cloth) ? s.cloth : "")).sort(byCode);
+  return poseCards([{ id: POSES_KEY, sections: items }]);
+}
+/** 포즈 칸 카드 하나의 확인(OK · 확인 전 · 뺌) */
+export const setLibOk = (id, ok) => (v) => ({
+  ...v,
+  items: (v.items || []).map((s) => {
+    if (s.id !== id) return s;
+    const { ok: _was, ...rest } = s.pose || {};
+    return { ...s, pose: ok === undefined ? rest : { ...rest, ok } };
+  }),
+});
+
 /** 이 촬영의 포즈 모음 — 고른 게 있으면 그것, 없으면 촬영일과 poseOn 이 같은 모음 */
 export function poseSetsFor(day, sets) {
   const all = (sets || []).filter(isPoseSet);
