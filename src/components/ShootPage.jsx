@@ -1431,6 +1431,7 @@ function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
   const rs = c.refIds.map((id) => d.refs.find((x) => x.id === id)).filter(Boolean);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [lineCopied, setLineCopied] = useState(false);
   const auto = codiAuto(c, d.items);
   const title = codiName(c, d.items);
   const custom = !!c.name && c.name !== NONAME;
@@ -1469,7 +1470,26 @@ function CodiCard({ c, d, onEdit, onShow, onShot, onUndo, onRename }) {
               <span className="line-clamp-2 text-sm font-semibold text-stone-900 hover:text-rose-800">{title}</span>
             </button>
           )}
-          {custom && auto && <span className="block truncate text-[11px] text-stone-400">{auto}</span>}
+          {/* 11/17 세원 "이름 밑에 '유니 울 라운드 니트 + 기모에그긴팔T + …' 이거 버튼 하나만 누르면 복사" — 모든 코디 카드. 이름을 안 지었으면 제목이 곧 상품 줄 */}
+          {auto && (
+            <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              {custom && <span className="min-w-0 truncate text-[11px] text-stone-400">{auto}</span>}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (await copyPlain(auto)) {
+                    setLineCopied(true);
+                    setTimeout(() => setLineCopied(false), 1500);
+                  }
+                }}
+                title={`복사: ${auto}`}
+                aria-label="상품 이름 줄 복사"
+                className={"flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium " + (lineCopied ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-stone-200 text-stone-500 hover:border-rose-300 hover:text-rose-800")}
+              >
+                {lineCopied ? <Check size={11} /> : <Copy size={11} />} {lineCopied ? "복사했어요" : custom ? "복사" : "상품 이름 복사"}
+              </button>
+            </span>
+          )}
           <span className="block truncate text-[11px] text-stone-500">
             {c.shootDate ? `${md(c.shootDate)} 촬영` : "촬영일 미정"}
             {c.uploadOn && ` · ${md(c.uploadOn)} 업로드`} · 상품 {its.length} · 참고 사진 {rs.length}
