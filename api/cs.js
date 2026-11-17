@@ -50,9 +50,11 @@ const DraftSchema = z.object({
       z.object({
         key: z.string().describe("초안 속 빈칸 표시 그대로. 예: '[입고 예정일]'"),
         hint: z.string().describe("무엇을 적는지 짧게. 예: '예: 10월 16일 출고 예정'"),
+        options: z.array(z.string()).describe("세원이 한 번 눌러 고를 수 있는 채울 말 2~4개(빈칸 자리에 그대로 들어가 문장이 자연스럽게 — 조사까지). 예: ['잘 늘어나는 편이에요', '적당히 늘어나요', '많이 늘어나진 않아요']. 정말 짐작도 안 되면 빈 배열"),
       }),
     )
-    .describe("초안에 남긴 빈칸들(초안에 실제로 있는 것만)"),
+    .describe("초안에 남긴 빈칸들(초안에 실제로 있는 것만, 많아야 2개)"),
+  closing: z.boolean().describe("손님의 마지막 말(들)이 감사·인사·맞장구뿐이라 답이 꼭 필요 없으면 true(그때 draft 는 아주 짧은 한 줄, 빈칸 없음). 물어본 게 있거나 할 일이 있으면 false"),
   draft: z.string().describe("고객에게 보낼 답변 초안. 모르는 사실은 [빈칸]"),
 });
 
@@ -91,8 +93,8 @@ function templatesText(t = {}) {
   lines.push(`[CS 지침서 — 가장 먼저 지킬 것]
 ${String(guide).slice(0, 6000)}
 `);
-  if (t.greeting) lines.push(`인사: ${t.greeting}`);
-  if (t.closing) lines.push(`맺음: ${t.closing}`);
+  if (t.greeting) lines.push(`인사(그 방 첫 답·게시판 답에만): ${t.greeting}`);
+  if (t.closing) lines.push(`맺음(쓸 때만 — 대화 중간이면 빼고, 매번 붙이지 말 것. 11/17 세원 "너무 형식적"): ${t.closing}`);
   if (t.tone) lines.push(`말투: ${t.tone}`);
   if (t.policy) lines.push(`\n[우리 쇼핑몰 규정 — 사실은 여기 적힌 것만]\n${String(t.policy).slice(0, 4000)}`);
   for (const x of (Array.isArray(t.items) ? t.items : []).slice(0, 20)) {
@@ -110,6 +112,22 @@ function examplesText(xs) {
   const NL = String.fromCharCode(10);
   const out = xs.slice(0, 3).map((x, i) => [`예시 ${i + 1}${x.type ? ` (${x.type})` : ""}`, "AI 초안:", String(x.before || "").slice(0, 700), "세원이 고쳐서 보낸 글:", String(x.after || "").slice(0, 700)].join(NL));
   return ["", "--- 세원이 예전에 고친 예 — 고친 글의 말투·길이·내용 방향을 따를 것(사실은 이번 문의 것만) ---", out.join(NL + NL)].join(NL);
+}
+
+/** 11/17 세원 "내 기존 대화를 보고 너가 학습해서" — 세원·지원이 채널에서 실제로 보낸 말(앞 손님 말과 함께) */
+function voiceText(xs) {
+  if (!Array.isArray(xs) || !xs.length) return "";
+  const NL = String.fromCharCode(10);
+  const out = xs.slice(0, 10).map((v) => `${v.ctx ? `손님: ${String(v.ctx).slice(0, 120)}${NL}` : ""}우리: ${String(v.text || "").slice(0, 280)}`);
+  return ["", "--- 세원·지원이 실제로 보낸 말 — 이 말투·길이·부호(..!! · ㅠㅠ · ㅎㅎ)를 따라 쓸 것(내용·사실은 이번 문의 것만) ---", out.join(NL + NL)].join(NL);
+}
+
+/** 11/17 세원 "빈칸 답변 초안에 넣어두고 하는 것도 불편" — 같은 상품에 전에 보낸 답(실측·늘어남·소재 같은 사실은 다시 써도 됨) */
+function answersText(xs) {
+  if (!Array.isArray(xs) || !xs.length) return "";
+  const NL = String.fromCharCode(10);
+  const out = xs.slice(0, 5).map((r) => [`[${r.at || ""} ${r.product || ""}${r.type ? ` · ${r.type}` : ""}]`, r.q ? `손님: ${String(r.q).slice(0, 200)}` : "", `우리가 보낸 답: ${String(r.a || "").slice(0, 600)}`].filter(Boolean).join(NL));
+  return ["", "--- 같은 상품에 전에 보낸 답 — 상품 사실(실측·늘어남·소재·두께·비침 등)은 그대로 다시 써도 됨(빈칸 대신). 날짜·재고·주문 상태는 옛날 것이라 쓰지 말 것 ---", out.join(NL + NL)].join(NL);
 }
 
 function orderText(o) {
@@ -145,10 +163,15 @@ const PROMPT = `너는 여성 의류 쇼핑몰 '포클로'(ppoclo.kr, 카페24 �
 5. 고객 개인정보(전화번호·주소 전체)를 답변에 다시 적지 않는다.
 6. 문의가 여러 가지를 물으면 하나씩 다 답한다.
 7. 캡처 사진이면 고객 말풍선과 우리(포클로) 말을 구분하고, 아직 답하지 않은 고객 말에 답한다.
-8. 채널에 맞게: 게시판(카페24)은 인사·맺음을 갖춘 정중한 글, 채팅(카톡·톡톡·DM)은 짧은 문단 2~5개.
+8. 채널에 맞게: 게시판(카페24)은 인사로 시작하는 글(그래도 짧게), 채팅(카톡·톡톡·DM)은 채팅처럼 — 한두 줄로 되면 한두 줄, 길어도 짧은 문단 3개 안쪽.
+   '세원·지원이 실제로 보낸 말'이 같이 오면 그 말투·길이·부호를 따른다. 지침서 '말투'가 틀의 예시 답변보다 먼저다.
 9. caution 에는 사람이 놓치면 사고 날 것만(배송비 부담 주체, 이미 반품 접수됐는지, 오래된 문의 등). check 는 답하기 전 확인할 사실.
-10. 그 방에서 우리가 이미 답한 적이 있으면 틀의 인사('안녕하세요 고객님 … 포클로입니다')는 빼고 바로 본론부터 쓴다. 첫 답일 때만 인사.
-11. 유형 '주문 취소'는 고객 말에 '취소'·'환불'이 직접 있을 때만. 옵션·색상·수량·주소를 바꾸고 싶다는 건 '주문 변경'(취소가 아니다).`;
+10. 그 방에서 우리가 이미 답한 적이 있으면 틀의 인사('안녕하세요 고객님 … 포클로입니다')도, 맺음('더 궁금하신 점 있으시면 …')도 빼고 본론만 쓴다. 첫 답일 때만 인사.
+11. 유형 '주문 취소'는 고객 말에 '취소'·'환불'이 직접 있을 때만. 옵션·색상·수량·주소를 바꾸고 싶다는 건 '주문 변경'(취소가 아니다).
+12. 빈칸은 되도록 0개, 많아야 2개. 같이 온 주문 정보·재고·입고 예정·상품 페이지·'같은 상품에 전에 보낸 답'으로 채울 수 있는 건 빈칸 없이 쓴다.
+    그래도 남는 빈칸은 options 에 세원이 한 번 눌러 고를 말을 2~4개 준다(빈칸 자리에 그대로 들어가도 문장이 자연스럽게 — 빈칸 바로 뒤 글자와 겹치지 않게).
+13. 우리가 이미 답한 뒤 손님이 '감사합니다·넵·좋은 하루 되세요'처럼 고맙다·알겠다는 말만 보냈으면 closing=true, draft 는 한 줄(예: '감사합니다 고객님 🤍'). 물어본 게 하나라도 있으면 false.
+14. 묻지 않은 참고 문단(모델 키·교환 안내·적립금 등)은 덧붙이지 않는다 — 세원이 고친 기록에서 늘 지운 부분.`;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -186,6 +209,9 @@ export default async function handler(req, res) {
     text.trim() ? `--- 고객 문의 ---\n${text}` : "--- 고객 문의는 아래 캡처 사진 ---",
     orderText(body.order),
     examplesText(body.examples),
+    voiceText(body.voice),
+    answersText(body.answers),
+    body.memo ? `\n--- 상품 메모 (상품등록 때 적은 실측·착용정보·소재 — 사실로 써도 됨) ---\n${String(body.memo).slice(0, 1500)}` : "",
     body.replied ? "이 방에서 우리가 이미 답한 적이 있어요 — 인사말 없이 바로 본론부터(세원 11/11)" : "",
     body.type && body.type !== "주문 변경·취소" ? `세원이 고른 답변 유형:${String(body.type).slice(0, 20)} — 이 유형 틀(순서·예시)대로 쓸 것` : "",
     body.eta ? ["", "--- 옵션별 출고 가능 (거래처 입고 예정 + 재고, 11/10~) — 섞여 있으면 부분 배송 안내('가능한 것부터 먼저 보내 드릴까요?'), 날짜는 범위 그대로·확정처럼 쓰지 말 것, 배송비 말은 하지 말 것 ---", String(body.eta).slice(0, 1500)].join(String.fromCharCode(10)) : "",
@@ -217,8 +243,10 @@ ${String(body.stock).slice(0, 1500)}` : "",
     // '[1+1]' · '[MD추천]' 같은 상품명 머리말은 빈칸이 아니다(11/10 강다인 초안에서 [1+1] 이 빈칸으로 잡혀 보내기가 막힘)
     const notBlank = (m) => /^\[[\d+\s]+\]$/.test(m) || /추천|할인|얼리윈터|BEST|NEW/i.test(m);
     // 초안에 실제로 있는 빈칸만
-    const blanks = (out.blanks || []).filter((b) => b?.key && out.draft.includes(b.key) && !notBlank(b.key));
-    for (const m of out.draft.match(/\[[^\]\n]{1,24}\]/g) || []) if (!notBlank(m) && !blanks.some((b) => b.key === m)) blanks.push({ key: m, hint: "" });
+    const blanks = (out.blanks || [])
+      .filter((b) => b?.key && out.draft.includes(b.key) && !notBlank(b.key))
+      .map((b) => ({ ...b, options: [...new Set((b.options || []).map((o) => String(o || "").trim()).filter(Boolean))].slice(0, 4) }));
+    for (const m of out.draft.match(/\[[^\]\n]{1,24}\]/g) || []) if (!notBlank(m) && !blanks.some((b) => b.key === m)) blanks.push({ key: m, hint: "", options: [] });
     return res.status(200).json({ ...out, blanks, _cost: costOf(r.usage) });
   } catch (err) {
     const status = err?.status;

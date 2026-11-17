@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
-import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
+import { loadKey, changeKey, upsert, remove, onSettingsChange, watchKeys } from "../lib/shoot";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, closingOf, closerChips, answerRow, answersFor, voiceFor, ANSWERS_MAX, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
 import DelayPage from "./DelayPage";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -71,6 +71,8 @@ function applyDraft(x, r) {
     blanks: r.blanks || [],
     fills,
     dups: [],
+    // 11/17 손님 말이 감사·맞장구뿐이면 AI 가 closing — 작은 카드(답 안 하고 넘기기 / 짧은 답)
+    closing: r.closing ? { text: lastThem(x), at: new Date().toISOString(), by: "ai" } : null,
     draft: r.draft || "",
     aiDraft: r.draft || "", // 11/10 고친 것 학습 — 세원이 고친 뒤 보낸 글과 비교
     confirmed: false,
@@ -81,7 +83,8 @@ function applyDraft(x, r) {
   };
 }
 
-const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = null) => ({
+const lastThem = (x) => (threadOf(x).filter((m) => m.from === "them").slice(-1)[0]?.text || "").slice(0, 120);
+const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = null, voice = null, answers = null) => ({
   channel: x.channel,
   customer: x.customer,
   title: x.title,
@@ -92,6 +95,8 @@ const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = nul
   stock: stockFor(stock, inbound, orderLines(x), [x.product?.name]).text || undefined, // 11/11 넥스트팩 재고 + 입고 예정(상품의 모든 옵션) — 빈칸 없이 바로 답하게
   templates: tpl,
   examples: pickExamples(learn, x), // 세원이 예전에 고친 초안 → 고친 글 (같은 유형 먼저)
+  voice: voiceFor(voice, x), // 11/17 세원·지원이 채널에서 실제로 보낸 말 — 말투·길이를 따라 쓰게
+  answers: answersFor(answers, x), // 11/17 같은 상품에 전에 보낸 답 — 실측·늘어남 같은 사실을 빈칸 대신 다시 쓰게
   type: x.type || undefined, // 세원이 고른 '답변 유형' — 그 틀대로
   eta: etaText(inbound, stock, orderLines(x)) || undefined, // 11/10 옵션별 출고 가능(거래처 입고 예정 + 재고) — 부분 배송 안내
   replied: threadOf(x).some((m) => m.from === "us" && m.who !== "자동") || undefined, // 11/11 세원 "이미 답변을 했던 상태면 인삿말은 생략" — 카톡·톡톡 자동 인사·부재중은 답으로 안 침
@@ -105,6 +110,8 @@ function useCs(online) {
   const [worker, setWorker] = useState(null);
   const [stock, setStock] = useState(null);
   const [learn, setLearn] = useState(null);
+  const [voice, setVoice] = useState(null); // 11/17 말투 모음(settings cs_voice)
+  const [answers, setAnswers] = useState(null); // 11/17 같은 상품에 전에 보낸 답(settings cs_answers)
   const [inbound, setInbound] = useState(null);
   const [npay, setNpay] = useState(null); // 11/11 지연 안내 기록(네이버 발송지연·지연 문자) — 문의 카드에 '지연 안내 보냄'
   const [sms, setSms] = useState(null);
@@ -125,6 +132,8 @@ function useCs(online) {
         if (!alive) return;
         loadKey("stock", online, null).then((x) => alive && setStock(x)).catch(() => {});
         loadKey("cs_learn", online, { items: [] }).then((x) => alive && setLearn(x)).catch(() => {});
+        loadKey("cs_voice", online, { items: [] }).then((x) => alive && setVoice(x)).catch(() => {});
+        loadKey("cs_answers", online, { items: [] }).then((x) => alive && setAnswers(x)).catch(() => {});
         loadKey("inbound_eta", online, { items: [] }).then((x) => alive && setInbound(x)).catch(() => {});
         loadKey("npay_delay", online, { items: [] }).then((x) => alive && setNpay(x)).catch(() => {});
         loadKey("delay_sms", online, { items: [] }).then((x) => alive && setSms(x)).catch(() => {});
@@ -170,10 +179,15 @@ function useCs(online) {
     const t = setInterval(tick, 15000);
     const vis = () => !document.hidden && (tick(), loadInbox());
     document.addEventListener("visibilitychange", vis);
+    // 11/17 세원 "최신화가 바로바로" — 다른 ERP 화면(지원·폰)이 고친 문의도 바로: 방송 + 화면이 보일 때 4초마다 updated_at 만
+    const off1 = onSettingsChange((k) => k === "cs_inbox" && loadInbox());
+    const off2 = watchKeys(["cs_inbox"], loadInbox, 4000);
     return () => {
       alive = false;
       clearInterval(t);
       document.removeEventListener("visibilitychange", vis);
+      off1();
+      off2();
     };
   }, [online, loadInbox]);
 
@@ -232,7 +246,49 @@ function useCs(online) {
     },
     [online],
   );
-  return { inbox, tpl, worker, stock, learn, inbound, npay, sms, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend, learnFrom };
+  /** 11/17 보내거나 복사해서 처리한 답 → 같은 상품 다음 문의 초안에 (settings cs_answers) */
+  const rememberAnswer = useCallback(
+    async (x, text) => {
+      const row = answerRow(x, text);
+      if (!row) return;
+      const next = await changeKey("cs_answers", online, (v) => ({ ...v, items: [row, ...(v.items || []).filter((r) => r.id !== row.id)].slice(0, ANSWERS_MAX) })).catch(() => null);
+      if (next) setAnswers(next);
+    },
+    [online],
+  );
+  /** 11/17 짧은 답 칩을 고른 횟수 — 많이 고른 게 맨 앞 (settings cs_voice.closers) */
+  const countCloser = useCallback(
+    async (text) => {
+      const next = await changeKey("cs_voice", online, (v) => ({ ...v, closers: { ...(v.closers || {}), [text]: ((v.closers || {})[text] || 0) + 1 } })).catch(() => null);
+      if (next) setVoice(next);
+    },
+    [online],
+  );
+  /** 11/17 짧은 답 한 번에 — 그 문의만 '보낼 목록' + 바로 [보내기] (세원 버튼 한 번) */
+  const quickSend = useCallback(
+    async (x, text) => {
+      const at = new Date().toISOString();
+      const patch = { status: "sending", final: text, draft: text, blanks: [], fills: {}, confirmed: true, approvedAt: at, sendAskedAt: at, error: "" };
+      setInbox((l) => l.map((y) => (y.id === x.id ? { ...y, ...patch } : y)));
+      const next = await changeKey("cs_inbox", online, (v) => ({ ...v, items: (v.items || []).map((y) => (y.id === x.id && !["sent", "sending"].includes(y.status) ? { ...y, ...patch } : y)) }));
+      setInbox(next.items || []);
+      await changeKey("cs_queue", online, (v) => ({ ...v, items: [...(v.items || []).filter((j) => !(j.kind === "send" && j.id === x.id)), { id: x.id, kind: "send", at }] }));
+    },
+    [online],
+  );
+  /** 11/17 마무리 인사만 온 문의 여러 건 — 답 안 하고 처리 완료로 한 번에 */
+  const skipMany = useCallback(
+    async (ids) => {
+      const set = new Set(ids);
+      const at = new Date().toISOString();
+      const patch = (y) => ({ ...y, status: "done", doneAt: at, final: "", basis: ((y.basis || "") + " · 마무리 인사 — 답 안 함").replace(/^ · /, "") });
+      setInbox((l) => l.map((y) => (set.has(y.id) ? patch(y) : y)));
+      const next = await changeKey("cs_inbox", online, (v) => ({ ...v, items: (v.items || []).map((y) => (set.has(y.id) && ["new", "drafting", "ready", "error"].includes(y.status || "new") ? patch(y) : y)) }));
+      setInbox(next.items || []);
+    },
+    [online],
+  );
+  return { inbox, tpl, worker, stock, learn, voice, answers, inbound, npay, sms, loaded, loadInbox, saveItem, dropItem, saveTpl, enqueue, bulkSend, learnFrom, rememberAnswer, countCloser, quickSend, skipMany };
 }
 
 function ChannelBadge({ k, className = "" }) {
@@ -378,11 +434,13 @@ function CsInbox({ products = [], D, online }) {
   const approvedList = D.inbox.filter((x) => x.status === "approved" && canSend(x.channel));
   const sendReady = approvedList.filter((x) => pcState(w, x.channel)?.ok);
   const sendBlocked = approvedList.filter((x) => !pcState(w, x.channel)?.ok);
+  const closingList = D.inbox.filter((x) => inTab(x, "todo") && closingOf(x, threadOf(x)));
+  const kakaoStop = w.channels?.kakao?.stop || null; // 11/17 카카오에서 제한·경고·이상한 화면 → 사무실 PC 가 카톡 읽기·보내기를 멈춤
   const sendAll = async () => {
     if (!sendReady.length) return;
     const byCh = {};
     for (const x of sendReady) byCh[channelOf(x.channel).label] = (byCh[channelOf(x.channel).label] || 0) + 1;
-    const lines = Object.entries(byCh).map(([k, n]) => `${k} ${n}건`).join(" · ");
+    const lines = Object.entries(byCh).map(([k, n]) => `${k} ${n}건`).join(" · ") + (sendReady.some((x) => x.channel === "kakao") ? `\n(카톡은 ${kakaoWait(w.channels?.kakao?.next)})` : "");
     if (!window.confirm(`${sendReady.length}건을 보낼까요?
 ${lines}
 
@@ -481,6 +539,42 @@ ${lines}
         })}
       </div>
 
+      {tab === "todo" && closingList.length > 0 && (
+        <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
+          <div className="min-w-0 flex-1 text-sm text-emerald-950">
+            <b>마무리 인사만 온 문의 {closingList.length}건</b>
+            <span className="ml-2 text-xs text-emerald-800">{closingList.map((x) => x.customer || "고객").join(" · ")} — 감사·맞장구라 답 안 해도 돼요</span>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!window.confirm(`마무리 인사만 온 ${closingList.length}건을 답 안 하고 '처리 완료'로 옮길까요?`)) return;
+              await D.skipMany(closingList.map((x) => x.id));
+              setMsg(`${closingList.length}건을 답 안 하고 넘겼어요.`);
+            }}
+            className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+          >
+            전부 답 안 하고 넘기기
+          </button>
+        </section>
+      )}
+      {kakaoStop && (
+        <p className="flex flex-wrap items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-900 ring-1 ring-rose-200">
+          <AlertTriangle size={14} className="shrink-0" /> <b>카톡 읽기·보내기 멈춤</b> {kakaoStop.why || ""}
+          {kakaoStop.at ? ` · ${when(kakaoStop.at)}` : ""} — 카카오비즈니스 화면을 세원이 직접 확인한 뒤 다시 켜요
+          <button
+            type="button"
+            onClick={async () => {
+              if (!window.confirm("카카오비즈니스 화면을 확인했어요? 카톡 읽기·보내기를 다시 켤까요?")) return;
+              await changeKey("cs_state", online, (v) => ({ ...(v || {}), kakaoStop: null, kakaoResumedAt: new Date().toISOString() }), {});
+              setMsg("카톡을 다시 켰어요 — 다음 읽기 차례부터 돌아요.");
+            }}
+            className="ml-auto rounded-lg border border-rose-300 bg-white px-2.5 py-1 font-semibold text-rose-800"
+          >
+            카톡 다시 켜기
+          </button>
+        </p>
+      )}
       {tab === "approved" && approvedList.length > 0 && (
         <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50/60 p-3">
           <div className="min-w-0 flex-1 text-sm text-sky-950">
@@ -533,7 +627,11 @@ ${lines}
                   <span className="mt-1 flex items-center gap-1.5 text-[11px] text-stone-500">
                     {x.orderNo && <span className="shrink-0 font-mono text-stone-600">{x.orderNo}</span>}
                     <span className="min-w-0 truncate">{shortGoods(x) || (x.summary || x.title || "").slice(0, 30)}</span>
-                    {x.type && <span className="ml-auto shrink-0 rounded-md bg-stone-100 px-1.5 py-0.5 font-medium text-stone-600">{x.type}</span>}
+                    {inTab(x, "todo") && closingOf(x, threadOf(x)) ? (
+                      <span className="ml-auto shrink-0 rounded-md bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700">마무리 인사</span>
+                    ) : (
+                      x.type && <span className="ml-auto shrink-0 rounded-md bg-stone-100 px-1.5 py-0.5 font-medium text-stone-600">{x.type}</span>
+                    )}
                   </span>
                 </button>
               </li>
@@ -823,6 +921,60 @@ function CancelBox({ v, D, pcOn }) {
   );
 }
 
+// ------------------------------------------------------------------ 마무리 말 카드 (11/17)
+
+/** 카톡은 사무실 PC 가 카톡 읽기 차례(10~19시 30분마다)에 한꺼번에 보낸다(세원 11/17) */
+function kakaoWait(next) {
+  const t = next ? new Date(next) : null;
+  const hm = t && !isNaN(t) ? `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}` : "";
+  return `카톡은 다음 읽기 차례${hm ? `(${hm}쯤)` : ""}에 사무실 PC가 보내요 · 10~19시 30분마다`;
+}
+
+function ClosingBox({ v, clo, D, auto, kakaoNext, onSkip, onOwn, onMsg, save }) {
+  const [busy, setBusy] = useState("");
+  const chips = closerChips(D.voice, clo.by === "ai" ? v.draft : "");
+  const pick = async (text) => {
+    setBusy(text);
+    try {
+      D.countCloser(text);
+      if (auto) {
+        await D.quickSend(v, text);
+        onMsg(v.channel === "kakao" ? `'${text}' 보낼게요 — ${kakaoWait(kakaoNext)}` : `'${text}' 보내는 중이에요 — 사무실 PC가 바로 보내요.`);
+      } else {
+        const ok = await copyText(text);
+        if (ok) {
+          save({ status: "done", final: text, doneAt: new Date().toISOString() }, true);
+          onMsg(`'${text}' 복사했어요 — ${channelOf(v.channel).label} 채팅창에 붙여넣어 주세요. '처리 완료'로 옮겼어요.`);
+        }
+      }
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <section className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3.5">
+      <div className="text-sm text-emerald-950">
+        <b>손님이 마무리 인사를 보냈어요</b> — 답 안 해도 돼요
+        <p className="mt-0.5 truncate text-xs text-emerald-800">「{clo.text}」</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={onSkip} disabled={!!busy} className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">
+          답 안 하고 넘기기
+        </button>
+        <span className="text-[11px] text-emerald-800">또는 짧은 답 {auto ? "바로 보내기" : "복사"}:</span>
+        {chips.map((t) => (
+          <button key={t} type="button" onClick={() => pick(t)} disabled={!!busy} className="flex items-center gap-1 rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-sm text-emerald-900 hover:border-emerald-500 disabled:opacity-50">
+            {busy === t ? <Loader2 size={13} className="animate-spin" /> : auto ? <Send size={12} /> : <Copy size={12} />} {t}
+          </button>
+        ))}
+      </div>
+      <button type="button" onClick={onOwn} className="text-xs font-medium text-emerald-800 underline-offset-2 hover:underline">
+        직접 답 쓰기
+      </button>
+    </section>
+  );
+}
+
 // ------------------------------------------------------------------ 문의 하나
 
 function Detail({ x, D, pcOn, onMsg, bare = false }) {
@@ -832,6 +984,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
   const [instruct, setInstruct] = useState("");
   const [copied, setCopied] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
+  const [writeOwn, setWriteOwn] = useState(false); // 마무리 카드에서 '직접 답 쓰기'
   const timer = useRef(null);
   // 다른 데서 바뀌면(PC 가 보냄 등) 따라간다 — 내가 고치는 중인 칸(초안·빈칸·메모·확인)은 그대로
   useEffect(() => {
@@ -855,6 +1008,9 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
   // 초안 칸을 직접 고치면 그때 채운 말이 글에 들어가고(bakeFills) 그 빈칸 칸은 닫힌다.
   const shown = sentLike && v.final ? v.final : text;
   const liveBlanks = (v.blanks || []).filter((b) => String(v.draft || "").includes(b.key));
+  // 11/17 세원 "고객님이 감사인사를 보내면 답변 안 하고 이모티콘만" — 마무리 말 카드(답 안 하고 넘기기 / 짧은 답)
+  const clo = !sentLike && !writeOwn && ["new", "drafting", "ready", "error"].includes(v.status || "new") ? closingOf(v, threadOf(v)) : null;
+  const kakaoNext = D.worker?.channels?.kakao?.next || "";
   const stuck = (v.dups || []).filter((c) => c && shown.includes(c)); // 글에 들어간 겹침 — 고칠 때까지 경고
   const auto = canSend(v.channel); // 사무실 PC 가 보내 주는 채널(카페24 API · 어사이드)
   const chName = channelOf(v.channel).label;
@@ -864,7 +1020,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
     setBusy("draft");
     setErr("");
     try {
-      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }, D.stock, D.learn, D.inbound));
+      const r = await draftApi(requestOf(v, D.tpl, { previous: v.draft || undefined, instruct: instruct.trim() || undefined }, D.stock, D.learn, D.inbound, D.voice, D.answers));
       const next = applyDraft(v, r);
       setV(next);
       await D.saveItem(next);
@@ -884,6 +1040,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       setV((p) => ({ ...p, ...patch }));
       await D.saveItem({ id: x.id, ...patch, draft: v.draft, fills: v.fills, basis: v.basis, confirmed: true });
       D.learnFrom(v, text);
+      D.rememberAnswer(v, text);
       onMsg("보낼 목록에 넣었어요 — 다 확인한 뒤 '보낼 준비'에서 [한꺼번에 보내기]를 눌러 주세요.");
     } finally {
       setBusy("");
@@ -899,6 +1056,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
       setV((p) => ({ ...p, ...patch }));
       await D.saveItem({ id: x.id, ...patch, draft: v.draft, fills: v.fills, basis: v.basis, confirmed: v.confirmed });
       D.learnFrom(v, text);
+      D.rememberAnswer(v, text);
       onMsg(`복사했어요 — ${channelOf(v.channel).label} 채팅창에 붙여넣어 보내 주세요. '처리 완료'로 옮겼어요.`);
     }
   };
@@ -1042,6 +1200,9 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
         </div>
       )}
 
+      {clo && <ClosingBox v={v} clo={clo} D={D} auto={auto} kakaoNext={kakaoNext} onSkip={() => (save({ status: "done", doneAt: new Date().toISOString(), final: "", basis: ((v.basis || "") + " · 마무리 인사 — 답 안 함").replace(/^ · /, "") }, true), onMsg("답 안 하고 넘겼어요 — '처리 완료'로 옮겼어요."))} onOwn={() => setWriteOwn(true)} onMsg={onMsg} save={save} />}
+
+      {!clo && (
       <section className="space-y-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-stone-900">답변 초안</span>
@@ -1083,6 +1244,21 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
                     placeholder={b.hint || "채워 주세요"}
                     className={FIELD + (dups.length ? " border-amber-400 bg-amber-50" : val.trim() ? "" : " border-amber-300 bg-amber-50/40")}
                   />
+                  {/* 11/17 세원 "빈칸 넣어두고 하는 것도 불편" — AI 가 낸 채울 말 2~4개, 한 번 누르면 채워짐 */}
+                  {!sentLike && (b.options || []).length > 0 && (
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      {b.options.map((o) => (
+                        <button
+                          key={o}
+                          type="button"
+                          onClick={(e) => (e.preventDefault(), save({ fills: { ...(v.fills || {}), [b.key]: o } }))}
+                          className={"rounded-full border px-2 py-0.5 text-[11px] " + (val === o ? "border-rose-600 bg-rose-600 text-white" : "border-stone-200 bg-white text-stone-700 hover:border-rose-300")}
+                        >
+                          {o}
+                        </button>
+                      ))}
+                    </span>
+                  )}
                   {dups.map((o) => (
                     <span key={o.side + o.core} className="mt-0.5 flex items-start gap-1 text-[11px] leading-snug text-amber-800">
                       <AlertTriangle size={12} className="mt-px shrink-0" />
@@ -1158,8 +1334,9 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
         )}
         {err && <p className="text-xs text-rose-700">{err}</p>}
       </section>
+      )}
 
-      {!sentLike ? (
+      {clo ? null : !sentLike ? (
         <footer className="space-y-3 border-t border-stone-100 pt-3">
           <label className="flex cursor-pointer items-start gap-2 text-sm text-stone-700">
             <input type="checkbox" checked={!!v.confirmed} onChange={(e) => save({ confirmed: e.target.checked }, true)} disabled={!v.draft} className="mt-0.5 accent-rose-700" />
@@ -1202,7 +1379,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
               </>
             ) : v.status === "sending" ? (
               <>
-                <Loader2 size={15} className="animate-spin text-sky-700" /> {pcOn ? `사무실 PC가 ${chName}로 보내는 중이에요` : `사무실 PC가 켜지면 ${chName}로 보내요`}
+                <Loader2 size={15} className="animate-spin text-sky-700" /> {v.channel === "kakao" ? kakaoWait(kakaoNext) : pcOn ? `사무실 PC가 ${chName}로 보내는 중이에요` : `사무실 PC가 켜지면 ${chName}로 보내요`}
               </>
             ) : (
               <>
@@ -1298,7 +1475,7 @@ function AddSheet({ init, D, products, onClose, onAdded }) {
       status: "drafting",
     };
     try {
-      const r = await draftApi({ ...requestOf(base, D.tpl, {}, D.stock, D.learn, D.inbound), images });
+      const r = await draftApi({ ...requestOf(base, D.tpl, {}, D.stock, D.learn, D.inbound, D.voice, D.answers), images });
       const item = applyDraft(base, r);
       await D.saveItem(item);
       // 주문번호가 있으면 사무실 PC 가 카페24 주문을 찾아 붙인다(배송 상태·송장)

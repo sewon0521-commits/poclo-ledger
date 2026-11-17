@@ -28,8 +28,9 @@ export const CHANNELS = [
   { k: "cafe24_qna", label: "카페24 상품 Q&A", short: "Q&A", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-sky-50 text-sky-800 ring-sky-200" },
   { k: "cafe24_consult", label: "카페24 1:1 상담", short: "1:1 상담", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
   { k: "npay", label: "네이버페이 주문형 문의", short: "N페이", via: "aside", pc: "npay", tone: "bg-green-50 text-green-800 ring-green-200" },
-  // 11/10 세원 "카카오는 혹시 모르니까 카카오만 버튼 안 눌리게" — 카톡은 보내기 없음(초안 복사해서 세원이 채널 채팅창에 직접). 읽기만 어사이드
-  { k: "kakao", label: "카카오톡 채널", short: "카톡", via: "aside", pc: "kakao", noSend: true, tone: "bg-yellow-50 text-yellow-900 ring-yellow-200" },
+  // 11/10 세원 "카카오만 버튼 안 눌리게"(복사만) → 11/17 세원 "카톡도 보내주되 내가 답장 보내기를 누르면 30분 단위로 모아서" —
+  // [한꺼번에 보내기]로 맡긴 카톡 답은 사무실 PC 가 카톡 읽기 차례(10~19시 30분마다)에 한꺼번에 보낸다(batch). 일부러 넣는 기다림 없음.
+  { k: "kakao", label: "카카오톡 채널", short: "카톡", via: "aside", pc: "kakao", batch: true, tone: "bg-yellow-50 text-yellow-900 ring-yellow-200" },
   { k: "naver", label: "네이버 톡톡", short: "톡톡", via: "aside", pc: "talk", tone: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
   { k: "insta", label: "인스타 DM", short: "인스타", via: "paste", tone: "bg-rose-50 text-rose-800 ring-rose-200" },
   { k: "phone", label: "전화·문자", short: "전화", via: "paste", tone: "bg-stone-100 text-stone-700 ring-stone-200" },
@@ -45,7 +46,7 @@ export const pcState = (worker, k) => (worker?.channels || {})[channelOf(k).pc] 
 export const PC_CHANNELS = [
   ["cafe24", "카페24 게시판"],
   ["npay", "네이버페이"],
-  ["kakao", "카톡 채널 (읽기만)"],
+  ["kakao", "카톡 채널"],
   ["talk", "톡톡"],
 ];
 
@@ -176,11 +177,16 @@ export function productUrl(v) {
 export const DEFAULT_GUIDE = `# 포클로 CS 지침서
 AI가 답변 초안을 쓸 때 맨 먼저 읽어요. 세원이 고치면 다음 초안부터 바뀌어요.
 
-## 말투
-- 부드러운 존댓말(~요), 두세 줄씩 끊기. 이모지는 맺음에 🤍 하나 정도. 🙏 는 쓰지 않아요.
-- 과한 사과·변명은 빼고, 고객 불편은 먼저 받아 줘요("기다리게 해 드려 죄송해요" 한 줄이면 충분).
-- 고객이 자세히 알려 주면 "꼼꼼하게 알려주셔서 감사합니다 ☺️"처럼 짧게.
-- ⭐ 인사말(세원 11/11): 그 방에서 저희가 **이미 답한 적이 있으면** "안녕하세요 고객님 포클로입니다"는 빼고 바로 본론부터. 첫 답일 때만 인사를 넣어요.
+## 말투 (⭐ 11/17 세원 "너무 형식적으로 하고 있어서" — 세원·지원이 실제로 보낸 말 기준)
+- 채팅(카톡·톡톡)은 **채팅처럼** 써요. 한두 줄로 되는 건 한두 줄. 실제로 보낸 말:
+  "네!! 안감 스웨이드 재질입니당 ㅎㅎㅎ" · "고객님!! 오늘 출고돼요!!!!ㅎㅎㅎ" · "안녕하세요 고객님!!! 성함 한번만 부탁드려욧!!" ·
+  "넵!!! 확인했습니다!" · "저희 오늘 제품 도착했구 검수 후 바로 환불드리겠습니다!!!" · "아 고객님 저희 상품이 들어오긴했는데 그냥 취소 해드리면 될까요~??"
+- 끝은 '..!!' · '!!' · '~?' 를 자연스럽게, 미안할 땐 'ㅠㅠ', 좋은 소식엔 'ㅎㅎ'. 같은 부호를 줄마다 되풀이하지는 않아요.
+- ⭐ 대화 중간(그 방에서 저희가 이미 답한 적이 있으면): 인사("안녕하세요 고객님 :) 포클로입니다 🤍")도, "더 궁금하신 점 있으시면 편하게 말씀 주세요. 감사합니다 🤍" 맺음도 **빼요**. 본론만.
+- 첫 답·게시판 답만 인사 한 줄로 시작해요. 맺음 문장을 매번 붙이지 않아요 — 할 말이 끝났으면 🤍 하나로 충분.
+- 손님이 물은 것만 답해요. 묻지 않은 참고 문단(모델 키·교환 안내·적립금 등)은 덧붙이지 않아요(세원이 고친 기록에서 늘 지운 부분).
+- 손님 말이 짧으면 저희도 짧게. 미안한 일이면 "기다리게 해 드려 죄송해요ㅠㅠ" 한 줄 — 과한 사과·변명은 빼요. 🙏 는 쓰지 않아요.
+- 손님이 고맙다·좋은 하루만 보냈으면 답이 꼭 필요하지 않아요(세원 11/17 — 답 안 하거나 🤍 하나).
 
 ## 사실은 확인된 것만
 - 주문 상태·송장·출고일 = 같이 온 주문 정보에 있을 때만. 없으면 [주문 상태 확인]·[송장번호] 빈칸.
@@ -190,6 +196,8 @@ AI가 답변 초안을 쓸 때 맨 먼저 읽어요. 세원이 고치면 다음 
 - 금액·혜택 = 쇼핑몰 규정에 적힌 것만. 교환·반품 배송비는 [교환·반품 배송비] 빈칸.
 - ⭐ 빈칸은 **저희가 확인해서 채울 사실**(출고일·송장·재고·금액)에만 써요(세원 11/11). 손님이 알려 주셔야 하는 것(환불 계좌·연락처·주소·사진·사이즈 등)은
   빈칸이 아니라 **묻는 문장**으로 써요. 예: "환불받으실 계좌(은행·계좌번호·예금주)를 알려 주시면 바로 환불해 드릴게요."
+- ⭐ 빈칸은 되도록 0개(많아야 2개, 세원 11/17 "빈칸 넣어두고 하는 것도 불편"). 같이 온 주문·재고·입고 예정·상품 페이지·**같은 상품에 전에 보낸 답**으로 답할 수 있으면 빈칸 없이 써요.
+  예: 588 볼륨 조거 허리 = "최대로 늘렸을 때 10~15cm 정도 더 늘어나요, 고무줄은 잘 늘어나는 편이에요"(11/17 세원 답).
 
 ## 경우별 기준
 - ⭐ 주문을 못 찾을 때(세원 11/12): 같이 온 주문 정보가 없고 손님 말에도 성함·주문번호·연락처가 없어 주문을 특정할 수 없으면,
@@ -535,4 +543,85 @@ export function delaysFor(x, npay, sms) {
   const orders = ordersOfItem(x);
   for (const s of sms?.items || []) if (s.status === "sent" && orders.includes(s.orderNo)) out.push({ kind: "지연 문자", at: s.sentAt || "" });
   return out;
+}
+
+// ------------------------------------------------------------------ 마무리 말 (11/17 세원)
+// "내가 답변을 마무리하면 고객님이 감사인사를 보내거나 하면 거기에 대한 답변을 안하고 이모티콘만 보내던 하면 되는데 그걸 하나하나 할때마다 세팅을 해야하니까"
+// 우리가 답한 뒤 손님이 '감사합니다·넵·좋은 하루 되세요'만 보냈으면 → AI 초안 없이 작은 카드: [답 안 하고 넘기기] / 짧은 답 칩.
+// 사무실 PC(chat_collect.is_closing)와 같은 규칙. 물음표가 있거나, 우리 마지막 말이 질문이었으면(손님 '네' = 대답) 마무리로 안 본다.
+const CLOSE_WORDS = [
+  "감사합니다", "감사해요", "감사드려요", "감사드립니다", "감사합니당", "감사해용", "감사요", "감사", "고맙습니다", "고마워요", "고맙습니당", "고마워용",
+  "알겠습니다", "알겠어요", "알겠습니당", "알겠어용", "알았어요", "알았습니다",
+  "확인했습니다", "확인했어요", "확인했습니당", "확인했어용", "확인완료",
+  "잘받았습니다", "잘받았어요", "잘받았어용",
+  "좋은하루되세요", "좋은하루보내세요", "좋은주말되세요", "좋은주말보내세요", "즐거운주말되세요", "즐거운주말보내세요", "즐거운하루되세요", "행복한하루되세요",
+  "주말잘보내세요", "좋은밤되세요", "좋은저녁되세요", "편안한밤되세요", "즐거운", "행복한", "좋은", "하루", "주말", "되세요", "보내세요",
+  "수고하세요", "수고하셨습니다", "수고많으세요", "수고많으셨어요", "수고많으십니다",
+  "기다릴게요", "기다리겠습니다", "기다릴게용", "기다릴께요",
+  "잘부탁드려요", "잘부탁드립니다", "잘부탁드릴게요", "잘부탁드릴께요",
+  "답변", "빠른", "친절한", "친절하게", "상세하게", "자세하게", "알려주셔서", "말씀해주셔서", "말씀주셔서", "안내해주셔서", "신경써주셔서", "챙겨주셔서",
+  "너무", "정말", "진짜", "완전", "항상", "사장님", "이모티콘", "스티커",
+  "넵넵", "네네", "넵", "넹", "네", "녜", "옙", "예", "응", "웅", "앗", "아", "오", "와",
+].sort((a, b) => b.length - a.length);
+/** 손님 말 하나가 '고마워요·넵·좋은 하루' 같은 마무리 말뿐인가 */
+export function isClosingText(t) {
+  const s = String(t || "");
+  if (!s.trim() || /[?？]/.test(s) || /\(사진\)/.test(s)) return false;
+  let r = s.replace(/[^가-힣a-zA-Z0-9]/g, "");
+  for (const w of CLOSE_WORDS) r = r.split(w).join("");
+  return /^[요용당여유]{0,2}$/.test(r);
+}
+const realUs = (m) => m?.from === "us" && m.who !== "자동" && m.who !== "알림톡";
+/** 이 문의가 '마무리 말' 카드인가 → {text, at, by} 또는 null. x.closing(PC·AI 가 정한 것)이 먼저, 없으면 대화로 판단 */
+export function closingOf(x, thread) {
+  if (x?.closing && typeof x.closing === "object") return x.closing;
+  const th = Array.isArray(thread) ? thread : Array.isArray(x?.thread) ? x.thread : [];
+  let last = -1;
+  th.forEach((m, i) => realUs(m) && (last = i));
+  if (last < 0) return null;
+  if (/[?？]|까요|실래요/.test(String(th[last].text || ""))) return null; // 우리가 물어본 뒤의 '네'는 대답
+  const fresh = th.slice(last + 1).filter((m) => m.from === "them");
+  if (!fresh.length || !fresh.every((m) => !m.img && !m.menu && isClosingText(m.text))) return null;
+  return { text: fresh.map((m) => m.text).join(" / "), at: fresh[fresh.length - 1].at || "", by: "rule" };
+}
+/** 짧은 답 칩 — 세원이 많이 고른 순(settings cs_voice.closers {글: 횟수}), 기본 셋 */
+export const CLOSERS = ["🤍", "감사합니다 고객님 🤍", "좋은 하루 보내세요 🤍"];
+export function closerChips(voice, extra = "") {
+  const n = voice?.closers || {};
+  const all = [...new Set([extra, ...Object.keys(n), ...CLOSERS].map((t) => String(t || "").trim()).filter(Boolean))];
+  return all.sort((a, b) => (n[b] || 0) - (n[a] || 0) || (a === extra ? -1 : b === extra ? 1 : 0)).slice(0, 4);
+}
+
+// ------------------------------------------------------------------ 같은 상품에 전에 보낸 답 (11/17 세원 "빈칸 답변 초안에 넣어두고 하는 것도 불편")
+// settings cs_answers {items:[{id, at, ch, type, codes[고유네임], product, q(손님 말 요약), a(보낸 글)}]} — 최근 150개.
+// 보내거나 복사해서 처리할 때 저장 → 같은 상품 문의가 오면 초안 서버에 같이 줘서 실측·늘어남 같은 사실을 다시 쓴다(빈칸 대신).
+export const ANSWERS_MAX = 150;
+export function answerRow(x, text) {
+  const a = String(text || "").trim();
+  const codes = codesOfItem(x);
+  if (!a || !codes.length) return null;
+  const q = threadOfLite(x).filter((m) => m.from === "them").slice(-3).map((m) => m.text).join(" / ") || x?.message || x?.title || "";
+  return { id: x.id, at: new Date().toISOString(), ch: x.channel || "", type: x.type || "", codes, product: x.product?.name || "", q: String(q).slice(0, 240), a: a.slice(0, 900) };
+}
+function threadOfLite(x) {
+  return Array.isArray(x?.thread) && x.thread.length ? x.thread : [];
+}
+/** 초안 요청에 같이 보낼 것 — 이 문의 상품과 고유네임이 겹치는 예전 답(최근 5개) */
+export function answersFor(answers, x, n = 5) {
+  const codes = codesOfItem(x);
+  if (!codes.length) return [];
+  return (answers?.items || [])
+    .filter((r) => r.id !== x.id && (r.codes || []).some((c) => codes.includes(c)))
+    .slice(0, n)
+    .map((r) => ({ product: r.product, type: r.type, at: String(r.at || "").slice(0, 10), q: r.q, a: r.a }));
+}
+
+// ------------------------------------------------------------------ 말투 모음 (11/17 세원 "너무 형식적으로 하고 있어서 … 내 기존 대화를 보고 학습해서")
+// settings cs_voice {items:[{id, text(우리가 실제로 보낸 말), ctx(바로 앞 손님 말), ch, at, src: chat|board|learn}], closers:{}, at}
+// 사무실 PC 가 채팅방을 읽을 때 사람(세원·지원)이 쓴 말을 계속 모은다. 초안마다 같은 채널 것 먼저 몇 개 → 초안 서버가 말투·길이를 따라 쓴다.
+export function voiceFor(voice, x, n = 8) {
+  const items = voice?.items || [];
+  const same = items.filter((v) => v.ch === x.channel);
+  const rest = items.filter((v) => v.ch !== x.channel);
+  return [...same, ...rest].slice(0, n).map((v) => ({ ch: v.ch, ctx: String(v.ctx || "").slice(0, 120), text: String(v.text || "").slice(0, 280) }));
 }
