@@ -1200,7 +1200,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
         </div>
       )}
 
-      {clo && <ClosingBox v={v} clo={clo} D={D} auto={auto} kakaoNext={kakaoNext} onSkip={() => (save({ status: "done", doneAt: new Date().toISOString(), final: "", basis: ((v.basis || "") + " · 마무리 인사 — 답 안 함").replace(/^ · /, "") }, true), onMsg("답 안 하고 넘겼어요 — '처리 완료'로 옮겼어요."))} onOwn={() => setWriteOwn(true)} onMsg={onMsg} save={save} />}
+      {clo && <ClosingBox v={v} clo={clo} D={D} auto={auto && !!pcState(D.worker, v.channel)?.ok} kakaoNext={kakaoNext} onSkip={() => (save({ status: "done", doneAt: new Date().toISOString(), final: "", basis: ((v.basis || "") + " · 마무리 인사 — 답 안 함").replace(/^ · /, "") }, true), onMsg("답 안 하고 넘겼어요 — '처리 완료'로 옮겼어요."))} onOwn={() => setWriteOwn(true)} onMsg={onMsg} save={save} />}
 
       {!clo && (
       <section className="space-y-2.5">
