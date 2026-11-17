@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, CalendarDays, Clock, Film, FolderHeart, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt } from "lucide-react";
+import { BookOpen, CalendarDays, Clock, Film, FolderHeart, Image as ImageIcon, Loader2, MapPin, Navigation, Repeat, Shirt, Video } from "lucide-react";
 import { ClothTabs, GuideSections, RefLinks, RefSetHead } from "./BaseGuide";
 import { getSheet, sheetTokenOfHash, SheetError, dayLabel } from "../lib/shootSheet";
 import { BigSlides } from "./ContentBits";
@@ -148,11 +148,81 @@ function CodiCardV3({ c, n, onBig, onClip }) {
   );
 }
 
+// 11/17 밤 포즈 묶음 이름(lib/shootOrder GROUP_NAME 과 같게 — 시트는 따로 받는다)
+const GROUP_WORD = { TOP: "상의", SELFIE: "상의 셀카", BTM: "하의", FULL: "전신", OUTER: "아우터" };
+const CIRCLE = "①②③④⑤⑥⑦⑧⑨";
+
+/** 포즈 사진 줄 — 크게, 옆으로 넘겨요 */
+function ShotStrip({ list, onBig, tight }) {
+  return (
+    <div className={(tight ? "-mx-3 px-3" : "-mx-4 px-4") + " mt-2 flex snap-x gap-2.5 overflow-x-auto pb-1 [scrollbar-width:none]"}>
+      {list.map((x, k) => (
+        <figure key={k} className={(list.length > 1 ? "w-[74%]" : "w-full") + " shrink-0 snap-start"}>
+          <button type="button" onClick={() => onBig(list.map((y) => y.url), k)} className="block w-full overflow-hidden rounded-xl bg-stone-100">
+            <img src={x.url} alt="" loading="lazy" className="aspect-[3/4] w-full object-cover" />
+          </button>
+          <figcaption className="mt-1.5 text-[13px] leading-snug text-stone-800">
+            {x.code && <b className="mr-1 text-rose-700">{x.code}</b>}
+            {x.title}
+            {(x.cap || x.text) && <span className="mt-0.5 block text-xs text-stone-500">{[x.cap, x.text].filter(Boolean).join(" · ")}</span>}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 찍는 순서 (11/17 밤 세원: "벗으면서 찍으면 털 잘 빠지는 옷·주름 잘 지는 옷은 안 좋아서 걍 입으면서 찍어야겠다")
+ * 안쪽 옷부터 겹마다: 입을 옷(작은 사진) → 포즈 사진(묶음 순서) → 영상. 한 번 입은 옷은 벗지 않는다.
+ */
+function StepList({ steps, photos, shots, onBig }) {
+  return (
+    <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50/40 p-3">
+      <div className="text-sm font-bold text-stone-900">찍는 순서</div>
+      <p className="mt-0.5 text-xs text-stone-500">안쪽 옷부터 하나씩 입으면서 찍어요 · 한 번 입은 옷은 다시 벗지 않아요</p>
+      <ol className="mt-2.5 space-y-4">
+        {steps.map((st) => {
+          const list = st.shots.map((k) => shots?.[k]).filter(Boolean);
+          const groups = [];
+          for (const x of list) {
+            const g = GROUP_WORD[x.group] || "포즈";
+            const last = groups[groups.length - 1];
+            if (last && last.g === g) last.n++;
+            else groups.push({ g, n: 1 });
+          }
+          return (
+            <li key={st.n}>
+              <div className="flex items-center gap-2">
+                <span className="text-lg leading-none font-bold text-rose-700">{CIRCLE[st.n - 1] || st.n}</span>
+                <span className="min-w-0 text-[15px] font-bold text-stone-900">{st.label}</span>
+                <span className="ml-auto flex shrink-0 gap-1">
+                  {st.items.map((k) => photos?.[k] && <img key={k} src={photos[k]} alt="" className="aspect-[3/4] w-8 rounded-md bg-stone-100 object-cover" />)}
+                </span>
+              </div>
+              {groups.length > 0 && (
+                <p className="mt-1 text-xs text-stone-600">
+                  {groups.map((x) => `${x.g} ${x.n}장`).join(" → ")} → 영상
+                </p>
+              )}
+              {list.length > 0 && <ShotStrip list={list} onBig={onBig} tight />}
+              <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-white px-2.5 py-2 text-[13px] font-semibold text-rose-800">
+                <Video size={15} className="mt-0.5 shrink-0" /> {st.video}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 /**
  * 찍을 코디 미리 보기 (10/29 밤 세원: "대충 요런 코디 찍는다는 것도 보여 주고 싶은데, 우리가 촬영해서 보내는 건 안 하고 신마 썸네일 작게")
  * 코디마다 상품 사진 한 줄 — 파일 자체가 작은 사진(긴 변 128px, lib/shootSheet peekOf)이라 확대해도 거래처 워터마크가 안 읽힌다. 눌러도 안 커진다.
+ * 11/17 밤부터 찍는 순서(steps)가 있으면 포즈 사진을 겹마다 나눠 보여 준다(예전 시트는 예전 모양).
  */
-function PeekCard({ peek, shots, onBig }) {
+function PeekCard({ peek, shots, steps, onBig }) {
   if (!peek?.length) return null;
   const anyShot = shots?.some((l) => l?.length);
   return (
@@ -175,22 +245,11 @@ function PeekCard({ peek, shots, onBig }) {
                 ))}
               </div>
             )}
-            {/* 11/16 이 코디에서 찍을 포즈 사진 — 크게, 옆으로 넘겨요 */}
-            {shots?.[i]?.length > 0 && (
-              <div className="-mx-4 mt-2.5 flex snap-x gap-2.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-                {shots[i].map((x, k) => (
-                  <figure key={k} className={(shots[i].length > 1 ? "w-[74%]" : "w-full") + " shrink-0 snap-start"}>
-                    <button type="button" onClick={() => onBig(shots[i].map((y) => y.url), k)} className="block w-full overflow-hidden rounded-xl bg-stone-100">
-                      <img src={x.url} alt="" loading="lazy" className="aspect-[3/4] w-full object-cover" />
-                    </button>
-                    <figcaption className="mt-1.5 text-[13px] leading-snug text-stone-800">
-                      {x.code && <b className="mr-1 text-rose-700">{x.code}</b>}
-                      {x.title}
-                      {(x.cap || x.text) && <span className="mt-0.5 block text-xs text-stone-500">{[x.cap, x.text].filter(Boolean).join(" · ")}</span>}
-                    </figcaption>
-                  </figure>
-                ))}
-              </div>
+            {steps?.[i]?.length > 0 ? (
+              <StepList steps={steps[i]} photos={photos} shots={shots?.[i]} onBig={onBig} />
+            ) : (
+              /* 11/16 이 코디에서 찍을 포즈 사진 — 크게, 옆으로 넘겨요 */
+              shots?.[i]?.length > 0 && <ShotStrip list={shots[i]} onBig={onBig} />
             )}
           </li>
         ))}
@@ -375,7 +434,7 @@ export default function SheetPage() {
 
       <PrepCard note={s.note} prep={s.prep} />
 
-      <PeekCard peek={s.peek} shots={s.codiShots} onBig={(urls, at) => setBig({ urls, at })} />
+      <PeekCard peek={s.peek} shots={s.codiShots} steps={s.codiSteps} onBig={(urls, at) => setBig({ urls, at })} />
 
       {/* 10/29 촬영 기본 가이드 — 모든 촬영 공통(동선 · 찍을 영상 · 포즈 …), ERP 촬영 관리 '모델 기본 가이드'에서 쌓아 간다 */}
       {s.base?.length > 0 && (

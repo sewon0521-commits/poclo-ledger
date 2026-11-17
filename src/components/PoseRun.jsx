@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, ImagePlus, Images, Loader2, Pencil, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ImagePlus, Images, Loader2, Pencil, Video, X } from "lucide-react";
 import { codiItems, codiName } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { guidePhoto } from "../lib/modelGuide";
-import { picksOf, shotsOf, flipDone, flipPhoto, flipCard } from "../lib/poses";
+import { picksOf, flipPhoto, flipCard } from "../lib/poses";
+import { runOrder, flipRun, stepLabel, GROUP_NAME } from "../lib/shootOrder";
 import { Photo } from "./ShootBits";
 import { SlideViewer } from "./ContentBits";
 import RefPick from "./RefPick";
@@ -229,7 +230,13 @@ export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose }) {
   );
 }
 
-/** 촬영 날 화면 — 폰 먼저. 코디 하나씩, 포즈 사진 크게, 사진마다 찍음 ✓ */
+const CIRCLE = "①②③④⑤⑥⑦⑧⑨";
+
+/**
+ * 촬영 날 화면 — 폰 먼저. 코디 하나씩, 포즈 사진 크게, 사진마다 찍음 ✓
+ * 11/17 밤 찍는 순서(lib/shootOrder): 안쪽 옷부터 입으면서 — 겹(①②③) 칩 · 겹마다 사진(TOP → SELFIE → BTM / OUTER → FULL) → 그 겹 영상 ✓.
+ *   한 겹 사진을 다 찍으면 다음 겹으로 넘어가지 않고 '영상' 단추가 깜빡인다 → 영상 찍음을 누르면 다음 겹 첫 사진으로.
+ */
 export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const memo = "poclo_run_" + s.id;
   const [ci, setCi] = useState(() => {
@@ -241,11 +248,14 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   });
   const [at, setAt] = useState(0);
   const [jump, setJump] = useState(null);
+  const [pickStep, setPickStep] = useState(null); // 사진 없는 겹 칩을 눌렀을 때만 — 사진을 넘기면 풀린다
   const c = codis[ci];
-  const all = codis.map((x) => shotsOf(s, x, cards, d.items).shots);
-  const shots = all[ci] || [];
+  const all = codis.map((x) => runOrder(s, x, cards, d.items));
+  const { steps, shots } = all[ci] || { steps: [], shots: [] };
   const cur = shots[at];
-  const { urlOf } = usePoseUrls(all.flat().map((x) => x.key), online, d);
+  const si = pickStep ?? cur?.step ?? 1;
+  const step = steps.find((x) => x.n === si) || steps[0];
+  const { urlOf } = usePoseUrls(all.flatMap((r) => r.shots.map((x) => x.key)), online, d);
   useEffect(() => {
     try {
       sessionStorage.setItem(memo, String(ci));
@@ -265,20 +275,44 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const go = (i) => {
     setCi(i);
     setAt(0);
+    setPickStep(null);
+  };
+  const toStep = (n, stamp) => {
+    setPickStep(n);
+    const i = shots.findIndex((x) => x.step === n && !x.done);
+    const j = i >= 0 ? i : shots.findIndex((x) => x.step === n);
+    if (j >= 0) setJump({ i: j, n: stamp });
+  };
+  const onAt = (i) => {
+    if (i !== at) setPickStep(null);
+    setAt(i);
   };
   const flip = () => {
     if (!cur) return;
     const wasDone = cur.done;
-    set(flipDone(s, c, cards, d.items, cur.key));
+    set(flipRun(s, c, cards, d.items, cur.doneKey));
     if (!wasDone) {
-      // 다음 안 찍은 사진으로
+      // 다음 안 찍은 사진으로 — 그 겹 영상을 아직 안 찍었으면 다음 겹으로는 안 넘어간다(영상 단추가 깜빡임)
       const next = shots.findIndex((x, i) => i > at && !x.done);
-      if (next >= 0) setTimeout(() => setJump({ i: next, n: Date.now() }), 250);
+      const st = steps.find((x) => x.n === cur.step);
+      if (next >= 0 && (shots[next].step === cur.step || st?.vidDone)) setTimeout(() => setJump({ i: next, n: Date.now() }), 250);
+    }
+  };
+  const flipVid = () => {
+    if (!step) return;
+    const was = step.vidDone;
+    set(flipRun(s, c, cards, d.items, step.vidKey));
+    if (!was) {
+      const nx = steps.find((x) => x.n > step.n);
+      if (nx) setTimeout(() => toStep(nx.n, Date.now()), 250);
     }
   };
   const nDone = shots.filter((x) => x.done).length;
-  const allDone = shots.length > 0 && nDone === shots.length;
+  const stepDone = (x) => x.vidDone && x.shots.every((y) => y.done);
+  const allDone = steps.length > 0 && steps.every(stepDone);
   const last = ci === codis.length - 1;
+  const stepPhotosDone = step && step.shots.every((x) => x.done);
+  const names = (list) => list.map((x) => x.name).join(" · ");
   return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-white">
       <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 px-3 py-2">
@@ -290,13 +324,13 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
             코디 {ci + 1} <span className="font-normal text-stone-400">/ {codis.length}</span>
           </div>
           <div className="mt-0.5 flex gap-1">
-            {all.map((l, i) => (
+            {all.map((r, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={() => go(i)}
                 aria-label={`코디 ${i + 1}로`}
-                className={"h-1.5 flex-1 rounded-full " + (i === ci ? "bg-rose-700" : l.length && l.every((x) => x.done) ? "bg-emerald-500" : "bg-stone-200")}
+                className={"h-1.5 flex-1 rounded-full " + (i === ci ? "bg-rose-700" : r.steps.length && r.steps.every(stepDone) ? "bg-emerald-500" : "bg-stone-200")}
               />
             ))}
           </div>
@@ -305,15 +339,46 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
           <Pencil size={12} /> 포즈 고치기
         </button>
       </header>
-      <div className="shrink-0 px-3 py-2">
+      <div className="shrink-0 px-3 pt-2">
         <CodiHead c={c} d={d} />
       </div>
+      {/* 겹 칩 — 안쪽 옷부터 입으면서 */}
+      {steps.length > 0 && (
+        <div className="shrink-0 px-3 pt-2 pb-1.5">
+          <div className="flex gap-1.5 overflow-x-auto [scrollbar-width:none]">
+            {steps.map((x) => {
+              const ok = stepDone(x);
+              const on = x.n === step?.n;
+              return (
+                <button
+                  key={x.n}
+                  type="button"
+                  onClick={(e) => toStep(x.n, e.timeStamp + Math.random())}
+                  aria-pressed={on}
+                  className={
+                    "flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap " +
+                    (on ? "bg-rose-700 text-white" : ok ? "bg-emerald-50 text-emerald-700" : "bg-stone-100 text-stone-600")
+                  }
+                >
+                  {ok && !on ? <Check size={12} strokeWidth={3} /> : <span>{CIRCLE[x.n - 1] || x.n}</span>}
+                  {stepLabel(x)}
+                </button>
+              );
+            })}
+          </div>
+          {step && (
+            <p className="mt-1 line-clamp-1 text-[11px] text-stone-500">
+              {step.n === 1 ? "입기" : "더 입기"}: {names(step.add) || "—"} · 한 번 입은 옷은 벗지 않아요
+            </p>
+          )}
+        </div>
+      )}
       {shots.length ? (
         <>
           <div className="relative min-h-0 flex-1 bg-stone-100">
-            <SlideViewer key={c.id} urls={shots.map((x) => urlOf(x.key))} onAt={setAt} jump={jump} expandable className="h-full w-full" />
+            <SlideViewer key={c.id} urls={shots.map((x) => urlOf(x.key))} onAt={onAt} jump={jump} expandable className="h-full w-full" />
             <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
-              {cur?.code} · {at + 1}/{shots.length}
+              {CIRCLE[(cur?.step || 1) - 1]} {GROUP_NAME[cur?.group] || cur?.code} · {at + 1}/{shots.length}
             </span>
             {cur?.done && (
               <span className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white">
@@ -324,6 +389,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
           <div className="shrink-0 space-y-1.5 px-3 pt-2">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-stone-900">
+                {cur?.code && !cur.own && <span className="mr-1 text-rose-700">{cur.code}</span>}
                 {cur?.title}
                 {cur && !cur.ok && <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 text-[10px] font-semibold text-amber-700">확인 전</span>}
               </div>
@@ -331,27 +397,50 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
             </div>
             <div className="flex gap-1 overflow-x-auto pb-1">
               {shots.map((x, i) => (
-                <button key={x.key + i} type="button" onClick={() => setJump({ i, n: Date.now() })} aria-label={`${i + 1}번째 포즈`} className={"relative w-10 shrink-0 overflow-hidden rounded-md " + (i === at ? "ring-2 ring-rose-700" : "")}>
-                  <Photo url={urlOf(x.key)} className="aspect-[3/4] w-full" />
-                  {x.done && (
-                    <span className="absolute inset-0 flex items-center justify-center bg-emerald-600/55 text-white">
-                      <Check size={14} strokeWidth={3} />
-                    </span>
-                  )}
-                </button>
+                <span key={x.doneKey + i} className="flex shrink-0 items-center gap-1">
+                  {i > 0 && x.step !== shots[i - 1].step && <span className="mx-0.5 h-8 w-px bg-stone-300" aria-hidden />}
+                  <button type="button" onClick={() => setJump({ i, n: Date.now() })} aria-label={`${i + 1}번째 포즈`} className={"relative w-10 overflow-hidden rounded-md " + (i === at ? "ring-2 ring-rose-700" : "")}>
+                    <Photo url={urlOf(x.key)} className="aspect-[3/4] w-full" />
+                    {x.done && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-emerald-600/55 text-white">
+                        <Check size={14} strokeWidth={3} />
+                      </span>
+                    )}
+                  </button>
+                </span>
               ))}
             </div>
           </div>
         </>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-stone-50 px-6 text-center text-sm text-stone-500">
-          이 코디에 고른 포즈가 없어요.
+          이 코디에 고른 포즈가 없어요{steps.length ? " — 겹마다 영상만 찍어요" : ""}.
           <button type="button" onClick={() => onCodi(c)} className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white">
             포즈 고르기
           </button>
         </div>
       )}
-      <footer className="flex shrink-0 items-center gap-2 border-t border-stone-200 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+      {/* 그 겹 영상 — 사진을 다 찍으면 깜빡여서 알려 준다 */}
+      {step && (
+        <div className="shrink-0 px-3 pt-1.5">
+          <button
+            type="button"
+            onClick={flipVid}
+            aria-pressed={step.vidDone}
+            className={
+              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold " +
+              (step.vidDone ? "bg-emerald-50 text-emerald-700" : stepPhotosDone ? "animate-pulse bg-amber-100 text-amber-900 ring-2 ring-amber-400" : "bg-stone-100 text-stone-600")
+            }
+          >
+            {step.vidDone ? <Check size={15} strokeWidth={3} className="shrink-0" /> : <Video size={15} className="shrink-0" />}
+            <span className="min-w-0 flex-1">
+              {CIRCLE[step.n - 1]} {step.video}
+            </span>
+            <span className="shrink-0 font-bold">{step.vidDone ? "영상 찍음 · 풀기" : "영상 찍음"}</span>
+          </button>
+        </div>
+      )}
+      <footer className="mt-1.5 flex shrink-0 items-center gap-2 border-t border-stone-200 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
         <button type="button" onClick={() => ci > 0 && go(ci - 1)} disabled={ci === 0} aria-label="앞 코디" className="rounded-xl border border-stone-200 p-3 text-stone-600 disabled:opacity-30">
           <ChevronLeft size={18} />
         </button>

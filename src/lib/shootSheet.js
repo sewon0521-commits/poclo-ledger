@@ -28,7 +28,8 @@ import { GUIDE_KEY, DEFAULT_GUIDE, filledItems } from "./modelGuide";
 import { CLOTHS, clothGroups, clothKey, withCloth } from "./modelRefs";
 import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
-import { posePool, shotsOf } from "./poses";
+import { posePool } from "./poses";
+import { runOrder, stepLabel } from "./shootOrder";
 
 const LOCAL = "poclo_shoot_sheets";
 export const SHEET_DAYS = 7; // 사진 서명 주소가 살아 있는 날
@@ -130,7 +131,7 @@ async function tinyPhoto(src) {
     return "";
   }
 }
-/** 코디마다 [작은 사진…] — 입는 순서(이너·상의·아우터·하의…), 코디당 6장까지 */
+/** 코디마다 [{id(상품), url(작은 사진)}…] — 입는 순서(이너·상의·아우터·하의…), 코디당 6장까지. 못 만든 사진은 뺀다 */
 async function peekOf(codis, d, online) {
   const its = codis.map((c) => codiItems(c, d.items).slice(0, 6));
   const keys = [...new Set(its.flat().map((x) => x.photo).filter((k) => k && !k.startsWith("data:") && !d.urls[k]))];
@@ -148,17 +149,17 @@ async function peekOf(codis, d, online) {
         await Promise.all(
           list.map(async (x) => {
             const s = srcOf(x);
-            if (!s) return "";
-            if (typeof s === "string") return tinyPhoto(s);
+            if (!s) return null;
+            if (typeof s === "string") return { id: x.id, url: await tinyPhoto(s) };
             try {
               const r = await fetch("/api/img", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: s.proxy }) });
-              return r.ok ? tinyPhoto(await r.blob()) : "";
+              return { id: x.id, url: r.ok ? await tinyPhoto(await r.blob()) : "" };
             } catch {
-              return "";
+              return null;
             }
           }),
         )
-      ).filter(Boolean),
+      ).filter((o) => o?.url),
     ),
   );
 }
@@ -175,7 +176,12 @@ export async function buildSheet(day, codis, d, online, refSets = [], cloths = C
   //   11/16 밤 방향성: "모델 촬영 시트를 코디별로 묶어서, 그 코디에서 찍을 셀카 포즈 사진이 크게 보이게"
   // 11/17 포즈 카드는 촬영 관리 › 포즈(settings shoot_poses)에서 — 이 촬영 포즈판과 같은 카드
   const allCards = posePool(day, poseLib).cards;
-  const shotList = codis.map((c) => (allCards.length || day.poseOwn?.[c.id]?.length ? shotsOf(day, c, allCards, d.items).shots.filter((x) => x.ok) : []));
+  // 11/17 밤 찍는 순서(lib/shootOrder) — 안쪽 옷부터 입으면서, 겹마다 포즈 사진 → 영상. 시트엔 확인 전 포즈는 안 간다
+  const runs = codis.map((c) => runOrder(day, c, allCards, d.items));
+  const shotList = runs.map((r) => {
+    const seen = new Set();
+    return r.shots.filter((x) => x.ok && !seen.has(x.key) && seen.add(x.key));
+  });
   const keys = [...sectionKeys(baseItems), ...shotList.flat().map((x) => x.key).filter((k) => k && !k.startsWith("data:"))];
   for (const k of day.guidePhotos || []) if (!k.startsWith("data:")) keys.push(k);
   const signed = await longUrls(keys, online);
@@ -183,7 +189,7 @@ export async function buildSheet(day, codis, d, online, refSets = [], cloths = C
   // 찍을 코디 미리 보기 — 촬영 창에서 끌 수 있다(day.sheetPeek === false). 사진도 포즈도 없는 코디는 뺀다
   const pk = day.sheetPeek === false ? codis.map(() => []) : await peekOf(codis, d, online);
   const keepAt = codis.map((_, i) => i).filter((i) => pk[i].length || shotList[i].length);
-  const peek = keepAt.map((i) => pk[i]);
+  const peek = keepAt.map((i) => pk[i].map((o) => o.url));
   return {
     on: day.on || "",
     time: day.time || "",
@@ -197,8 +203,19 @@ export async function buildSheet(day, codis, d, online, refSets = [], cloths = C
     peek, // 10/29 밤 찍을 코디 미리 보기 [[작은 사진 data URL…] 코디마다]
     // 11/16 코디마다 찍을 포즈 사진 [{url, code, title, text, cap}] (peek 와 같은 순서) — 고른 이유 · 원본 쇼핑몰은 안 감
     codiShots: keepAt.map((i) =>
-      shotList[i].map((x) => ({ url: urlOf(x.key), code: x.own ? "" : x.code, title: x.own ? "" : x.title, text: x.own ? "" : x.text, cap: x.cap || "" })).filter((x) => x.url),
+      shotList[i].map((x) => ({ url: urlOf(x.key), code: x.own ? "" : x.code, title: x.own ? "" : x.title, text: x.own ? "" : x.text, cap: x.cap || "", group: x.group || "" })).filter((x) => x.url),
     ),
+    // 11/17 밤 코디마다 찍는 순서 [{n, label('티셔츠 + 팬츠' — 옷 종류 말만, 상품명 X), video, items:[peek 번호], shots:[codiShots 번호]}] — 겹 사진은 codiShots 를 번호로 가리킨다
+    codiSteps: keepAt.map((i) => {
+      const okShots = shotList[i].filter((x) => urlOf(x.key));
+      return runs[i].steps.map((st) => ({
+        n: st.n,
+        label: stepLabel(st),
+        video: st.video,
+        items: st.add.map((x) => pk[i].findIndex((o) => o.id === x.id)).filter((k) => k >= 0),
+        shots: st.shots.filter((x) => x.ok).map((x) => okShots.findIndex((y) => y.key === x.key)).filter((k) => k >= 0),
+      }));
+    }),
     // 10/29 촬영 기본 가이드(모든 촬영 공통 — 동선·찍을 영상·포즈…) — 글은 그대로, 시트(SheetPage → BaseGuide)가 번호 단계·사진/영상 표시로 그린다
     base: sectionsData(baseItems, urlOf),
     // 11/2 모델 레퍼런스 — 촬영 창에서 고른 모음(촬영 › 모델 레퍼런스). 모음 링크와 같은 스냅숏(사진·영상 30일), 카테고리 탭 그대로

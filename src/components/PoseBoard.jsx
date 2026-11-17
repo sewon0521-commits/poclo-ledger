@@ -4,6 +4,7 @@ import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, Undo2, 
 import { md, codiItems, codiName } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
 import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recommend, shotsOf, setLibOk, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
+import { wearSteps, stepLabel } from "../lib/shootOrder";
 import { withChildren, childrenOf, pathName } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
@@ -465,6 +466,10 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
                     </button>
                   )}
                 </div>
+                {/* 11/17 밤 찍는 순서 — 안쪽 옷부터 입으면서(lib/shootOrder). 촬영 시작 · 모델 시트도 이 순서 */}
+                <p className="truncate pl-5 text-[11px] text-stone-500" title="안쪽 옷부터 하나씩 입으면서 찍어요 · 겹마다 사진 → 영상">
+                  찍는 순서 {wearSteps(r.c, d.items).map((st) => `${"①②③④⑤⑥⑦⑧⑨"[st.n - 1] || st.n} ${stepLabel(st)}`).join(" → ")}
+                </p>
                 <div className="flex gap-2 overflow-x-auto pt-2 pr-2 pb-1 pl-5">
                   {r.ids
                     .map(byId)

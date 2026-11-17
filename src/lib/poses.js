@@ -170,13 +170,14 @@ export function codiFits(c, items) {
  * 추천 — 세원(방향성 창) 예: "아우터는 전신·걷기, 하의 포인트는 하반신·앉은 컷"
  *   전신 포즈는 늘 · 아우터가 있으면 아우터 포즈 · 하의가 있으면 하반신·앉은 포즈 · 아우터 없이 상의만 있으면 상반신 포즈
  */
-export const RECO_RULE = "전신은 늘 · 아우터 있으면 그 종류(코트·패딩·무스탕·자켓·퍼) 컷 · 하의 있으면 하반신·앉은 컷 · 아우터 없이 상의면 상반신 컷";
+// 11/17 밤 세원: 안쪽 옷부터 입으면서 찍는다(lib/shootOrder) — 아우터를 입기 전에 상의를 먼저 찍으니 아우터가 있어도 상의 컷을 추천한다
+export const RECO_RULE = "전신은 늘 · 상의 있으면 상반신 컷(아우터 입기 전에 찍어요) · 하의 있으면 하반신·앉은 컷 · 아우터 있으면 그 종류(코트·패딩·무스탕·자켓·퍼) 컷";
 export function recommend(cards, c, items) {
   const f = codiFits(c, items);
   const want = new Set(["전신"]);
   if (f.has("아우터")) for (const t of f) if (t.startsWith("아우터")) want.add(t);
   if (f.has("하의")) want.add("하의");
-  if (f.has("상의") && !f.has("아우터")) want.add("상의");
+  if (f.has("상의")) want.add("상의");
   return cards.filter((k) => k.fits.some((t) => want.has(t))).map((k) => k.id);
 }
 

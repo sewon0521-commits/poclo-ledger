@@ -21,6 +21,7 @@ import { ClothTabs, GuideSections } from "./BaseGuide";
 import { ClipBig } from "./LoopClip";
 import PoseBoard from "./PoseBoard";
 import { posePool, shotsOf, POSES_KEY } from "../lib/poses";
+import { runOrder } from "../lib/shootOrder";
 import PosesTab from "./PosesTab";
 import { ShootRun, CodiPoseSheet } from "./PoseRun";
 
@@ -984,8 +985,10 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
     const nd = shots.filter((x) => x.done).length;
     return `포즈 ${codes.join("·")}${own ? `${codes.length ? " + " : ""}이 코디만 ${own}` : ""}${auto ? " (추천)" : ""} · ${nd ? `찍음 ${nd}/${shots.length}` : `${shots.length}장`}`;
   };
-  const totalShots = codis.reduce((n, c) => n + (poseList.length ? shotsOf(s, c, poseList, d.items).shots.length : 0), 0);
-  const doneShots = codis.reduce((n, c) => n + (poseList.length ? shotsOf(s, c, poseList, d.items).shots.filter((x) => x.done).length : 0), 0);
+  // 11/17 밤 촬영 날 화면과 같은 수 — 겹마다 다시 찍는 상의 포즈까지(lib/shootOrder)
+  const runs = poseList.length ? codis.map((c) => runOrder(s, c, poseList, d.items).shots) : [];
+  const totalShots = runs.reduce((n, l) => n + l.length, 0);
+  const doneShots = runs.reduce((n, l) => n + l.filter((x) => x.done).length, 0);
   const liveCodiPose = codiPose && codis.find((c) => c.id === codiPose);
   return (
     <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
@@ -1011,7 +1014,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
               <span>
                 <span className="block text-sm font-bold">촬영 시작</span>
                 <span className="block text-xs text-rose-100">
-                  코디 {codis.length}개 · 포즈 사진 {totalShots}장{doneShots ? ` · 찍음 ${doneShots}` : ""} — 폰에서 코디 하나씩 넘겨 봐요
+                  코디 {codis.length}개 · 포즈 사진 {totalShots}장{doneShots ? ` · 찍음 ${doneShots}` : ""} — 폰에서 코디 하나씩, 안쪽 옷부터 입으면서
                 </span>
               </span>
               <Play size={20} className="shrink-0" />
