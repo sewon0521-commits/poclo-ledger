@@ -27,6 +27,8 @@
 export const CHANNELS = [
   { k: "cafe24_qna", label: "카페24 상품 Q&A", short: "Q&A", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-sky-50 text-sky-800 ring-sky-200" },
   { k: "cafe24_consult", label: "카페24 1:1 상담", short: "1:1 상담", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
+  // 11/17 세원 "게시판 리뷰 달리는 거 답변해 주는 것도 — 앞으로 리뷰도 중요하게" — 카페24 REVIEW 게시판(문의와 따로). 답글은 Q&A 와 같은 답변글(비밀글이면 비밀)
+  { k: "cafe24_review", label: "카페24 리뷰", short: "리뷰", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-amber-50 text-amber-900 ring-amber-200" },
   { k: "npay", label: "네이버페이 주문형 문의", short: "N페이", via: "aside", pc: "npay", tone: "bg-green-50 text-green-800 ring-green-200" },
   // 11/10 세원 "카카오만 버튼 안 눌리게"(복사만) → 11/17 세원 "카톡도 보내주되 내가 답장 보내기를 누르면 30분 단위로 모아서" —
   // [한꺼번에 보내기]로 맡긴 카톡 답은 사무실 PC 가 카톡 읽기 차례(10~19시 30분마다)에 한꺼번에 보낸다(batch). 일부러 넣는 기다림 없음.
@@ -52,7 +54,7 @@ export const PC_CHANNELS = [
 
 // 서버(api/cs.js TYPES)와 같은 이름·순서
 // 11/11 세원 "강다인님은 취소 요청 없는 사람인데 왜 취소 요청이 있다고 뜨냐" → '주문 변경·취소'를 둘로. '주문 취소'는 손님 말에 취소·환불이 직접 있을 때만
-export const TYPES = ["배송", "교환", "반품·환불", "교환·반품 배송비", "사이즈", "재입고·입고", "불량·오배송", "주문 변경", "주문 취소", "할인·쿠폰", "상품 문의", "기타"];
+export const TYPES = ["배송", "교환", "반품·환불", "교환·반품 배송비", "사이즈", "재입고·입고", "불량·오배송", "주문 변경", "주문 취소", "할인·쿠폰", "상품 문의", "후기", "기타"];
 /** 예전 묶음 유형 → 새 유형 (손님 말에 취소·환불이 있으면 주문 취소) */
 export const fixType = (type, text = "") => (type === "주문 변경·취소" ? (/취소|환불/.test(String(text)) ? "주문 취소" : "주문 변경") : type);
 
@@ -586,6 +588,10 @@ export function closingOf(x, thread) {
 }
 /** 짧은 답 칩 — 세원이 많이 고른 순(settings cs_voice.closers {글: 횟수}), 기본 셋 */
 export const CLOSERS = ["🤍", "감사합니다 고객님 🤍", "좋은 하루 보내세요 🤍"];
+/** 11/17 리뷰 — 짧은 답 단추 · '확인 필요'(별점 3 이하이거나 AI 가 불만으로 본 것) */
+export const REVIEW_QUICK = ["감사합니다 고객님 🤍", "소중한 후기 감사합니다 고객님 🤍", "예쁘게 입어 주셔서 감사해요 🤍"];
+export const isReview = (x) => x?.channel === "cafe24_review";
+export const reviewFlag = (x) => isReview(x) && ((Number(x.rating) >= 1 && Number(x.rating) <= 3) || /^확인 필요/.test(String(x.caution || "")));
 export function closerChips(voice, extra = "") {
   const n = voice?.closers || {};
   const all = [...new Set([extra, ...Object.keys(n), ...CLOSERS].map((t) => String(t || "").trim()).filter(Boolean))];

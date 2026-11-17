@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove, onSettingsChange, watchKeys } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, closingOf, closerChips, answerRow, answersFor, voiceFor, ANSWERS_MAX, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, closingOf, closerChips, REVIEW_QUICK, isReview, reviewFlag, answerRow, answersFor, voiceFor, ANSWERS_MAX, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
 import DelayPage from "./DelayPage";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -21,10 +21,12 @@ const CH_GROUPS = [
   ["npay", "네이버페이", ["npay"]],
   ["naver", "톡톡", ["naver"]],
   ["cafe24", "카페24 게시판", ["cafe24_qna", "cafe24_consult"]],
+  ["review", "리뷰", ["cafe24_review"]], // 11/17 세원 "리뷰도 중요하게" — 문의와 섞지 않게 '전체'에서 빼고 여기서만
+
   ["insta", "인스타", ["insta"]],
   ["etc", "기타", ["phone", "etc"]],
 ];
-const inGroup = (x, g) => !g || (CH_GROUPS.find(([k]) => k === g)?.[2] || []).includes(x.channel);
+const inGroup = (x, g) => (!g ? x.channel !== "cafe24_review" : (CH_GROUPS.find(([k]) => k === g)?.[2] || []).includes(x.channel));
 
 const FIELD = "w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-rose-600 focus:ring-2 focus:ring-rose-100";
 
@@ -99,6 +101,8 @@ const requestOf = (x, tpl, extra = {}, stock = null, learn = null, inbound = nul
   answers: answersFor(answers, x), // 11/17 같은 상품에 전에 보낸 답 — 실측·늘어남 같은 사실을 빈칸 대신 다시 쓰게
   type: x.type || undefined, // 세원이 고른 '답변 유형' — 그 틀대로
   eta: etaText(inbound, stock, orderLines(x)) || undefined, // 11/10 옵션별 출고 가능(거래처 입고 예정 + 재고) — 부분 배송 안내
+  rating: x.rating || undefined, // 11/17 리뷰 별점
+  naverpay: x.ext?.naverpay || undefined,
   replied: threadOf(x).some((m) => m.from === "us" && m.who !== "자동") || undefined, // 11/11 세원 "이미 답변을 했던 상태면 인삿말은 생략" — 카톡·톡톡 자동 인사·부재중은 답으로 안 침
   ...extra,
 });
@@ -411,7 +415,7 @@ function CsInbox({ products = [], D, online }) {
   const today = new Date(now).toDateString();
   const counts = useMemo(
     () => ({
-      todo: D.inbox.filter((x) => inTab(x, "todo")).length,
+      todo: D.inbox.filter((x) => inTab(x, "todo") && !isReview(x)).length, // 리뷰는 '리뷰' 칩에서 따로 센다
       approved: D.inbox.filter((x) => inTab(x, "approved")).length,
       doneToday: D.inbox.filter((x) => inTab(x, "done") && new Date(x.doneAt || x.sentAt || 0).toDateString() === today).length,
     }),
@@ -627,7 +631,12 @@ ${lines}
                   <span className="mt-1 flex items-center gap-1.5 text-[11px] text-stone-500">
                     {x.orderNo && <span className="shrink-0 font-mono text-stone-600">{x.orderNo}</span>}
                     <span className="min-w-0 truncate">{shortGoods(x) || (x.summary || x.title || "").slice(0, 30)}</span>
-                    {inTab(x, "todo") && closingOf(x, threadOf(x)) ? (
+                    {isReview(x) ? (
+                      <span className={"ml-auto shrink-0 rounded-md px-1.5 py-0.5 font-semibold " + (reviewFlag(x) ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800")}>
+                        {x.rating ? `★${x.rating}` : "리뷰"}
+                        {reviewFlag(x) ? " · 확인 필요" : ""}
+                      </span>
+                    ) : inTab(x, "todo") && closingOf(x, threadOf(x)) ? (
                       <span className="ml-auto shrink-0 rounded-md bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700">마무리 인사</span>
                     ) : (
                       x.type && <span className="ml-auto shrink-0 rounded-md bg-stone-100 px-1.5 py-0.5 font-medium text-stone-600">{x.type}</span>
@@ -930,6 +939,59 @@ function kakaoWait(next) {
   return `카톡은 다음 읽기 차례${hm ? `(${hm}쯤)` : ""}에 사무실 PC가 보내요 · 10~19시 30분마다`;
 }
 
+/** 11/17 리뷰 — 별점 · 확인 필요 · 네이버페이 표시 · 짧은 답 단추(누르면 묻고 바로 답글, PC 가 안 되면 복사) */
+function ReviewBox({ v, D, auto, sent, onMsg, save }) {
+  const [busy, setBusy] = useState("");
+  const r = Number(v.rating) || 0;
+  const flag = reviewFlag(v);
+  const pick = async (text) => {
+    if (auto && !window.confirm(`이 리뷰에 답글을 달까요?\n\n「${text}」\n\n쇼핑몰 리뷰 아래에 바로 보여요.`)) return;
+    setBusy(text);
+    try {
+      if (auto) {
+        await D.quickSend(v, text);
+        onMsg(`'${text}' 답글을 맡겼어요 — 사무실 PC가 바로 달아요.`);
+      } else if (await copyText(text)) {
+        save({ status: "done", final: text, doneAt: new Date().toISOString() }, true);
+        onMsg(`'${text}' 복사했어요 — 카페24 관리자에서 리뷰 답글로 붙여 주세요. '처리 완료'로 옮겼어요.`);
+      }
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <section className={"space-y-2 rounded-2xl border p-3.5 " + (flag ? "border-rose-200 bg-rose-50/60" : "border-amber-200 bg-amber-50/50")}>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <b className="text-stone-900">구매 후기</b>
+        {r > 0 && (
+          <span className="tracking-tight text-amber-500" aria-label={`별점 ${r}점`}>
+            {"★".repeat(r)}
+            <span className="text-stone-300">{"★".repeat(Math.max(0, 5 - r))}</span>
+          </span>
+        )}
+        {flag && <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white">확인 필요</span>}
+        {v.ext?.naverpay && (
+          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800" title="네이버페이에서 넘어온 후기 — 우리 사이트에 단 답이 네이버엔 안 보일 수 있어요(네이버 쪽 답은 나중에)">
+            네이버페이 후기
+          </span>
+        )}
+      </div>
+      {flag && <p className="text-xs text-rose-800">별점이 낮거나 불만이 있는 후기예요 — 아래 초안(사과·해결 안내)을 읽고 고친 뒤 보내 주세요. 약속·보상은 규정 안에서만.</p>}
+      {v.ext?.naverpay && <p className="text-[11px] text-green-800">네이버페이에서 넘어온 후기라 우리 사이트 답글이 네이버엔 안 보일 수 있어요. 네이버 쪽 답은 나중에 따로 해요.</p>}
+      {!sent && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-stone-500">짧은 답 {auto ? "바로 달기" : "복사"}:</span>
+          {REVIEW_QUICK.map((t) => (
+            <button key={t} type="button" onClick={() => pick(t)} disabled={!!busy} className="flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-sm text-stone-800 hover:border-amber-500 disabled:opacity-50">
+              {busy === t ? <Loader2 size={13} className="animate-spin" /> : auto ? <Send size={12} /> : <Copy size={12} />} {t}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ClosingBox({ v, clo, D, auto, kakaoNext, onSkip, onOwn, onMsg, save }) {
   const [busy, setBusy] = useState("");
   const chips = closerChips(D.voice, clo.by === "ai" ? v.draft : "");
@@ -1180,6 +1242,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
         ) : null;
       })()}
 
+      {isReview(v) && <ReviewBox v={v} D={D} auto={auto && !!pcState(D.worker, v.channel)?.ok} sent={sentLike} onMsg={onMsg} save={save} />}
       {v.caution && (
         <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
           <AlertTriangle size={14} className="mt-px shrink-0" /> {v.caution}

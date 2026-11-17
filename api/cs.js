@@ -24,10 +24,11 @@ export const config = { api: { bodyParser: { sizeLimit: "8mb" } }, maxDuration: 
 
 const MODEL = "claude-opus-5-5";
 // 앱(src/lib/cs.js TYPES)과 같은 순서·이름
-const TYPES = ["배송", "교환", "반품·환불", "교환·반품 배송비", "사이즈", "재입고·입고", "불량·오배송", "주문 변경", "주문 취소", "할인·쿠폰", "상품 문의", "기타"];
+const TYPES = ["배송", "교환", "반품·환불", "교환·반품 배송비", "사이즈", "재입고·입고", "불량·오배송", "주문 변경", "주문 취소", "할인·쿠폰", "상품 문의", "후기", "기타"];
 const CHANNEL_NAME = {
   cafe24_qna: "카페24 상품 Q&A 게시판",
   cafe24_consult: "카페24 1:1 맞춤상담 게시판",
+  cafe24_review: "카페24 구매 후기(리뷰) 게시판",
   kakao: "카카오톡 채널 채팅",
   naver: "네이버 톡톡 채팅",
   npay: "네이버페이 주문형 문의(네이버페이센터 — 주문한 고객이 남긴 문의)",
@@ -173,6 +174,20 @@ const PROMPT = `너는 여성 의류 쇼핑몰 '포클로'(ppoclo.kr, 카페24 �
 13. 우리가 이미 답한 뒤 손님이 '감사합니다·넵·좋은 하루 되세요'처럼 고맙다·알겠다는 말만 보냈으면 closing=true, draft 는 한 줄(예: '감사합니다 고객님 🤍'). 물어본 게 하나라도 있으면 false.
 14. 묻지 않은 참고 문단(모델 키·교환 안내·적립금 등)은 덧붙이지 않는다 — 세원이 고친 기록에서 늘 지운 부분.`;
 
+/** 구매 후기(리뷰) — 문의가 아니라 후기에 다는 답글 (11/17) */
+const REVIEW_TEXT = (rating, naverpay) => {
+  const r = Number(rating);
+  return `
+--- 이 글은 문의가 아니라 구매 후기(리뷰)예요 — 후기에 다는 답글을 써요 ---
+${r >= 1 && r <= 5 ? `별점 ${r}/5` : "별점 모름"}${naverpay ? " · 네이버페이에서 넘어온 후기" : ""}
+- type 은 '후기', closing 은 false, 빈칸 없이(blanks 빈 배열), check 는 0~2개.
+- 좋은 후기면: 짧은 감사 답글 2~4줄. '세원·지원이 실제로 보낸 말'의 말투를 따르고, 후기에 적힌 구체적인 것 하나(색·핏·두께·촉감·길이·코디 등)를 짚어 고마워한다.
+  후기에 없는 장점을 지어내지 않는다. 다음 구매 권유·할인·적립금 약속·광고 문구는 쓰지 않는다. 인사 한 줄은 넣어도 된다.
+- 별점이 3 이하이거나 불만(사이즈가 안 맞음·불량·배송 늦음·사진과 다름·실망)이 있으면: caution 을 '확인 필요 — '로 시작해 무엇을 확인할지 적고,
+  draft 는 불편 공감 → 사과 → 규정 안에서의 해결 안내(교환·반품은 규정 문장 그대로) → 필요하면 1:1 문의나 주문번호를 남겨 달라는 한 줄. 보상·환불 약속은 하지 않는다.
+- 후기 글을 그대로 따라 쓰거나 손님 개인정보를 다시 적지 않는다.`;
+};
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -213,6 +228,8 @@ export default async function handler(req, res) {
     answersText(body.answers),
     body.memo ? `\n--- 상품 메모 (상품등록 때 적은 실측·착용정보·소재 — 사실로 써도 됨) ---\n${String(body.memo).slice(0, 1500)}` : "",
     body.replied ? "이 방에서 우리가 이미 답한 적이 있어요 — 인사말 없이 바로 본론부터(세원 11/11)" : "",
+    // 11/17 세원 "게시판 리뷰 달리는 거 답변해 주는 것도 — 앞으로 리뷰도 중요하게"
+    body.channel === "cafe24_review" ? REVIEW_TEXT(body.rating, body.naverpay) : "",
     body.type && body.type !== "주문 변경·취소" ? `세원이 고른 답변 유형:${String(body.type).slice(0, 20)} — 이 유형 틀(순서·예시)대로 쓸 것` : "",
     body.eta ? ["", "--- 옵션별 출고 가능 (거래처 입고 예정 + 재고, 11/10~) — 섞여 있으면 부분 배송 안내('가능한 것부터 먼저 보내 드릴까요?'), 날짜는 범위 그대로·확정처럼 쓰지 말 것, 배송비 말은 하지 말 것 ---", String(body.eta).slice(0, 1500)].join(String.fromCharCode(10)) : "",
     body.stock ? `
@@ -240,6 +257,7 @@ ${String(body.stock).slice(0, 1500)}` : "",
     if (r.stop_reason === "refusal") return fail(res, 422, "refusal", "이 문의로는 초안을 만들지 못했어요. 직접 써 주세요.");
     if (!r.parsed_output) return fail(res, 422, "unreadable", "초안이 잘렸어요. 다시 만들어 주세요.");
     const out = r.parsed_output;
+    if (body.channel === "cafe24_review") Object.assign(out, { type: "후기", closing: false }); // 후기는 마무리 인사 카드로 안 감
     // '[1+1]' · '[MD추천]' 같은 상품명 머리말은 빈칸이 아니다(11/10 강다인 초안에서 [1+1] 이 빈칸으로 잡혀 보내기가 막힘)
     const notBlank = (m) => /^\[[\d+\s]+\]$/.test(m) || /추천|할인|얼리윈터|BEST|NEW/i.test(m);
     // 초안에 실제로 있는 빈칸만
