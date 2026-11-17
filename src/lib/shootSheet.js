@@ -33,6 +33,12 @@ import { poseSetsFor, poseCards, shotsOf } from "./poses";
 const LOCAL = "poclo_shoot_sheets";
 export const SHEET_DAYS = 7; // 사진 서명 주소가 살아 있는 날
 
+/**
+ * 촬영 장소 — '바깥 촬영'(11/17 세원: "고르면 생기고 안 고르면 사라지게")을 켜고 바깥 장소를 적었으면 그곳, 아니면 스튜디오 장소.
+ * day.outdoor {on, place} — 끄면 숨기기만 하고 값은 남는다(다시 켜면 그대로).
+ */
+export const dayPlace = (day) => (day?.outdoor?.on && (day.outdoor.place || "").trim() ? day.outdoor.place.trim() : day?.place || "");
+
 export const sheetLink = (token) => `${window.location.origin}/#sheet=${token}`;
 export const sheetTokenOfHash = (h) => {
   const m = String(h || "").match(/^#sheet=([A-Za-z0-9_-]{20,})/);
@@ -180,7 +186,7 @@ export async function buildSheet(day, codis, d, online, refSets = [], cloths = C
   return {
     on: day.on || "",
     time: day.time || "",
-    place: day.place || "",
+    place: dayPlace(day),
     models: (day.models || []).filter(Boolean),
     note: day.modelNote || "",
     // 10/27 모델에게 전할 말 — 준비하실 것 · 미리 알려 주세요 · 참고해 주세요 (시트에선 코디 바로 위)

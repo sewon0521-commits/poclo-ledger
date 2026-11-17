@@ -104,7 +104,7 @@ function useList(key, online) {
   return { items, loaded, msg, setMsg, save: (it) => change(upsert(it)), drop: (id) => change(remove(id)), change };
 }
 
-// ---------------------------------------------------------------- 날씨 (Open-Meteo, 서울)
+// ---------------------------------------------------------------- 날씨 (Open-Meteo, 서울) — 촬영 관리 '바깥 촬영' 칸도 같이 쓴다(11/17)
 
 const SEOUL = "latitude=37.5665&longitude=126.978&timezone=Asia%2FSeoul";
 let FORECAST = null; // {at, days: {날짜: {max, min, rain, code}}}
@@ -129,7 +129,7 @@ async function lastYear(date) {
   PAST.set(y, d);
   return d;
 }
-function useWeather(dates) {
+export function useWeather(dates) {
   const sig = [...new Set(dates.filter(Boolean))].sort().join("|");
   const [w, setW] = useState({});
   useEffect(() => {
@@ -163,7 +163,7 @@ function useWeather(dates) {
   return w;
 }
 // WMO 날씨 코드 → 모양
-function WxIcon({ code, size = 16 }) {
+export function WxIcon({ code, size = 16 }) {
   const c = Number(code);
   const I = c === 0 ? Sun : c <= 2 ? CloudSun : c === 3 ? Cloud : c <= 48 ? CloudFog : c <= 67 || (c >= 80 && c <= 82) ? CloudRain : c <= 77 || c === 85 || c === 86 ? CloudSnow : c >= 95 ? CloudLightning : Cloud;
   const tone = c === 0 || c <= 2 ? "text-amber-500" : c <= 48 ? "text-stone-400" : c <= 67 || (c >= 80 && c <= 82) ? "text-sky-600" : "text-sky-400";
@@ -182,7 +182,7 @@ const WEAR = [
 ];
 const wearOf = (w) => (w ? WEAR.find(([t]) => (w.max + w.min) / 2 >= t)?.[1] : "");
 
-function WeatherRow({ label, date, w }) {
+export function WeatherRow({ label, date, w }) {
   const wd = date ? "일월화수목금토"[new Date(date + "T00:00:00").getDay()] : "";
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">

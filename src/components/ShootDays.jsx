@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, FolderHeart, ImagePlus, Link2, Loader2, Lock, MapPin, Play, Plus, RefreshCw, Shirt, Trash2, Unlock, Users, X } from "lucide-react";
+import { ArrowUp, BookOpen, CalendarDays, Check, Clock, Copy, ExternalLink, Film, FolderHeart, ImagePlus, Link2, Loader2, Lock, MapPin, Play, Plus, RefreshCw, Shirt, Sun, Trash2, Unlock, Users, X } from "lucide-react";
 import { FIELD, md, loadKey, changeKey, upsert, remove, codiName, codiItems, photoUrls, fixUrl } from "../lib/shoot";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { BigSlides } from "./ContentBits";
@@ -7,7 +7,8 @@ import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stylingLine } from "../lib/styling";
 import { useLookbook, lookOf, lookItems, videoTally } from "../lib/lookbook";
-import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError, PREP_PARTS, hasPrep } from "../lib/shootSheet";
+import { buildSheet, createSheet, updateSheet, sheetLink, sheetDm, SHEET_DAYS, SheetError, PREP_PARTS, hasPrep, dayPlace } from "../lib/shootSheet";
+import { useWeather, WeatherRow } from "./ShootPlan";
 import { Photo, CheckList } from "./ShootBits";
 import StylingSheet from "./Styling";
 import { MemoEditor } from "./SourcingMemo";
@@ -836,6 +837,47 @@ function ModelPrep({ s, set, rows }) {
 }
 
 /** 촬영 창 — 고치는 대로 저장. rows = 촬영 전체(같은 날 다른 촬영 찾기), onOpen = 다른 촬영 열기, onAddSibling = 같은 날 새 촬영 */
+// 바깥 촬영 칸 (11/17) — 장소 · 그날 날씨(소싱 관리와 같은 Open-Meteo 서울) · 바깥용 포즈(이 촬영 포즈 모음 = 아래 포즈 판과 같은 카드)
+function OutdoorBox({ s, set, poseList }) {
+  const w = useWeather([s.on]);
+  const o = s.outdoor || {};
+  return (
+    <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/60 p-3">
+      <label className="block text-xs font-medium text-stone-500">
+        바깥 장소
+        <input
+          value={o.place || ""}
+          onChange={(e) => set({ outdoor: { ...o, on: true, place: e.target.value } })}
+          placeholder="예: 연남동 경의선숲길 (서울 마포구 연남동 239-49)"
+          aria-label="바깥 장소"
+          className={FIELD + " mt-1"}
+        />
+        <span className="mt-1 block text-[11px] font-normal text-stone-400">모델 시트엔 이 장소가 가요 — 주소를 괄호 안에 적으면 지도 링크가 돼요. 비우면 스튜디오 장소({s.place || "없음"})가 가요.</span>
+      </label>
+      <div className="rounded-lg bg-white px-3">
+        <WeatherRow label="그날 날씨" date={s.on} w={s.on ? w[s.on] : undefined} />
+      </div>
+      <div>
+        <div className="mb-1 text-xs font-medium text-stone-500">바깥용 포즈</div>
+        {poseList.length ? (
+          <>
+            <div className="flex flex-wrap gap-1">
+              {poseList.map((c) => (
+                <span key={c.id} className={"rounded-full border px-2 py-0.5 text-[11px] font-medium " + (c.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-stone-200 bg-white text-stone-700")}>
+                  {c.title.startsWith(c.code) ? c.title : `${c.code} ${c.title}`.trim()}
+                </span>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-stone-400">코디마다 고르기는 아래 '포즈 판', 촬영 날엔 위 '촬영 시작'으로 폰에서 넘겨 봐요. 초록 = OK(모델 시트에 감).</p>
+          </>
+        ) : (
+          <p className="text-[11px] text-stone-400">이 촬영 포즈 모음이 없어요 — 아래 포즈 판 위 '포즈 모음'에서 바깥 포즈 모음을 골라요.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onRemove, onClose, onOpen, onAddSibling, canRemove, startRun }) {
   const [s, setS] = useState(start);
   const latest = useRef(s);
@@ -952,9 +994,21 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
               <input type="time" value={s.time || ""} onChange={(e) => set({ time: e.target.value })} className={FIELD + " mt-1"} />
             </label>
           </div>
+          {/* 11/17 세원: 바깥 촬영 — "고르면 생기고 안 고르면 사라지게". 끄면 숨기기만(바깥 장소 글자는 남아서 다시 켜면 그대로), 스튜디오 장소도 그대로 남는다 */}
           <div>
-            <div className="mb-1 text-xs font-medium text-stone-500">장소</div>
-            <StudioPick value={s.place || ""} onChange={(place) => set({ place })} studios={studios} />
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-stone-500">{s.outdoor?.on ? "장소 · 바깥 촬영" : "장소"}</span>
+              <button
+                type="button"
+                aria-pressed={!!s.outdoor?.on}
+                onClick={() => set({ outdoor: { ...(s.outdoor || {}), on: !s.outdoor?.on } })}
+                title="고르면 바깥 장소 · 그날 날씨 · 바깥용 포즈 칸이 나와요. 끄면 칸만 숨고 적은 건 남아요."
+                className={"flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold " + (s.outdoor?.on ? "border-sky-600 bg-sky-600 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-sky-300 hover:text-sky-800")}
+              >
+                {s.outdoor?.on ? <Check size={12} /> : <Sun size={12} />} 바깥 촬영
+              </button>
+            </div>
+            {s.outdoor?.on ? <OutdoorBox s={s} set={set} poseList={poseList} /> : <StudioPick value={s.place || ""} onChange={(place) => set({ place })} studios={studios} />}
           </div>
           <div>
             <div className="mb-1 text-xs font-medium text-stone-500">모델</div>
@@ -1193,7 +1247,7 @@ export default function ShootDays({ d, online }) {
   const openDay = open && (days.items.find((x) => x.id === open.id) || open);
   // 같은 날 다른 모델 촬영 — 시간은 비워 두고 장소는 그대로
   const addSibling = (from) => {
-    const x = { ...blank(from.on), time: "", place: from.place || home };
+    const x = { ...blank(from.on), time: "", place: from.place || home, ...(from.outdoor ? { outdoor: from.outdoor } : {}) };
     days.save(x);
     setOpen(x);
   };
@@ -1229,9 +1283,10 @@ export default function ShootDays({ d, online }) {
               <Clock size={12} className="text-stone-400" /> {timeText(rec.time)}
             </div>
           )}
-          {rec.place && (
+          {(dayPlace(rec) || rec.outdoor?.on) && (
             <div className="flex items-center gap-1 truncate">
-              <MapPin size={12} className="shrink-0 text-stone-400" /> <span className="truncate">{rec.place}</span>
+              <MapPin size={12} className="shrink-0 text-stone-400" /> {rec.outdoor?.on && <span className="shrink-0 rounded-full bg-sky-50 px-1.5 text-[10px] font-semibold text-sky-700">바깥</span>}
+              <span className="truncate">{rec.outdoor?.on ? rec.outdoor.place || "바깥 장소 미정" : rec.place}</span>
             </div>
           )}
           {(rec.models || []).length > 0 && (
