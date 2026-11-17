@@ -869,9 +869,11 @@ function ModelPrep({ s, set, rows }) {
 
 /** 촬영 창 — 고치는 대로 저장. rows = 촬영 전체(같은 날 다른 촬영 찾기), onOpen = 다른 촬영 열기, onAddSibling = 같은 날 새 촬영 */
 // 바깥 촬영 칸 (11/17) — 장소 · 그날 날씨(소싱 관리와 같은 Open-Meteo 서울) · 바깥용 포즈(이 촬영 포즈 모음 = 아래 포즈 판과 같은 카드)
-function OutdoorBox({ s, set, poseList }) {
+function OutdoorBox({ s, set, poseList: all }) {
   const w = useWeather([s.on]);
   const o = s.outdoor || {};
+  // 11/17 저녁 포즈 칸 폴더 — 야외 폴더 카드만(포즈판 추천도 이 카드에서)
+  const poseList = all.filter((k) => k.place === "out");
   return (
     <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/60 p-3">
       <label className="block text-xs font-medium text-stone-500">
@@ -899,10 +901,10 @@ function OutdoorBox({ s, set, poseList }) {
                 </span>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-stone-400">코디마다 고르기는 아래 '포즈 판', 촬영 날엔 위 '촬영 시작'으로 폰에서 넘겨 봐요. 초록 = OK(모델 시트에 감).</p>
+            <p className="mt-1 text-[11px] text-stone-400">포즈 칸 '야외' 폴더 카드예요. 아래 포즈 판이 이 카드로 먼저 추천하고, 코디마다 '+ 포즈'로 더 골라요. 초록 = OK(모델 시트에 감).</p>
           </>
         ) : (
-          <p className="text-[11px] text-stone-400">이 촬영 포즈 모음이 없어요 — 아래 포즈 판 위 '포즈 카테고리'에서 '바깥'을 고르거나, 위 '포즈' 탭에서 바깥 포즈를 만들어요.</p>
+          <p className="text-[11px] text-stone-400">야외 포즈가 아직 없어요 — 위 '포즈' 탭 › 야외 폴더에서 만들어요.</p>
         )}
       </div>
     </div>

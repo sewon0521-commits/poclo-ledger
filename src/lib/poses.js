@@ -19,30 +19,86 @@ export const isPoseSet = (x) => (x?.sections || []).some((s) => s.pose);
 // ---------------------------------------------------------------- 포즈 칸 (11/17)
 // 세원(방향성 창): "모델 레퍼런스 칸에 넣은 건 그대로 냅두고, 촬영 관리 안에 소싱 관리처럼 '포즈' 버튼 만들어서 포즈 카테고리 모델 레퍼런스처럼 나누고
 //   거기서 제대로 만들어서 포즈판에서 고를 수 있게"
-// → settings shoot_poses {cats:[카테고리 이름 — 순서 = 탭 순서], items:[포즈 카드]}. 카드 = 모델 레퍼런스 칸과 같은 모양
-//   {id, title, text, photos:[{key, cap, refId}], cloth(카테고리), pose:{code, fits, why, src, ok}, from?, createdAt} — 고치기는 같은 SectionEdit.
+// → settings shoot_poses {folders:[{id, name, parent}], items:[포즈 카드], cats?(첫 판 카테고리 — 안 씀)}. 카드 = 모델 레퍼런스 칸과 같은 모양
+//   {id, title, text, photos:[{key, cap, refId}], folderId, shot(찍는 방식), pose:{code, fits, why, src, ok}, from?, createdAt} — 고치기는 같은 SectionEdit.
 //   모델 레퍼런스의 P1~P16 은 같은 id · 같은 사진 파일로 복사했다(11/17) — 그래서 촬영 줄의 posePicks · poseDone 이 끊기지 않는다. 모델 레퍼런스 쪽은 그대로.
-// 포즈판에 깔리는 카드(촬영마다) = 촬영 줄 poseCats(고른 카테고리) — 없으면 바깥 촬영이면 '바깥', 스튜디오면 '바깥' 뺀 전부(카테고리 없는 카드 포함).
-//   예전 poseSetIds(모델 레퍼런스 모음 고르기)는 이제 안 본다.
+// 11/17 저녁 세원: "실내 - 아우터, 상의, 하의, 전신, 앉은컷 / 야외 - 같은 것, 그 안에 상의면 반팔, 긴팔티, 니트 … 거울셀카, 찍어주는 컷으로 나눌까?"
+//   → 폴더 세 단계(릴스·촬영 레퍼런스와 같은 FolderBits: 실내/야외 › 옷 종류 › 세부) + 찍는 방식은 폴더 말고 칩(shot).
+//   맨 위 '실내'(pf_in) · '야외'(pf_out) 는 id 로 알아본다(이름을 바꿔도 된다). 카드가 어느 쪽인지 = place "in" | "out"(폴더 없으면 실내).
+// 포즈판: 카드는 전부에서 고를 수 있고(posePicks), 추천만 그 촬영 쪽(바깥 촬영이면 야외, 아니면 실내) 카드에서 한다(picksOf).
+//   예전 poseSetIds(모델 레퍼런스 모음 고르기) · poseCats(첫 판 카테고리 칩)는 이제 안 본다.
 export const POSES_KEY = "shoot_poses";
-export const OUTDOOR_CAT = "바깥";
-export const POSE_CATS = ["전신", "아우터", "상의", "하의", "앉은컷", OUTDOOR_CAT];
-export const poseCatsOf = (lib) => (lib?.cats?.length ? lib.cats : POSE_CATS);
+export const IN_ID = "pf_in";
+export const OUT_ID = "pf_out";
+export const SHOTS = ["거울 셀카", "찍어주는 컷"];
+const KINDS = [
+  ["outer", "아우터"],
+  ["top", "상의"],
+  ["bottom", "하의"],
+  ["full", "전신"],
+  ["sit", "앉은컷"],
+];
+/** 처음 폴더 — 실내/야외 › 아우터·상의·하의·전신·앉은컷, 상의 › 반팔·긴팔티·니트, 실내 아우터 › 코트·패딩·무스탕·자켓·퍼 */
+export function seedPoseFolders() {
+  const out = [];
+  for (const [pid, pname] of [
+    [IN_ID, "실내"],
+    [OUT_ID, "야외"],
+  ]) {
+    out.push({ id: pid, name: pname, parent: null });
+    for (const [k, name] of KINDS) {
+      const id = `${pid}_${k}`;
+      out.push({ id, name, parent: pid });
+      if (k === "top") for (const [s, n] of [["short", "반팔"], ["long", "긴팔티"], ["knit", "니트"]]) out.push({ id: `${id}_${s}`, name: n, parent: id });
+      if (k === "outer" && pid === IN_ID) for (const [s, n] of [["coat", "코트"], ["pad", "패딩"], ["mustang", "무스탕"], ["jk", "자켓"], ["fur", "퍼"]]) out.push({ id: `${id}_${s}`, name: n, parent: id });
+    }
+  }
+  return out;
+}
+export const poseFoldersOf = (lib) => (lib?.folders?.length ? lib.folders : seedPoseFolders());
+export const shotsOfLib = (lib) => (lib?.shots?.length ? lib.shots : SHOTS);
+/** 이 폴더가 실내/야외 어느 쪽인지 */
+export function placeOfFolder(id, folders) {
+  let f = folders.find((x) => x.id === id);
+  for (let i = 0; f && f.parent && i < 5; i++) f = folders.find((x) => x.id === f.parent);
+  return f?.id === OUT_ID ? "out" : "in";
+}
+export const placeOfDay = (day) => (day?.outdoor?.on ? "out" : "in");
 const codeNo = (s) => Number(String(s?.pose?.code || s?.title || "").match(/^P(\d+)/i)?.[1] || 1e6);
 /** 카드 순서 — P 번호 순, 번호 없는 건 뒤(만든 순) */
 export const byCode = (a, b) => codeNo(a) - codeNo(b) || String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
-/** 이 촬영 포즈판의 카테고리 — 고른 게 있으면 그것, 없으면 바깥/스튜디오로 */
-export function poolCats(day, lib) {
-  const cats = poseCatsOf(lib);
-  if (Array.isArray(day?.poseCats)) return day.poseCats.filter((c) => cats.includes(c) || c === "");
-  return day?.outdoor?.on ? [OUTDOOR_CAT] : ["", ...cats.filter((c) => c !== OUTDOOR_CAT)];
+/** 포즈 칸 카드 전부 — poseCards 모양({cards, hidden}) + place · folderId · shot */
+export function poseDeck(lib) {
+  const folders = poseFoldersOf(lib);
+  const items = (lib?.items || []).filter((s) => s.pose).sort(byCode);
+  const add = (k) => ({ ...k, folderId: k.sec.folderId || "", place: placeOfFolder(k.sec.folderId, folders), shot: k.sec.shot || "" });
+  const { cards, hidden } = poseCards([{ id: POSES_KEY, sections: items }]);
+  return { cards: cards.map(add), hidden: hidden.map(add) };
 }
-/** 이 촬영 포즈판 카드 — poseCards 와 같은 모양({cards, hidden}) */
-export function posePool(day, lib) {
-  const want = new Set(poolCats(day, lib));
-  const cats = poseCatsOf(lib);
-  const items = (lib?.items || []).filter((s) => s.pose && want.has(cats.includes(s.cloth) ? s.cloth : "")).sort(byCode);
-  return poseCards([{ id: POSES_KEY, sections: items }]);
+/** 이 촬영 포즈판 카드 — 전부(고르기는 어디서든). 추천은 picksOf 가 촬영 쪽(실내/야외) 카드에서만 */
+export const posePool = (day, lib) => poseDeck(lib);
+/** 이 코디 '+ 포즈' 창을 처음 열 폴더 — 촬영 쪽 › 코디 옷 종류(아우터 > 상의 > 하의 > 전신) › 상품 이름에 든 세부(니트·반팔 …) */
+//   카드가 하나도 없는 폴더는 건너뛴다(빈 '니트' 폴더부터 열리면 아무것도 못 고른다) — cards 를 주면
+export function codiFolder(c, items, folders, place, cards = null) {
+  const top = place === "out" ? OUT_ID : IN_ID;
+  const under = (fid, id) => {
+    if (!fid) return id === IN_ID; // 폴더 없는 카드는 실내로
+    let x = folders.find((y) => y.id === fid);
+    for (let i = 0; x && i < 6; i++, x = x.parent && folders.find((y) => y.id === x.parent)) if (x.id === id) return true;
+    return false;
+  };
+  const has = (id) => !cards || cards.some((k) => under(k.folderId, id));
+  const f = codiFits(c, items);
+  const its = (c?.itemIds || []).map((id) => (items || []).find((y) => y.id === id)).filter(Boolean);
+  const names = its.map((x) => `${x.name || ""} ${x.fullName || ""}`).join(" ");
+  const order = [f.has("아우터") && "아우터", f.has("상의") && "상의", f.has("하의") && "하의", "전신"].filter(Boolean);
+  for (const kind of order) {
+    const cat = folders.find((x) => x.parent === top && x.name === kind);
+    if (!cat || !has(cat.id)) continue;
+    const sub = folders.filter((x) => x.parent === cat.id && has(x.id)).find((x) => names.includes(x.name) || (x.name === "긴팔티" && /긴팔/.test(names)));
+    return (sub || cat).id;
+  }
+  return folders.some((x) => x.id === top) && has(top) ? top : "all";
 }
 /** 포즈 칸 카드 하나의 확인(OK · 확인 전 · 뺌) */
 export const setLibOk = (id, ok) => (v) => ({
@@ -129,7 +185,9 @@ export function picksOf(day, c, cards, items) {
   const have = new Set(cards.map((k) => k.id));
   const mine = day?.posePicks?.[c.id];
   if (Array.isArray(mine)) return { ids: mine.filter((id) => have.has(id)), auto: false };
-  return { ids: recommend(cards, c, items), auto: true };
+  // 11/17 포즈 칸 카드엔 place(실내/야외)가 있다 — 추천은 이 촬영 쪽 카드에서만(place 없는 예전 카드는 그대로)
+  const want = placeOfDay(day);
+  return { ids: recommend(cards.filter((k) => !k.place || k.place === want), c, items), auto: true };
 }
 export const doneOf = (day, c) => day?.poseDone?.[c.id] || [];
 
