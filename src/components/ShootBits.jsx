@@ -134,7 +134,7 @@ export function Sheet({ onClose, children, wide, xwide }) {
   return (
     <div className="backdrop-in fixed inset-0 z-50 flex items-end justify-center bg-stone-900/50 sm:items-center sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className={"sheet relative z-10 flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl " + (xwide ? "sm:max-w-5xl" : wide ? "sm:max-w-3xl" : "sm:max-w-lg")}>
+      <div className={"sheet relative z-10 flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl sm:rounded-2xl sm:pb-0 " + (xwide ? "sm:max-w-5xl" : wide ? "sm:max-w-3xl" : "sm:max-w-lg")}>
         {children}
       </div>
     </div>

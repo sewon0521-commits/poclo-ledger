@@ -424,7 +424,8 @@ export default function PosesTab({ poses, d, online }) {
       />
       <p className="mb-3 flex items-center gap-1.5 rounded-xl border border-dashed border-stone-300 bg-white px-3 py-2 text-xs text-stone-500">
         <ImagePlus size={14} className="shrink-0 text-stone-400" />
-        <span className="min-w-0">
+        <span className="hidden min-w-0 [@media(pointer:coarse)]:inline">카드를 누르면 고치고, 오른쪽 위 손잡이(⋮⋮)를 손가락으로 끌면 순서가 바뀌어요 — 이름 번호도 순서대로 저절로.</span>
+        <span className="min-w-0 [@media(pointer:coarse)]:hidden">
           포즈 사진을 캡처해서 <b className="font-semibold text-stone-700">Ctrl+V</b> 하거나 끌어다 놓으면 '{where}'에 새 포즈가 생겨요. 카드를 누르면 이름·설명·사진·폴더를 고치고, 손잡이(⋮⋮)를 끌면 순서가 바뀌어요 — 이름 번호도 순서대로 저절로.
         </span>
       </p>

@@ -179,6 +179,8 @@ export function Grip({ onPointerDown, disabled, small }) {
       className={
         "flex shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-stone-300 hover:bg-stone-100 hover:text-stone-600 active:cursor-grabbing " +
         (small ? "h-7 w-6" : "h-8 w-7") +
+        // 11/18 폰(손가락)에서는 누르기 쉽게 44px 높이
+        " [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-10" +
         (disabled ? " pointer-events-none opacity-30" : "")
       }
     >

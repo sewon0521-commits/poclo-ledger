@@ -422,8 +422,8 @@ export function Models({ value = [], onChange }) {
       {value.map((m) => (
         <span key={m} className="flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-800">
           {m}
-          <button type="button" onClick={() => onChange(value.filter((x) => x !== m))} aria-label={`${m} 빼기`} className="text-rose-400 hover:text-rose-800">
-            <X size={11} />
+          <button type="button" onClick={() => onChange(value.filter((x) => x !== m))} aria-label={`${m} 빼기`} className="hit relative -my-1 -mr-1.5 p-1 text-rose-400 hover:text-rose-800">
+            <X size={14} />
           </button>
         </span>
       ))}
@@ -459,18 +459,19 @@ function CodiRow({ c, d, onStyle, rows, onMove, look, pose }) {
   const card = (
     <button type="button" onClick={onStyle} className="flex w-full min-w-0 gap-3 rounded-xl border border-stone-200 bg-white p-2.5 text-left hover:border-rose-300">
       <span className="flex shrink-0 gap-1">
-        {its.slice(0, 3).map((x) => (
-          <Photo key={x.id} url={d.urls[x.photo] || x.photoUrl} className="aspect-[3/4] w-11 rounded-md" />
+        {/* 11/18 폰(640px 아래)은 사진 2장 — 이름 칸이 너무 좁아 글자가 잘렸다 */}
+        {its.slice(0, 3).map((x, i) => (
+          <Photo key={x.id} url={d.urls[x.photo] || x.photoUrl} className={"aspect-[3/4] w-11 rounded-md" + (i === 2 ? " max-sm:hidden" : "")} />
         ))}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 text-sm font-semibold text-stone-900">{codiName(c, d.items)}</span>
+        <span className="line-clamp-2 text-sm break-words font-semibold text-stone-900">{codiName(c, d.items)}</span>
         {line ? (
           <span className="mt-0.5 block truncate text-xs text-rose-800">{line}</span>
         ) : (
           <span className="mt-0.5 block text-xs text-amber-700">스타일링 정하기 — 헤어 · 신발 · 악세서리</span>
         )}
-        {tally && <span className="mt-0.5 block text-[11px] font-medium text-stone-500">{tally}</span>}
+        {tally && <span className="mt-0.5 block text-[11px] font-medium break-words text-stone-500">{tally}</span>}
         {c.uploadOn && <span className="block text-[11px] text-stone-400">{md(c.uploadOn)} 업로드</span>}
       </span>
     </button>
@@ -983,7 +984,16 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
     const codes = [...new Set(shots.map((x) => (x.own ? "" : x.code)).filter(Boolean))];
     const own = shots.filter((x) => x.own).length;
     const nd = shots.filter((x) => x.done).length;
-    return `포즈 ${codes.join("·")}${own ? `${codes.length ? " + " : ""}이 코디만 ${own}` : ""}${auto ? " (추천)" : ""} · ${nd ? `찍음 ${nd}/${shots.length}` : `${shots.length}장`}`;
+    // 11/18 폰: 'TOP·1·TOP·2·TOP·3·SELFIE·1…' 이 띄어쓰기 없이 길어 카드 밖으로 나갔다 → 묶음마다 수로 ('TOP 3 · SELFIE 3 · BTM 7')
+    const groups = [];
+    for (const k of codes) {
+      const g = String(k).split("·")[0];
+      const o = groups.find((y) => y.g === g);
+      if (o) o.n++;
+      else groups.push({ g, n: 1, first: k });
+    }
+    const gText = groups.map((y) => (y.n > 1 ? `${y.g} ${y.n}` : y.first)).join(" · ");
+    return `포즈 ${gText}${own ? `${codes.length ? " + " : ""}이 코디만 ${own}` : ""}${auto ? " (추천)" : ""} · ${nd ? `찍음 ${nd}/${shots.length}` : `${shots.length}장`}`;
   };
   // 11/17 밤 촬영 날 화면과 같은 수 — 겹마다 다시 찍는 상의 포즈까지(lib/shootOrder)
   const runs = poseList.length ? codis.map((c) => runOrder(s, c, poseList, d.items).shots) : [];
@@ -991,9 +1001,9 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
   const doneShots = runs.reduce((n, l) => n + l.filter((x) => x.done).length, 0);
   const liveCodiPose = codiPose && codis.find((c) => c.id === codiPose);
   return (
-    <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 p-2 sm:p-4">
+    <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-stone-900/45 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
-      <div className="sheet relative z-10 flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+      <div className="sheet relative z-10 flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl sm:max-h-[94vh]">
         <header className="flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
           <div className="min-w-0">
             <div className="text-lg font-bold text-stone-900">
@@ -1378,12 +1388,13 @@ export default function ShootDays({ d, online }) {
 
   return (
     <div>
-      <div className="mb-4 flex items-start justify-between gap-2">
+      {/* 11/18 폰: 설명이 단추 옆 좁은 칸에 끼던 것 → 폰은 설명 아래로 단추 */}
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-stone-900">촬영 관리</h2>
           <p className="mt-0.5 text-sm text-stone-500">촬영일마다 그날 코디 · 스타일링(헤어·신발·악세서리) · 시간·장소·모델. 모델에게는 로그인 없이 보는 촬영 시트 링크로 보내요.</p>
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
           {/* 10/29 모든 촬영 시트에 같이 가는 '촬영 기본 가이드'(동선 · 찍을 영상 · 포즈 …) */}
           <button type="button" onClick={() => setGuide(true)} className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-medium text-stone-700 hover:border-rose-300 hover:text-rose-800">
             <BookOpen size={16} /> 모델 기본 가이드

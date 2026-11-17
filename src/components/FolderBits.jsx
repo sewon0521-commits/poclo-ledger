@@ -63,7 +63,7 @@ export function FolderBar({ items, folders, sel, onSel, onEdit, q, setQ, bestOnl
           <button
             type="button"
             onClick={onEdit}
-            className="flex shrink-0 items-center gap-1 text-xs text-stone-500 hover:text-stone-800"
+            className="flex shrink-0 items-center gap-1 text-xs text-stone-500 hover:text-stone-800 max-sm:-my-2.5 max-sm:py-2.5"
           >
             <Pencil size={12} /> 카테고리 편집
           </button>

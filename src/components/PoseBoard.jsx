@@ -456,7 +456,7 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
                 <div className="mb-1 flex min-w-0 items-center gap-1.5">
                   <span className="w-4 shrink-0 text-center text-xs font-bold text-rose-700 tabular-nums">{i + 1}</span>
                   <Photo url={its[0] && (d.urls[its[0].photo] || its[0].photoUrl)} className="aspect-[3/4] w-7 shrink-0 rounded" />
-                  <button type="button" onClick={() => onCodi(r.c)} className="min-w-0 truncate text-left text-xs font-semibold text-stone-800 underline decoration-stone-300 underline-offset-2 hover:text-rose-800" title="이 코디 포즈 고치기(사진 한 장만 · 이 코디만 사진)">
+                  <button type="button" onClick={() => onCodi(r.c)} className="-my-3 min-w-0 truncate py-3 text-left text-xs font-semibold text-stone-800 underline decoration-stone-300 underline-offset-2 hover:text-rose-800" title="이 코디 포즈 고치기(사진 한 장만 · 이 코디만 사진)">
                     {codiName(r.c, d.items)}
                   </button>
                   <span className={"shrink-0 text-[10px] tabular-nums " + (r.shots.length && nDone === r.shots.length ? "font-semibold text-emerald-700" : "text-stone-400")}>
@@ -465,13 +465,13 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
                   {r.auto ? (
                     <span className="shrink-0 text-[10px] font-semibold text-rose-600">추천 그대로</span>
                   ) : (
-                    <button type="button" onClick={() => backToReco(r.c)} className="flex shrink-0 items-center gap-0.5 text-[10px] text-stone-400 hover:text-rose-700" title="이 코디를 추천으로 되돌리기">
+                    <button type="button" onClick={() => backToReco(r.c)} className="-my-3 flex shrink-0 items-center gap-0.5 py-3 text-[10px] text-stone-400 hover:text-rose-700" title="이 코디를 추천으로 되돌리기">
                       <RotateCcw size={9} /> 추천으로
                     </button>
                   )}
                 </div>
                 {/* 11/17 밤 찍는 순서 — 안쪽 옷부터 입으면서(lib/shootOrder). 촬영 시작 · 모델 시트도 이 순서 */}
-                <p className="truncate pl-5 text-[11px] text-stone-500" title="안쪽 옷부터 하나씩 입으면서 찍어요 · 겹마다 사진 → 영상">
+                <p className="pl-5 text-[11px] break-words text-stone-500" title="안쪽 옷부터 하나씩 입으면서 찍어요 · 겹마다 사진 → 영상">
                   찍는 순서 {wearSteps(r.c, d.items).map((st) => `${"①②③④⑤⑥⑦⑧⑨"[st.n - 1] || st.n} ${stepLabel(st)}`).join(" → ")}
                 </p>
                 <div className="flex gap-2 overflow-x-auto pt-2 pr-2 pb-1 pl-5">

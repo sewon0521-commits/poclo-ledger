@@ -316,26 +316,29 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-white">
       <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 px-3 py-2">
-        <button type="button" onClick={onClose} aria-label="촬영 화면 닫기" className="-m-1 p-1.5 text-stone-500 hover:text-stone-800">
+        <button type="button" onClick={onClose} aria-label="촬영 화면 닫기" className="-m-1.5 flex h-11 w-11 shrink-0 items-center justify-center text-stone-500 hover:text-stone-800">
           <X size={22} />
         </button>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-bold text-stone-900">
             코디 {ci + 1} <span className="font-normal text-stone-400">/ {codis.length}</span>
           </div>
-          <div className="mt-0.5 flex gap-1">
+          <div className="flex gap-1">
             {all.map((r, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={() => go(i)}
                 aria-label={`코디 ${i + 1}로`}
-                className={"h-1.5 flex-1 rounded-full " + (i === ci ? "bg-rose-700" : r.steps.length && r.steps.every(stepDone) ? "bg-emerald-500" : "bg-stone-200")}
-              />
+                className="group flex-1 py-2"
+              >
+                {/* 11/18 막대는 그대로 얇게, 누르는 칸만 위아래로 넓게 */}
+                <span className={"block h-1.5 rounded-full " + (i === ci ? "bg-rose-700" : r.steps.length && r.steps.every(stepDone) ? "bg-emerald-500" : "bg-stone-200")} />
+              </button>
             ))}
           </div>
         </div>
-        <button type="button" onClick={() => onCodi(c)} className="flex shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300">
+        <button type="button" onClick={() => onCodi(c)} className="flex min-h-10 shrink-0 items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300">
           <Pencil size={12} /> 포즈 고치기
         </button>
       </header>
@@ -356,7 +359,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
                   onClick={(e) => toStep(x.n, e.timeStamp + Math.random())}
                   aria-pressed={on}
                   className={
-                    "flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap " +
+                    "flex min-h-9 shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap " +
                     (on ? "bg-rose-700 text-white" : ok ? "bg-emerald-50 text-emerald-700" : "bg-stone-100 text-stone-600")
                   }
                 >
@@ -367,7 +370,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
             })}
           </div>
           {step && (
-            <p className="mt-1 line-clamp-1 text-[11px] text-stone-500">
+            <p className="mt-1 line-clamp-2 text-[11px] text-stone-500">
               {step.n === 1 ? "입기" : "더 입기"}: {names(step.add) || "—"} · 한 번 입은 옷은 벗지 않아요
             </p>
           )}
@@ -428,7 +431,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
             onClick={flipVid}
             aria-pressed={step.vidDone}
             className={
-              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold " +
+              "flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold " +
               (step.vidDone ? "bg-emerald-50 text-emerald-700" : stepPhotosDone ? "animate-pulse bg-amber-100 text-amber-900 ring-2 ring-amber-400" : "bg-stone-100 text-stone-600")
             }
           >

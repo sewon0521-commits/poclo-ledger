@@ -326,7 +326,7 @@ export function SlideViewer({ urls, className = "", fit = "contain", start = 0, 
               type="button"
               onClick={() => go(at - 1)}
               aria-label="이전 장"
-              className="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow"
+              className="hit absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow"
             >
               <ChevronLeft size={18} />
             </button>
@@ -336,7 +336,7 @@ export function SlideViewer({ urls, className = "", fit = "contain", start = 0, 
               type="button"
               onClick={() => go(at + 1)}
               aria-label="다음 장"
-              className="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow"
+              className="hit absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-stone-700 shadow"
             >
               <ChevronRight size={18} />
             </button>
@@ -361,7 +361,7 @@ export function SlideViewer({ urls, className = "", fit = "contain", start = 0, 
         <button
           type="button"
           onClick={() => setBig(true)}
-          className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-black/75"
+          className="hit absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-black/75"
         >
           <Maximize2 size={12} /> 크게 보기
         </button>
