@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
 import DelayPage from "./DelayPage";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -70,6 +70,7 @@ function applyDraft(x, r) {
     check: r.check || [],
     blanks: r.blanks || [],
     fills,
+    dups: [],
     draft: r.draft || "",
     aiDraft: r.draft || "", // 11/10 고친 것 학습 — 세원이 고친 뒤 보낸 글과 비교
     confirmed: false,
@@ -835,24 +836,29 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
   // 다른 데서 바뀌면(PC 가 보냄 등) 따라간다 — 내가 고치는 중인 칸(초안·빈칸·메모·확인)은 그대로
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
-    setV((p) => ({ ...x, draft: p.draft, fills: p.fills, basis: p.basis, confirmed: x.status !== p.status ? x.confirmed : p.confirmed }));
+    setV((p) => ({ ...x, draft: p.draft, fills: p.fills, dups: p.dups, basis: p.basis, confirmed: x.status !== p.status ? x.confirmed : p.confirmed }));
   }, [x]);
   const save = (patch, now = false) => {
     const next = { ...v, ...patch };
     setV(next);
     clearTimeout(timer.current);
-    const go = () => D.saveItem({ id: x.id, ...patch, draft: next.draft, fills: next.fills, basis: next.basis, confirmed: next.confirmed });
+    const go = () => D.saveItem({ id: x.id, ...patch, draft: next.draft, fills: next.fills, dups: next.dups || [], basis: next.basis, confirmed: next.confirmed });
     if (now) return go();
     timer.current = setTimeout(go, 600);
   };
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  const sentLike = ["approved", "sending", "sent", "done"].includes(v.status);
   const text = finalText(v);
   const open = openBlanks(v);
+  // 11/17 세원 "빈칸에 넣었는데 왜 초안에는 안 나오니?" — 초안 칸은 빈칸에 적은 말을 넣은 글(= 보낼 글)로 보여 준다.
+  // 초안 칸을 직접 고치면 그때 채운 말이 글에 들어가고(bakeFills) 그 빈칸 칸은 닫힌다.
+  const shown = sentLike && v.final ? v.final : text;
+  const liveBlanks = (v.blanks || []).filter((b) => String(v.draft || "").includes(b.key));
+  const stuck = (v.dups || []).filter((c) => c && shown.includes(c)); // 글에 들어간 겹침 — 고칠 때까지 경고
   const auto = canSend(v.channel); // 사무실 PC 가 보내 주는 채널(카페24 API · 어사이드)
   const chName = channelOf(v.channel).label;
   const ready = !!v.draft && !open.length && v.confirmed;
-  const sentLike = ["approved", "sending", "sent", "done"].includes(v.status);
 
   const redraft = async () => {
     setBusy("draft");
@@ -1058,36 +1064,56 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
           )}
         </div>
 
-        {(v.blanks || []).length > 0 && (
+        {liveBlanks.length > 0 && (
           <div className="grid gap-2 sm:grid-cols-2">
-            {v.blanks.map((b) => (
-              <label key={b.key} className="block">
-                <span className="mb-0.5 block text-[11px] font-medium text-stone-500">
-                  {b.key.replace(/^\[|\]$/g, "")}
-                  {b.hint && <span className="font-normal text-stone-400"> · {b.hint}</span>}
-                </span>
-                <input
-                  value={v.fills?.[b.key] || ""}
-                  onChange={(e) => save({ fills: { ...(v.fills || {}), [b.key]: e.target.value } })}
-                  disabled={sentLike}
-                  placeholder={b.hint || "채워 주세요"}
-                  className={FIELD + (String(v.fills?.[b.key] || "").trim() ? "" : " border-amber-300 bg-amber-50/40")}
-                />
-              </label>
-            ))}
+            {liveBlanks.map((b) => {
+              const val = String(v.fills?.[b.key] || "");
+              const dups = blankOverlaps(v.draft, b.key, val);
+              return (
+                <label key={b.key} className="block">
+                  <span className="mb-0.5 block text-[11px] font-medium text-stone-500">
+                    {b.key.replace(/^\[|\]$/g, "")}
+                    {b.hint && <span className="font-normal text-stone-400"> · {b.hint}</span>}
+                    {val.trim() && !sentLike && <span className="ml-1 font-normal text-emerald-700">✓ 초안에 넣었어요</span>}
+                  </span>
+                  <input
+                    value={val}
+                    onChange={(e) => save({ fills: { ...(v.fills || {}), [b.key]: e.target.value } })}
+                    disabled={sentLike}
+                    placeholder={b.hint || "채워 주세요"}
+                    className={FIELD + (dups.length ? " border-amber-400 bg-amber-50" : val.trim() ? "" : " border-amber-300 bg-amber-50/40")}
+                  />
+                  {dups.map((o) => (
+                    <span key={o.side + o.core} className="mt-0.5 flex items-start gap-1 text-[11px] leading-snug text-amber-800">
+                      <AlertTriangle size={12} className="mt-px shrink-0" />
+                      <span>
+                        빈칸 바로 {o.side === "after" ? "뒤" : "앞"} 글자와 '<b>{o.dup}</b>'가 겹쳐요 → <span className="font-medium">{o.sample}</span>
+                      </span>
+                    </span>
+                  ))}
+                </label>
+              );
+            })}
           </div>
         )}
 
         {v.draft || busy !== "draft" ? (
           <textarea
-            value={v.draft || ""}
-            onChange={(e) => save({ draft: e.target.value })}
+            value={shown}
+            onChange={(e) => save(bakeFills(v, e.target.value))}
             disabled={sentLike}
-            rows={Math.min(16, Math.max(6, (v.draft || "").split("\n").length + 1))}
+            aria-label="답변 초안 (빈칸에 적은 말이 들어간 보낼 글)"
+            rows={Math.min(16, Math.max(6, shown.split("\n").length + 1))}
             placeholder={v.status === "new" ? "아직 초안이 없어요 — 아래 '초안 만들기'를 눌러 주세요" : ""}
             className={FIELD + " leading-relaxed"}
           />
         ) : null}
+        {stuck.length > 0 && (
+          <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900">
+            <AlertTriangle size={12} className="mt-px shrink-0" />
+            <span>빈칸에 넣은 말이 앞뒤 글자와 겹친 채 남아 있어요: {stuck.map((c) => `'${c}'`).join(" · ")} — 초안에서 하나를 빼 주세요</span>
+          </p>
+        )}
         {open.length > 0 && v.draft && <p className="text-[11px] text-amber-700">빈칸 {open.length}개를 채우면 보낼 수 있어요: {open.map((b) => b.key).join(" · ")}</p>}
 
         {/* 11/11 세원 "계좌 오면 [다음 답]" — 손님 답을 받은 뒤 보낼 글을 카드에 맡겨 둔다(지금은 안 보냄) */}
@@ -1104,7 +1130,7 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
                   type="button"
                   onClick={() => {
                     if (!sentLike && v.draft && !window.confirm("지금 초안을 이 '다음 답'으로 바꿀까요? (지금 초안은 아직 안 보냈어요)")) return;
-                    save({ draft: v.nextReply.text, blanks: [], fills: {}, confirmed: false, status: "ready", final: "", approvedAt: "", nextReply: null, nextUsed: { ...v.nextReply, usedAt: new Date().toISOString() } }, true);
+                    save({ draft: v.nextReply.text, blanks: [], fills: {}, dups: [], confirmed: false, status: "ready", final: "", approvedAt: "", nextReply: null, nextUsed: { ...v.nextReply, usedAt: new Date().toISOString() } }, true);
                     onMsg("다음 답을 초안으로 옮겼어요 — 확인하고 보낼 목록에 넣어 주세요.");
                   }}
                   className="rounded-lg bg-sky-700 px-2.5 py-1 font-semibold text-white"

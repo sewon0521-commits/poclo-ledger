@@ -86,6 +86,67 @@ export function finalText(x) {
 /** 아직 안 채운 빈칸 */
 export const openBlanks = (x) => (x?.blanks || []).filter((b) => finalText(x).includes(b.key));
 
+// 11/17 세원 "빈칸에 '10~15cm정도까지' 넣었는데" — 빈칸 바로 뒤가 '까지 늘어나요'라 '정도까지까지'가 됐다.
+// 채운 말 끝 ↔ 빈칸 뒤 글 앞(또는 빈칸 앞 글 끝 ↔ 채운 말 앞)이 같은 글자면 겹침. 표시만 하고 고치지 않는다.
+// 바로 붙어 있으면 한글 한 글자도(에·까지·개), 띄어쓰기를 사이에 두면 두 글자부터(다음 주 + 주말 은 겹침 아님).
+const DUP_OK = /[가-힣A-Za-z0-9]/;
+const NL = String.fromCharCode(10);
+function tailHead(a, b, minK) {
+  for (let k = Math.min(a.length, b.length, 12); k >= minK; k--) {
+    const s = b.slice(0, k);
+    if (a.endsWith(s) && DUP_OK.test(s) && (k >= 2 || /[가-힣]/.test(s))) return k;
+  }
+  return 0;
+}
+/** 빈칸 key 에 value 를 넣었을 때 겹치는 곳 [{key, side:"after"|"before", dup, core(보낼 글에 생긴 겹친 글), sample}] */
+export function blankOverlaps(draft, key, value) {
+  const val = String(value || "").trim();
+  const d = String(draft || "");
+  if (!val || !key) return [];
+  const out = [];
+  for (let i = d.indexOf(key); i >= 0; i = d.indexOf(key, i + key.length)) {
+    const after = d.slice(i + key.length);
+    const before = d.slice(0, i);
+    // 뒤: 채운 말 끝 = 뒤 글 앞
+    const lead = after.length - after.replace(/^[ \t]+/, "").length;
+    let k = tailHead(val, after, 1);
+    let gap = 0;
+    if (!k && lead) {
+      k = tailHead(val, after.slice(lead), 2);
+      gap = k ? lead : 0;
+    }
+    if (k) {
+      const core = val.slice(-Math.min(val.length, k + 4)) + after.slice(0, gap + k);
+      out.push({ key, side: "after", dup: after.slice(gap, gap + k).trim(), core, sample: ("…" + val.slice(-10) + after.slice(0, gap + k + 8)).split(NL)[0] });
+    }
+    // 앞: 앞 글 끝 = 채운 말 앞
+    const rev = (t) => [...t].reverse().join("");
+    const trail = before.length - before.replace(/[ \t]+$/, "").length;
+    let j = tailHead(rev(val), rev(before), 1);
+    let gap2 = 0;
+    if (!j && trail) {
+      j = tailHead(rev(val), rev(before.slice(0, before.length - trail)), 2);
+      gap2 = j ? trail : 0;
+    }
+    if (j) {
+      const core = before.slice(before.length - gap2 - j) + val.slice(0, Math.min(val.length, j + 4));
+      out.push({ key, side: "before", dup: val.slice(0, j).trim(), core, sample: (before.slice(Math.max(0, before.length - gap2 - j - 8)) + val.slice(0, 10) + "…").split(NL).pop() });
+    }
+  }
+  const seen = new Set();
+  return out.filter((o) => !seen.has(o.side + o.core) && seen.add(o.side + o.core));
+}
+/** 지금 채운 빈칸들의 겹침 전부 */
+export const fillOverlaps = (x) => Object.entries(x?.fills || {}).flatMap(([k, val]) => blankOverlaps(x?.draft, k, val));
+/** 초안 칸을 직접 고칠 때 — 채운 말을 글에 넣고(빈칸 닫힘) 겹침은 dups 로 남긴다(고칠 때까지 경고) */
+export function bakeFills(x, nextText) {
+  const filled = Object.entries(x?.fills || {}).filter(([, val]) => String(val || "").trim());
+  if (!filled.length) return { draft: nextText };
+  const fills = Object.fromEntries(Object.entries(x.fills).filter(([k]) => nextText.includes(k)));
+  const dups = [...new Set([...(x.dups || []), ...fillOverlaps(x).map((o) => o.core)])];
+  return { draft: nextText, fills, dups };
+}
+
 /** 처리 끝난 지 7일 넘은 것 — 달마다 따로 모아 둔다(목록을 가볍게) */
 export const ARCHIVE_DAYS = 7;
 export const archiveKey = (iso) => `cs_done_${String(iso || "").slice(0, 7).replace("-", "")}`;
