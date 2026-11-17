@@ -3900,3 +3900,19 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - PC 포즈판 코디 줄 아래 '찍는 순서 ① 티셔츠 + 청바지 + 양말 → ② + 자켓'.
 - 확인(이 기기 저장 모드 + 서버 사본, 서버엔 안 씀): 실제 코디 66개로 겹 나누기(`scratchpad/order/t1.mjs`) · `scratchpad/mobile/order_test.mjs` 폰 22/22(겹 칩 · 첫 겹 다 찍어도 안 넘어감 · 영상 깜빡임 → vid:1 → ② · 상의 두 겹 s2|) ·
   `sheet_order_test.mjs` 13/13(시험 그림으로 바꾼 사본 — 6코디 순서 · ② 상의 = ① 상의 다시 · 아우터 코디 ① 상의·셀카·하의 / ② 아우터·전신 · 상품명 없음 · 시트 화면).
+
+### 11/17 밤 — 1군 포즈 넣기 · 폴더 v3 (세원 OK "ㅇㅇ 그래")
+
+- 세원이 오브나인 후보판(포즈 레퍼런스/261117_오브나인_1군후보, 보드 `scratchpad/aube/board.py`)에서 고름 → 서버 shoot_poses 에 카드 24개(`scratchpad/aube/pick.py` 정의 · `mig_1gun.py`):
+  TOP·1~3(판 2·4·6) · SELFIE·1(판 1+2 합침 — 사진 두 장 '가깝게 · 다른 손 내림' / '멀게 · 한 손 허리') · SELFIE·2(판 3, `pose.only "가방"` — 코디에 가방 있을 때만 추천) · SELFIE·3·4(판 4·5) ·
+  BTM·1~7(판 1·2·3·4·5·7 + **FULL 판 1** — 세원 "1번은 하의인데?") · BTM·예비1·2(판 6·8, `pose.spare` — 추천 안 함, 포즈 칸에서 접혀 있음) · FULL·1~4(판 2·3·4·6) ·
+  OUTER·패딩1~4(세원이 준 사진 4장, 2번은 야외 › OUTER › 패딩). 전부 ok true. 사진은 원본 그대로 잘라 Storage `shoot/…jpg`.
+- **짝**(`pose.pair` = 짝 카드 id): FULL·2(판 3 한 손 허리) · FULL·3(판 4 다른 손 내림) ↔ SELFIE·1 — 촬영 날 같은 겹에 둘 다 있으면 SELFIE·1 사진 바로 뒤에('셀카 찍고 한두 걸음 뒤로 → 전신', `shootOrder.runOrder`).
+  아우터 코디는 전신을 아우터 입은 겹에서 찍으니 짝이 떨어진다(입으면서 찍기가 먼저).
+- 폴더 v3(`poses.seedPoseFolders`): 실내/야외 › TOP · SELFIE · BTM · FULL · OUTER(› 코트·패딩·무스탕·퍼·자켓 — **세부는 OUTER 만**), 맨 위 **예전 포즈**(`pf_old`, place "old" — 추천 안 함) 에 P1~P18(P17·P18 은 11/17 21:41 생긴 빈 카드, 지우지 않음).
+  폴더 id 는 그대로 썼다(pf_in_top = TOP, pf_in_bottom = BTM …) — 예전 이름(상의·하의·전신·아우터)도 `codiFolder`·`fitsFor` 가 알아본다.
+- 이름 = `CODE_RE`(P번호 또는 TOP·1 · BTM·예비1 · OUTER·패딩1), `codeOfTitle`·`stripCode`. 순서 `byCode` = TOP → SELFIE → BTM → FULL → OUTER(예비는 묶음 끝) → 예전 P. 포즈 칸에서 묶음 폴더에 '포즈 추가'하면 다음 번호(BTM·8)·찍는 방식(SELFIE·FULL 거울 셀카, TOP·BTM 찍어주는 컷).
+  고치기 창에 '예비로 접기 (추천 안 함)' · '가방 있을 때만'.
+- 촬영 줄: **11/19** = 새 1군 추천 + 그 코디가 쓰던 아우터 포즈(P7·P12·P15·P16 — 새 1군에 아우터가 아직 패딩뿐, 빈 P17·P18 뺌)로 다시 고름(`scratchpad/order/freeze2.mjs`).
+  **11/21**(바깥) = 그때 추천(P8·P9·P10·P11)을 그대로 굳힘(`freeze.mjs`) — 예전 포즈로 옮겨도 안 끊기게. 백업 `poclo-cafe24/_백업_ERP_shoot_poses_261117_밤.json` · `_백업_ERP_shoot_days_261117_밤.json`.
+- 확인 `scratchpad/mobile/gun_test.mjs` 폰 11/11(폴더 · 순서 · 예비 접힘 · 가방/짝 표시 · BTM·8 추가 · 11/19 포즈판).

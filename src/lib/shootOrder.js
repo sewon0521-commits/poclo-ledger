@@ -148,6 +148,17 @@ export function runOrder(day, c, cards, items) {
     const mine = [];
     for (const g of s.groups) for (const x of withGroup) if (x.group === g) mine.push(x);
     if (s.last) for (const x of withGroup) if (!x.group || !known.has(x.group)) mine.push(x);
+    // 11/17 밤 짝(pose.pair) — '셀카 찍고 한두 걸음 뒤로 → 전신': 같은 겹에 짝 카드가 있으면 그 카드 사진 바로 뒤로
+    const pairOf = (x) => byId.get(x.cardId)?.sec?.pose?.pair || "";
+    const has = (id) => id && mine.some((y) => y.cardId === id && !pairOf(y));
+    const lead = mine.filter((x) => !has(pairOf(x)));
+    for (const x of mine) {
+      const pr = pairOf(x);
+      if (!has(pr)) continue;
+      const at = lead.findLastIndex((y) => y.cardId === pr || pairOf(y) === pr);
+      lead.splice(at + 1, 0, x);
+    }
+    mine.splice(0, mine.length, ...lead);
     // 첫 겹 · 묶음이 한 번만 나오는 사진은 키 그대로(예전 찍음 표시와 이어진다), 두 번째 상의 겹부터는 겹 번호를 붙인다
     const again = (x) => (x.group === "TOP" || x.group === "SELFIE") && topSteps[0] && topSteps[0].n !== s.n;
     for (const x of mine) {

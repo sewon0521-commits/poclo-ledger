@@ -4,7 +4,7 @@ import { ExternalLink, Footprints, ImagePlus, Loader2, Plus, Trash2, X } from "l
 import { newId } from "../lib/id";
 import { FIELD, remove } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
-import { poseFoldersOf, shotsOfLib, placeOfFolder, IN_ID, FITS, OUTER_TYPES, byCode } from "../lib/poses";
+import { poseFoldersOf, shotsOfLib, placeOfFolder, IN_ID, FITS, OUTER_TYPES, byCode, codeOfTitle, stripCode, GROUP_ORDER } from "../lib/poses";
 import { withChildren, ordered, pathOf, pathName } from "../lib/reelFolders";
 import { guidePhoto } from "../lib/modelGuide";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -22,20 +22,30 @@ import { FolderBar, CategoryEditor } from "./FolderBits";
  */
 
 const FIT_CHOICES = [...FITS, ...OUTER_TYPES.map((o) => "아우터:" + o.t)];
-const codeOf = (x) => x.pose?.code || String(x.title || "").match(/^P\d+/i)?.[0]?.toUpperCase() || "";
-const nameOf = (x) => String(x.title || "").replace(/^P\d+\s*/i, "") || "이름 없는 포즈";
-const nextCode = (items) => "P" + (Math.max(0, ...items.map((x) => Number(codeOf(x).slice(1)) || 0)) + 1);
-/** 폴더로 처음 추천 자리 — 포즈판 추천(lib/poses recommend)에 쓰인다. 아우터 › 코트 같은 세부면 그 종류도 */
+const codeOf = (x) => x.pose?.code || codeOfTitle(x.title);
+const nameOf = (x) => stripCode(x.title).trim() || "이름 없는 포즈";
+/** 이 폴더의 묶음(TOP·SELFIE·BTM·FULL·OUTER) — 없으면 "" */
+const groupOfFolder = (folderId, folders) => pathOf(folderId, folders).map((f) => f.name.toUpperCase()).find((n) => GROUP_ORDER.includes(n)) || "";
+/** 다음 번호 — 묶음 폴더면 'TOP·4'(예비·패딩 같은 이름 번호는 안 셈), 아니면 예전처럼 P번호 */
+function nextCode(items, folderId, folders) {
+  const g = groupOfFolder(folderId, folders);
+  if (g) return `${g}·${Math.max(0, ...items.map((x) => Number(codeOf(x).match(new RegExp(`^${g}·(\\d+)$`))?.[1]) || 0)) + 1}`;
+  return "P" + (Math.max(0, ...items.map((x) => Number(codeOf(x).match(/^P(\d+)$/)?.[1]) || 0)) + 1);
+}
+/** 폴더로 처음 추천 자리 — 포즈판 추천(lib/poses recommend)에 쓰인다. OUTER › 코트 같은 세부면 그 종류도 */
 function fitsFor(folderId, folders) {
   const names = pathOf(folderId, folders).map((f) => f.name);
-  if (names.includes("아우터")) {
+  const up = names.map((n) => n.toUpperCase());
+  if (names.includes("아우터") || up.includes("OUTER")) {
     const t = OUTER_TYPES.find((o) => names.some((n) => o.re.test(n)));
     return t ? ["아우터:" + t.t] : ["아우터"];
   }
-  if (names.includes("상의")) return ["상의"];
-  if (names.includes("하의") || names.includes("앉은컷")) return ["하의"];
+  if (names.includes("상의") || up.includes("TOP") || up.includes("SELFIE")) return ["상의"];
+  if (names.includes("하의") || names.includes("앉은컷") || up.includes("BTM")) return ["하의"];
   return ["전신"];
 }
+/** 폴더로 처음 찍는 방식 — SELFIE·FULL 은 거울 셀카, TOP·BTM 은 찍어주는 컷 */
+const shotFor = (folderId, folders) => ({ SELFIE: "거울 셀카", FULL: "거울 셀카", TOP: "찍어주는 컷", BTM: "찍어주는 컷" })[groupOfFolder(folderId, folders)] || "";
 const okTone = (ok) => (ok === true ? "bg-emerald-50 text-emerald-700" : ok === false ? "bg-stone-100 text-stone-500" : "bg-amber-50 text-amber-700");
 const okText = (ok) => (ok === true ? "OK" : ok === false ? "뺌" : "확인 전");
 const remember = (k, v) => {
@@ -68,8 +78,8 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
   };
   useEffect(() => () => clearTimeout(timer.current), []);
   const change = (n) => {
-    // 이름 앞 P번호가 바뀌면 카드 번호도
-    const code = String(n.title || "").match(/^P\d+/i)?.[0]?.toUpperCase();
+    // 이름 앞 번호(P17 · TOP·4)가 바뀌면 카드 번호도
+    const code = codeOfTitle(n.title);
     const next = code && code !== n.pose?.code ? { ...n, pose: { ...(n.pose || {}), code } } : n;
     latest.current = next;
     dirty.current = true;
@@ -132,7 +142,7 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
               </div>
             </div>
           </div>
-          <SectionEdit x={x} i={0} n={1} online={online} urlOf={urls.urlOf} onChange={change} onFresh={urls.setFresh} d={d} bare titleHint="이름 — 앞에 P번호 (예: P17 밖 걷기)" hint="모델에게 가는 설명 (예: 정면 전신 · 휴대폰으로 얼굴을 가려요)" />
+          <SectionEdit x={x} i={0} n={1} online={online} urlOf={urls.urlOf} onChange={change} onFresh={urls.setFresh} d={d} bare titleHint="이름 — 앞에 번호 (예: TOP·4 창가에 기대 서기)" hint="모델에게 가는 설명 (예: 정면 전신 · 휴대폰으로 얼굴을 가려요)" />
           <div>
             <div className="mb-1 text-xs font-medium text-stone-500">
               추천 자리 <span className="font-normal text-stone-400">— 포즈판이 이 옷이 든 코디에 먼저 골라 둬요</span>
@@ -147,6 +157,16 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
                 );
               })}
             </div>
+          </div>
+          {/* 11/17 밤 예비 · 가방 있을 때만 */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-0.5 text-xs font-medium text-stone-500">추천</span>
+            <button type="button" aria-pressed={!!p.spare} onClick={() => setPose({ spare: !p.spare || undefined })} className={chip + " " + (p.spare ? "border-stone-700 bg-stone-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-400")}>
+              예비로 접기 (추천 안 함)
+            </button>
+            <button type="button" aria-pressed={p.only === "가방"} onClick={() => setPose({ only: p.only === "가방" ? undefined : "가방" })} className={chip + " " + (p.only === "가방" ? "border-amber-600 bg-amber-500 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-400")}>
+              가방 있을 때만
+            </button>
           </div>
           <label className="block text-xs font-medium text-stone-500">
             고른 이유 <span className="font-normal text-stone-400">(우리만 봐요)</span>
@@ -218,6 +238,7 @@ export default function PosesTab({ poses, d, online }) {
   const [edit, setEdit] = useState(null); // 카드 id
   const [catOpen, setCatOpen] = useState(false);
   const [busy, setBusy] = useState(0); // 붙인 사진 올리는 중(장수)
+  const [spareOpen, setSpareOpen] = useState(false);
   const [err, setErr] = useState("");
   const curSel = sel === "all" || sel === "none" || folders.some((f) => f.id === sel) ? sel : "all";
   const inSel = curSel === "all" ? null : curSel === "none" ? new Set([""]) : new Set(withChildren(curSel, folders));
@@ -242,8 +263,8 @@ export default function PosesTab({ poses, d, online }) {
   const add = async (photos = []) => {
     setErr("");
     const fid = curSel === "all" ? (folders.some((f) => f.id === IN_ID) ? IN_ID : "") : curSel === "none" ? "" : curSel;
-    const code = nextCode(lib.items || []);
-    const x = { id: newId("pz"), title: `${code} `, text: "", photos, folderId: fid, shot: shot === "*" ? "" : shot, pose: { code, fits: fitsFor(fid, folders) }, createdAt: new Date().toISOString() };
+    const code = nextCode(lib.items || [], fid, folders);
+    const x = { id: newId("pz"), title: `${code} `, text: "", photos, folderId: fid, shot: shot === "*" ? shotFor(fid, folders) : shot, pose: { code, fits: fitsFor(fid, folders) }, createdAt: new Date().toISOString() };
     await save((v) => ({ ...v, folders: v.folders?.length ? v.folders : folders, items: [...(v.items || []), x] }));
     setEdit(x.id);
   };
@@ -340,8 +361,9 @@ export default function PosesTab({ poses, d, online }) {
           {items.length ? "여기엔 아직 포즈가 없어요 — '포즈 추가'나 Ctrl+V 로 넣어요." : "아직 포즈가 없어요 — '포즈 추가'나 사진 Ctrl+V 로 첫 포즈를 넣어요."}
         </div>
       ) : (
+        <>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {shown.map((x) => {
+          {shown.filter((x) => !x.pose?.spare || spareOpen).map((x) => {
             const fid = fidOf(x);
             const out = fid && placeOfFolder(fid, folders) === "out";
             const path = pathOf(fid, folders);
@@ -358,12 +380,22 @@ export default function PosesTab({ poses, d, online }) {
                     <span className={"rounded-full px-1.5 py-0.5 font-semibold " + (out ? "bg-sky-50 text-sky-700" : "bg-stone-100 text-stone-600")}>{path.length ? path.map((f) => f.name).join(" › ") : "미분류"}</span>
                     {x.shot && <span className="rounded-full bg-violet-50 px-1.5 py-0.5 font-semibold text-violet-700">{x.shot}</span>}
                     <span className={"rounded-full px-1.5 py-0.5 font-semibold " + okTone(x.pose?.ok)}>{okText(x.pose?.ok)}</span>
+                    {x.pose?.spare && <span className="rounded-full bg-stone-700 px-1.5 py-0.5 font-semibold text-white">예비</span>}
+                    {x.pose?.only === "가방" && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">가방 있을 때만</span>}
+                    {x.pose?.pair && <span className="rounded-full bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-700">{codeOf((lib.items || []).find((y) => y.id === x.pose.pair) || {}) || "셀카"} 짝</span>}
                   </span>
                 </span>
               </button>
             );
           })}
         </div>
+        {/* 11/17 밤 예비 — 지우지 않고 접어 둔다(추천 안 함) */}
+        {shown.some((x) => x.pose?.spare) && (
+          <button type="button" onClick={() => setSpareOpen((v) => !v)} className="mt-3 rounded-full border border-dashed border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-500 hover:border-stone-500">
+            {spareOpen ? "예비 접기" : `예비 ${shown.filter((x) => x.pose?.spare).length}개 펴기`} <span className="font-normal text-stone-400">· 추천엔 안 써요</span>
+          </button>
+        )}
+        </>
       )}
       {editing && (
         <PoseEditSheet

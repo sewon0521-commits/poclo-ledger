@@ -31,14 +31,31 @@ export const POSES_KEY = "shoot_poses";
 export const IN_ID = "pf_in";
 export const OUT_ID = "pf_out";
 export const SHOTS = ["거울 셀카", "찍어주는 컷"];
+// 11/17 밤 1군 포즈(세원이 오브나인 후보판에서 고름) — 폴더 v3: 실내/야외 › TOP · SELFIE · BTM · FULL · OUTER, **세부는 OUTER 만**(코트·패딩·무스탕·퍼·자켓 — 부피·기장에 따라 포즈가 달라서).
+//   상의 반팔·긴팔티·니트 같은 세부는 없앴다(같은 포즈로 다 돼서 나누면 고르기만 어려움). 예전 P1~P18 · 앉은컷은 맨 위 '예전 포즈'(pf_old) — 추천엔 안 쓰고, 이미 고른 촬영은 그대로 이어진다.
+// 이름 = 묶음·번호(TOP·1 · SELFIE·2 · BTM·예비1 · OUTER·패딩1) 또는 예전 P번호. 카드 pose 에 spare(예비 — 추천 안 함) · only("가방" — 코디에 가방이 있을 때만 추천) · pair(짝 카드 id — 촬영 날 그 카드 바로 뒤).
+export const OLD_ID = "pf_old";
+export const GROUP_ORDER = ["TOP", "SELFIE", "BTM", "FULL", "OUTER"];
+export const CODE_RE = /^\s*(P\d+|(?:TOP|SELFIE|BTM|FULL|OUTER)·\S+)\s*/i;
+/** 이름 앞 번호 — 'TOP·1 정면 상반신' → 'TOP·1' */
+export const codeOfTitle = (t) => (String(t || "").match(CODE_RE)?.[1] || "").toUpperCase();
+/** 번호 뗀 이름 */
+export const stripCode = (t) => String(t || "").replace(CODE_RE, "");
 const KINDS = [
-  ["outer", "아우터"],
-  ["top", "상의"],
-  ["bottom", "하의"],
-  ["full", "전신"],
-  ["sit", "앉은컷"],
+  ["top", "TOP"],
+  ["selfie", "SELFIE"],
+  ["bottom", "BTM"],
+  ["full", "FULL"],
+  ["outer", "OUTER"],
 ];
-/** 처음 폴더 — 실내/야외 › 아우터·상의·하의·전신·앉은컷, 상의 › 반팔·긴팔티·니트, 실내 아우터 › 코트·패딩·무스탕·자켓·퍼 */
+const OUTER_SUBS = [
+  ["coat", "코트"],
+  ["pad", "패딩"],
+  ["mustang", "무스탕"],
+  ["fur", "퍼"],
+  ["jk", "자켓"],
+];
+/** 처음 폴더 — 실내/야외 › TOP·SELFIE·BTM·FULL·OUTER, OUTER › 코트·패딩·무스탕·퍼·자켓 */
 export function seedPoseFolders() {
   const out = [];
   for (const [pid, pname] of [
@@ -49,8 +66,7 @@ export function seedPoseFolders() {
     for (const [k, name] of KINDS) {
       const id = `${pid}_${k}`;
       out.push({ id, name, parent: pid });
-      if (k === "top") for (const [s, n] of [["short", "반팔"], ["long", "긴팔티"], ["knit", "니트"]]) out.push({ id: `${id}_${s}`, name: n, parent: id });
-      if (k === "outer" && pid === IN_ID) for (const [s, n] of [["coat", "코트"], ["pad", "패딩"], ["mustang", "무스탕"], ["jk", "자켓"], ["fur", "퍼"]]) out.push({ id: `${id}_${s}`, name: n, parent: id });
+      if (k === "outer") for (const [s, n] of OUTER_SUBS) out.push({ id: `${id}_${s}`, name: n, parent: id });
     }
   }
   return out;
@@ -61,11 +77,19 @@ export const shotsOfLib = (lib) => (lib?.shots?.length ? lib.shots : SHOTS);
 export function placeOfFolder(id, folders) {
   let f = folders.find((x) => x.id === id);
   for (let i = 0; f && f.parent && i < 5; i++) f = folders.find((x) => x.id === f.parent);
-  return f?.id === OUT_ID ? "out" : "in";
+  return f?.id === OUT_ID ? "out" : f?.id === OLD_ID ? "old" : "in";
 }
 export const placeOfDay = (day) => (day?.outdoor?.on ? "out" : "in");
-const codeNo = (s) => Number(String(s?.pose?.code || s?.title || "").match(/^P(\d+)/i)?.[1] || 1e6);
-/** 카드 순서 — P 번호 순, 번호 없는 건 뒤(만든 순) */
+/** 카드 순서 값 — TOP → SELFIE → BTM → FULL → OUTER(묶음 안은 번호, 예비는 뒤) → 예전 P번호 → 번호 없는 것 */
+const codeNo = (s) => {
+  const c = String(s?.pose?.code || codeOfTitle(s?.title) || "").toUpperCase();
+  const g = GROUP_ORDER.findIndex((x) => c.startsWith(x + "·"));
+  const n = Number(c.match(/(\d+)\s*$/)?.[1] || 999);
+  if (g >= 0) return (g + 1) * 1000 + (/예비/.test(c) ? 500 : 0) + n;
+  const p = c.match(/^P(\d+)$/);
+  return p ? 10000 + Number(p[1]) : 1e6;
+};
+/** 카드 순서 — 묶음·번호 순, 번호 없는 건 뒤(만든 순) */
 export const byCode = (a, b) => codeNo(a) - codeNo(b) || String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
 /** 포즈 칸 카드 전부 — poseCards 모양({cards, hidden}) + place · folderId · shot */
 export function poseDeck(lib) {
@@ -91,11 +115,15 @@ export function codiFolder(c, items, folders, place, cards = null) {
   const f = codiFits(c, items);
   const its = (c?.itemIds || []).map((id) => (items || []).find((y) => y.id === id)).filter(Boolean);
   const names = its.map((x) => `${x.name || ""} ${x.fullName || ""}`).join(" ");
+  // 11/17 밤 폴더 이름이 TOP·BTM·FULL·OUTER 로 바뀜 — 예전 이름(상의·하의·전신·아우터)도 찾는다
+  const NAMES = { 아우터: ["OUTER", "아우터"], 상의: ["TOP", "상의"], 하의: ["BTM", "하의"], 전신: ["FULL", "전신"] };
+  const types = its.flatMap(outerTypes).map((t) => t.split(":")[1]);
   const order = [f.has("아우터") && "아우터", f.has("상의") && "상의", f.has("하의") && "하의", "전신"].filter(Boolean);
   for (const kind of order) {
-    const cat = folders.find((x) => x.parent === top && x.name === kind);
+    const cat = folders.find((x) => x.parent === top && NAMES[kind].includes(x.name));
     if (!cat || !has(cat.id)) continue;
-    const sub = folders.filter((x) => x.parent === cat.id && has(x.id)).find((x) => names.includes(x.name) || (x.name === "긴팔티" && /긴팔/.test(names)));
+    const subs = folders.filter((x) => x.parent === cat.id && has(x.id));
+    const sub = subs.find((x) => types.includes(x.name)) || subs.find((x) => names.includes(x.name) || (x.name === "긴팔티" && /긴팔/.test(names)));
     return (sub || cat).id;
   }
   return folders.some((x) => x.id === top) && has(top) ? top : "all";
@@ -156,6 +184,7 @@ export function codiFits(c, items) {
       out.add("아우터");
       for (const t of outerTypes(x)) out.add(t);
     }
+    if (p === "가방") out.add("가방"); // 11/17 밤 '가방 있을 때만' 포즈(SELFIE·2)
     if (p === "상의" || p === "이너") out.add("상의");
     else if (p === "하의") out.add("하의");
     else if (p === "원피스·세트") {
@@ -178,7 +207,9 @@ export function recommend(cards, c, items) {
   if (f.has("아우터")) for (const t of f) if (t.startsWith("아우터")) want.add(t);
   if (f.has("하의")) want.add("하의");
   if (f.has("상의")) want.add("상의");
-  return cards.filter((k) => k.fits.some((t) => want.has(t))).map((k) => k.id);
+  // 11/17 밤 예비(spare)는 추천 안 함 · '가방 있을 때만'(only) 은 코디에 가방이 있을 때만
+  const pose = (k) => k.sec?.pose || {};
+  return cards.filter((k) => !pose(k).spare && (!pose(k).only || f.has(pose(k).only)) && k.fits.some((t) => want.has(t))).map((k) => k.id);
 }
 
 /** 이 코디에서 고른 포즈 — {ids, auto}. auto = 아직 세원이 안 건드려서 추천을 보여 주는 중 */
@@ -227,7 +258,7 @@ export function shotsOf(day, c, cards, items) {
     if (!ids.includes(k.id)) continue;
     for (const p of k.sec.photos || []) {
       if (!p?.key || off.has(p.key)) continue;
-      shots.push({ key: p.key, cap: p.cap || "", cardId: k.id, code: k.code, title: k.title.replace(/^P\d+\s*/, ""), text: k.sec.text || "", ok: k.ok === true, done: done.has(p.key) || done.has(k.id) });
+      shots.push({ key: p.key, cap: p.cap || "", cardId: k.id, code: k.code, title: stripCode(k.title), text: k.sec.text || "", ok: k.ok === true, done: done.has(p.key) || done.has(k.id) });
     }
   }
   for (const p of day?.poseOwn?.[c.id] || [])

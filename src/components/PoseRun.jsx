@@ -5,7 +5,7 @@ import { codiItems, codiName } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { guidePhoto } from "../lib/modelGuide";
-import { picksOf, flipPhoto, flipCard } from "../lib/poses";
+import { picksOf, flipPhoto, flipCard, stripCode } from "../lib/poses";
 import { runOrder, flipRun, stepLabel, GROUP_NAME } from "../lib/shootOrder";
 import { Photo } from "./ShootBits";
 import { SlideViewer } from "./ContentBits";
@@ -106,7 +106,7 @@ export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose }) {
     <li key={k.id} className={"rounded-xl border p-2.5 " + (on ? "border-rose-200 bg-rose-50/40" : "border-stone-200")}>
       <div className="mb-1.5 flex items-center gap-2">
         <span className="text-xs font-bold text-stone-900">{k.code}</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-stone-600">{k.title.replace(/^P\d+\s*/, "")}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-stone-600">{stripCode(k.title)}</span>
         {k.ok !== true && <span className="shrink-0 rounded-full bg-amber-50 px-1.5 text-[10px] font-semibold text-amber-700">확인 전</span>}
         <button
           type="button"

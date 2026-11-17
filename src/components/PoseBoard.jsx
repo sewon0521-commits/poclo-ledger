@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, Undo2, X } from "lucide-react";
 import { md, codiItems, codiName } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
-import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recommend, shotsOf, setLibOk, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
+import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recommend, shotsOf, setLibOk, stripCode, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
 import { wearSteps, stepLabel } from "../lib/shootOrder";
 import { withChildren, childrenOf, pathName } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
@@ -59,7 +59,7 @@ function PoseCardSheet({ k, urlOf, setFresh, onOk, onEdit, onClose, d, online })
         <header className="flex items-start justify-between gap-2 border-b border-stone-200 px-4 py-3">
           <div className="min-w-0">
             <div className="text-xs font-bold text-rose-700">{k.code}</div>
-            <div className="text-lg leading-snug font-bold text-stone-900">{(sec.title || "").replace(/^P\d+\s*/, "")}</div>
+            <div className="text-lg leading-snug font-bold text-stone-900">{stripCode(sec.title)}</div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button
@@ -251,7 +251,7 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
                       <span className="block text-xs font-bold text-stone-900">
                         {k.code} {had && <span className="font-semibold text-rose-700">담김</span>}
                       </span>
-                      <span className="line-clamp-2 text-[11px] leading-tight text-stone-500">{k.title.replace(/^P\d+\s*/, "")}</span>
+                      <span className="line-clamp-2 text-[11px] leading-tight text-stone-500">{stripCode(k.title)}</span>
                       <span className="mt-0.5 flex flex-wrap gap-1 text-[10px]">
                         {k.shot && <span className="rounded bg-stone-100 px-1 text-stone-600">{k.shot}</span>}
                         <span className={"rounded px-1 font-semibold " + (k.ok === true ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{k.ok === true ? "OK" : "확인 전"}</span>
@@ -296,7 +296,7 @@ function PoseTile({ k, mode, mine, url, onTap, onDrop }) {
             {done && <Check size={11} className="text-emerald-600" strokeWidth={3} />}
             {part && <span className="text-[10px] font-normal text-stone-500 tabular-nums">{mine.length}장</span>}
           </span>
-          <span className="line-clamp-2 text-[10px] leading-tight text-stone-500">{k.title.replace(/^P\d+\s*/, "")}</span>
+          <span className="line-clamp-2 text-[10px] leading-tight text-stone-500">{stripCode(k.title)}</span>
           {mode !== "pick" && <span className="text-[10px] font-semibold text-rose-600">{mode === "reco" ? "+ 추천" : "추천"}</span>}
         </span>
       </button>
