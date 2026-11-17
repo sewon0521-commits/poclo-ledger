@@ -36,7 +36,8 @@ export const SHOTS = ["거울 셀카", "찍어주는 컷"];
 // 이름 = 묶음·번호(TOP·1 · SELFIE·2 · BTM·예비1 · OUTER·패딩1) 또는 예전 P번호. 카드 pose 에 spare(예비 — 추천 안 함) · only("가방" — 코디에 가방이 있을 때만 추천) · pair(짝 카드 id — 촬영 날 그 카드 바로 뒤).
 export const OLD_ID = "pf_old";
 export const GROUP_ORDER = ["TOP", "SELFIE", "BTM", "FULL", "OUTER"];
-export const CODE_RE = /^\s*(P\d+|(?:TOP|SELFIE|BTM|FULL|OUTER)·\S+)\s*/i;
+// 야외 카드는 이름 앞 ☀ (☀TOP·1)
+export const CODE_RE = /^\s*(☀?\s*(?:P\d+|(?:TOP|SELFIE|BTM|FULL|OUTER)·\S+))\s*/i;
 /** 이름 앞 번호 — 'TOP·1 정면 상반신' → 'TOP·1' */
 export const codeOfTitle = (t) => (String(t || "").match(CODE_RE)?.[1] || "").toUpperCase();
 /** 번호 뗀 이름 */
@@ -80,15 +81,79 @@ export function placeOfFolder(id, folders) {
   return f?.id === OUT_ID ? "out" : f?.id === OLD_ID ? "old" : "in";
 }
 export const placeOfDay = (day) => (day?.outdoor?.on ? "out" : "in");
-/** 카드 순서 값 — TOP → SELFIE → BTM → FULL → OUTER(묶음 안은 번호, 예비는 뒤) → 예전 P번호 → 번호 없는 것 */
+/** 카드 순서 값 — TOP → SELFIE → BTM → FULL → OUTER(묶음 안은 번호, 야외 · 예비는 뒤) → 예전 P번호 → 번호 없는 것 */
 const codeNo = (s) => {
-  const c = String(s?.pose?.code || codeOfTitle(s?.title) || "").toUpperCase();
+  const raw = String(s?.pose?.code || codeOfTitle(s?.title) || "").toUpperCase();
+  const out = raw.startsWith("☀");
+  const c = raw.replace(/^☀\s*/, "");
   const g = GROUP_ORDER.findIndex((x) => c.startsWith(x + "·"));
   const n = Number(c.match(/(\d+)\s*$/)?.[1] || 999);
-  if (g >= 0) return (g + 1) * 1000 + (/예비/.test(c) ? 500 : 0) + n;
+  if (g >= 0) return (g + 1) * 10000 + (out ? 4000 : 0) + (/예비/.test(c) ? 2000 : 0) + n;
   const p = c.match(/^P(\d+)$/);
-  return p ? 10000 + Number(p[1]) : 1e6;
+  return p ? 100000 + Number(p[1]) : 1e6;
 };
+
+// ---------------------------------------------------------------- 번호 자동 (11/17 밤 세원: "포즈 순서 변경할 수 있게, 변경하면 왼쪽 상단 이름 자동으로")
+// 번호 범위 = 묶음 폴더(TOP · SELFIE · BTM · FULL) 하나, OUTER 는 세부 폴더마다(OUTER·패딩1). 야외는 앞에 ☀. 예비는 'BTM·예비1'로 따로.
+// 예전 포즈 · 미분류는 번호를 안 건드린다. 고른 값(posePicks · 짝 pair)은 카드 id 로 이어져서 이름이 바뀌어도 안 끊긴다.
+const pathTo = (id, folders) => {
+  const out = [];
+  let f = folders.find((x) => x.id === id);
+  for (let i = 0; f && i < 6; i++, f = f.parent && folders.find((x) => x.id === f.parent)) out.unshift(f);
+  return out;
+};
+/** 이 폴더의 묶음 이름(TOP · SELFIE · BTM · FULL · OUTER) — 없으면 "" */
+export const folderGroup = (folderId, folders) => pathTo(folderId, folders).map((f) => String(f.name).toUpperCase()).find((n) => GROUP_ORDER.includes(n)) || "";
+/** 번호 앞부분 — 'TOP·' · '☀BTM·' · 'OUTER·패딩'. 번호를 안 매기는 폴더면 null */
+export function codePrefix(folderId, folders) {
+  const path = pathTo(folderId, folders);
+  if (!path.length || path[0].id === OLD_ID) return null;
+  const gi = path.findIndex((f) => GROUP_ORDER.includes(String(f.name).toUpperCase()));
+  if (gi < 0) return null;
+  const g = String(path[gi].name).toUpperCase();
+  const sub = g === "OUTER" && path[gi + 1] ? path[gi + 1].name : "";
+  return `${path[0].id === OUT_ID ? "☀" : ""}${g}·${sub}`;
+}
+/** 묶음마다 찍는 방식 — TOP·BTM 찍어주는 컷, SELFIE·FULL 거울 셀카. OUTER 는 카드마다 고른다("") */
+export const shotOfGroup = (g) => ({ SELFIE: "거울 셀카", FULL: "거울 셀카", TOP: "찍어주는 컷", BTM: "찍어주는 컷" })[g] || "";
+const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+ * 폴더들 번호 다시 매기기 — order = {폴더 id: [카드 id 순서]}(없으면 지금 순서 byCode).
+ * 바뀐 이름은 다른 카드의 이름 · 설명 속 글자(예: 'SELFIE·1 짝')도 같이 바꾼다.
+ */
+export function renumber(items, folderIds, folders, order = {}) {
+  const rename = new Map();
+  const next = items.map((x) => ({ ...x }));
+  for (const fid of new Set(folderIds)) {
+    const pre = codePrefix(fid, folders);
+    if (pre === null) continue;
+    const mine = next.filter((x) => x.folderId === fid);
+    const ids = order[fid] || [...mine].sort(byCode).map((x) => x.id);
+    let n = 0;
+    let sp = 0;
+    for (const id of ids) {
+      const x = mine.find((y) => y.id === id);
+      if (!x?.pose) continue;
+      const code = x.pose.spare ? `${pre}예비${++sp}` : `${pre}${++n}`;
+      const was = x.pose.code || codeOfTitle(x.title);
+      if (was === code) continue;
+      if (was) rename.set(was, code);
+      x.pose = { ...x.pose, code };
+      x.title = `${code} ${stripCode(x.title).trim()}`.trim();
+    }
+  }
+  if (!rename.size) return next;
+  // 다른 카드 글 속 이름 — 한 번에 바꿔서 'SELFIE·1 → SELFIE·2 → …' 처럼 이어 바뀌지 않게
+  const re = new RegExp(`(${[...rename.keys()].sort((a, b) => b.length - a.length).map(esc).join("|")})(?![0-9])`, "g");
+  const swap = (t) => String(t || "").replace(re, (m) => rename.get(m) || m);
+  return next.map((x) => {
+    const head = codeOfTitle(x.title);
+    const rest = stripCode(x.title);
+    const title = head ? `${head} ${swap(rest).trim()}`.trim() : swap(x.title);
+    const text = swap(x.text);
+    return title === x.title && text === (x.text || "") ? x : { ...x, title, text };
+  });
+}
 /** 카드 순서 — 묶음·번호 순, 번호 없는 건 뒤(만든 순) */
 export const byCode = (a, b) => codeNo(a) - codeNo(b) || String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
 /** 포즈 칸 카드 전부 — poseCards 모양({cards, hidden}) + place · folderId · shot */

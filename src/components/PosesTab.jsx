@@ -4,7 +4,8 @@ import { ExternalLink, Footprints, ImagePlus, Loader2, Plus, Trash2, X } from "l
 import { newId } from "../lib/id";
 import { FIELD, remove } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
-import { poseFoldersOf, shotsOfLib, placeOfFolder, IN_ID, FITS, OUTER_TYPES, byCode, codeOfTitle, stripCode, GROUP_ORDER } from "../lib/poses";
+import { poseFoldersOf, shotsOfLib, placeOfFolder, IN_ID, FITS, OUTER_TYPES, byCode, codeOfTitle, stripCode, folderGroup, codePrefix, shotOfGroup, renumber } from "../lib/poses";
+import { Grip } from "./CutBits";
 import { withChildren, ordered, pathOf, pathName } from "../lib/reelFolders";
 import { guidePhoto } from "../lib/modelGuide";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -24,14 +25,17 @@ import { FolderBar, CategoryEditor } from "./FolderBits";
 const FIT_CHOICES = [...FITS, ...OUTER_TYPES.map((o) => "아우터:" + o.t)];
 const codeOf = (x) => x.pose?.code || codeOfTitle(x.title);
 const nameOf = (x) => stripCode(x.title).trim() || "이름 없는 포즈";
-/** 이 폴더의 묶음(TOP·SELFIE·BTM·FULL·OUTER) — 없으면 "" */
-const groupOfFolder = (folderId, folders) => pathOf(folderId, folders).map((f) => f.name.toUpperCase()).find((n) => GROUP_ORDER.includes(n)) || "";
-/** 다음 번호 — 묶음 폴더면 'TOP·4'(예비·패딩 같은 이름 번호는 안 셈), 아니면 예전처럼 P번호 */
+/** 다음 번호 — 번호 매기는 폴더면 그 폴더 안 다음 번호(TOP·4 · ☀BTM·2 · OUTER·패딩5), 아니면 예전처럼 P번호 */
 function nextCode(items, folderId, folders) {
-  const g = groupOfFolder(folderId, folders);
-  if (g) return `${g}·${Math.max(0, ...items.map((x) => Number(codeOf(x).match(new RegExp(`^${g}·(\\d+)$`))?.[1]) || 0)) + 1}`;
+  const pre = codePrefix(folderId, folders);
+  if (pre !== null) return `${pre}${items.filter((x) => x.folderId === folderId && !x.pose?.spare).length + 1}`;
   return "P" + (Math.max(0, ...items.map((x) => Number(codeOf(x).match(/^P(\d+)$/)?.[1]) || 0)) + 1);
 }
+/** 찍는 방식 칩을 보일지 — OUTER(아우터는 셀카도 찍어주는 컷도 있어서)와 묶음 없는 폴더(예전 포즈 · 미분류)만 */
+const shotChips = (folderId, folders) => {
+  const g = folderGroup(folderId, folders);
+  return !g || g === "OUTER";
+};
 /** 폴더로 처음 추천 자리 — 포즈판 추천(lib/poses recommend)에 쓰인다. OUTER › 코트 같은 세부면 그 종류도 */
 function fitsFor(folderId, folders) {
   const names = pathOf(folderId, folders).map((f) => f.name);
@@ -45,7 +49,55 @@ function fitsFor(folderId, folders) {
   return ["전신"];
 }
 /** 폴더로 처음 찍는 방식 — SELFIE·FULL 은 거울 셀카, TOP·BTM 은 찍어주는 컷 */
-const shotFor = (folderId, folders) => ({ SELFIE: "거울 셀카", FULL: "거울 셀카", TOP: "찍어주는 컷", BTM: "찍어주는 컷" })[groupOfFolder(folderId, folders)] || "";
+const shotFor = (folderId, folders) => shotOfGroup(folderGroup(folderId, folders));
+
+/**
+ * 카드 끌어서 순서 바꾸기 (11/17 밤) — 손잡이(⋮⋮)를 눌러 끌면 카드가 따라오고, 놓을 자리 카드에 빨간 줄. 같은 폴더 안에서만.
+ * 놓으면 onMove(끈 id, 놓을 자리 id, 앞/뒤). 폰도 손잡이로(touch-none).
+ */
+function useGridSort(onMove) {
+  const [drag, setDrag] = useState(null); // {id, dx, dy, to, after}
+  const cells = useRef(new Map());
+  const start = (e, id, scope) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
+    el.setPointerCapture?.(e.pointerId);
+    const rects = [...cells.current.entries()].filter(([, v]) => v.el?.isConnected && v.scope === scope).map(([k, v]) => [k, v.el.getBoundingClientRect()]);
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let to = null;
+    let after = false;
+    setDrag({ id, dx: 0, dy: 0, to: null, after: false });
+    const move = (ev) => {
+      let best = null;
+      let bd = Infinity;
+      for (const [k, r] of rects) {
+        const d = Math.hypot(ev.clientX - (r.left + r.width / 2), ev.clientY - (r.top + r.height / 2));
+        if (d < bd) [bd, best] = [d, [k, r]];
+      }
+      to = best && best[0] !== id ? best[0] : null;
+      after = !!best && ev.clientX > best[1].left + best[1].width / 2;
+      setDrag({ id, dx: ev.clientX - x0, dy: ev.clientY - y0, to, after });
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      setDrag(null);
+      if (to) onMove(id, to, after);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  };
+  const ref = (id, scope) => (el) => {
+    if (el) cells.current.set(id, { el, scope });
+    else cells.current.delete(id);
+  };
+  return { drag, start, ref };
+}
 const okTone = (ok) => (ok === true ? "bg-emerald-50 text-emerald-700" : ok === false ? "bg-stone-100 text-stone-500" : "bg-amber-50 text-amber-700");
 const okText = (ok) => (ok === true ? "OK" : ok === false ? "뺌" : "확인 전");
 const remember = (k, v) => {
@@ -117,7 +169,14 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
               폴더
               <select
                 value={fid}
-                onChange={(e) => change({ ...latest.current, folderId: e.target.value, ...(latest.current.pose?.fits?.length ? {} : { pose: { ...(latest.current.pose || {}), fits: fitsFor(e.target.value, folders) } }) })}
+                onChange={(e) =>
+                  change({
+                    ...latest.current,
+                    folderId: e.target.value,
+                    ...(shotChips(e.target.value, folders) ? {} : { shot: shotFor(e.target.value, folders) }),
+                    ...(latest.current.pose?.fits?.length ? {} : { pose: { ...(latest.current.pose || {}), fits: fitsFor(e.target.value, folders) } }),
+                  })
+                }
                 aria-label="폴더"
                 className={FIELD + " mt-1 " + (outdoor ? "border-sky-300 bg-sky-50" : "")}
               >
@@ -131,6 +190,7 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
                 ))}
               </select>
             </label>
+            {shotChips(fid, folders) ? (
             <div>
               <div className="text-xs font-medium text-stone-500">찍는 방식</div>
               <div className="mt-1 flex flex-wrap gap-1.5">
@@ -141,8 +201,11 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
                 ))}
               </div>
             </div>
+            ) : (
+              <p className="self-end text-xs text-stone-400">찍는 방식은 폴더 이름대로예요 — {folderGroup(fid, folders)} = {shotOfGroup(folderGroup(fid, folders))}</p>
+            )}
           </div>
-          <SectionEdit x={x} i={0} n={1} online={online} urlOf={urls.urlOf} onChange={change} onFresh={urls.setFresh} d={d} bare titleHint="이름 — 앞에 번호 (예: TOP·4 창가에 기대 서기)" hint="모델에게 가는 설명 (예: 정면 전신 · 휴대폰으로 얼굴을 가려요)" />
+          <SectionEdit x={x} i={0} n={1} online={online} urlOf={urls.urlOf} onChange={change} onFresh={urls.setFresh} d={d} bare titleHint="이름 — 앞 번호는 폴더 안 순서대로 저절로 (예: TOP·4 창가에 기대 서기)" hint="모델에게 가는 설명 (예: 정면 전신 · 휴대폰으로 얼굴을 가려요)" />
           <div>
             <div className="mb-1 text-xs font-medium text-stone-500">
               추천 자리 <span className="font-normal text-stone-400">— 포즈판이 이 옷이 든 코디에 먼저 골라 둬요</span>
@@ -239,14 +302,17 @@ export default function PosesTab({ poses, d, online }) {
   const [catOpen, setCatOpen] = useState(false);
   const [busy, setBusy] = useState(0); // 붙인 사진 올리는 중(장수)
   const [spareOpen, setSpareOpen] = useState(false);
+
   const [err, setErr] = useState("");
   const curSel = sel === "all" || sel === "none" || folders.some((f) => f.id === sel) ? sel : "all";
+  const shotOn = folderGroup(curSel, folders) === "OUTER";
+  const shotF = shotOn ? shot : "*";
   const inSel = curSel === "all" ? null : curSel === "none" ? new Set([""]) : new Set(withChildren(curSel, folders));
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const shown = items.filter(
     (x) =>
       (!inSel || inSel.has(fidOf(x))) &&
-      (shot === "*" || (shot === "" ? !x.shot : x.shot === shot)) &&
+      (shotF === "*" || (shotF === "" ? !x.shot : x.shot === shotF)) &&
       words.every((w) => `${x.title} ${x.text} ${x.pose?.why || ""}`.toLowerCase().includes(w)),
   );
   const { urlOf } = usePoseUrls(
@@ -259,12 +325,27 @@ export default function PosesTab({ poses, d, online }) {
       setErr(e.message || "포즈를 저장하지 못했어요.");
       throw e;
     });
-  // 새 카드 — 보고 있는 폴더(전체면 실내)로, 번호는 다음 P
+  // 끌어서 순서 바꾸기 — 같은 폴더 안, 놓으면 그 폴더 번호를 순서대로 다시(이름 앞 TOP·1 …)
+  const sort = useGridSort((id, to, after) =>
+    save((v) => {
+      const fs = poseFoldersOf(v);
+      const all = v.items || [];
+      const x = all.find((y) => y.id === id);
+      const t = all.find((y) => y.id === to);
+      if (!x || !t || x.folderId !== t.folderId) return v;
+      const ids = all.filter((y) => y.folderId === x.folderId && !!y.pose?.spare === !!x.pose?.spare).sort(byCode).map((y) => y.id).filter((y) => y !== id);
+      ids.splice(ids.indexOf(to) + (after ? 1 : 0), 0, id);
+      const rest = all.filter((y) => y.folderId === x.folderId && !!y.pose?.spare !== !!x.pose?.spare).sort(byCode).map((y) => y.id);
+      const order = { [x.folderId]: x.pose?.spare ? [...rest, ...ids] : [...ids, ...rest] };
+      // 이름을 손으로 고쳐 둔 순서와 상관없이 지금 화면 순서대로
+      return { ...v, items: codePrefix(x.folderId, fs) === null ? all : renumber(all, [x.folderId], fs, order) };
+    }).catch(() => {}),
+  );  // 새 카드 — 보고 있는 폴더(전체면 실내)로, 번호는 다음 P
   const add = async (photos = []) => {
     setErr("");
     const fid = curSel === "all" ? (folders.some((f) => f.id === IN_ID) ? IN_ID : "") : curSel === "none" ? "" : curSel;
     const code = nextCode(lib.items || [], fid, folders);
-    const x = { id: newId("pz"), title: `${code} `, text: "", photos, folderId: fid, shot: shot === "*" ? shotFor(fid, folders) : shot, pose: { code, fits: fitsFor(fid, folders) }, createdAt: new Date().toISOString() };
+    const x = { id: newId("pz"), title: `${code} `, text: "", photos, folderId: fid, shot: shotFor(fid, folders) || (shotOn && shot !== "*" ? shot : ""), pose: { code, fits: fitsFor(fid, folders) }, createdAt: new Date().toISOString() };
     await save((v) => ({ ...v, folders: v.folders?.length ? v.folders : folders, items: [...(v.items || []), x] }));
     setEdit(x.id);
   };
@@ -313,7 +394,7 @@ export default function PosesTab({ poses, d, online }) {
     >
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <p className="max-w-xl text-sm text-stone-500">
-          포즈 카드를 실내 · 야외 › 옷 종류 › 세부로 모아 두는 곳이에요. 촬영 창 <b className="font-semibold text-stone-700">포즈 판</b>의 '+ 포즈'에서 코디마다 여기 카드를 골라요 — 바깥 촬영이면 야외, 아니면 실내 카드로 먼저 추천해요.
+          포즈 카드를 실내 · 야외 › TOP · SELFIE · BTM · FULL · OUTER(› 코트·패딩…)로 모아 두는 곳이에요. 찍는 방식은 폴더 이름대로(TOP·BTM 찍어주는 컷, SELFIE·FULL 거울 셀카), OUTER 만 카드마다 골라요. 촬영 창 <b className="font-semibold text-stone-700">포즈 판</b>의 '+ 포즈'에서 코디마다 여기 카드를 골라요 — 바깥 촬영이면 야외, 아니면 실내 카드로 먼저 추천해요.
         </p>
         <button type="button" onClick={() => add().catch(() => {})} className="flex shrink-0 items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <Plus size={16} /> 포즈 추가
@@ -329,6 +410,7 @@ export default function PosesTab({ poses, d, online }) {
         setQ={setQ}
         searchPlaceholder="포즈 이름·설명 찾기"
         extra={
+          shotOn && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-stone-400">찍는 방식</span>
             {["*", ...shots, ""].map((s) => (
@@ -337,12 +419,13 @@ export default function PosesTab({ poses, d, online }) {
               </button>
             ))}
           </div>
+          )
         }
       />
       <p className="mb-3 flex items-center gap-1.5 rounded-xl border border-dashed border-stone-300 bg-white px-3 py-2 text-xs text-stone-500">
         <ImagePlus size={14} className="shrink-0 text-stone-400" />
         <span className="min-w-0">
-          포즈 사진을 캡처해서 <b className="font-semibold text-stone-700">Ctrl+V</b> 하거나 끌어다 놓으면 '{where}'에 새 포즈가 생겨요. 카드를 누르면 이름·설명·사진·폴더·찍는 방식을 고쳐요.
+          포즈 사진을 캡처해서 <b className="font-semibold text-stone-700">Ctrl+V</b> 하거나 끌어다 놓으면 '{where}'에 새 포즈가 생겨요. 카드를 누르면 이름·설명·사진·폴더를 고치고, 손잡이(⋮⋮)를 끌면 순서가 바뀌어요 — 이름 번호도 순서대로 저절로.
         </span>
       </p>
       {busy > 0 && (
@@ -367,8 +450,33 @@ export default function PosesTab({ poses, d, online }) {
             const fid = fidOf(x);
             const out = fid && placeOfFolder(fid, folders) === "out";
             const path = pathOf(fid, folders);
+            // 번호 매기는 폴더 카드만 끌 수 있다(예전 포즈 · 미분류는 번호를 안 건드림) — 같은 폴더 · 같은 예비끼리
+            const canSort = codePrefix(fid, folders) !== null;
+            const scope = `${fid}|${x.pose?.spare ? 1 : 0}`;
+            const dg = sort.drag;
+            const me = dg?.id === x.id;
+            const mark = dg && dg.to === x.id;
             return (
-              <button key={x.id} type="button" onClick={() => setEdit(x.id)} className={"min-w-0 overflow-hidden rounded-2xl border bg-white text-left transition hover:border-rose-300 hover:shadow-sm " + (x.pose?.ok === false ? "border-stone-200 opacity-60" : "border-stone-200")}>
+              <div
+                key={x.id}
+                ref={sort.ref(x.id, scope)}
+                role="button"
+                tabIndex={0}
+                onClick={() => !dg && setEdit(x.id)}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setEdit(x.id))}
+                style={me ? { transform: `translate(${dg.dx}px, ${dg.dy}px)`, zIndex: 20, position: "relative" } : undefined}
+                className={
+                  "relative min-w-0 cursor-pointer overflow-hidden rounded-2xl border bg-white text-left transition hover:border-rose-300 hover:shadow-sm " +
+                  (x.pose?.ok === false ? "border-stone-200 opacity-60" : "border-stone-200") +
+                  (me ? " shadow-xl ring-2 ring-rose-400 transition-none" : "") +
+                  (mark ? (dg.after ? " shadow-[4px_0_0_0_#be123c]" : " shadow-[-4px_0_0_0_#be123c]") : "")
+                }
+              >
+                {canSort && (
+                  <span className="absolute top-1.5 right-1.5 z-10 rounded-md bg-white/90" onClick={(e) => e.stopPropagation()}>
+                    <Grip small onPointerDown={(e) => sort.start(e, x.id, scope)} />
+                  </span>
+                )}
                 <span className="relative block">
                   <Photo url={urlOf(x.photos?.[0]?.key)} className="aspect-[3/4] w-full" />
                   <span className="absolute top-1.5 left-1.5 rounded-full bg-white/90 px-2 py-0.5 text-xs font-bold text-rose-700">{codeOf(x) || "—"}</span>
@@ -378,14 +486,14 @@ export default function PosesTab({ poses, d, online }) {
                   <span className="line-clamp-2 text-sm leading-snug font-semibold text-stone-900">{nameOf(x)}</span>
                   <span className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
                     <span className={"rounded-full px-1.5 py-0.5 font-semibold " + (out ? "bg-sky-50 text-sky-700" : "bg-stone-100 text-stone-600")}>{path.length ? path.map((f) => f.name).join(" › ") : "미분류"}</span>
-                    {x.shot && <span className="rounded-full bg-violet-50 px-1.5 py-0.5 font-semibold text-violet-700">{x.shot}</span>}
+                    {x.shot && shotChips(fid, folders) && <span className="rounded-full bg-violet-50 px-1.5 py-0.5 font-semibold text-violet-700">{x.shot}</span>}
                     <span className={"rounded-full px-1.5 py-0.5 font-semibold " + okTone(x.pose?.ok)}>{okText(x.pose?.ok)}</span>
                     {x.pose?.spare && <span className="rounded-full bg-stone-700 px-1.5 py-0.5 font-semibold text-white">예비</span>}
                     {x.pose?.only === "가방" && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">가방 있을 때만</span>}
                     {x.pose?.pair && <span className="rounded-full bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-700">{codeOf((lib.items || []).find((y) => y.id === x.pose.pair) || {}) || "셀카"} 짝</span>}
                   </span>
                 </span>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -405,7 +513,16 @@ export default function PosesTab({ poses, d, online }) {
           shots={shots}
           d={d}
           online={online}
-          onSave={(x) => save((v) => ({ ...v, items: (v.items || []).map((y) => (y.id === x.id ? x : y)) })).catch(() => {})}
+          onSave={(x) =>
+            save((v) => {
+              const was = (v.items || []).find((y) => y.id === x.id);
+              const moved = was && was.folderId !== x.folderId;
+              // 옮긴 카드는 새 폴더 맨 뒤 번호로 받고, 두 폴더 번호를 다시 매긴다
+              const got = moved && codePrefix(x.folderId, poseFoldersOf(v)) !== null ? { ...x, pose: { ...x.pose, code: nextCode((v.items || []).filter((y) => y.id !== x.id), x.folderId, poseFoldersOf(v)) } } : x;
+              const items = (v.items || []).map((y) => (y.id === x.id ? got : y));
+              return { ...v, items: moved ? renumber(items, [was.folderId, x.folderId], poseFoldersOf(v)) : items };
+            }).catch(() => {})
+          }
           onRemove={(id) => save(remove(id)).catch(() => {})}
           onClose={() => setEdit(null)}
         />

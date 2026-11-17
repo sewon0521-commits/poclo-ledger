@@ -67,7 +67,7 @@ export function typeWord(x) {
 /** 포즈 카드 → 묶음(TOP·SELFIE·BTM·FULL·OUTER). 모르면 "" */
 export function groupOf(k) {
   if (!k) return "";
-  const m = String(k.code || k.title || "").match(/^\s*(TOP|SELFIE|BTM|FULL|OUTER)\b/i);
+  const m = String(k.code || k.title || "").match(/^\s*☀?\s*(TOP|SELFIE|BTM|FULL|OUTER)\b/i);
   if (m) return m[1].toUpperCase();
   const fits = k.fits || [];
   const selfie = k.shot === "거울 셀카" || /셀카/.test(`${k.title || ""} ${k.sec?.text || ""}`);
