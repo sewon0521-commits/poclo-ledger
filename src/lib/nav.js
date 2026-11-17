@@ -87,6 +87,8 @@ export const SECTIONS = [
           { key: "orders", label: "주문내역", icon: Truck },
           // 10/6 세원: "넥스트팩 발주 변환기를 ERP 에 넣고 단가 칸에 단가를 넣어 줘" → 이지어드민 발주 → SO+ 붙여넣기. "일 카테고리로"
           { key: "soOrder", label: "SO+ 발주 변환", icon: FileSpreadsheet },
+          // 11/17 밤 세원 "미송 + 리드타임 계산기 … 팔리는 거 보고 다시 잡으면 되지" (components/OrderCalcPage.jsx, lib/orderCalc.js)
+          { key: "orderCalc", label: "발주 계산기", icon: Calculator },
           // 10/17 세원: "재구매 쿠폰·이벤트를 배너로 알리는 계획을 짜는 틀 — 이벤트 캘린더"
           { key: "events", label: "이벤트 캘린더", icon: CalendarDays },
           // 11/8 세원: "포클로 물류 업무 메뉴얼 노션 참고해서 erp에 하나 만들어 줘 나중에 쓰게. 노션 구독 해지하려고" (components/ManualPage.jsx)
