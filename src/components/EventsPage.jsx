@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Check, ChevronDown } from "lucide-react";
 import { loadKey, changeKey, upsert, remove, onSettingsChange, watchKeys } from "../lib/shoot";
 import { dayKey, dayTitle, shiftDay } from "../lib/journal";
-import { KEY, KINDS, kindOf, colorOf, TEMPLATES, newTodo, DROP_DAYS, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
+import { KEY, KINDS, kindOf, colorOf, TEMPLATES, newTodo, isDropDay, dropRuleText, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
 import { useBarDrag, dropRange, rangeText } from "../lib/barDrag";
 import EventSheet, { ResultLine } from "./EventSheet";
 
 /**
  * 일 › 이벤트 캘린더 (lib/events.js 머리말).
- * 위 = 달력(기간 막대 · 월·화 '신상 6시' 표시 · 빈 칸 누르면 그날 새 이벤트), 아래 = 상시 진행 / 진행 중 / 다가오는 / 지난 이벤트(그 기간 매출).
+ * 위 = 달력(기간 막대 · 신상 업로드 날 '신상 6시' 표시(lib/events DROP_RULES) · 빈 칸 누르면 그날 새 이벤트), 아래 = 상시 진행 / 진행 중 / 다가오는 / 지난 이벤트(그 기간 매출).
  * 10/22 세원: "이벤트 바 옮길 수 있게 해줘." → 막대를 끌어 다른 날에 놓으면 기간 길이 그대로 옮김(마우스 = 끌기, 폰 = 길게 눌러 끌기, lib/barDrag.js).
  *   짧게 누르면 예전처럼 이벤트 창(EventSheet — 홈 캘린더도 같은 창).
  */
@@ -87,7 +87,7 @@ function Month({ ym, events, today, onNew, onOpen, onMove }) {
                     >
                       {Number(k.slice(8))}
                     </span>
-                    {DROP_DAYS.includes(wd) && !out && <span className="rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700">{DROP_LABEL}</span>}
+                    {isDropDay(k) && !out && <span className="rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700">{DROP_LABEL}</span>}
                     <Plus size={11} className="ml-auto text-stone-300 opacity-0 group-hover:opacity-100" />
                   </span>
                   {more > 0 && <span className="absolute bottom-0.5 left-1 text-[10px] text-stone-400">+{more}개</span>}
@@ -283,7 +283,7 @@ export default function EventsPage({ online, rows }) {
       <Month ym={ym} events={shown} today={today} onNew={(k) => setEdit({ start: k, end: k })} onOpen={setEdit} onMove={moveEvent} />
       <p className="-mt-2 px-1 text-[11px] text-stone-400">
         <CalendarDays size={11} className="mr-0.5 inline align-[-1px]" /> 빈 칸을 누르면 그날 이벤트를 넣어요 · 막대를 끌어 다른 날에 놓으면 날짜가 옮겨져요
-        <span className="[@media(pointer:fine)]:hidden">(폰은 길게 눌러 끌기)</span> · '신상 6시'는 신상 업로드 날(월·화 저녁 6시)
+        <span className="[@media(pointer:fine)]:hidden">(폰은 길게 눌러 끌기)</span> · '신상 6시'는 신상 업로드 날({dropRuleText(today)})
       </p>
 
       {loaded && !list.length ? (

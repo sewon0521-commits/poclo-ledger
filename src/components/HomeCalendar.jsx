@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, CalendarDays, Repeat, ListChec
 import { loadKey, changeKey, upsert as upsertItem, remove as removeItem, FIELD, onSettingsChange, watchKeys } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { dayKey, dayTitle, shiftDay } from "../lib/journal";
-import { CAL_KEY, WHO, WEEK_KO, DROP_DAYS, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, colorOf, periodLabel } from "../lib/events";
+import { CAL_KEY, WHO, WEEK_KO, isDropDay, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, colorOf, periodLabel } from "../lib/events";
 import { COLORS, REPEATS, occurrences, colorOfEvent, whoColor, meWho, timeLabel, repeatText, periodText, byTime } from "../lib/calendar";
 import { useBarDrag, dropRange, rangeText, dayAt } from "../lib/barDrag";
 import { Sheet, SheetHead } from "./ShootBits";
@@ -13,7 +13,7 @@ import EventSheet from "./EventSheet";
  * 홈 › 캘린더 (2026-10-19 밤 → 10/21 내 일정).
  * 10/21 세원: "캘린더 오른쪽 오늘 할 일 지우고 업무일지에 할 일·루틴으로 — 그리고 캘린더에 직접 개인적인 일을 쓸 수 있게, 노션·구글 캘린더처럼."
  * → 오른쪽 '오늘 할 일' 칸을 없애고 달력을 꽉 차게. 반복 할 일은 업무일지 루틴으로 옮겼다(lib/calendar.js 머리말).
- *   달력 = 내 일정(settings calendar.events) + 이벤트 캘린더 기간 막대(settings events) + 월·화 신상 6시.
+ *   달력 = 내 일정(settings calendar.events) + 이벤트 캘린더 기간 막대(settings events) + 신상 업로드 날 신상 6시(lib/events DROP_RULES).
  *   마우스: 날짜 칸 누르기 = 그날 일정 넣기 · 여러 칸 끌기 = 여러 날 일정 · 일정·이벤트 끌기 = 옮기기 · 누르기 = 고치기 · 날짜 숫자 = 그날 전부.
  *   손가락: 날짜 칸 누르기 = 그날 일정 목록(+ 넣기) · 일정·이벤트 누르기 = 고치기 · 길게 눌러 끌기 = 옮기기.
  * 10/22 세원: "홈 캘린더 바 선택하면 이벤트 캘린더로 넘어가는 거 — 여기서 수정이나 보거나 하면 좋을텐디" + "이벤트 바 옮길 수 있게"
@@ -171,7 +171,7 @@ function EventEditor({ seed, onSave, onRemove, onClose }) {
 
 /** 그날 전부 — 손가락 화면에서 칸을 눌렀을 때, 또는 '+N개'·날짜 숫자 */
 function DaySheet({ day, mine, biz, onAdd, onOpen, onBiz, onClose }) {
-  const drop = DROP_DAYS.includes(weekday(day));
+  const drop = isDropDay(day);
   return (
     <Sheet onClose={onClose}>
       <SheetHead title={dayTitle(day)} onClose={onClose} />
@@ -444,7 +444,7 @@ export default function HomeCalendar({ online, onPage, rows }) {
                         >
                           {Number(k.slice(8))}
                         </button>
-                        {DROP_DAYS.includes(wd) && !out && (
+                        {isDropDay(k) && !out && (
                           <>
                             <span className="hidden truncate rounded bg-teal-50 px-1 text-[9px] font-semibold text-teal-700 sm:inline">{DROP_LABEL}</span>
                             <span title={DROP_LABEL} className="h-1.5 w-1.5 rounded-full bg-teal-500 sm:hidden" />

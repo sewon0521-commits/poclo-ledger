@@ -25,6 +25,7 @@ const trendText = (body) =>
   body.trends ? `\n--- 요즘 트렌드·우리 방향 (세원·쇼만마 단톡에서 모은 메모 — 이 상품·구조에 맞는 것만 살리고, 억지로 다 넣지 말 것. 메모(세원 지시)와 부딪히면 메모가 먼저) ---\n${String(body.trends).slice(0, 2500)}` : "";
 
 import { costOf } from "./_cost.js";
+import { wellFormed } from "./_text.js";
 
 // ------------------------------------------------------------------ 1) 레퍼런스 분석
 
@@ -313,7 +314,7 @@ async function ask(client, content, schema, effort) {
         max_tokens: 32000,
         thinking: { type: "adaptive" },
         output_config: { effort, format: zodOutputFormat(schema) },
-        messages: [{ role: "user", content }],
+        messages: [{ role: "user", content: wellFormed(content) }], // 11/18 이모지 반쪽(짝 잃은 서로게이트) 지우기 — _text.js
       });
       const r = await stream.finalMessage();
       if (r.stop_reason === "refusal" || r.stop_reason === "max_tokens" || !r.parsed_output) {

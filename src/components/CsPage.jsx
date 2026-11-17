@@ -785,18 +785,35 @@ function shortGoods(x) {
   const first = `${cleanName(ls[0].name).split(/\s+/)[0]} ${String(ls[0].option || "").replace(/^색상=/, "")}`.trim();
   return ls.length > 1 ? `${first} +${ls.length - 1}` : first;
 }
-/** 주문 상품 줄 [{name, option, qty}] — 새 문의는 lines, 예전 문의는 '이름 옵션 ×N' 글에서 */
+/** 주문 상품 줄 [{name, option, qty}] — 새 문의는 lines(문의 또는 주문마다), 예전 문의는 '이름 옵션 ×N' 글에서
+ *  11/18 고침: 주문마다 lines 가 있는데 items 글('… (4color) 색상=네이비')만 읽어 옵션이 비고 '입고일 모름'이 났다(c24-6-245 투톤 네이비).
+ *  옵션 글자 '색상=네이비, 사이즈=M' 은 '=' 뒤만 → '네이비, M'. */
+const optClean = (o) => {
+  const t = String(o || "").trim();
+  return /=/.test(t) ? t.split(/\s*,\s*/).map((p) => p.replace(/^[^=]*=\s*/, "").trim()).filter(Boolean).join(", ") : t;
+};
 function orderLines(x) {
-  if (Array.isArray(x?.lines) && x.lines.length) return x.lines;
+  const fix = (l) => ({ ...l, option: optClean(l.option) });
+  if (Array.isArray(x?.lines) && x.lines.length) return x.lines.map(fix);
   const out = [];
   for (const o of x?.order?.orders || []) {
+    if (Array.isArray(o.lines) && o.lines.length) {
+      for (const l of o.lines) if (l?.name) out.push(fix({ orderId: o.id, ...l }));
+      continue;
+    }
     for (const it of [].concat(o.items || [])) {
       if (typeof it !== "string") {
-        if (it?.name) out.push({ orderId: o.id, ...it });
+        if (it?.name) out.push(fix({ orderId: o.id, ...it }));
         continue;
       }
       const m = it.match(/^(.*?)(?:\s+([^\s×]+(?:\s*\+\s*[^\s×]+)?))?\s*×\s*(\d+)/);
-      out.push(m ? { orderId: o.id, name: m[1], option: m[2] || "", qty: Number(m[3]) } : { orderId: o.id, name: it, option: "", qty: 1 });
+      if (m) {
+        out.push(fix({ orderId: o.id, name: m[1], option: m[2] || "", qty: Number(m[3]) }));
+        continue;
+      }
+      // '상품명 색상=네이비' · '상품명 색상=네이비, 사이즈=M' (× 없음)
+      const e = it.match(/^(.*?)\s+([^\s=]+=.*)$/);
+      out.push(fix(e ? { orderId: o.id, name: e[1], option: e[2], qty: 1 } : { orderId: o.id, name: it, option: "", qty: 1 }));
     }
   }
   return out;

@@ -18,6 +18,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { readProduct } from "./_product.js";
 import { costOf } from "./_cost.js";
+import { wellFormed } from "./_text.js";
 import { DEFAULT_GUIDE } from "../src/lib/cs.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "8mb" } }, maxDuration: 120 };
@@ -70,7 +71,7 @@ async function ask(client, content, schema, effort) {
         max_tokens: 12000,
         thinking: { type: "adaptive" },
         output_config: { effort, format: zodOutputFormat(schema) },
-        messages: [{ role: "user", content }],
+        messages: [{ role: "user", content: wellFormed(content) }], // 11/18 이모지 반쪽(짝 잃은 서로게이트) 지우기 — _text.js
       });
       return await stream.finalMessage();
     } catch (err) {
