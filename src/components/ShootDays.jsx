@@ -925,7 +925,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, onSave, onR
             </div>
             <p className="text-xs text-stone-400">고치는 대로 저장돼요</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>

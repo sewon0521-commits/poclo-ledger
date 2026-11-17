@@ -32,7 +32,7 @@ export default function RefPick({ d, picked, onDone, onClose, startFolder = "" }
       <div className="sheet relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
           <span className="font-semibold text-stone-900">촬영 레퍼런스에서 고르기 <span className="text-sm font-normal text-stone-400">{sel.length}장 골랐어요</span></span>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>

@@ -5,7 +5,7 @@ import { FIELD, md, won, upsert, remove, putPhoto, loadKey, onSettingsChange, wa
 import { starsOf, starLabel } from "../lib/lookStars";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
-import { MODELS, modelsOf, sortModels, suggestModel, sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, fabricAsk, fabricText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf } from "../lib/sinsang";
+import { MODELS, modelsOf, sortModels, suggestModel, sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, fabricAsk, fabricText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf, backTo, backToName } from "../lib/sinsang";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -290,15 +290,24 @@ export function ItemCard({ x, url, today, tab, onOpen, onPatch, onRefuse, onExte
                   {label} 업로드
                 </Toggle>
               ))}
-              <button type="button" onClick={go("done")} className={MAIN + " w-full"}>
-                업데이트 완료
-              </button>
+              {/* 11/17 세원: "업데이트 완료 위에 반납 등록 — 세로로 너무 길어지면 옆에" → 카드 높이가 안 늘게 옆에(촬영 탭과 같은 모양), 샘플만 */}
+              <div className="flex gap-1">
+                {/* 글자 길이가 달라서 4:3 으로 나눔 — 폰 두 칸 카드(약 150px)에서 '업데이트 완료'가 꽉 끼지 않게 */}
+                <button type="button" onClick={go("done")} style={sample ? { flex: "4 1 0%" } : undefined} className={MAIN + " whitespace-nowrap"}>
+                  업데이트 완료
+                </button>
+                {sample && (
+                  <button type="button" onClick={go("back")} style={{ flex: "3 1 0%" }} title="등록 안 하고 돌려보낼 샘플 — '반납·결제 예정'으로 가요" className={SUB + " whitespace-nowrap"}>
+                    반납 등록
+                  </button>
+                )}
+              </div>
             </>
           )}
           {tab === "returns" && (
             <>
               {x.stage === "back" && (
-                <button type="button" onClick={go(x.backFrom === "pick" ? "pick" : "arrived")} title={`반납 등록을 취소하고 ${x.backFrom === "pick" ? "촬영" : "입고·픽"}으로`} className="flex w-full items-center justify-center gap-1 rounded-lg py-0.5 text-[11px] text-stone-400 hover:text-stone-700">
+                <button type="button" onClick={go(backTo(x))} title={`반납 등록을 취소하고 ${backToName(x)}으로`} className="flex w-full items-center justify-center gap-1 rounded-lg py-0.5 text-[11px] text-stone-400 hover:text-stone-700">
                   <Undo2 size={11} /> 반납 등록 취소
                 </button>
               )}
@@ -1047,8 +1056,8 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                     onClick={() =>
                       set(
                         x.returning
-                          ? { returning: false, ...(x.stage === "back" ? { stage: x.backFrom === "pick" ? "pick" : "arrived" } : {}) }
-                          : { returning: true, backOn: x.backOn || today, ...(["arrived", "drop", "pick"].includes(x.stage) ? { stage: "back", backFrom: x.stage } : {}) },
+                          ? { returning: false, ...(x.stage === "back" ? { stage: backTo(x) } : {}) }
+                          : { returning: true, backOn: x.backOn || today, ...(["arrived", "drop", "pick", "shot"].includes(x.stage) ? { stage: "back", backFrom: x.stage } : {}) },
                       )
                     }
                   >
@@ -2472,7 +2481,7 @@ export default function Pipeline({ d, online, vendors, onVendor, dealt }) {
             type="button"
             onClick={() => setBackOnly(!backOnly)}
             aria-pressed={backOnly}
-            title="입고·픽에서 '반납 등록'한 샘플(촬영 안 하고 돌려보낼 것)만"
+            title="입고·픽 · 촬영 · 등록에서 '반납 등록'한 샘플(안 쓰고 돌려보낼 것)만"
             className={"rounded-full border px-3 py-1 text-xs font-medium " + (backOnly ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600")}
           >
             반납 등록한 것만 <span className={backOnly ? "text-stone-300" : "text-stone-400"}>{items.filter((x) => x.stage === "back" && dueOf(x)).length}</span>

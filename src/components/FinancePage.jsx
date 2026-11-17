@@ -1532,7 +1532,7 @@ function RulesView({ F }) {
                 <li key={w.word} className="flex items-center gap-2 py-1.5">
                   <span className="min-w-0 flex-1 truncate font-medium text-stone-800">‘{w.word}’</span>
                   <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-700">{w.cat}</span>
-                  <button type="button" onClick={() => removeWord(w.word)} aria-label={`${w.word} 규칙 지우기`} className="rounded p-1 text-stone-300 hover:text-rose-700">
+                  <button type="button" onClick={() => removeWord(w.word)} aria-label={`${w.word} 규칙 지우기`} className="hit relative rounded p-1 text-stone-300 hover:text-rose-700">
                     <X size={14} />
                   </button>
                 </li>
@@ -1554,7 +1554,7 @@ function RulesView({ F }) {
                   </span>
                 </span>
                 <span className="shrink-0 rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-700">{r.cat}</span>
-                <button type="button" onClick={() => removeRule(r.key)} aria-label={`${r.name} 규칙 지우기`} className="rounded p-1 text-stone-300 hover:text-rose-700">
+                <button type="button" onClick={() => removeRule(r.key)} aria-label={`${r.name} 규칙 지우기`} className="hit relative rounded p-1 text-stone-300 hover:text-rose-700">
                   <X size={14} />
                 </button>
               </li>

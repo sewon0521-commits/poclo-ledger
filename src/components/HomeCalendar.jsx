@@ -389,7 +389,7 @@ export default function HomeCalendar({ online, onPage, rows }) {
               업무일지 열기
             </button>
           </span>
-          <button type="button" onClick={() => (setMovedSeen(moved.on), writeLS(MOVED_SEEN, moved.on))} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={() => (setMovedSeen(moved.on), writeLS(MOVED_SEEN, moved.on))} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={14} />
           </button>
         </p>

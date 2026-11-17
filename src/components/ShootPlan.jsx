@@ -484,7 +484,7 @@ function CatEditor({ cats, onSave, onClose }) {
       <div className="sheet relative z-10 w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
         <div className="mb-1 flex items-center justify-between">
           <b className="text-stone-900">분류 · 목표 비율</b>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={18} />
           </button>
         </div>
@@ -727,7 +727,7 @@ function LookSheet({ d, r, src, look, cats, onRef, onSave, onBig, onClose, codi 
       <div className="sheet relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
           <span className="text-sm font-semibold text-stone-900">이 레퍼런스 분류 · 메모 · 우리 상품 — 이 소싱에서만 보여요</span>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>
@@ -1699,7 +1699,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
               · 고치는 대로 저장돼요
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>

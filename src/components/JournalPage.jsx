@@ -1995,13 +1995,13 @@ function Calendar({ data, date, today, onPick }) {
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-3">
       <div className="mb-2 flex items-center justify-between">
-        <button type="button" onClick={() => go(-1)} aria-label="지난달" className="rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+        <button type="button" onClick={() => go(-1)} aria-label="지난달" className="hit relative rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
           <ChevronLeft size={16} />
         </button>
         <span className="text-sm font-semibold text-stone-800">
           {y}년 {m}월
         </span>
-        <button type="button" onClick={() => go(1)} aria-label="다음 달" className="rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+        <button type="button" onClick={() => go(1)} aria-label="다음 달" className="hit relative rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
           <ChevronRight size={16} />
         </button>
       </div>

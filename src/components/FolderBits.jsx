@@ -350,7 +350,7 @@ export function CategoryEditor({ items, folders, onChange, onClose, openKey = CA
             </button>
           )}
         </div>
-        <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+        <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
           <X size={20} />
         </button>
       </header>

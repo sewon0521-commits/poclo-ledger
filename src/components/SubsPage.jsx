@@ -115,7 +115,7 @@ function Card({ s, today, kinds, onOpen }) {
         <div className="flex min-w-0 items-center gap-1">
           <b className="truncate text-[15px] font-semibold text-stone-900">{s.name}</b>
           {/^https?:\/\//.test(s.url) && (
-            <a href={s.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="해지·결제 관리 열기" className="shrink-0 rounded p-0.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
+            <a href={s.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="해지·결제 관리 열기" className="hit relative shrink-0 rounded p-0.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700">
               <ArrowUpRight size={15} />
             </a>
           )}

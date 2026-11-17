@@ -17,6 +17,13 @@
 .poclo-bn.todo .bn-block-outer:not(:first-child) {
   margin-top: 0;
 }
+/* 폰(640px 이하)은 16px — 그보다 작으면 아이폰이 칸을 누를 때마다 화면을 확대한다 (11/17 폰 점검, index.css 입력칸 규칙과 같은 이유) */
+@media (max-width: 640px) {
+  .poclo-bn .bn-editor,
+  .poclo-bn.todo .bn-editor {
+    font-size: 16px;
+  }
+}
 
 /* 제목 크기를 일지에 맞게 — ■ 소제목(제목 3)은 예전처럼 로즈색 작은 제목 */
 .poclo-bn [data-content-type="heading"] {

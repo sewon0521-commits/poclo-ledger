@@ -227,7 +227,7 @@ function PostSheet({ acc, p, url, fileUrls, onClose, onImport, onHide }) {
               {p.takenAt ? `${dotted(p.takenAt)} 게시` : "게시일 확인 중"} · {md(p.firstSeen)} 수집
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </div>
@@ -301,7 +301,7 @@ function AdSheet({ a, url, onClose, onImport }) {
             <div className="font-semibold text-stone-900">{a.page || "광고"}</div>
             <div className="mt-0.5 text-xs text-stone-500">광고 라이브러리 소재 · {glabel} 켜 둠 ({g}등급)</div>
           </div>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </div>

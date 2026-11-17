@@ -31,7 +31,7 @@ export default function PasswordBox({ email, reason, onClose }) {
           <h3 className="flex items-center gap-1.5 font-semibold text-stone-900">
             <KeyRound size={16} /> 비밀번호 바꾸기
           </h3>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>

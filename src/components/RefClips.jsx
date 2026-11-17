@@ -303,7 +303,7 @@ function ReelPick({ reels, folders, online, edit, onPick, onClose }) {
             {open ? "볼 부분 자르기" : "릴스 기획에서 참고 영상 고르기"}
             {!open && <span className="ml-1.5 text-sm font-normal text-stone-400">영상 {list.length}개</span>}
           </span>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>

@@ -15,14 +15,15 @@ import { requestMessage } from "../lib/message";
 
 function VendorRow({ v, checked, onToggle, onRequest, onOpen }) {
   return (
-    <li className="flex items-center gap-3 px-3 py-3">
+    // 11/17 폰 점검: 한 줄에 넣으면 폰에서 이름 칸이 13px 로 눌려 글자가 세로로 섰다 → 폰은 [고르기 · 이름] 한 줄 + 아래 [금액 · 요청]
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 sm:flex-nowrap">
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={checked}
         aria-label={`${v.name} 고르기`}
         className={
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded border " +
+          "hit relative flex h-6 w-6 shrink-0 items-center justify-center rounded border " +
           (checked ? "border-rose-700 bg-rose-700 text-white" : "border-stone-300 bg-white text-transparent")
         }
       >
@@ -30,7 +31,7 @@ function VendorRow({ v, checked, onToggle, onRequest, onOpen }) {
       </button>
 
       {/* 이름·금액을 누르면 그 거래처 장끼가 언제 이체·대납이었는지 바로 나온다 */}
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left" title="눌러서 장끼 내역 보기">
+      <button type="button" onClick={onOpen} className="min-w-0 flex-1 basis-[calc(100%-2.25rem)] text-left sm:basis-auto" title="눌러서 장끼 내역 보기">
         <div className="truncate font-medium text-stone-900">
           {v.name} <span className="text-xs font-normal text-stone-300">내역 ›</span>
         </div>
@@ -40,7 +41,7 @@ function VendorRow({ v, checked, onToggle, onRequest, onOpen }) {
         </div>
       </button>
 
-      <button type="button" onClick={onOpen} className="shrink-0 text-right">
+      <button type="button" onClick={onOpen} className="mr-auto ml-9 shrink-0 text-left sm:mr-0 sm:ml-0 sm:text-right">
         <div className="font-semibold tabular-nums text-stone-900">
           {won(v.unpaidVatSupply + v.switchCost)}
         </div>

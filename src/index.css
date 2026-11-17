@@ -9,6 +9,16 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* 작은 아이콘 단추(×·휴지통·↗ 등)의 누르는 자리만 손가락 크기로 — 모양·자리는 그대로 (11/17 폰 점검).
+   손가락으로 쓰는 기기에서만, 둘레 8px 까지 눌린다. 단추에 position 이 있어야 해서 'hit relative' 로 같이 쓴다. */
+@media (pointer: coarse) {
+  .hit::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);

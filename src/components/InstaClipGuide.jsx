@@ -38,7 +38,7 @@ export default function InstaClipGuide({ onClose }) {
       <div className="sheet flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
           <h2 className="font-semibold text-stone-900">인스타에서 한 번에 담기</h2>
-          <button type="button" onClick={onClose} aria-label="닫기" className="-m-1 p-1 text-stone-400 hover:text-stone-700">
+          <button type="button" onClick={onClose} aria-label="닫기" className="hit relative -m-1 p-1 text-stone-400 hover:text-stone-700">
             <X size={20} />
           </button>
         </header>

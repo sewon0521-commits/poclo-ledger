@@ -724,7 +724,7 @@ const SavedList = memo(function SavedList({ items, rates, settings, images, onEd
                       type="button"
                       onClick={() => onRemove(x)}
                       aria-label="목록에서 빼기"
-                      className="p-1 text-stone-300 hover:text-rose-600"
+                      className="hit relative p-1 text-stone-300 hover:text-rose-600"
                     >
                       <Trash2 size={15} />
                     </button>

@@ -178,10 +178,14 @@ export function moveTo(x, stage, today = dayKey()) {
   if (stage !== "trash") p.trashedOn = "";
   if (stage === "arrived") Object.assign(p, { arrivedOn: x.arrivedOn || today, returning: false, hold: false });
   if (stage === "pick") Object.assign(p, { pickedOn: x.pickedOn || today, returning: false, hold: false });
-  if (stage === "shot") p.shotOn = x.shotOn || today;
+  if (stage === "shot") Object.assign(p, { shotOn: x.shotOn || today }, x.stage === "back" ? { returning: false } : {});
   if (stage === "done") p.doneOn = x.doneOn || today;
   return { ...x, ...p };
 }
+
+/** 반납 등록을 취소하면 돌아갈 단계 — 반납 등록한 그 단계 (11/17 등록 탭에서도 반납 등록) */
+export const backTo = (x) => (x.backFrom === "pick" || x.backFrom === "shot" ? x.backFrom : "arrived");
+export const backToName = (x) => ({ pick: "촬영", shot: "등록" })[backTo(x)] || "입고·픽";
 
 // ---------------------------------------------------------------- 이름 다듬기
 

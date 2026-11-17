@@ -586,14 +586,15 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
   const openRow = all.find((r) => r.id === open);
 
   const Row = ({ r }) => (
-    <div className="flex items-center gap-2 border-b border-stone-100 px-4 py-2.5 last:border-b-0 hover:bg-stone-50">
-      <button type="button" onClick={() => setOpen(r.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+    // 11/17 폰 점검: 한 줄에 다 넣으면 폰(375px)에서 거래처 이름이 '홈..' 처럼 한 글자만 남았다 → 폰은 이름 한 줄 + 아래 줄에 상태·금액·단추
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-stone-100 px-4 py-2.5 last:border-b-0 hover:bg-stone-50 sm:flex-nowrap">
+      <button type="button" onClick={() => setOpen(r.id)} className="flex w-full min-w-0 items-center gap-2 text-left sm:w-auto sm:flex-1">
         <b className="truncate text-stone-900">{r.vendor.name}</b>
         {r.kind === "late" && <span className="hidden shrink-0 rounded-full border border-violet-300 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 sm:inline">부가세 후입금</span>}
         {reqs[r.id] && r.status !== "done" && <span className="shrink-0 text-[11px] text-stone-400">요청함 {md(reqs[r.id])}</span>}
       </button>
       <StatusChip s={r.status} />
-      <b className="w-20 shrink-0 text-right tabular-nums text-stone-900">{won(r.total)}</b>
+      <b className="ml-auto w-20 shrink-0 text-right tabular-nums text-stone-900 sm:ml-0">{won(r.total)}</b>
       {r.vatDue > 0 ? (
         <button type="button" onClick={() => setTab("vat")} className="w-20 shrink-0 rounded-lg border sm:w-24 border-violet-300 px-2 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-50">
           부가세 먼저 →
@@ -611,14 +612,14 @@ export default function InvoiceRequestPage({ tx, vendors, online, onPatchTxs, on
           onClick={() => setSkip(r.id, true)}
           title="이번 달은 부가세 안 보내고 계산서도 안 받아요 — 아래 '계산서 안 받는 곳'으로"
           aria-label="이번 달 계산서 안 받음"
-          className="flex w-6 shrink-0 items-center justify-center gap-0.5 rounded-lg py-1 text-[11px] font-medium text-stone-400 hover:bg-stone-100 hover:text-stone-700 sm:w-[3.75rem]"
+          className="hit relative flex w-6 shrink-0 items-center justify-center gap-0.5 rounded-lg py-1 text-[11px] font-medium text-stone-400 hover:bg-stone-100 hover:text-stone-700 sm:w-[3.75rem]"
         >
           <ArrowDownToLine size={13} /> <span className="hidden sm:inline">안 받음</span>
         </button>
       ) : r.kind === "late" ? (
         <span className="w-6 shrink-0 sm:w-[3.75rem]" />
       ) : null}
-      <button type="button" onClick={() => setOpen(r.id)} aria-label="자세히" className="text-stone-300 hover:text-stone-600">
+      <button type="button" onClick={() => setOpen(r.id)} aria-label="자세히" className="-my-1 -mr-1.5 rounded-md p-1.5 text-stone-300 hover:text-stone-600">
         <ChevronRight size={16} />
       </button>
     </div>
