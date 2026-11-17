@@ -806,14 +806,14 @@ function orderLines(x) {
         if (it?.name) out.push(fix({ orderId: o.id, ...it }));
         continue;
       }
-      const m = it.match(/^(.*?)(?:\s+([^\s×]+(?:\s*\+\s*[^\s×]+)?))?\s*×\s*(\d+)/);
-      if (m) {
-        out.push(fix({ orderId: o.id, name: m[1], option: m[2] || "", qty: Number(m[3]) }));
+      // '상품명 색상=네이비' · '상품명 색상=네이비, 사이즈=M ×2' — 옵션은 '=' 뒤
+      const e = it.match(/^(.*?)\s+([^\s=]+=.*?)(?:\s*×\s*(\d+))?\s*$/);
+      if (e) {
+        out.push(fix({ orderId: o.id, name: e[1], option: e[2], qty: Number(e[3] || 1) }));
         continue;
       }
-      // '상품명 색상=네이비' · '상품명 색상=네이비, 사이즈=M' (× 없음)
-      const e = it.match(/^(.*?)\s+([^\s=]+=.*)$/);
-      out.push(fix(e ? { orderId: o.id, name: e[1], option: e[2], qty: 1 } : { orderId: o.id, name: it, option: "", qty: 1 }));
+      const m = it.match(/^(.*?)(?:\s+([^\s×]+(?:\s*\+\s*[^\s×]+)?))?\s*×\s*(\d+)/);
+      out.push(m ? { orderId: o.id, name: m[1], option: m[2] || "", qty: Number(m[3]) } : { orderId: o.id, name: it, option: "", qty: 1 });
     }
   }
   return out;
