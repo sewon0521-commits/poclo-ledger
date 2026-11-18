@@ -22,7 +22,7 @@ import { FolderBar, CategoryEditor } from "./FolderBits";
  * 넣기: '+ 포즈 추가' · 화면 어디서든 Ctrl+V · 끌어다 놓기(붙인 사진으로 새 카드, 보고 있는 폴더에). 카드를 누르면 고치기(사진은 모델 레퍼런스와 같은 SectionEdit).
  */
 
-const FIT_CHOICES = [...FITS, ...OUTER_TYPES.map((o) => "아우터:" + o.t)];
+const FIT_CHOICES = [...FITS, "하의:치마", "하의:팬츠", ...OUTER_TYPES.map((o) => "아우터:" + o.t)];
 const codeOf = (x) => x.pose?.code || codeOfTitle(x.title);
 const nameOf = (x) => stripCode(x.title).trim() || "이름 없는 포즈";
 /** 다음 번호 — 번호 매기는 폴더면 그 폴더 안 다음 번호(TOP·4 · ☀BTM·2 · OUTER·패딩5), 아니면 예전처럼 P번호 */
@@ -45,7 +45,12 @@ function fitsFor(folderId, folders) {
     return t ? ["아우터:" + t.t] : ["아우터"];
   }
   if (names.includes("상의") || up.includes("TOP") || up.includes("SELFIE")) return ["상의"];
-  if (names.includes("하의") || names.includes("앉은컷") || up.includes("BTM")) return ["하의"];
+  if (names.includes("하의") || names.includes("앉은컷") || up.includes("BTM")) {
+    // 11/18 BTM › 치마 · 팬츠 세부 — 그 종류 하의 코디에만 추천. BTM 바로 아래(공통)는 하의면 다
+    if (names.includes("치마")) return ["하의:치마"];
+    if (names.includes("팬츠")) return ["하의:팬츠"];
+    return ["하의"];
+  }
   return ["전신"];
 }
 /** 폴더로 처음 찍는 방식 — SELFIE·FULL 은 거울 셀카, TOP·BTM 은 찍어주는 컷 */
@@ -215,7 +220,7 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
                 const on = fits.includes(f);
                 return (
                   <button key={f} type="button" aria-pressed={on} onClick={() => setPose({ fits: on ? fits.filter((y) => y !== f) : [...fits, f] })} className={chip + " " + (on ? "border-stone-800 bg-stone-800 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-400")}>
-                    {f.startsWith("아우터:") ? `아우터 · ${f.slice(4)}` : f}
+                    {f.startsWith("아우터:") ? `아우터 · ${f.slice(4)}` : f.startsWith("하의:") ? `하의 · ${f.slice(3)}` : f}
                   </button>
                 );
               })}

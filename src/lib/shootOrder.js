@@ -73,7 +73,7 @@ export function groupOf(k) {
   const selfie = k.shot === "거울 셀카" || /셀카/.test(`${k.title || ""} ${k.sec?.text || ""}`);
   if (fits.some((t) => t.startsWith("아우터"))) return "OUTER";
   if (fits.includes("상의")) return selfie ? "SELFIE" : "TOP";
-  if (fits.includes("하의")) return "BTM";
+  if (fits.some((t) => t === "하의" || t.startsWith("하의:"))) return "BTM";
   if (fits.includes("전신")) return "FULL";
   return "";
 }

@@ -49,6 +49,12 @@ const KINDS = [
   ["full", "FULL"],
   ["outer", "OUTER"],
 ];
+// 11/18 세원: "이러면 걍 카테고리 나눠도 될 것 같아. 바텀도 치마랑 팬츠 이렇게 나뉘니까" → BTM 도 OUTER 처럼 세부(치마 · 팬츠).
+//   어느 쪽에나 맞는 포즈(앉은 컷 등)는 BTM 바로 아래 = 공통. 이름 BTM·치마1 · BTM·팬츠1, 공통은 BTM·1, 예비는 BTM·예비1.
+const BTM_SUBS = [
+  ["skirt", "치마"],
+  ["pants", "팬츠"],
+];
 const OUTER_SUBS = [
   ["coat", "코트"],
   ["pad", "패딩"],
@@ -56,7 +62,7 @@ const OUTER_SUBS = [
   ["fur", "퍼"],
   ["jk", "자켓"],
 ];
-/** 처음 폴더 — 실내/야외 › TOP·SELFIE·BTM·FULL·OUTER, OUTER › 코트·패딩·무스탕·퍼·자켓 */
+/** 처음 폴더 — 실내/야외 › TOP·SELFIE·BTM·FULL·OUTER, BTM › 치마·팬츠, OUTER › 코트·패딩·무스탕·퍼·자켓 */
 export function seedPoseFolders() {
   const out = [];
   for (const [pid, pname] of [
@@ -68,6 +74,7 @@ export function seedPoseFolders() {
       const id = `${pid}_${k}`;
       out.push({ id, name, parent: pid });
       if (k === "outer") for (const [s, n] of OUTER_SUBS) out.push({ id: `${id}_${s}`, name: n, parent: id });
+      if (k === "bottom") for (const [s, n] of BTM_SUBS) out.push({ id: `${id}_${s}`, name: n, parent: id });
     }
   }
   return out;
@@ -81,20 +88,22 @@ export function placeOfFolder(id, folders) {
   return f?.id === OUT_ID ? "out" : f?.id === OLD_ID ? "old" : "in";
 }
 export const placeOfDay = (day) => (day?.outdoor?.on ? "out" : "in");
-/** 카드 순서 값 — TOP → SELFIE → BTM → FULL → OUTER(묶음 안은 번호, 야외 · 예비는 뒤) → 예전 P번호 → 번호 없는 것 */
+const SUB_ORDER = ["치마", "팬츠", "코트", "패딩", "무스탕", "퍼", "자켓"];
+/** 카드 순서 값 — TOP → SELFIE → BTM → FULL → OUTER(묶음 안은 공통 → 세부 → 번호, 야외 · 예비는 뒤) → 예전 P번호 → 번호 없는 것 */
 const codeNo = (s) => {
   const raw = String(s?.pose?.code || codeOfTitle(s?.title) || "").toUpperCase();
   const out = raw.startsWith("☀");
   const c = raw.replace(/^☀\s*/, "");
   const g = GROUP_ORDER.findIndex((x) => c.startsWith(x + "·"));
   const n = Number(c.match(/(\d+)\s*$/)?.[1] || 999);
-  if (g >= 0) return (g + 1) * 10000 + (out ? 4000 : 0) + (/예비/.test(c) ? 2000 : 0) + n;
+  const sub = SUB_ORDER.indexOf(c.match(/·([^\d·]+?)(?:예비)?\d+\s*$/)?.[1] || "");
+  if (g >= 0) return (g + 1) * 10000 + (out ? 4000 : 0) + (/예비/.test(c) ? 2000 : 0) + (sub >= 0 ? (sub + 1) * 100 : 0) + n;
   const p = c.match(/^P(\d+)$/);
   return p ? 100000 + Number(p[1]) : 1e6;
 };
 
 // ---------------------------------------------------------------- 번호 자동 (11/17 밤 세원: "포즈 순서 변경할 수 있게, 변경하면 왼쪽 상단 이름 자동으로")
-// 번호 범위 = 묶음 폴더(TOP · SELFIE · BTM · FULL) 하나, OUTER 는 세부 폴더마다(OUTER·패딩1). 야외는 앞에 ☀. 예비는 'BTM·예비1'로 따로.
+// 번호 범위 = 묶음 폴더(TOP · SELFIE · BTM · FULL) 하나, OUTER · BTM 은 세부 폴더마다(OUTER·패딩1 · BTM·치마1). 야외는 앞에 ☀. 예비는 'BTM·예비1'로 따로.
 // 예전 포즈 · 미분류는 번호를 안 건드린다. 고른 값(posePicks · 짝 pair)은 카드 id 로 이어져서 이름이 바뀌어도 안 끊긴다.
 const pathTo = (id, folders) => {
   const out = [];
@@ -111,7 +120,7 @@ export function codePrefix(folderId, folders) {
   const gi = path.findIndex((f) => GROUP_ORDER.includes(String(f.name).toUpperCase()));
   if (gi < 0) return null;
   const g = String(path[gi].name).toUpperCase();
-  const sub = g === "OUTER" && path[gi + 1] ? path[gi + 1].name : "";
+  const sub = (g === "OUTER" || g === "BTM") && path[gi + 1] ? path[gi + 1].name : "";
   return `${path[0].id === OUT_ID ? "☀" : ""}${g}·${sub}`;
 }
 /** 묶음마다 찍는 방식 — TOP·BTM 찍어주는 컷, SELFIE·FULL 거울 셀카. OUTER 는 카드마다 고른다("") */
@@ -182,7 +191,7 @@ export function codiFolder(c, items, folders, place, cards = null) {
   const names = its.map((x) => `${x.name || ""} ${x.fullName || ""}`).join(" ");
   // 11/17 밤 폴더 이름이 TOP·BTM·FULL·OUTER 로 바뀜 — 예전 이름(상의·하의·전신·아우터)도 찾는다
   const NAMES = { 아우터: ["OUTER", "아우터"], 상의: ["TOP", "상의"], 하의: ["BTM", "하의"], 전신: ["FULL", "전신"] };
-  const types = its.flatMap(outerTypes).map((t) => t.split(":")[1]);
+  const types = [...its.flatMap(outerTypes), ...its.flatMap(bottomTypes)].map((t) => t.split(":")[1]);
   const order = [f.has("아우터") && "아우터", f.has("상의") && "상의", f.has("하의") && "하의", "전신"].filter(Boolean);
   for (const kind of order) {
     const cat = folders.find((x) => x.parent === top && NAMES[kind].includes(x.name));
@@ -238,6 +247,21 @@ export function outerTypes(x) {
   return [];
 }
 
+// 하의 종류 (11/18 BTM › 치마 · 팬츠) — 원피스·치마바지(이름에 '치마')는 치마, 숏팬츠·데님·슬랙스·트레이닝은 팬츠.
+//   종류 카드는 fits ["하의:치마"] 처럼(폴더로 정해진다 — PosesTab fitsFor). fits ["하의"] 카드(공통)는 하의면 다 추천.
+const SKIRT_RE = /스커트|치마|(?<![a-z])sk(?![a-z])|skirt|원피스|(?<![a-z])ops(?![a-z])|드레스/i;
+const PANTS_RE = /팬츠|바지|(?<![a-z])pt(?![a-z])|슬랙스|데님|청바지|진(?![가-힣])|쇼츠|숏츠|트레이닝|조거|jean|pants/i;
+/** 하의(또는 원피스·세트) 상품 하나 → ["하의:치마"] · ["하의:팬츠"] · [] (모르면) */
+export function bottomTypes(x) {
+  const p = wearPart(x);
+  for (const t of [x?.name, x?.fullName]) {
+    if (SKIRT_RE.test(t || "")) return ["하의:치마"];
+    if (PANTS_RE.test(t || "")) return ["하의:팬츠"];
+  }
+  // 하의인데 이름으로 모르면 팬츠(우리 하의는 거래처 번호 이름 '2107' · 'JY-020' 이 거의 바지) · 원피스·세트는 모르면 공통만
+  return p === "하의" ? ["하의:팬츠"] : [];
+}
+
 /** 코디가 무엇을 입는지 → 추천에 쓰는 자리. 원피스·세트는 위·아래 둘 다 */
 export function codiFits(c, items) {
   const out = new Set();
@@ -251,10 +275,13 @@ export function codiFits(c, items) {
     }
     if (p === "가방") out.add("가방"); // 11/17 밤 '가방 있을 때만' 포즈(SELFIE·2)
     if (p === "상의" || p === "이너") out.add("상의");
-    else if (p === "하의") out.add("하의");
-    else if (p === "원피스·세트") {
+    else if (p === "하의") {
+      out.add("하의");
+      for (const t of bottomTypes(x)) out.add(t);
+    } else if (p === "원피스·세트") {
       out.add("상의");
       out.add("하의");
+      for (const t of bottomTypes(x)) out.add(t);
     }
   }
   return out;
@@ -265,12 +292,12 @@ export function codiFits(c, items) {
  *   전신 포즈는 늘 · 아우터가 있으면 아우터 포즈 · 하의가 있으면 하반신·앉은 포즈 · 아우터 없이 상의만 있으면 상반신 포즈
  */
 // 11/17 밤 세원: 안쪽 옷부터 입으면서 찍는다(lib/shootOrder) — 아우터를 입기 전에 상의를 먼저 찍으니 아우터가 있어도 상의 컷을 추천한다
-export const RECO_RULE = "전신은 늘 · 상의 있으면 상반신 컷(아우터 입기 전에 찍어요) · 하의 있으면 하반신·앉은 컷 · 아우터 있으면 그 종류(코트·패딩·무스탕·자켓·퍼) 컷";
+export const RECO_RULE = "전신은 늘 · 상의 있으면 상반신 컷(아우터 입기 전에 찍어요) · 하의 있으면 공통 + 그 종류(치마·팬츠) 컷 · 아우터 있으면 그 종류(코트·패딩·무스탕·자켓·퍼) 컷";
 export function recommend(cards, c, items) {
   const f = codiFits(c, items);
   const want = new Set(["전신"]);
   if (f.has("아우터")) for (const t of f) if (t.startsWith("아우터")) want.add(t);
-  if (f.has("하의")) want.add("하의");
+  if (f.has("하의")) for (const t of f) if (t.startsWith("하의")) want.add(t); // 공통(하의) + 그 코디 하의 종류(하의:치마 · 하의:팬츠)
   if (f.has("상의")) want.add("상의");
   // 11/17 밤 예비(spare)는 추천 안 함 · '가방 있을 때만'(only) 은 코디에 가방이 있을 때만
   const pose = (k) => k.sec?.pose || {};
