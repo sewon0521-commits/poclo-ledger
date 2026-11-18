@@ -89,7 +89,7 @@ export function placeOfFolder(id, folders) {
   return f?.id === OUT_ID ? "out" : f?.id === OLD_ID ? "old" : "in";
 }
 export const placeOfDay = (day) => (day?.outdoor?.on ? "out" : "in");
-const SUB_ORDER = ["치마", "팬츠", "코트", "패딩", "무스탕", "퍼", "자켓"];
+const SUB_ORDER = ["나시", "반팔", "긴팔티", "니트", "셔츠", "치마", "팬츠", "코트", "패딩", "무스탕", "퍼", "자켓"];
 /** 카드 순서 값 — TOP → SELFIE → BTM → FULL → OUTER(묶음 안은 공통 → 세부 → 번호, 야외 · 예비는 뒤) → 예전 P번호 → 번호 없는 것 */
 const codeNo = (s) => {
   const raw = String(s?.pose?.code || codeOfTitle(s?.title) || "").toUpperCase();
@@ -121,7 +121,8 @@ export function codePrefix(folderId, folders) {
   const gi = path.findIndex((f) => GROUP_ORDER.includes(String(f.name).toUpperCase()));
   if (gi < 0) return null;
   const g = String(path[gi].name).toUpperCase();
-  const sub = (g === "OUTER" || g === "BTM") && path[gi + 1] ? path[gi + 1].name : "";
+  // 11/18 TOP › 나시 도 세부 번호(TOP·나시1) — 예전엔 OUTER · BTM 만 세부를 붙여서 나시 카드가 TOP·1~4 로 TOP 카드와 겹쳤다
+  const sub = path[gi + 1] ? path[gi + 1].name : "";
   return `${path[0].id === OUT_ID ? "☀" : ""}${g}·${sub}`;
 }
 /** 묶음마다 찍는 방식 — TOP·BTM 찍어주는 컷, SELFIE·FULL 거울 셀카. OUTER 는 카드마다 고른다("") */
@@ -303,16 +304,66 @@ export function codiFits(c, items) {
 export const RECO_RULE = "코디 상품(핏·원단·넥라인·디테일·소싱 레퍼 구도)에 맞는 포즈 · 묶음마다 한 장 이상 · 카드마다 고른 이유";
 // TOP 세부 폴더(나시 …)는 그 옷이 코디에 있을 때만 — 폴더 이름이 상품 이름에 있거나 아래 말이 있으면
 const TOP_SUB_RE = { 나시: /나시|캐미|슬리브리스|민소매|뷔스티에|홀터|브라탑/i, 니트: /니트|(?<![a-z])nt(?![a-z])/i, 반팔: /반팔|숏\s?슬리브/i, 긴팔티: /긴팔|롱\s?슬리브/i, 셔츠: /셔츠|블라우스|(?<![a-z])(sh|bl)(?![a-z])/i };
+/** TOP 세부 폴더 이름(나시 …)이 이 상의에 맞나 */
+export function subFits(sub, x) {
+  if (!sub || !x) return false;
+  const t = `${x.name || ""} ${x.fullName || ""}`;
+  const re = TOP_SUB_RE[sub];
+  return t.includes(sub) || !!(re && re.test(t));
+}
+const TOP_PARTS = ["이너", "상의", "원피스·세트"];
+/** 다른 상의 위에 겹쳐 입는 상의(lib/shootOrder 겹 순서) */
+export const OVER_TOP = /니트|가디건|집업|후드|맨투맨|스웻|베스트|조끼|스웨터|폴라|스웨트|앙고라|cardigan|knit/i;
+/** 코디 상의를 입는 순서로 — 이너 → 원피스·세트 → 상의 → 겹쳐 입는 상의. lib/shootOrder 의 상의 겹이 이 순서(첫 겹 = 첫 상의) */
+export function topsInOrder(c, items) {
+  const its = (c?.itemIds || []).map((id) => (items || []).find((x) => x.id === id)).filter(Boolean);
+  return its
+    .map((x, i) => ({ x, i, p: wearPart(x) }))
+    .filter((o) => TOP_PARTS.includes(o.p))
+    .map((o) => ({ ...o, r: o.p === "이너" ? 0 : o.p === "원피스·세트" ? 1 : OVER_TOP.test(`${o.x.name || ""} ${o.x.fullName || ""}`) ? 3 : 2 }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((o) => o.x);
+}
+const isTopCard = (k) => groupOfCode(k) === "TOP" || (!groupOfCode(k) && (k?.fits || []).includes("상의") && !(k?.fits || []).some((t) => t.startsWith("아우터")));
+/**
+ * 11/18 세원: "코디4 나시+팬츠인데 사진이 다른 제품이여서 나시 + 팬츠 포즈에 코디여야 할 것 같은데" →
+ *   상의 겹마다 그 겹에 새로 입은 상의에 맞는 TOP 카드 — 나시 겹 = TOP › 나시 카드, 그다음 티셔츠 겹 = 세부 없는 TOP 카드.
+ * topCards = 이 코디 TOP 카드들, tops = topsInOrder → Map(카드 id → [상의 겹 번호 0…])
+ *   세부 카드는 그 세부에 맞는 겹으로(맞는 겹이 없으면 세부 없는 카드처럼). 세부 없는 카드는 세부 카드가 안 간 겹으로(그런 겹이 없으면 전부 — 예전처럼).
+ */
+export function topLayerMap(topCards, tops) {
+  const all = tops.map((_, i) => i);
+  const fitsOf = (k) => (k.sub ? all.filter((i) => subFits(k.sub, tops[i])) : []);
+  const special = new Set(topCards.flatMap(fitsOf));
+  const plain = all.filter((i) => !special.has(i));
+  const out = new Map();
+  for (const k of topCards) {
+    const f = fitsOf(k);
+    out.set(k.id, f.length ? f : plain.length ? plain : all);
+  }
+  return out;
+}
 function topSubOk(k, c, items) {
   if (groupOfCode(k) !== "TOP" || !k.sub) return true;
-  const its = (c?.itemIds || []).map((id) => (items || []).find((y) => y.id === id)).filter((x) => x && ["상의", "이너", "원피스·세트"].includes(wearPart(x)));
-  const re = TOP_SUB_RE[k.sub];
-  return its.some((x) => {
-    const t = `${x.name || ""} ${x.fullName || ""}`;
-    return t.includes(k.sub) || (re && re.test(t));
-  });
+  const its = (c?.itemIds || []).map((id) => (items || []).find((y) => y.id === id)).filter((x) => x && TOP_PARTS.includes(wearPart(x)));
+  return its.some((x) => subFits(k.sub, x));
 }
 const groupOfCode = (k) => String(k?.code || "").match(/^\s*☀?\s*(TOP|SELFIE|BTM|FULL|OUTER)\b/i)?.[1]?.toUpperCase() || "";
+/**
+ * 진짜 추천이 상의 겹마다 한 장씩 꼭 고를 자리 — 세부 카드(나시 …)가 맞는 겹이 있을 때만.
+ *   세부가 맞는 겹마다 한 자리 + 나머지 겹(세부 없는 TOP 카드) 한 자리. 그런 겹이 없으면 null(예전처럼 TOP 한 장)
+ */
+function topSlots(pool, c, items) {
+  const tops = topsInOrder(c, items);
+  if (!tops.length) return null;
+  const subs = [...new Set(pool.filter((k) => isTopCard(k) && k.sub).map((k) => k.sub))];
+  const layerSubs = tops.map((x) => subs.filter((s) => subFits(s, x)));
+  if (!layerSubs.some((s) => s.length)) return null;
+  const slots = [];
+  for (const s of [...new Set(layerSubs.flat())]) slots.push({ label: `${s} 겹`, fit: (k) => isTopCard(k) && k.sub === s });
+  if (layerSubs.some((s) => !s.length)) slots.push({ label: "상의 겹", fit: (k) => isTopCard(k) && (!k.sub || !tops.some((x) => subFits(k.sub, x))) });
+  return slots;
+}
 /** 진짜 추천 — 옷 종류로 거른 카드(recommendAll) 안에서 코디 상품을 보고 n장 → 카드 id */
 export function recommend(cards, c, items, n) {
   return recoPick(cards, c, items, n).ids;
@@ -320,7 +371,8 @@ export function recommend(cards, c, items, n) {
 /** recommend 와 같은데 고른 이유(why · short)까지 */
 export function recoPick(cards, c, items, n) {
   const pool = new Set(recommendAll(cards, c, items));
-  return smartPick(cards.filter((k) => pool.has(k.id) && topSubOk(k, c, items)), c, items, n);
+  const mine = cards.filter((k) => pool.has(k.id) && topSubOk(k, c, items));
+  return smartPick(mine, c, items, n, undefined, topSlots(mine, c, items));
 }
 /** 이 촬영 쪽(실내/야외) 카드에서 진짜 추천 — 포즈판 · 큰 창이 이유를 보여 줄 때 */
 export function recoOf(day, c, cards, items) {

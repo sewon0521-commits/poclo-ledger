@@ -15,14 +15,12 @@
 //
 // 찍음 표시(촬영 줄 poseDone[코디 id]) — 첫 겹 사진은 예전처럼 보관 키 그대로, 두 번째 상의 겹부터는 `s<겹>|<키>`, 겹 영상은 `vid:<겹>`.
 import { wearPart } from "./shoot";
-import { shotsOf } from "./poses";
+import { shotsOf, topsInOrder, topLayerMap } from "./poses";
 
 export const GROUPS = ["TOP", "SELFIE", "BTM", "FULL", "OUTER"];
 export const GROUP_NAME = { TOP: "상의", SELFIE: "상의 셀카", BTM: "하의", FULL: "전신", OUTER: "아우터" };
 
 const LOW_ETC = /양말|삭스|스타킹|타이즈|레그워머|벨트/;
-/** 다른 상의 위에 겹쳐 입는 상의 */
-const OVER_TOP = /니트|가디건|집업|후드|맨투맨|스웻|베스트|조끼|스웨터|폴라|스웨트|앙고라|cardigan|knit/i;
 
 /** 모델에게 보이는 옷 이름 — 상품 이름 대신 종류 말(상품명·거래처는 시트에 안 간다). 자리(wearPart)마다 고를 수 있는 말만 ('니트 스커트'는 스커트) */
 const TOPW = [
@@ -84,11 +82,7 @@ export function groupOf(k) {
 export function wearSteps(c, items) {
   const its = (c?.itemIds || []).map((id) => (items || []).find((x) => x.id === id)).filter(Boolean);
   const part = (x) => wearPart(x);
-  const tops = its
-    .map((x, i) => ({ x, i, r: part(x) === "이너" ? 0 : part(x) === "원피스·세트" ? 1 : OVER_TOP.test(`${x.name || ""} ${x.fullName || ""}`) ? 3 : 2 }))
-    .filter((o) => ["이너", "상의", "원피스·세트"].includes(part(o.x)))
-    .sort((a, b) => a.r - b.r || a.i - b.i)
-    .map((o) => o.x);
+  const tops = topsInOrder(c, items); // 이너 → 원피스·세트 → 상의 → 겹쳐 입는 상의(lib/poses)
   const outers = its.filter((x) => part(x) === "아우터");
   // 양말·스타킹·벨트는 하의·신발과 같이 첫 겹에, 가방·모자·머플러 같은 소품은 마지막 겹에
   const low = (x) => ["하의", "신발"].includes(part(x)) || (part(x) === "기타" && LOW_ETC.test(`${x.name || ""} ${x.fullName || ""}`));
@@ -143,10 +137,16 @@ export function runOrder(day, c, cards, items) {
   const withGroup = base.map((x) => ({ ...x, group: x.own ? "" : groupOf(byId.get(x.cardId)) }));
   const known = new Set(steps.flatMap((s) => s.groups));
   const shots = [];
+  // 11/18 상의 겹마다 그 겹 상의에 맞는 TOP 카드(lib/poses topLayerMap) — 나시 겹엔 TOP › 나시, 티셔츠 겹엔 세부 없는 TOP.
+  //   상의 겹 순서 = topsInOrder 순서(첫 겹 = 첫 상의). 세부 카드가 없으면 예전처럼 TOP 카드가 상의 겹마다 다 나온다
   const topSteps = steps.filter((s) => s.groups.includes("TOP"));
+  const topCards = [...new Set(withGroup.filter((x) => x.group === "TOP").map((x) => x.cardId))].map((id) => byId.get(id)).filter(Boolean);
+  const layerOf = topLayerMap(topCards, topsInOrder(c, items));
+  const onStep = (x, s) => x.group !== "TOP" || !layerOf.has(x.cardId) || layerOf.get(x.cardId).includes(topSteps.indexOf(s));
+  const seen = new Set();
   for (const s of steps) {
     const mine = [];
-    for (const g of s.groups) for (const x of withGroup) if (x.group === g) mine.push(x);
+    for (const g of s.groups) for (const x of withGroup) if (x.group === g && onStep(x, s)) mine.push(x);
     if (s.last) for (const x of withGroup) if (!x.group || !known.has(x.group)) mine.push(x);
     // 11/17 밤 짝(pose.pair) — '셀카 찍고 한두 걸음 뒤로 → 전신': 같은 겹에 짝 카드가 있으면 그 카드 사진 바로 뒤로
     const pairOf = (x) => byId.get(x.cardId)?.sec?.pose?.pair || "";
@@ -159,10 +159,10 @@ export function runOrder(day, c, cards, items) {
       lead.splice(at + 1, 0, x);
     }
     mine.splice(0, mine.length, ...lead);
-    // 첫 겹 · 묶음이 한 번만 나오는 사진은 키 그대로(예전 찍음 표시와 이어진다), 두 번째 상의 겹부터는 겹 번호를 붙인다
-    const again = (x) => (x.group === "TOP" || x.group === "SELFIE") && topSteps[0] && topSteps[0].n !== s.n;
+    // 처음 나오는 사진은 키 그대로(예전 찍음 표시와 이어진다), 같은 사진이 다음 상의 겹에 또 나오면 겹 번호를 붙인다
     for (const x of mine) {
-      const doneKey = again(x) ? `s${s.n}|${x.key}` : x.key;
+      const doneKey = seen.has(x.key) ? `s${s.n}|${x.key}` : x.key;
+      seen.add(x.key);
       shots.push({ ...x, step: s.n, doneKey, done: doneKey === x.key ? x.done : done.has(doneKey) });
     }
   }

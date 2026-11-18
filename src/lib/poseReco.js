@@ -317,7 +317,8 @@ const shapeOf = (g, tags) => [g, [...tags].find((t) => t.startsWith("f:")) || ""
  * pool(옷 종류로 거른 카드) 안에서 코디 상품을 보고 n장 고르기
  * → {ids(카드 순서), why:{카드 id: 이유 한 줄}, short:{카드 id: 짧은 이유}, photos}
  */
-export function smartPick(pool, c, items, n = RECO_N, ai = AI) {
+// slots = 상의 겹마다 꼭 한 장(lib/poses topSlots — 나시 겹엔 TOP › 나시 카드) [{label, fit(카드)}]. 없으면 TOP 도 한 장
+export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null) {
   const its = (c?.itemIds || []).map((id) => (items || []).find((x) => x.id === id)).filter(Boolean);
   const traits = its.flatMap((x) => itemTraits(x, ai));
   const order = new Map(pool.map((k, i) => [k.id, i]));
@@ -344,20 +345,33 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI) {
   const why = {};
   const short = {};
   let photos = 0;
-  const take = (r, base) => {
+  const take = (r, base, slot = "") => {
     picked.push(r);
     photos += r.photos;
     if (r.best) {
-      why[r.k.id] = `${r.best.label} → ${r.best.why}`;
+      why[r.k.id] = `${slot ? slot + " · " : ""}${r.best.label} → ${r.best.why}`;
       short[r.k.id] = r.best.label;
     } else {
       const d = r.desc ? ` — ${r.desc}` : "";
-      why[r.k.id] = base ? (r.g === "FULL" ? `코디 전체가 보이는 전신 한 장${d}` : `${GROUP_LABEL[r.g]} 기본 한 장${d}`) : `${GROUP_LABEL[r.g]} 컷 더${d}`;
-      short[r.k.id] = base ? `${GROUP_LABEL[r.g]} 기본` : GROUP_LABEL[r.g];
+      why[r.k.id] = slot ? `${slot} 상의 한 장${d}` : base ? (r.g === "FULL" ? `코디 전체가 보이는 전신 한 장${d}` : `${GROUP_LABEL[r.g]} 기본 한 장${d}`) : `${GROUP_LABEL[r.g]} 컷 더${d}`;
+      short[r.k.id] = slot || (base ? `${GROUP_LABEL[r.g]} 기본` : GROUP_LABEL[r.g]);
     }
   };
-  // ① 묶음마다 한 장 — 가장 맞는 것
-  for (const g of groups) take(rows.find((r) => r.g === g), true);
+  // ① 묶음마다 한 장 — 가장 맞는 것. 상의는 겹마다 한 장(slots — 나시 겹엔 나시 카드)
+  for (const g of groups) {
+    if (g === "TOP" && slots?.length) {
+      let any = false;
+      for (const sl of slots) {
+        const r = rows.find((x) => x.g === "TOP" && !picked.includes(x) && sl.fit(x.k));
+        if (r) {
+          take(r, true, sl.label);
+          any = true;
+        }
+      }
+      if (any) continue;
+    }
+    take(rows.find((r) => r.g === g), true);
+  }
   // ② 나머지 — 점수 순, 같은 구도가 겹치면 깎아서. 먼저 묶음 몫(반올림)까지만 채우고, 그래도 모자라면 몫을 넘겨서(깎아서)
   for (const capped of [true, false]) {
     while (photos < n) {
