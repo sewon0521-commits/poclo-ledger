@@ -22,7 +22,7 @@ import { ClipBig } from "./LoopClip";
 import PoseBoard from "./PoseBoard";
 import { posePool, shotsOf, POSES_KEY } from "../lib/poses";
 import { usePoseAi } from "../lib/poseReco";
-import { runOrder } from "../lib/shootOrder";
+import { runOrder, codiLabel } from "../lib/shootOrder";
 import PosesTab from "./PosesTab";
 import { ShootRun, CodiPoseSheet } from "./PoseRun";
 import VideoRefsBox from "./VideoRefsBox";
@@ -693,6 +693,34 @@ function GuideBox({ s, set, online }) {
   );
 }
 
+/** 시트 코디 이름 한 줄 — 치는 동안은 화면에만, 엔터·칸을 벗어나면 저장 */
+function SheetNameRow({ n, auto, value, onSave }) {
+  const [v, setV] = useState(value); // 저장된 말이 바뀌면 줄을 새로 그린다(key)
+  const save = () => {
+    const t = v.trim();
+    if (t !== value) onSave(t === auto ? "" : t);
+  };
+  return (
+    <li className="flex items-center gap-2">
+      <span className="w-11 shrink-0 font-semibold text-rose-700">코디 {n}</span>
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && e.currentTarget.blur()}
+        placeholder={auto || "옷 이름 — 예: 티셔츠 + 카프리팬츠 + 퍼자켓"}
+        aria-label={`코디 ${n} 시트 이름`}
+        className="min-w-0 flex-1 rounded-md border border-stone-200 px-2 py-1 text-xs text-stone-800 outline-none placeholder:text-stone-500 focus:border-rose-600"
+      />
+      {value && (
+        <button type="button" onClick={() => onSave("")} className="shrink-0 text-[11px] text-stone-500 hover:text-rose-700">
+          자동으로
+        </button>
+      )}
+    </li>
+  );
+}
+
 /** 모델에게 보낼 촬영 시트 링크 */
 function SheetLink({ day, set, codis, d, online, refs, poses }) {
   const [busy, setBusy] = useState("");
@@ -763,6 +791,30 @@ function SheetLink({ day, set, codis, d, online, refs, poses }) {
           <b className="font-semibold text-stone-800">찍을 코디 미리 보기</b> 같이 보내기 — 코디마다 상품 사진만 작게(이름·가격·거래처 없이, 확대해도 워터마크 안 읽히게)
         </span>
       </label>
+      {/* 11/18 밤 시트의 코디 이름 줄 — 세원: "만약 코디2면 티셔츠 + 카프리팬츠 + 퍼자켓 이렇게 그냥 진행". 옷 말로 자동, 못 읽은 건 여기서 고친다(비우면 자동) */}
+      {codis.length > 0 && (
+        <div className="mb-2 rounded-lg bg-white px-2.5 py-2 text-xs ring-1 ring-stone-200">
+          <div className="mb-1.5 text-stone-600">
+            <b className="font-semibold text-stone-800">시트에 보이는 코디 이름</b> — 상의 + 하의 + 아우터 옷 말로 자동(상품명·거래처 X). 고치면 그 말로, 비우면 다시 자동
+          </div>
+          <ul className="space-y-1">
+            {codis.map((c, i) => (
+              <SheetNameRow
+                key={`${c.id}|${day.sheetNames?.[c.id] || ""}`}
+                n={i + 1}
+                auto={codiLabel(c, d.items)}
+                value={day.sheetNames?.[c.id] || ""}
+                onSave={(v) => {
+                  const next = { ...(day.sheetNames || {}) };
+                  if (v) next[c.id] = v;
+                  else delete next[c.id];
+                  set({ sheetNames: next });
+                }}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
       {err === "missing" ? (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
           촬영 시트 준비가 아직 안 됐어요 — Supabase SQL 을 한 번 실행해 주세요:{" "}

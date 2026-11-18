@@ -62,6 +62,98 @@ export function typeWord(x) {
   return fall;
 }
 
+// ---------------------------------------------------------------- 모델 시트 코디 이름 줄 (11/18 밤)
+// 세원(방향성 창): "모델에게 보낼 촬영시트 헷갈려. 걍 싹다 코디1처럼 진행해줘. 만약 코디2면 티셔츠 + 카프리팬츠 + 퍼자켓 이렇게 그냥 진행"
+//   → 상의 + 하의 + 아우터 순서로 옷 말만(상품명·거래처 X), 잡화(신발·가방·양말·스타킹·벨트 …)는 뺀다. 촬영 창에서 코디마다 고칠 수 있다(촬영 줄 sheetNames).
+//   우리 상품명 먼저 읽고, 거기서 두루뭉술한 말(스커트·청바지 …)만 나오면 신마 이름에서 더 자세한 말(미디스커트 …)을 찾는다.
+const TOP_SHEET = [
+  [/나시|캐미|민소매|슬리브리스|탱크|브라렛|브라탑|뷔스티에|홀터/, "나시"],
+  [/가디건|cardigan/i, "가디건"],
+  [/집업/, "집업"],
+  [/후드/, "후드티"],
+  [/맨투맨|스웻|스웨트/, "맨투맨"],
+  [/베스트|조끼/, "베스트"],
+  [/목폴라|터틀넥|폴라/, "목폴라"],
+  [/니트|스웨터|앙고라|knit|(?<![a-z])nt(?![a-z])/i, "니트"],
+  [/블라우스|(?<![a-z])bl(?![a-z])/i, "블라우스"],
+  [/(?<!티)셔츠|남방|(?<![a-z])sh(?![a-z])/i, "셔츠"],
+  [/티셔츠|티(?![가-힣])|(?<![a-z])t(?![a-z])|tee|긴팔|반팔|골지/i, "티셔츠"],
+];
+const FITS = ["부츠컷", "와이드", "일자", "스트레이트", "벌룬", "하렘", "카고", "스키니", "조거", "트레이닝", "슬랙스"];
+function bottomSheet(t) {
+  if (/스커트|치마|(?<![a-z])sk(?![a-z])|skirt/i.test(t)) {
+    const len = ["미니", "미디", "롱", "맥시"].find((w) => t.includes(w));
+    return `${len === "맥시" ? "롱" : len || ""}스커트`;
+  }
+  if (/반바지|숏\s?팬츠|쇼츠|숏츠|하프\s?팬츠/.test(t)) return "반바지";
+  if (/[78]부|카프리/.test(t)) return "카프리팬츠";
+  const fit = FITS.find((w) => t.includes(w));
+  if (fit === "조거") return "조거팬츠";
+  if (fit === "트레이닝") return "트레이닝 팬츠";
+  if (fit === "슬랙스") return "슬랙스";
+  const shown = fit === "스트레이트" ? "일자" : fit;
+  if (/데님|청바지|jean|(?<![가-힣])진(?![가-힣])/i.test(t)) return shown ? `${shown} 청바지` : "청바지";
+  if (shown || /팬츠|바지|(?<![a-z])pt(?![a-z])|pants/i.test(t)) return shown ? `${shown} 팬츠` : "팬츠";
+  return "";
+}
+function outerSheet(t) {
+  const fur = /(?<![지점])퍼(?!프|후드)|털|모피|무톤|양털|뽀글|보아|\bfur\b/i.test(t);
+  if (/레더|가죽/.test(t) && /자켓|재킷|(?<![a-z])jk(?![a-z])/i.test(t)) return "레더자켓";
+  if (/무스탕|덤블/.test(t)) return "무스탕";
+  if (/패딩|다운|푸퍼/.test(t)) return /조끼|베스트/.test(t) ? "패딩 조끼" : `${["숏", "롱", "경량"].find((w) => t.includes(w)) || ""}패딩`;
+  if (/코트|트렌치|(?<![a-z])ct(?![a-z])/i.test(t)) {
+    if (/트렌치/.test(t)) return "트렌치코트";
+    const len = ["롱", "하프", "숏", "미디"].find((w) => t.includes(w));
+    return len ? `${len}코트` : fur ? "퍼코트" : "코트";
+  }
+  if (/항공/.test(t)) return "항공점퍼";
+  if (/바람막이|아노락/.test(t)) return "바람막이";
+  if (/야상/.test(t)) return "야상";
+  if (/블레이저/.test(t)) return "블레이저";
+  if (/가디건/.test(t)) return "가디건";
+  if (/조끼|베스트/.test(t)) return "베스트";
+  if (/자켓|재킷|점퍼|(?<![a-z])(jk|jp)(?![a-z])/i.test(t)) {
+    if (fur) return "퍼자켓";
+    const d = ["누빔", "데님", "트위드", "코듀로이", "골덴", "울"].find((w) => t.includes(w));
+    return d ? `${d === "골덴" ? "코듀로이" : d}자켓` : /점퍼|(?<![a-z])jp(?![a-z])/i.test(t) ? "점퍼" : "자켓";
+  }
+  return "";
+}
+const SHEET_PICK = {
+  이너: (t) => TOP_SHEET.find(([re]) => re.test(t))?.[1] || "",
+  상의: (t) => TOP_SHEET.find(([re]) => re.test(t))?.[1] || "",
+  "원피스·세트": (t) => (/세트|set/i.test(t) ? "세트" : /원피스|ops|드레스/i.test(t) ? "원피스" : ""),
+  하의: bottomSheet,
+  아우터: outerSheet,
+};
+const SHEET_FALL = { 이너: "나시", 상의: "상의", "원피스·세트": "원피스", 하의: "팬츠", 아우터: "아우터" };
+// 상의는 우리 상품명 말 그대로(신마 이름엔 '후드·이너' 같은 꾸밈말이 많다) — 하의·아우터만 두루뭉술하면 신마 이름을 더 본다
+const VAGUE = new Set(["스커트", "팬츠", "청바지", "코트", "자켓", "점퍼", "패딩", "상의", "아우터"]);
+/** 모델 시트에 쓰는 옷 말 하나 — 잡화면 "" */
+// 종류 칸이 '상의'로 들어와도 잡화인 것(니트 장갑 …) — 이름 끝 말로만('벨트 세트 … 스커트' · '…벨트하프코트' 는 옷)
+const GOODS = /(장갑|머플러|목도리|비니|모자|볼캡|양말|삭스|스타킹|타이즈|레그워머|벨트|가방|(?<![가-힣])백)(\s*[A-Za-z0-9#-]*)\s*$/;
+export function sheetWord(x) {
+  if (GOODS.test(x?.name || "")) return "";
+  const p = wearPart(x);
+  const pick = SHEET_PICK[p];
+  if (!pick) return "";
+  const a = pick(x?.name || "");
+  if (a && !VAGUE.has(a)) return a;
+  const b = pick(x?.fullName || "");
+  if (b && (!a || !VAGUE.has(b))) return b;
+  return a || b || SHEET_FALL[p];
+}
+/** 코디 이름 줄(자동) — 상의(안쪽부터) + 하의 + 아우터. 예: 티셔츠 + 카프리팬츠 + 퍼자켓 */
+export function codiLabel(c, items) {
+  const its = (c?.itemIds || []).map((id) => (items || []).find((x) => x.id === id)).filter(Boolean);
+  const lows = its.filter((x) => wearPart(x) === "하의");
+  const outs = its.filter((x) => wearPart(x) === "아우터");
+  const ws = [...topsInOrder(c, items), ...lows, ...outs].map(sheetWord).filter(Boolean);
+  return ws.filter((w, i) => w !== ws[i - 1]).join(" + ");
+}
+/** 시트에 보이는 코디 이름 — 촬영 창에서 고친 말(촬영 줄 sheetNames) 먼저 */
+export const sheetName = (day, c, items) => String(day?.sheetNames?.[c?.id] || "").trim() || codiLabel(c, items);
+
 /** 포즈 카드 → 묶음(TOP·SELFIE·BTM·FULL·OUTER). 모르면 "" */
 export function groupOf(k) {
   if (!k) return "";

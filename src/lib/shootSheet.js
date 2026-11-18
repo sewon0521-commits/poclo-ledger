@@ -29,7 +29,7 @@ import { CLOTHS, clothGroups, clothKey, withCloth } from "./modelRefs";
 import { videoKey, thumbKey } from "./refClips";
 import { dayKey } from "./journal";
 import { posePool } from "./poses";
-import { runOrder, stepLabel } from "./shootOrder";
+import { runOrder, stepLabel, sheetName, videoOf } from "./shootOrder";
 
 const LOCAL = "poclo_shoot_sheets";
 export const SHEET_DAYS = 7; // 사진 서명 주소가 살아 있는 날
@@ -205,16 +205,22 @@ export async function buildSheet(day, codis, d, online, refSets = [], cloths = C
     codiShots: keepAt.map((i) =>
       shotList[i].map((x) => ({ url: urlOf(x.key), code: x.own ? "" : x.code, title: x.own ? "" : x.title, text: x.own ? "" : x.text, cap: x.cap || "", group: x.group || "" })).filter((x) => x.url),
     ),
-    // 11/17 밤 코디마다 찍는 순서 [{n, label('티셔츠 + 팬츠' — 옷 종류 말만, 상품명 X), video, items:[peek 번호], shots:[codiShots 번호]}] — 겹 사진은 codiShots 를 번호로 가리킨다
+    // 11/17 밤 코디마다 찍는 순서 [{n, label, video, items:[peek 번호], shots:[codiShots 번호]}] — 겹 사진은 codiShots 를 번호로 가리킨다
+    // 11/18 밤 세원: "모델에게 보낼 촬영시트 헷갈려. 걍 싹다 코디1처럼 진행해줘. 만약 코디2면 티셔츠 + 카프리팬츠 + 퍼자켓 이렇게 그냥 진행"
+    //   → 시트는 코디마다 한 덩어리(겹 ①②③ 머리 없음): 이름 줄(sheetName — 촬영 창에서 고친 말 먼저) + 포즈 사진은 겹 순서 그대로 이어서(같은 사진 한 번).
+    //   우리 폰 촬영 시작(PoseRun)은 겹 순서 그대로. 예전에 보낸 시트는 받은 모양 그대로 그린다(SheetPage StepList)
     codiSteps: keepAt.map((i) => {
       const okShots = shotList[i].filter((x) => urlOf(x.key));
-      return runs[i].steps.map((st) => ({
-        n: st.n,
-        label: stepLabel(st),
-        video: st.video,
-        items: st.add.map((x) => pk[i].findIndex((o) => o.id === x.id)).filter((k) => k >= 0),
-        shots: st.shots.filter((x) => x.ok).map((x) => okShots.findIndex((y) => y.key === x.key)).filter((k) => k >= 0),
-      }));
+      const adds = runs[i].steps.flatMap((st) => st.add);
+      return [
+        {
+          n: 1,
+          label: sheetName(day, codis[i], d.items) || runs[i].steps.map((st) => stepLabel(st)).join(" "),
+          video: videoOf({ last: true }, [0]),
+          items: adds.map((x) => pk[i].findIndex((o) => o.id === x.id)).filter((k, j, a) => k >= 0 && a.indexOf(k) === j),
+          shots: okShots.map((_, k) => k),
+        },
+      ];
     }),
     // 10/29 촬영 기본 가이드(모든 촬영 공통 — 동선·찍을 영상·포즈…) — 글은 그대로, 시트(SheetPage → BaseGuide)가 번호 단계·사진/영상 표시로 그린다
     base: sectionsData(baseItems, urlOf),
