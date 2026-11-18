@@ -492,7 +492,8 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
                   )}
                   <button
                     type="button"
-                    onClick={() => setPick(r.c.id)}
+                    // 11/18 PC(넓은 화면)는 코디 포즈 큰 창 하나로 — 고르는 곳을 하나로 맞춤. 폰은 예전 고르기 창
+                    onClick={() => (window.matchMedia?.("(min-width: 1024px)").matches ? onCodi(r.c) : setPick(r.c.id))}
                     className="flex min-h-24 w-[4.5rem] shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-stone-300 text-xs font-semibold text-stone-500 hover:border-rose-400 hover:text-rose-700 sm:w-20"
                   >
                     <Plus size={18} /> 포즈

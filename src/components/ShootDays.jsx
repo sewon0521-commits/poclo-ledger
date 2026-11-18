@@ -1209,7 +1209,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
       {run && codis.length > 0 && poseList.length > 0 && (
         <ShootRun s={s} set={set} codis={codis} d={d} cards={poseList} online={online} onClose={() => setRun(false)} onCodi={(c) => setCodiPose(c.id)} />
       )}
-      {liveCodiPose && <CodiPoseSheet s={s} set={set} c={liveCodiPose} n={codis.indexOf(liveCodiPose) + 1} d={d} cards={poseList} online={online} onClose={() => setCodiPose(null)} />}
+      {liveCodiPose && <CodiPoseSheet s={s} set={set} c={liveCodiPose} n={codis.indexOf(liveCodiPose) + 1} d={d} cards={poseList} online={online} onClose={() => setCodiPose(null)} codis={codis} onGo={(x) => setCodiPose(x.id)} lib={poses.lib} />}
     </div>
   );
 }

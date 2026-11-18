@@ -7,6 +7,7 @@ import { seedFolders } from "../lib/reelFolders";
 import { useSegmentLoop } from "../lib/useSegmentLoop";
 import { ClipBig } from "./LoopClip";
 import { ReelPick } from "./RefClips";
+import CodiPoseBig from "./CodiPoseBig";
 import { codiItems, codiName } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -45,8 +46,23 @@ function CodiHead({ c, d, n, small }) {
   );
 }
 
-/** 이 코디 포즈 고치기 */
-export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose }) {
+/** 화면이 넓은가 (PC) — 포즈 큰 창은 1024px 넘을 때만 */
+const WIDE = "(min-width: 1024px)";
+function useWide() {
+  const [w, setW] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(WIDE).matches);
+  useEffect(() => {
+    const m = window.matchMedia?.(WIDE);
+    if (!m) return;
+    const f = () => setW(m.matches);
+    m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, []);
+  return w;
+}
+
+/** 이 코디 포즈 고치기 — PC 는 큰 창(CodiPoseBig, 11/18), 폰은 이 창 */
+export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose, codis, onGo, lib }) {
+  const wide = useWide();
   const sRef = useRef(s);
   useEffect(() => {
     sRef.current = s;
@@ -106,6 +122,64 @@ export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose }) {
     putOwn([...keep, ...more]);
     setPicking(false);
   };
+  const ownBlock = (
+    <>
+            <div className="flex flex-wrap items-start gap-2">
+              {own.map((p) => (
+                <div key={p.id} className="group relative w-20">
+                  <Photo url={urlOf(p.key)} className="aspect-[3/4] w-full rounded-lg" />
+                  <button
+                    type="button"
+                    onClick={() => putOwn((sRef.current.poseOwn?.[c.id] || []).filter((x) => x.id !== p.id))}
+                    aria-label="사진 빼기"
+                    className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 group-hover:opacity-100 max-sm:opacity-80"
+                  >
+                    <X size={12} />
+                  </button>
+                  <input
+                    defaultValue={p.cap || ""}
+                    onBlur={(e) => e.target.value !== (p.cap || "") && putOwn((sRef.current.poseOwn?.[c.id] || []).map((x) => (x.id === p.id ? { ...x, cap: e.target.value.trim() } : x)))}
+                    placeholder="설명 (선택)"
+                    aria-label="사진 설명"
+                    className="mt-1 w-full rounded-md border border-stone-200 px-1.5 py-1 text-[11px] outline-none focus:border-rose-400"
+                  />
+                </div>
+              ))}
+              {pending.map((u) => (
+                <span key={u} className="relative block aspect-[3/4] w-20 overflow-hidden rounded-lg bg-stone-100">
+                  <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
+                  <Loader2 size={16} className="absolute inset-0 m-auto animate-spin text-white drop-shadow" />
+                </span>
+              ))}
+              <button type="button" onClick={() => fileRef.current?.click()} className="flex aspect-[3/4] w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-stone-300 px-1 text-center text-[11px] text-stone-500 hover:border-rose-300 hover:text-rose-700">
+                <ImagePlus size={16} /> 사진 고르기
+              </button>
+              {d.refs && (
+                <button type="button" onClick={() => setPicking(true)} className="flex aspect-[3/4] w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-rose-300 bg-rose-50/40 px-1 text-center text-[11px] font-medium text-rose-800 hover:border-rose-500">
+                  <Images size={16} /> 촬영 레퍼런스에서
+                </button>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (add(e.target.files), (e.target.value = ""))} />
+            </div>
+      {err && <p className="mt-1.5 text-xs text-rose-700">{err}</p>}
+    </>
+  );
+  if (wide)
+    return createPortal(
+      <div
+        className="backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-stone-900/50"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          filesOf(clipImages(e.dataTransfer)).then(add);
+        }}
+      >
+        <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
+        <CodiPoseBig s={s} set={set} sRef={sRef} c={c} n={n} codis={codis} onGo={onGo} d={d} cards={cards} lib={lib} urlOf={urlOf} ownBlock={ownBlock} ownCount={own.length} onClose={onClose} />
+        {picking && <RefPick d={d} picked={own.map((p) => p.refId).filter(Boolean)} onDone={pickDone} onClose={() => setPicking(false)} />}
+      </div>,
+      document.body,
+    );
   const used = cards.filter((k) => ids.includes(k.id));
   const rest = cards.filter((k) => !ids.includes(k.id));
   const card = (k, on) => (
@@ -172,44 +246,7 @@ export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose }) {
             <h3 className="mb-1.5 text-sm font-semibold text-stone-800">
               이 코디만 <span className="font-normal text-stone-400">공용 포즈 카드엔 안 들어가요 · 붙여넣기 Ctrl+V · 끌어다 놓기</span>
             </h3>
-            <div className="flex flex-wrap items-start gap-2">
-              {own.map((p) => (
-                <div key={p.id} className="group relative w-20">
-                  <Photo url={urlOf(p.key)} className="aspect-[3/4] w-full rounded-lg" />
-                  <button
-                    type="button"
-                    onClick={() => putOwn((sRef.current.poseOwn?.[c.id] || []).filter((x) => x.id !== p.id))}
-                    aria-label="사진 빼기"
-                    className="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 group-hover:opacity-100 max-sm:opacity-80"
-                  >
-                    <X size={12} />
-                  </button>
-                  <input
-                    defaultValue={p.cap || ""}
-                    onBlur={(e) => e.target.value !== (p.cap || "") && putOwn((sRef.current.poseOwn?.[c.id] || []).map((x) => (x.id === p.id ? { ...x, cap: e.target.value.trim() } : x)))}
-                    placeholder="설명 (선택)"
-                    aria-label="사진 설명"
-                    className="mt-1 w-full rounded-md border border-stone-200 px-1.5 py-1 text-[11px] outline-none focus:border-rose-400"
-                  />
-                </div>
-              ))}
-              {pending.map((u) => (
-                <span key={u} className="relative block aspect-[3/4] w-20 overflow-hidden rounded-lg bg-stone-100">
-                  <img src={u} alt="" className="h-full w-full object-cover opacity-60" />
-                  <Loader2 size={16} className="absolute inset-0 m-auto animate-spin text-white drop-shadow" />
-                </span>
-              ))}
-              <button type="button" onClick={() => fileRef.current?.click()} className="flex aspect-[3/4] w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-stone-300 px-1 text-center text-[11px] text-stone-500 hover:border-rose-300 hover:text-rose-700">
-                <ImagePlus size={16} /> 사진 고르기
-              </button>
-              {d.refs && (
-                <button type="button" onClick={() => setPicking(true)} className="flex aspect-[3/4] w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-rose-300 bg-rose-50/40 px-1 text-center text-[11px] font-medium text-rose-800 hover:border-rose-500">
-                  <Images size={16} /> 촬영 레퍼런스에서
-                </button>
-              )}
-              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => (add(e.target.files), (e.target.value = ""))} />
-            </div>
-            {err && <p className="mt-1.5 text-xs text-rose-700">{err}</p>}
+            {ownBlock}
           </section>
           <section>
             <h3 className="mb-1.5 text-sm font-semibold text-stone-800">
