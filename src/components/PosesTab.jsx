@@ -31,11 +31,8 @@ function nextCode(items, folderId, folders) {
   if (pre !== null) return `${pre}${items.filter((x) => x.folderId === folderId && !x.pose?.spare).length + 1}`;
   return "P" + (Math.max(0, ...items.map((x) => Number(codeOf(x).match(/^P(\d+)$/)?.[1]) || 0)) + 1);
 }
-/** 찍는 방식 칩을 보일지 — OUTER(아우터는 셀카도 찍어주는 컷도 있어서)와 묶음 없는 폴더(예전 포즈 · 미분류)만 */
-const shotChips = (folderId, folders) => {
-  const g = folderGroup(folderId, folders);
-  return !g || g === "OUTER";
-};
+/** 찍는 방식 칩을 보일지 — 11/18 세원 "아우터처럼 전 카테고리에 찍는 방식 넣어줬으면" → 모든 묶음(11/17 밤엔 OUTER · 묶음 없는 폴더만이었다) */
+const shotChips = () => true;
 /** 폴더로 처음 추천 자리 — 포즈판 추천(lib/poses recommend)에 쓰인다. OUTER › 코트 같은 세부면 그 종류도 */
 function fitsFor(folderId, folders) {
   const names = pathOf(folderId, folders).map((f) => f.name);
@@ -178,7 +175,7 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
                   change({
                     ...latest.current,
                     folderId: e.target.value,
-                    ...(shotChips(e.target.value, folders) ? {} : { shot: shotFor(e.target.value, folders) }),
+                    ...(latest.current.shot ? {} : { shot: shotFor(e.target.value, folders) }), // 고른 찍는 방식은 그대로 — 빈 카드에만 묶음 기본값
                     ...(latest.current.pose?.fits?.length ? {} : { pose: { ...(latest.current.pose || {}), fits: fitsFor(e.target.value, folders) } }),
                   })
                 }
@@ -310,7 +307,7 @@ export default function PosesTab({ poses, d, online }) {
 
   const [err, setErr] = useState("");
   const curSel = sel === "all" || sel === "none" || folders.some((f) => f.id === sel) ? sel : "all";
-  const shotOn = folderGroup(curSel, folders) === "OUTER";
+  const shotOn = true; // 11/18 모든 묶음에서 찍는 방식으로 거르기
   const shotF = shotOn ? shot : "*";
   const inSel = curSel === "all" ? null : curSel === "none" ? new Set([""]) : new Set(withChildren(curSel, folders));
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);

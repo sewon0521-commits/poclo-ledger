@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { codiItems, codiName } from "../lib/shoot";
-import { picksOf, shotsOf, flipPhoto, flipCard, stripCode, recommend, codiFolder, placeOfDay, poseFoldersOf, IN_ID, OUT_ID, OLD_ID } from "../lib/poses";
+import { picksOf, shotsOf, flipPhoto, flipCard, stripCode, recommend, codiFolder, placeOfDay, poseFoldersOf, shotsOfLib, IN_ID, OUT_ID, OLD_ID } from "../lib/poses";
 import { runOrder, stepLabel } from "../lib/shootOrder";
 import { withChildren } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
@@ -56,10 +56,14 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
     return groups.find((g) => g.id === f)?.id || groups.find((g) => g.cards.length)?.id || OWN;
   });
   const [q, setQ] = useState("");
+  const [shotF, setShotF] = useState("*"); // 11/18 찍는 방식 거르기(모든 묶음)
+  const shotList = shotsOfLib(lib);
   const [big, setBig] = useState(null); // {urls, at}
   const g = groups.find((x) => x.id === sel);
   const qn = q.replace(/\s+/g, "").toLowerCase();
-  const shown = (g?.cards || []).filter((k) => !qn || `${k.code}${k.title}${k.sec?.text || ""}`.replace(/\s+/g, "").toLowerCase().includes(qn));
+  const shown = (g?.cards || []).filter(
+    (k) => (!qn || `${k.code}${k.title}${k.sec?.text || ""}`.replace(/\s+/g, "").toLowerCase().includes(qn)) && (shotF === "*" || (shotF === "" ? !k.shot : k.shot === shotF)),
+  );
 
   // 앞뒤 코디 · ← → (글 칸 안에선 안 함)
   const at = codis.findIndex((x) => x.id === c.id);
@@ -172,7 +176,20 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
                 <h3 className="text-sm font-semibold text-stone-800">
                   {g?.name} <span className="font-normal text-stone-400">카드 {g?.cards.length || 0}개 · 사진을 누르면 쓰기/안 쓰기 · 두 번 누르거나 돋보기 = 크게</span>
                 </h3>
-                <label className="ml-auto flex items-center gap-1.5 rounded-lg border border-stone-200 px-2 py-1 text-xs">
+                <span className="ml-auto flex items-center gap-1">
+                  {["*", ...shotList, ""].map((x) => (
+                    <button
+                      key={x || "none"}
+                      type="button"
+                      aria-pressed={shotF === x}
+                      onClick={() => setShotF(x)}
+                      className={"rounded-full border px-2 py-0.5 text-[11px] font-medium " + (shotF === x ? "border-rose-700 bg-rose-700 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-rose-300")}
+                    >
+                      {x === "*" ? "전부" : x || "안 정함"} <span className="opacity-60">{(g?.cards || []).filter((k) => x === "*" || (x === "" ? !k.shot : k.shot === x)).length}</span>
+                    </button>
+                  ))}
+                </span>
+                <label className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-2 py-1 text-xs">
                   <Search size={13} className="text-stone-400" />
                   <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름 찾기" className="w-28 outline-none" />
                 </label>
@@ -203,7 +220,7 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
                         </div>
                         <div className="mb-1.5 truncate text-[11px] text-stone-500" title={[stripCode(k.title), k.sec?.text].filter(Boolean).join(" — ")}>
                           {stripCode(k.title)}
-                          {k.shot && <span className="ml-1 text-stone-400">· {k.shot}</span>}
+                          {k.shot && <span className="ml-1 rounded-full bg-violet-50 px-1.5 text-[10px] font-semibold text-violet-700">{k.shot}</span>}
                         </div>
                         <div className={wide ? "flex snap-x gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]" : ""}>
                           {photos.map((p, i) => {

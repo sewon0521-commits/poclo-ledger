@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, Undo2, X } from "lucide-react";
 import { md, codiItems, codiName } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
-import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recommend, shotsOf, setLibOk, stripCode, folderGroup, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
+import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recommend, shotsOf, setLibOk, stripCode, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
 import { wearSteps, stepLabel } from "../lib/shootOrder";
 import { withChildren, childrenOf, pathName } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
@@ -163,7 +163,7 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
   const [shot, setShot] = useState("*");
   const [chk, setChk] = useState([]);
   const inSel = (k, id) => id === "all" || withChildren(id, folders).includes(k.folderId) || (id === IN_ID && !k.folderId);
-  const shotOn = folderGroup(sel, folders) === "OUTER" ? shot : "*";
+  const shotOn = shot; // 11/18 모든 묶음에서 찍는 방식 칩
   const shown = cards.filter((k) => inSel(k, sel) && (shotOn === "*" || (shotOn === "" ? !k.shot : k.shot === shotOn)));
   const { urlOf } = usePoseUrls(
     shown.map((k) => k.sec.photos?.[0]?.key),
@@ -218,8 +218,7 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
               </div>
             ) : null,
           )}
-          {/* 11/17 밤 찍는 방식은 묶음 이름이 곧 방식(TOP·BTM 찍어주는 컷, SELFIE·FULL 거울 셀카) — OUTER 에서만 칩 */}
-          {folderGroup(sel, folders) === "OUTER" && (
+          {/* 11/18 세원 "아우터처럼 전 카테고리에 찍는 방식" — 모든 묶음에서 칩(11/17 밤엔 OUTER 만) */}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="w-14 shrink-0 text-[11px] text-stone-400">찍는 방식</span>
               {["*", ...shots, ""].map((x) => (
@@ -228,7 +227,7 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
                 </button>
               ))}
             </div>
-          )}
+
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
           {!shown.length ? (
@@ -257,7 +256,7 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
                       </span>
                       <span className="line-clamp-2 text-[11px] leading-tight text-stone-500">{stripCode(k.title)}</span>
                       <span className="mt-0.5 flex flex-wrap gap-1 text-[10px]">
-                        {k.shot && (!folderGroup(k.folderId, folders) || folderGroup(k.folderId, folders) === "OUTER") && <span className="rounded bg-stone-100 px-1 text-stone-600">{k.shot}</span>}
+                        {k.shot && <span className="rounded bg-stone-100 px-1 text-stone-600">{k.shot}</span>}
                         <span className={"rounded px-1 font-semibold " + (k.ok === true ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{k.ok === true ? "OK" : "확인 전"}</span>
                       </span>
                     </span>
