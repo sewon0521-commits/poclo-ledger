@@ -364,6 +364,20 @@ function topSlots(pool, c, items) {
   if (layerSubs.some((s) => !s.length)) slots.push({ label: "상의 겹", fit: (k) => isTopCard(k) && (!k.sub || !tops.some((x) => subFits(k.sub, x))) });
   return slots;
 }
+/**
+ * 11/18 세원: "헤이썸 울롱코트면 걍 롱코트 포즈/코디만 들어가야될 것 같아 / 아디롱코트도 마찬가지." →
+ *   코디 아우터 종류(코트·패딩·무스탕·퍼·자켓)의 세부 폴더(OUTER › 코트 …)에 카드가 있으면 추천 아우터는 그 폴더 카드만(OUTER 바로 아래 공통 · 다른 종류 X).
+ *   맞는 폴더가 비었거나 종류를 모르는 아우터면 예전처럼(공통 + 그 종류). 세원이 고른 카드는 안 건드린다(추천에만).
+ *   아우터가 둘인 코디는 아직 없다(아우터 포즈는 마지막 아우터 겹 하나 — lib/shootOrder) → 종류가 전부 폴더에 있을 때만 거른다.
+ */
+function outerOnly(pool, c, items) {
+  const its = (c?.itemIds || []).map((id) => (items || []).find((x) => x.id === id)).filter((x) => x && wearPart(x) === "아우터");
+  if (!its.length || its.some((x) => !outerTypes(x).length)) return pool;
+  const types = [...new Set(its.flatMap(outerTypes).map((t) => t.split(":")[1]))];
+  const isOuter = (k) => groupOfCode(k) === "OUTER" || (!groupOfCode(k) && (k.fits || []).some((t) => t.startsWith("아우터")));
+  if (!types.every((t) => pool.some((k) => isOuter(k) && k.sub === t))) return pool;
+  return pool.filter((k) => !isOuter(k) || types.includes(k.sub));
+}
 /** 진짜 추천 — 옷 종류로 거른 카드(recommendAll) 안에서 코디 상품을 보고 n장 → 카드 id */
 export function recommend(cards, c, items, n) {
   return recoPick(cards, c, items, n).ids;
@@ -371,7 +385,11 @@ export function recommend(cards, c, items, n) {
 /** recommend 와 같은데 고른 이유(why · short)까지 */
 export function recoPick(cards, c, items, n) {
   const pool = new Set(recommendAll(cards, c, items));
-  const mine = cards.filter((k) => pool.has(k.id) && topSubOk(k, c, items));
+  const mine = outerOnly(
+    cards.filter((k) => pool.has(k.id) && topSubOk(k, c, items)),
+    c,
+    items,
+  );
   return smartPick(mine, c, items, n, undefined, topSlots(mine, c, items));
 }
 /** 이 촬영 쪽(실내/야외) 카드에서 진짜 추천 — 포즈판 · 큰 창이 이유를 보여 줄 때 */
