@@ -23,26 +23,28 @@
 //   poclo-cafe24/orders.py 의 orders_일별.csv → 순매출·원가·수량·건수
 //   메타 광고 관리자 '일' 단위 CSV            → 광고비
 
+import { hasActual, mixFee, npEstimate, npTotal, NP_ITEMS, NP_RATES, NP_START, VAT } from "./costs";
+
 export const TARGET_AD_RATE = 18; // 목표 광고비율 (%)
 
+// 11/18 부터 손익은 costs.js 의 기준(구독 목록·결제수단 요율·넥스트팩 단가)을 쓴다. 아래는 그 자료가 없을 때만 쓰는 예전 가정값.
 export const DEFAULT_COSTS = {
-  shipCost: 2300, // 우리가 내는 택배비 / 건 (부가세 포함)
-  material: 197, // 부자재 / 개
-  pg: 2.0, // 일반 결제 수수료 (%)
-  naver: 3.74, // 네이버페이 수수료 (%, 부가세 포함)
-  fixed: 1200000, // 월 고정비 — 관리비 20만 + 앱 100만. 삼촌비는 따로 센다
-  // 월 삼촌비 — 삼촌에게 월급을 줄 때만 쓴다. 지금은 월급이 아니라 그날그날 내므로 0이고,
-  // 실제 비용은 '삼촌비 넣기'로 날짜별로 적는다(conf.samchonDaily). 둘 다 있으면 더한다.
-  samchon: 0,
+  shipCost: 2300, // 사무실 택배(CJ) 시절 택배비 / 건 (부가세 포함) — 2026-09 까지 청구액이 없는 달에만
+  material: 197, // 사무실 포장 부자재 / 개 — 넥스트팩 정산서가 없는 사무실 택배 달에만
+  pg: 2.0, // 결제수단 자료가 하나도 없을 때만 (네이버 외)
+  naver: 3.74, // 〃 (네이버페이)
+  fixed: 1200000, // 구독 목록을 못 읽었을 때만
+  samchon: 0, // 달마다 넣는 삼촌비의 기본값
 };
 
-// 달마다 손으로 눌러 담는 값. conf.monthly['2026-08'] = { ... } 모양.
-//   shipTotal 그 달 택배비 총액(부가세 포함). 넣으면 건당 계산 대신 이 값을 쓴다.
-//   samchon   그 달 삼촌비.  fixed 그 달 고정비.
+// 달마다 손으로 넣는 값. conf.monthly['2026-10'] = { samchon, fixed, shipTotal, np:{ship, material, work, storage, wms, ret, buy, etc} }
+//   samchon   그 달 삼촌비 (세원이 달마다 계산해서 넣음)
+//   fixed     그 달 고정비를 손으로 덮을 때만 (비우면 구독 목록 합계)
+//   shipTotal 사무실 택배(CJ 등) 청구액, np 넥스트팩 정산서 항목 — 모두 부가세 포함. 하나라도 있으면 그 달 물류비는 '정산서'
 export const MONTH_FIELDS = [
-  ["shipTotal", "택배비 총액", "부가세 포함. 비워두면 건당 × 건수"],
-  ["samchon", "삼촌비", ""],
-  ["fixed", "고정비", "관리비 + 앱"],
+  ["samchon", "삼촌비", "그 달 삼촌에게 준 돈"],
+  ["fixed", "고정비 덮기", "비우면 구독 목록 합계"],
+  ["shipTotal", "사무실 택배 청구액", "CJ 등 · 부가세 포함"],
 ];
 
 // toLocaleString("ko-KR") 은 부를 때마다 숫자 형식기를 새로 만들어서 느리다.
@@ -225,15 +227,59 @@ const daysInMonth = (ym) => {
   return new Date(y, m, 0).getDate();
 };
 
+const n0 = (v) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Number(v) : 0);
+const has = (v) => v !== "" && v != null && Number.isFinite(Number(v));
+/** 한 주문 3장째부터 — 하루 단위로 어림(그날 장수 − 건수 × 2) */
+const extraOf = (r) => Math.max(0, (r.qty || 0) - 2 * (r.orders || 0));
+
 /**
- * 하루치 손익. `costs` 는 DEFAULT_COSTS 모양, `fixed` 는 { '2026-08': 1700000 }.
+ * 하루 물류비 줄 (부가세 포함) — 11/18 넥스트팩 기준. 줄 이름은 costs.js NP_ITEMS + cj(사무실 택배) · officeMat(사무실 부자재).
+ *   실제 금액이 있는 달(정산서·청구액): 그 금액을 그 달 건수 비율로 나눈다. 넥스트팩이 없는 달은 사무실 부자재(개당)를 더한다.
+ *   2026-09 까지(사무실 택배 시절) 실제가 없으면: 건당 택배비 + 개당 부자재 (예전 가정값)
+ *   2026-10 부터 실제가 없으면: 넥스트팩 단가 — 건당·장당은 그날 숫자로, 입고·사입·반품은 건수 비율로, WMS·보관은 날수로
+ */
+function logisticsOf(row, c, M, ym, dim) {
+  const orders = row.orders || 0;
+  const qty = row.qty || 0;
+  const A = M.agg;
+  const share = A?.orders > 0 ? orders / A.orders : 0;
+  const L = {};
+  if (hasActual(M)) {
+    const np = M.np || {};
+    if (n0(M.shipTotal)) L.cj = n0(M.shipTotal) * share;
+    for (const [k] of NP_ITEMS) if (n0(np[k])) L[k] = n0(np[k]) * share;
+    if (!npTotal(np)) L.officeMat = qty * c.material;
+    return { L, mode: "actual" };
+  }
+  if (ym < NP_START) {
+    L.cj = orders * c.shipCost;
+    L.officeMat = qty * c.material;
+    return { L, mode: "office" };
+  }
+  const R = NP_RATES;
+  const E = M.est;
+  L.ship = orders * R.ship * VAT;
+  L.material = (orders * R.bag + qty * R.poly) * VAT;
+  L.work = (orders * R.out + extraOf(row) * R.combine) * VAT + (E ? E.inbound * (R.inbound + R.barcode) * VAT * share : 0);
+  L.storage = E ? E.lines.storage / dim : 0;
+  L.wms = (R.wms * VAT) / dim;
+  if (E) {
+    L.ret = E.lines.ret * share;
+    L.buy = E.lines.buy * share;
+  }
+  return { L, mode: "est" };
+}
+
+/**
+ * 하루치 손익. `costs` 는 DEFAULT_COSTS 모양, `monthly` 는 conf.monthly(+ buildDays 가 실은 그 달 합계), `ctx` 는 costs.makeCtx.
  *
  * 광고 성적(광고비율·ROAS)은 총매출로, 이익은 순매출로 낸다.
  */
-export function dayPnl(row, costs, fixed, monthly) {
+export function dayPnl(row, costs, fixed, monthly, ctx) {
   const c = { ...DEFAULT_COSTS, ...costs };
   const ym = row.date.slice(0, 7);
   const M = monthly?.[ym] || {};
+  const X = ctx || {};
   const dim = daysInMonth(ym);
 
   // ── 매출: 카페24 애널리틱스가 기준이다
@@ -249,29 +295,45 @@ export function dayPnl(row, costs, fixed, monthly) {
   const cogs = row.cogs || 0;
 
   // ── 비용
-  // 택배비: 그 달 총액을 넣었으면 건수 비율로 나눠 쓰고, 아니면 건당 × 건수
-  const orders = row.orders || 0;
-  const shipping =
-    M.shipTotal > 0 && M.monthOrders > 0
-      ? (M.shipTotal * orders) / M.monthOrders
-      : orders * c.shipCost;
-  const material = (row.qty || 0) * c.material;
+  // 물류비 (택배 + 부자재·작업·보관·WMS·반품·사입) — logisticsOf
+  const { L: logi, mode: logiMode } = logisticsOf(row, c, M, ym, dim);
+  const shipping = (logi.cj || 0) + (logi.ship || 0); // 택배
+  const logistics = Object.values(logi).reduce((a, b) => a + b, 0);
+  const material = logistics - shipping; // 부자재·작업·보관 등 택배 아닌 것
 
-  // 결제 수수료. 네이버 비중은 주문에서 알아낸 것을 상품매출에 그대로 적용한다
-  const naverShare = row.net > 0 ? Math.min((row.naverNet || 0) / row.net, 1) : 0;
-  const fee = goods * ((1 - naverShare) * (c.pg / 100) + naverShare * (c.naver / 100));
+  // 결제 수수료 — 그날 결제수단별 결제액 × 요율. 자료가 없는 날은 평균 요율 × 순매출(배송비 포함).
+  // 둘 다 없을 때만(이 기기 저장 모드 등) 예전 계산(네이버 비중 × 상품매출).
+  const mix = X.mix?.[row.date];
+  let fee;
+  let feeFrom;
+  if (mix) {
+    fee = mixFee(mix, X.rates || {}).fee;
+    feeFrom = "mix";
+  } else if (X.blend != null) {
+    fee = (net * X.blend) / 100;
+    feeFrom = "blend";
+  } else {
+    const naverShare = row.net > 0 ? Math.min((row.naverNet || 0) / row.net, 1) : 0;
+    fee = goods * ((1 - naverShare) * (c.pg / 100) + naverShare * (c.naver / 100));
+    feeFrom = "old";
+  }
 
-  const variable = shipping + material + fee;
+  const variable = logistics + fee;
 
-  // 달 단위로 내는 돈은 그 달 날수로 쪼갠다. 매출이 있는 날에만 얹는다.
-  const spread = revenue > 0 ? 1 / dim : 0;
-  const fixedDay = (M.fixed ?? c.fixed) * spread;
-  // 삼촌비 = 월 삼촌비를 날수로 쪼갠 것 + 그날 손으로 적은 것
-  const samchonMonthly = (M.samchon ?? c.samchon) * spread;
-  const samchonDaily = row.samchonCost || 0;
+  // 달 단위로 내는 돈은 그 달 날수로 쪼개 날마다 얹는다(주문 0건인 날도 — 11/18, 그래야 한 달 합이 그 달 금액이 된다)
+  // 고정비 = 그 달 손으로 덮은 값 → 구독·고정 지출 목록의 그 달 합계 → 예전 가정값
+  const subsMonth = X.subs ? X.subs(ym).total : null;
+  const fixedMonth = has(M.fixed) ? Number(M.fixed) : subsMonth ?? c.fixed;
+  const fixedDay = fixedMonth / dim;
+  // 삼촌비 = 그 달 금액(세원이 달마다 넣음)을 날수로. 그 달 금액이 없을 때만 예전 날짜별 값
+  const samMonth = has(M.samchon) ? Number(M.samchon) : c.samchon;
+  const samchonMonthly = samMonth > 0 ? samMonth / dim : 0;
+  const samchonDaily = samMonth > 0 ? 0 : (X.samchonDaily?.[row.date] ?? row.samchonCost ?? 0);
   const samchonDay = samchonMonthly + samchonDaily;
 
-  const ads = row.ads || 0;
+  // 광고비 = 장부 값. 장부가 0 인 날만 메타 하루 기록(광고 증액 판단·매일 보고와 같은 규칙)
+  const metaAds = !(row.ads > 0) ? n0(X.meta?.[row.date]?.[0]) : 0;
+  const ads = row.ads > 0 ? row.ads : metaAds;
   const profit = net - cogs - variable - ads - samchonDay - fixedDay;
 
   return {
@@ -284,9 +346,15 @@ export function dayPnl(row, costs, fixed, monthly) {
     hasOrders,
     cogs,
     ads,
+    adsMeta: metaAds > 0 ? metaAds : 0,
     fee,
+    feeFrom,
     shipping,
     material,
+    logistics,
+    logi,
+    logiMode,
+    logiEst: M.est || null,
     variable,
     samchonDay,
     samchonDaily,
@@ -313,6 +381,8 @@ const SUM = [
   "fee",
   "shipping",
   "material",
+  "logistics",
+  "adsMeta",
   "variable",
   "samchonDay",
   "samchonDaily",
@@ -324,7 +394,13 @@ const SUM = [
 /** 하루치들을 합쳐 기간 전체 지표를 낸다. */
 export function totalPnl(days) {
   const t = Object.fromEntries(SUM.map((k) => [k, 0]));
-  for (const d of days) for (const k of SUM) t[k] += d[k] || 0;
+  t.logi = {};
+  t.metaDays = 0;
+  for (const d of days) {
+    for (const k of SUM) t[k] += d[k] || 0;
+    for (const [k, v] of Object.entries(d.logi || {})) t.logi[k] = (t.logi[k] || 0) + v;
+    if (d.adsMeta > 0) t.metaDays++;
+  }
 
   t.days = days.length;
   t.orderDays = days.filter((d) => d.hasOrders).length; // 원가까지 아는 날이 며칠인가
@@ -355,18 +431,34 @@ export function totalPnl(days) {
  * 하루치 목록. 택배비를 달 총액으로 넣은 경우를 위해 그 달 주문 건수를 먼저 세어
  * `monthly`에 실어 준다 — 그래야 날짜별로 건수 비율만큼 나눠 담을 수 있다.
  */
-export function buildDays(daily, costs, monthly) {
-  const monthOrders = {};
+export function buildDays(daily, costs, monthly, ctx) {
+  const agg = {};
   for (const d of daily) {
     const ym = d.date.slice(0, 7);
-    monthOrders[ym] = (monthOrders[ym] || 0) + (d.orders || 0);
+    const a = (agg[ym] ||= { orders: 0, qty: 0, extra: 0, gross: 0, refund: 0 });
+    a.orders += d.orders || 0;
+    a.qty += d.qty || 0;
+    a.extra += extraOf(d);
+    a.gross += d.cafeGross || 0;
+    a.refund += d.cafeRefund || 0;
   }
   const withCount = {};
-  for (const ym of Object.keys(monthOrders)) {
-    withCount[ym] = { ...(monthly?.[ym] || {}), monthOrders: monthOrders[ym] };
+  for (const ym of Object.keys(agg)) {
+    const M = monthly?.[ym] || {};
+    // 넥스트팩 단가로 추정하는 달만 — 그 달 입고·사입(매입 장부)·반품 어림·보관
+    const est = !hasActual(M) && ym >= NP_START ? npEstimate(agg[ym], ctx?.np?.[ym], ctx?.stock || 0) : null;
+    withCount[ym] = { ...M, monthOrders: agg[ym].orders, agg: agg[ym], est };
   }
-  return daily.map((d) => dayPnl(d, costs, null, withCount));
+  // 손익에 넣는 날 = 원가를 아는 날 + 결제가 한 건도 없던 날(광고비·고정비는 나간다). 원가를 모르는데 매출만 있는 날은 뺀다(이익이 부푼다).
+  // 처음 원가를 안 날(2026-08-01) 전은 다 뺀다.
+  const out = daily.map((d) => dayPnl(d, costs, null, withCount, ctx));
+  const first = out.find((d) => d.hasOrders)?.date;
+  for (const d of out) d.inPnl = !!first && d.date >= first && (d.hasOrders || !(d.revenue > 0 || d.refund > 0));
+  return out;
 }
+
+/** 손익에 넣는 날만 (buildDays 의 inPnl) */
+export const pnlDays = (days) => days.filter((d) => d.inPnl);
 
 export const monthsOf = (rows) => [...new Set(rows.map((r) => r.date.slice(0, 7)))].sort();
 

@@ -49,7 +49,7 @@ export function candidates(supply) {
  */
 export function actualRates(days, costs) {
   const known = days.filter((d) => d.hasOrders).slice(-30);
-  const t = { qty: 0, shipIncome: 0, shipping: 0, fee: 0, goods: 0, ads: 0, revenue: 0 };
+  const t = { qty: 0, shipIncome: 0, shipping: 0, material: 0, fee: 0, goods: 0, net: 0, ads: 0, revenue: 0 };
   for (const d of known) for (const k of Object.keys(t)) t[k] += d[k] || 0;
 
   if (!known.length || !t.qty) {
@@ -71,8 +71,9 @@ export function actualRates(days, costs) {
     to: known.at(-1).date,
     shipIncome: t.shipIncome / t.qty,
     shipping: t.shipping / t.qty,
-    material: costs.material || 0,
-    feeRate: t.goods ? t.fee / t.goods : (costs.pg || 0) / 100,
+    // 11/18 부터 부자재 = 택배 말고 나머지 물류비(넥스트팩 부자재·작업·보관·WMS·반품·사입)의 한 벌 평균
+    material: t.material / t.qty,
+    feeRate: t.net ? t.fee / t.net : (costs.pg || 0) / 100, // 수수료는 배송비 받은 것까지 붙는다(11/18) — 판매가 + 배송비 수입에 댄다
     adRate: t.revenue ? (t.ads / t.revenue) * 100 : TARGET_AD_RATE,
   };
 }

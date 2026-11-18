@@ -6,9 +6,10 @@
 // 표가 없을 때 화면을 죽이지 않는다. 로컬로 계속 쓰다가, 스키마를 올리면
 // 그때 서버로 옮기면 된다.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isRemote, supabase } from "./supabase";
-import { changeKey } from "./shoot";
+import { changeKey, loadKey } from "./shoot";
+import { makeCtx } from "./costs";
 import { safeSet } from "./localCache";
 import { DEFAULT_COSTS, EMPTY_DAY } from "./sales";
 import { SEED_DAYS, SEED_MONTHLY } from "./seed";
@@ -75,7 +76,10 @@ const toDb = (r) => ({
 
 const byDate = (a, b) => a.date.localeCompare(b.date);
 
-export function useSales(session) {
+// 손익 비용 기준 재료 (11/18 — lib/costs.js). sales 키와 따로 읽고, 화면에 줄 conf 에 ctx 로 실어 준다(서버엔 안 씀).
+const COST_KEYS = { subs: "subscriptions", payMix: "pay_mix", feed: "settle_orders", rules: "settle_rules", stock: "stock", meta: "meta_daily" };
+
+export function useSales(session, tx) {
   // 저장된 게 하나도 없을 때만 씨앗을 들고 시작한다. 한 번이라도 넣었으면 안 건드린다.
   const [rows, setRows] = useState(() => {
     const saved = readLocal(ROWS_KEY, null);
@@ -115,11 +119,28 @@ export function useSales(session) {
   const [reelPlans, setReelPlans] = useState(() => readLocal(REEL_PLANS_KEY, []));
   // 계정 아카이브 (9/23) — 목록은 'accounts', 계정마다 기록은 'acct_<id>' (열 때만 읽는다)
   const [accounts, setAccounts] = useState(() => readLocal(ACCOUNTS_KEY, []));
+  const [costSrc, setCostSrc] = useState({});
   const [ready, setReady] = useState(!isRemote);
   // 표가 아직 없으면 서버에 쓰지 않는다. 로컬로만 돈다.
   const remoteOk = useRef(false);
 
   const online = isRemote && !!session;
+
+  // 비용 재료 — 못 읽어도 손익은 예전 가정값으로 돈다
+  const loadCosts = useCallback(async () => {
+    const got = await Promise.all(
+      Object.entries(COST_KEYS).map(([k, key]) =>
+        loadKey(key, true, null)
+          .then((v) => [k, v])
+          .catch(() => [k, undefined]),
+      ),
+    );
+    setCostSrc((p) => {
+      const n = { ...p };
+      for (const [k, v] of got) if (v !== undefined) n[k] = v;
+      return n;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -138,6 +159,7 @@ export function useSales(session) {
         supabase.from("settings").select("value").eq("key", "accounts").maybeSingle(),
       ]);
       if (!m.error) setMissingCost(m.data?.value || null);
+      loadCosts();
       if (!p.error && p.data?.value?.items) {
         setPricing(p.data.value.items);
         writeLocal(PRICING_KEY, p.data.value.items);
@@ -196,12 +218,13 @@ export function useSales(session) {
     } finally {
       setReady(true);
     }
-  }, []);
+  }, [loadCosts]);
 
   useEffect(() => {
     if (!online) {
       // oxlint-disable-next-line react/set-state-in-effect, react-hooks/set-state-in-effect
       setReady(true);
+      loadCosts();
       return;
     }
     // 서버에서 받아오는 동안만 — 바깥 시스템과 맞추는 일이라 여기가 맞다
@@ -228,7 +251,7 @@ export function useSales(session) {
       window.removeEventListener("focus", onVisible);
       supabase.removeChannel(ch);
     };
-  }, [online, load]);
+  }, [online, load, loadCosts]);
 
   /** 날짜가 겹치면 새 값으로 덮고, 없으면 넣는다. */
   const merge = useCallback(
@@ -302,16 +325,19 @@ export function useSales(session) {
   }, []);
 
   const saveConf = useCallback(
-    async (next) => {
+    async (next0) => {
+      // ctx 는 화면에서 계산한 것이라 저장하지 않는다(11/18)
+      const { ctx: _ctx, ...next } = next0 || {};
       setConf(next);
       writeLocal(CONF_KEY, next);
       if (online && remoteOk.current) {
-        // 비용 칸을 고칠 때 날짜별 삼촌비는 건드리지 않는다. 그건 putSamchon 만 쓴다.
-        // 이 화면이 오래 열려 있었으면 상대가 적은 삼촌비를 옛값으로 덮어버리기 때문이다.
+        // 비용 칸을 고칠 때 날짜별 삼촌비·달마다 값은 건드리지 않는다. 그건 putSamchon · putMonth 만 쓴다.
+        // 이 화면이 오래 열려 있었으면 상대가 적은 값을 옛값으로 덮어버리기 때문이다.
         let value = next;
         try {
           const server = await readServerConf();
-          if (server.samchonDaily) value = { ...next, samchonDaily: server.samchonDaily };
+          if (server.samchonDaily) value = { ...value, samchonDaily: server.samchonDaily };
+          if (server.monthly) value = { ...value, monthly: server.monthly };
         } catch {
           /* 못 읽으면 가진 것으로 저장한다 */
         }
@@ -350,6 +376,48 @@ export function useSales(session) {
         const { error } = await supabase.from("settings").upsert({ key: "sales", value: next });
         if (error) {
           setNotice("삼촌비를 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
+          console.error(error);
+        }
+      }
+    },
+    [conf, online, readServerConf],
+  );
+
+  /**
+   * 달마다 값 한 칸 (11/18) — 삼촌비 · 고정비 덮기 · 사무실 택배 청구액 · 넥스트팩 정산서 항목('np.ship' 꼴).
+   * 0 이나 빈칸이면 지운다(그 달은 기본 계산으로). 서버 최신을 읽어 그 달 그 칸만 바꿔 쓴다(삼촌비와 같은 방식).
+   */
+  const putMonth = useCallback(
+    async (ym, field, amount) => {
+      const v = Math.round(Number(amount) || 0);
+      let base = conf;
+      if (online && remoteOk.current) {
+        try {
+          base = { ...conf, ...(await readServerConf()) };
+        } catch {
+          /* 못 읽으면 가진 것으로 */
+        }
+      }
+      const monthly = { ...(base.monthly || {}) };
+      const M = { ...(monthly[ym] || {}) };
+      const [k, sub] = String(field).split(".");
+      if (sub) {
+        const inner = { ...(M[k] || {}) };
+        if (v) inner[sub] = v;
+        else delete inner[sub];
+        if (Object.keys(inner).length) M[k] = inner;
+        else delete M[k];
+      } else if (v) M[k] = v;
+      else delete M[k];
+      if (Object.keys(M).length) monthly[ym] = M;
+      else delete monthly[ym];
+      const next = { ...base, monthly };
+      setConf(next);
+      writeLocal(CONF_KEY, next);
+      if (online && remoteOk.current) {
+        const { error } = await supabase.from("settings").upsert({ key: "sales", value: next });
+        if (error) {
+          setNotice("달마다 값을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.");
           console.error(error);
         }
       }
@@ -663,9 +731,15 @@ export function useSales(session) {
     }
   }, [online]);
 
+  // 화면에 주는 conf = 저장된 값 + 비용 기준 재료(ctx). saveConf 가 ctx 는 떼고 저장한다.
+  const ctx = useMemo(() => makeCtx({ ...costSrc, tx, samchonDaily: conf.samchonDaily }), [costSrc, tx, conf.samchonDaily]);
+  const confOut = useMemo(() => ({ ...conf, ctx }), [conf, ctx]);
+
   return {
     rows,
-    conf,
+    conf: confOut,
+    costSrc,
+    putMonth,
     missingCost,
     pricing,
     savePricing,

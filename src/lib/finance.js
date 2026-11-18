@@ -14,7 +14,7 @@
 // ⚠ 해외 결제(메타 광고비)는 승인내역에 달러만 있다 → 해외매입내역의 원화(결제원금+수수료)로 채운다. 채우기 전엔 손익에 안 들어가고 화면에 알린다.
 // ⚠ 같은 결제가 승인내역·국내매입내역에 둘 다 있다 → 끝 4자리 + 승인번호 + 부호로 하나로 본다. 매입 취소는 번호가 '43212827(30002659)' 꼴이라 괄호 안(원래 번호)을 쓴다.
 import { parseTable } from "./stock";
-import { DEFAULT_COSTS, dayPnl } from "./sales";
+import { DEFAULT_COSTS, buildDays } from "./sales";
 
 export { parseTable };
 
@@ -458,10 +458,10 @@ export const askEstimate = (n) => Math.max(1, Math.ceil(((((900 + 45 * n) * 4 + 
 export function salesByMonth(salesRows, conf) {
   const costs = { ...DEFAULT_COSTS, ...conf?.costs };
   const out = {};
-  for (const row of salesRows || []) {
-    if (!row.cafeGross && !row.cafeRefund) continue;
-    const d = dayPnl(row, costs, null, conf?.monthly);
-    const m = (out[row.date.slice(0, 7)] ||= { gross: 0, refund: 0, net: 0, fee: 0, days: 0 });
+  // 11/18 손익과 같은 계산(buildDays + 결제수단별 요율) — 예전엔 dayPnl 을 하루씩 따로 불러 네이버 비중이 빗나갔다
+  for (const d of buildDays(salesRows || [], costs, conf?.monthly, conf?.ctx)) {
+    if (!d.cafeGross && !d.cafeRefund) continue;
+    const m = (out[d.date.slice(0, 7)] ||= { gross: 0, refund: 0, net: 0, fee: 0, days: 0 });
     m.gross += d.revenue;
     m.refund += d.refund;
     m.net += d.net;

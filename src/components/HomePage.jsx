@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import HomeCalendar from "./HomeCalendar";
 import { TrendingUp, BookOpen, ArrowRight, Target } from "lucide-react";
 import { won as wonKrw, monthLabel, thisMonth } from "../lib/calc";
-import { buildDays, totalPnl, pct, TARGET_AD_RATE, DEFAULT_COSTS } from "../lib/sales";
+import { buildDays, totalPnl, pnlDays, pct, TARGET_AD_RATE, DEFAULT_COSTS } from "../lib/sales";
+import { fillGaps } from "../lib/view";
 
 /** 판 쪽과 산 쪽을 한 화면에 나란히. 자세한 건 각 장부에서 본다. */
 function Card({ title, icon: Icon, onGo, goLabel, children }) {
@@ -51,9 +52,16 @@ export default function HomePage({ salesRows, salesConf, purchaseTotals, onPage,
   // 매출·광고는 있는 날 전부로, 손익은 원가를 아는 날로만 낸다.
   // 원가를 모르는 날을 손익에 섞으면 광고비만 빠져서 적자로 보인다.
   const { sales, pnl } = useMemo(() => {
-    const rows = salesRows.filter((r) => r.date.startsWith(month));
-    const days = buildDays(rows, { ...DEFAULT_COSTS, ...salesConf.costs }, salesConf.monthly);
-    return { sales: totalPnl(days), pnl: totalPnl(days.filter((d) => d.hasOrders)) };
+    // 11/18: 결제가 없던 날도 채워 넣는다 — 그날도 광고비·고정비는 나가서(손익 화면과 같은 날들)
+    const sam = salesConf.samchonDaily || {};
+    const all = buildDays(
+      fillGaps(salesRows).map((r) => (sam[r.date] ? { ...r, samchonCost: sam[r.date] } : r)),
+      { ...DEFAULT_COSTS, ...salesConf.costs },
+      salesConf.monthly,
+      salesConf.ctx,
+    );
+    const days = all.filter((d) => d.date.startsWith(month));
+    return { sales: totalPnl(days.filter((d) => !d.empty || d.ads > 0)), pnl: totalPnl(pnlDays(days)) };
   }, [salesRows, salesConf, month]);
 
   const hasSales = sales.days > 0;

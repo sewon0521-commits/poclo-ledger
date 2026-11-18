@@ -83,7 +83,7 @@ export default function App() {
   const L = useLedger();
   const { vendors, tx } = L;
 
-  const S = useSales(L.session);
+  const S = useSales(L.session, tx);
 
   // 11/11 사무실 PC 의 CS 알림(poclo-cafe24/pc_notify.py)을 누르면 …/#cs 로 열린다 → 바로 일 › CS 관리
   const [page, setPage] = useState(() => (window.location.hash === "#cs" ? "cs" : "home"));
@@ -420,6 +420,7 @@ pg === "home" ? (
                   onCafe={S.putCafe}
                   onAds={S.putAds}
                   onSamchon={S.putSamchon}
+                  onMonth={S.putMonth}
                   onEdit={S.editRow}
                   onClear={S.clearAll}
                   range={salesRange}

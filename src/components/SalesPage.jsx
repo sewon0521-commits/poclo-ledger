@@ -12,6 +12,7 @@ import {
   MONTH_FIELDS,
   TARGET_AD_RATE,
 } from "../lib/sales";
+import { FEE_CHANNELS, NP_ITEMS, NP_RATES, NP_START, npTotal } from "../lib/costs";
 import { adTone, TONE_TEXT, useDays } from "../lib/view";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
 import { Kpi, Empty } from "./ui";
@@ -230,47 +231,47 @@ function AdEntry({ onAdd }) {
 }
 
 /**
- * 삼촌비를 날짜별로 적는다. 광고비 넣기와 같은 모양.
- *
- * 지금은 삼촌에게 월급을 주지 않고 그날그날 낸다. 그래서 '월 삼촌비'는 0으로 두고
- * 여기에 적는다. 나중에 월급을 주게 되면 비용 가정값의 '월 삼촌비'를 쓰면 된다
- * (둘 다 있으면 손익에서 더한다).
+ * 삼촌비 — 달마다 한 줄 (11/18 세원: "삼촌비 넣기는 내가 달마다 계산해서 넣을꺼고").
+ * conf.monthly[ym].samchon. 그 달에 월 금액이 있으면 그 달 예전 날짜별 값은 손익에 안 더한다(두 번 세지 않게).
+ * 9월에 날짜별로 적은 것(samchonDaily)은 지우지 않고 아래에 그대로 보여 준다.
  */
-function SamchonEntry({ daily, onPut, range }) {
-  const [date, setDate] = useState(todayISO);
+function SamchonEntry({ monthly, daily, onMonth, onPut }) {
+  const [ym, setYm] = useState(() => todayISO().slice(0, 7));
   const [amount, setAmount] = useState("");
   const [msg, setMsg] = useState("");
+  const [showOld, setShowOld] = useState(false);
 
   const add = async () => {
     const n = Math.round(Number(String(amount).replace(/[^\d.-]/g, "")) || 0);
-    if (!date || !n) {
-      setMsg("날짜와 금액을 넣어주세요.");
+    if (!ym || !n) {
+      setMsg("달과 금액을 넣어주세요.");
       return;
     }
-    await onPut(date, n);
-    setMsg(`${date} 삼촌비 ${won(n)}원 넣었어요.`);
+    await onMonth(ym, "samchon", n);
+    setMsg(`${Number(ym.slice(5, 7))}월 삼촌비 ${won(n)}원 넣었어요.`);
     setAmount("");
   };
 
-  // 보고 있는 기간 안에 적힌 것만, 최근 날짜부터
-  const list = Object.entries(daily || {})
-    .filter(([d, v]) => v && (!range.from || d >= range.from) && (!range.to || d <= range.to))
+  const months = Object.entries(monthly || {})
+    .filter(([, M]) => M?.samchon > 0)
     .sort((a, b) => b[0].localeCompare(a[0]));
-  const sum = list.reduce((s, [, v]) => s + v, 0);
+  const old = Object.entries(daily || {})
+    .filter(([, v]) => v)
+    .sort((a, b) => b[0].localeCompare(a[0]));
+  const oldByMonth = {};
+  for (const [d, v] of old) oldByMonth[d.slice(0, 7)] = (oldByMonth[d.slice(0, 7)] || 0) + v;
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
-      <div className="text-sm font-semibold text-stone-800">삼촌비 직접 넣기</div>
+      <div className="text-sm font-semibold text-stone-800">삼촌비 — 달마다</div>
       <p className="mt-0.5 mb-2.5 text-xs leading-relaxed text-stone-400">
-        그날 삼촌에게 낸 돈. 같은 날짜를 다시 넣으면 그 값으로 바뀌어요. 손익에서 빠집니다.
+        그 달 삼촌에게 준 돈을 한 번에 넣어요. 같은 달을 다시 넣으면 그 값으로 바뀌어요. 손익에선 그 달 날수로 나눠 날마다 빠집니다.
+      </p>
+      <p className="mb-2.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs leading-relaxed text-amber-900">
+        넥스트팩 사입비(곳당 400원)는 물류비에 이미 들어가요 — 삼촌비엔 우리 삼촌에게 준 돈만.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm"
-        />
+        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm" />
         <input
           value={amount}
           inputMode="numeric"
@@ -279,32 +280,48 @@ function SamchonEntry({ daily, onPut, range }) {
           onKeyDown={(e) => e.key === "Enter" && add()}
           className="w-32 rounded-lg border border-stone-300 bg-white px-3 py-2 text-right text-sm tabular-nums"
         />
-        <button
-          type="button"
-          onClick={add}
-          className="flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white"
-        >
+        <button type="button" onClick={add} className="flex items-center gap-1 rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white">
           <Plus size={14} /> 넣기
         </button>
         {msg && <span className="text-xs text-stone-500">{msg}</span>}
       </div>
 
-      {list.length > 0 && (
+      {months.length > 0 && (
         <div className="mt-4 border-t border-stone-100 pt-3">
-          <div className="mb-1.5 flex items-baseline justify-between text-xs text-stone-500">
-            <span>이 기간에 적은 삼촌비 · 숫자를 눌러 고치고, 0으로 하면 지워져요</span>
-            <span className="font-semibold tabular-nums text-stone-700">합계 {won(sum)}</span>
-          </div>
+          <div className="mb-1.5 text-xs text-stone-500">넣은 달 · 숫자를 눌러 고치고, 0으로 하면 지워져요</div>
           <ul className="divide-y divide-stone-100 text-sm">
-            {list.map(([d, v]) => (
-              <li key={d} className="flex items-center justify-between gap-3 py-1">
-                <span className="text-stone-600">{dayLabel(d)}</span>
+            {months.map(([m, M]) => (
+              <li key={m} className="flex items-center justify-between gap-3 py-1">
+                <span className="text-stone-600">
+                  {m.slice(0, 4)}년 {Number(m.slice(5, 7))}월
+                  {oldByMonth[m] > 0 && <span className="ml-1.5 text-[11px] text-stone-400">날짜별 {won(oldByMonth[m])}은 안 더함</span>}
+                </span>
                 <span className="w-32">
-                  <EditNum value={v} onSave={(n) => onPut(d, n)} />
+                  <EditNum value={M.samchon} onSave={(n) => onMonth(m, "samchon", n)} />
                 </span>
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {old.length > 0 && (
+        <div className="mt-3 border-t border-stone-100 pt-2.5">
+          <button type="button" onClick={() => setShowOld((v) => !v)} className="text-xs text-stone-400 underline decoration-dotted hover:text-stone-600">
+            예전에 날짜별로 적은 삼촌비 {old.length}건 · {won(old.reduce((a, [, v]) => a + v, 0))}원 {showOld ? "접기" : "보기"}
+          </button>
+          {showOld && (
+            <ul className="mt-1.5 divide-y divide-stone-100 text-sm">
+              {old.map(([d, v]) => (
+                <li key={d} className="flex items-center justify-between gap-3 py-1">
+                  <span className="text-stone-600">{dayLabel(d)}</span>
+                  <span className="w-32">
+                    <EditNum value={v} onSave={(n) => onPut(d, n)} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
@@ -312,30 +329,131 @@ function SamchonEntry({ daily, onPut, range }) {
 }
 
 const FIELDS = [
-  ["shipCost", "택배비 / 건", "우리가 내는 돈"],
-  ["material", "부자재 / 개", ""],
-  ["pg", "결제 수수료 (%)", "네이버 외"],
-  ["naver", "네이버페이 (%)", "부가세 포함"],
-  ["fixed", "월 고정비", "관리비 + 앱"],
-  ["samchon", "월 삼촌비", "월급 줄 때만. 지금은 0 · 날짜별은 '삼촌비 넣기'"],
+  ["shipCost", "사무실 택배 / 건", "9월까지 · 청구액이 없는 달만"],
+  ["material", "사무실 부자재 / 개", "넥스트팩 정산서가 없는 사무실 택배 달만"],
 ];
 
-function CostFields({ conf, onConf, months }) {
-  const costs = { ...DEFAULT_COSTS, ...conf.costs };
-  const monthly = conf.monthly || {};
+const ymLabel = (ym) => `${ym.slice(2, 4)}년 ${Number(ym.slice(5, 7))}월`;
 
-  const setMonth = (ym, key, v) =>
-    onConf({
-      ...conf,
-      monthly: { ...monthly, [ym]: { ...(monthly[ym] || {}), [key]: v === "" ? undefined : v } },
-    });
+/** 달마다 값 — 삼촌비 · 고정비 덮기 · 사무실 택배 청구액 · 넥스트팩 정산서 (11/18) */
+function MonthTable({ months, monthly, onMonth, ctx }) {
+  const [open, setOpen] = useState(null);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] text-sm">
+        <thead>
+          <tr className="text-xs text-stone-400">
+            <th className="px-2 py-1.5 text-left font-medium">달</th>
+            {MONTH_FIELDS.map(([, label, hint]) => (
+              <th key={label} className="px-2 py-1.5 text-right font-medium">
+                {label}
+                {hint && <div className="text-[10px] font-normal">{hint}</div>}
+              </th>
+            ))}
+            <th className="px-2 py-1.5 text-right font-medium">
+              넥스트팩 정산서
+              <div className="text-[10px] font-normal">부가세 포함 · 눌러서 항목별로</div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {months.flatMap((ym) => {
+            const M = monthly?.[ym] || {};
+            const npSum = npTotal(M.np);
+            const on = open === ym;
+            const subs = ctx?.subs ? ctx.subs(ym).total : null;
+            const row = (
+              <tr key={ym} className="border-t border-stone-100">
+                <td className="px-2 py-1 text-left whitespace-nowrap tabular-nums text-stone-600">{ymLabel(ym)}</td>
+                {MONTH_FIELDS.map(([key]) => (
+                  <td key={key} className="px-1 py-1">
+                    <EditNum
+                      value={M[key] || 0}
+                      placeholder={key === "fixed" && subs != null ? `목록 ${won(subs)}` : "—"}
+                      onSave={(n) => onMonth(ym, key, n)}
+                    />
+                  </td>
+                ))}
+                <td className="px-1 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setOpen(on ? null : ym)}
+                    className={"w-full rounded px-1.5 py-0.5 text-right tabular-nums hover:bg-stone-100 " + (npSum ? "text-stone-700" : "text-stone-300")}
+                  >
+                    {npSum ? won(npSum) : ym >= NP_START ? "추정 중 · 넣기" : "—"}
+                  </button>
+                </td>
+              </tr>
+            );
+            if (!on) return [row];
+            return [
+              row,
+              <tr key={`${ym}-np`}>
+                <td colSpan={MONTH_FIELDS.length + 2} className="px-2 pb-2">
+                  <div className="grid grid-cols-2 gap-2 rounded-lg bg-stone-50 p-2.5 sm:grid-cols-4">
+                    {NP_ITEMS.map(([k, label, hint]) => (
+                      <label key={k} className="block text-xs">
+                        <span className="text-stone-500">{label}</span>
+                        {hint && <span className="ml-1 text-[10px] text-stone-400">{hint}</span>}
+                        <div className="mt-0.5 rounded border border-stone-200 bg-white">
+                          <EditNum value={M.np?.[k] || 0} onSave={(n) => onMonth(ym, `np.${k}`, n)} />
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </td>
+              </tr>,
+            ];
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CostFields({ conf, onConf, onMonth, months }) {
+  const costs = { ...DEFAULT_COSTS, ...conf.costs };
+  const ctx = conf.ctx;
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
-      <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-stone-800">
-        <Settings2 size={15} /> 비용 가정값
+      <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-stone-800">
+        <Settings2 size={15} /> 비용 기준
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <p className="mb-3 text-xs leading-relaxed text-stone-400">
+        고정비는 돈 › 구독 · 고정 지출 목록, 결제 수수료는 결제수단별 요율, 물류비는 넥스트팩 단가(정산서가 오면 그 금액)로 손익에서 저절로 계산돼요.
+      </p>
+
+      {months.length > 0 && (
+        <>
+          <div className="mb-1 text-sm font-semibold text-stone-800">달마다 값</div>
+          <p className="mb-2 text-xs leading-relaxed text-stone-400">
+            사무실 택배 청구액이나 넥스트팩 정산서를 넣으면 그 달 물류비는 추정 대신 그 금액을 건수 비율대로 나눠 담아요. 0으로 하면 지워지고 다시 추정해요.
+          </p>
+          <MonthTable months={[...months].reverse()} monthly={conf.monthly} onMonth={onMonth} ctx={ctx} />
+        </>
+      )}
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg bg-stone-50 p-3 text-xs leading-relaxed text-stone-600">
+          <div className="mb-1 font-semibold text-stone-700">넥스트팩 단가 (부가세 별도 · 손익엔 × 1.1)</div>
+          건당 택배 극소 {won(NP_RATES.ship)}(아우터 소 3,050 · 중 3,600) · 출고 {NP_RATES.out} · 택배봉투 {NP_RATES.bag}
+          <br />
+          장당 입고·검수·폴리백 {NP_RATES.inbound} · 바코드 {NP_RATES.barcode} · 포장폴리 {NP_RATES.poly} · 합포(3장째부터) {NP_RATES.combine}
+          <br />월 WMS {won(NP_RATES.wms)} · 보관 장당 {NP_RATES.storage}(행거 300) · 사입 곳당 {NP_RATES.buy} · 반품 건당 {won(NP_RATES.ret)}
+        </div>
+        <div className="rounded-lg bg-stone-50 p-3 text-xs leading-relaxed text-stone-600">
+          <div className="mb-1 font-semibold text-stone-700">결제 수수료 요율 (돈 › 정산 달력)</div>
+          {FEE_CHANNELS.map((c) => (
+            <span key={c.k} className="mr-2 inline-block">
+              {c.name} {pct(ctx?.rates?.[c.k] ?? 0, 2)}%
+            </span>
+          ))}
+          {ctx?.blend != null && <div className="mt-1 text-stone-500">결제수단 자료 없는 날 평균 {pct(ctx.blend, 2)}%</div>}
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {FIELDS.map(([key, label, sub]) => (
           <label key={key} className="block">
             <span className="block text-xs text-stone-500">{label}</span>
@@ -344,60 +462,12 @@ function CostFields({ conf, onConf, months }) {
               type="number"
               step="any"
               value={costs[key]}
-              onChange={(e) =>
-                onConf({ ...conf, costs: { ...costs, [key]: Number(e.target.value) || 0 } })
-              }
+              onChange={(e) => onConf({ ...conf, costs: { ...costs, [key]: Number(e.target.value) || 0 } })}
               className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-right tabular-nums"
             />
           </label>
         ))}
       </div>
-
-      {months.length > 0 && (
-        <>
-          <div className="mt-5 mb-2 text-sm font-semibold text-stone-800">달마다 다른 값</div>
-          <p className="mb-2.5 text-xs leading-relaxed text-stone-400">
-            비워두면 위의 기본값을 씁니다. 택배비 총액을 넣으면 건당 계산 대신 그 금액을 건수
-            비율대로 나눠 담아요.
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] text-sm">
-              <thead>
-                <tr className="text-xs text-stone-400">
-                  <th className="px-2 py-1.5 text-left font-medium">달</th>
-                  {MONTH_FIELDS.map(([, label, hint]) => (
-                    <th key={label} className="px-2 py-1.5 text-right font-medium">
-                      {label}
-                      {hint && <div className="text-[10px] font-normal">{hint}</div>}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {months.map((ym) => (
-                  <tr key={ym}>
-                    <td className="px-2 py-1 text-left tabular-nums text-stone-600">{ym}</td>
-                    {MONTH_FIELDS.map(([key]) => (
-                      <td key={key} className="px-2 py-1">
-                        <input
-                          type="number"
-                          step="any"
-                          value={monthly[ym]?.[key] ?? ""}
-                          placeholder="기본값"
-                          onChange={(e) =>
-                            setMonth(ym, key, e.target.value === "" ? "" : Number(e.target.value))
-                          }
-                          className="w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-right tabular-nums"
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -412,6 +482,7 @@ export default function SalesPage({
   onCafe,
   onAds,
   onSamchon,
+  onMonth,
   onEdit,
   onClear,
   range,
@@ -424,10 +495,12 @@ export default function SalesPage({
   const toggle = (key) => setPanel((p) => (p === key ? null : key));
   const days = useDays(rows, range, conf);
   const total = useMemo(() => totalPnl(days), [days]);
-  const months = useMemo(
-    () => [...new Set(days.map((d) => d.date.slice(0, 7)))].sort(),
-    [days],
-  );
+
+  // 달마다 값 표는 보고 있는 기간과 상관없이 원가를 아는 달(2026-08)부터 이번 달까지 — 정산서가 오면 기간을 안 바꾸고 넣게
+  const costMonths = useMemo(() => {
+    const now = todayISO().slice(0, 7);
+    return [...new Set([...rows.map((r) => r.date.slice(0, 7)), now])].filter((m) => m >= "2026-08" && m <= now).sort();
+  }, [rows]);
 
   const takeCafe = async (text) => {
     const parsed = parseCafe(text);
@@ -524,7 +597,7 @@ export default function SalesPage({
 
       {panel === "samchon" && (
         <div className="mb-5">
-          <SamchonEntry daily={conf.samchonDaily} onPut={onSamchon} range={range} />
+          <SamchonEntry monthly={conf.monthly} daily={conf.samchonDaily} onMonth={onMonth} onPut={onSamchon} />
         </div>
       )}
 
@@ -540,7 +613,7 @@ export default function SalesPage({
             hint="poclo-cafe24 폴더에서 4_주문불러오기.bat 을 돌리면 나오는 orders_일별.csv"
             onText={takeDaily}
           />
-          <CostFields conf={conf} onConf={onConf} months={months} />
+          <CostFields conf={conf} onConf={onConf} onMonth={onMonth} months={costMonths} />
           <button
             type="button"
             onClick={() => {
@@ -607,7 +680,14 @@ export default function SalesPage({
                       />
                     </td>
                     <td className="px-1 py-1.5">
-                      <EditNum value={d.ads} onSave={(v) => onEdit(d.date, { ads: v })} />
+                      <div className="flex items-center gap-0.5">
+                        <EditNum value={d.ads} tone={d.adsMeta > 0 ? "text-sky-700" : undefined} onSave={(v) => onEdit(d.date, { ads: v })} />
+                        {d.adsMeta > 0 && (
+                          <span className="shrink-0 text-[10px] text-sky-600" title="장부 광고비가 0이라 메타 하루 기록으로 채움 — 누르고 적으면 장부 값이 돼요">
+                            메타
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td
                       className={

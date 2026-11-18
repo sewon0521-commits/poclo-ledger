@@ -320,13 +320,12 @@ function Assumptions({ rates, settings, onSettings }) {
         )}
         <br />
         배송비 수입 <b className="tabular-nums">{won(rates.shipIncome)}</b> · 택배비{" "}
-        <b className="tabular-nums">{won(rates.shipping)}</b> · 부자재{" "}
+        <b className="tabular-nums">{won(rates.shipping)}</b> · 부자재·작업·보관 등{" "}
         <b className="tabular-nums">{won(rates.material)}</b> · 결제수수료{" "}
         <b className="tabular-nums">{pct(rates.feeRate * 100, 2)}%</b>
         <span className="text-stone-400">
           {" "}
-          — 매일 들어오는 주문에서 저절로 바뀝니다. 택배비·부자재 단가는 매출 장부 › 비용
-          가정값에서 고쳐요.
+          — 매일 들어오는 주문에서 저절로 바뀝니다. 물류비는 넥스트팩 단가(정산서가 오면 그 금액), 수수료는 결제수단별 요율이에요(매출 장부 › 데이터 넣기 › 비용 기준).
         </span>
       </p>
     </div>
@@ -495,7 +494,7 @@ function CalcCard({ draft, setDraft, rates, settings, vendors, products, onSave 
               {[
                 ["+ 배송비 수입", r.revenue - r.price],
                 ["− 공급가", -r.supply],
-                ["− 부자재", -r.material],
+                ["− 부자재·작업 등", -r.material],
                 ["− 택배비", -r.shipping],
                 ["− 결제수수료", -r.fee],
                 [`− 광고비 ${pct(r.adRate)}%`, -r.ads],

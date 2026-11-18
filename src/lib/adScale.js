@@ -30,7 +30,7 @@ export function adDays(rows, conf, metaDays) {
     if (!(x.ads > 0) && m && m[0] > 0) x = { ...x, ads: m[0], adsFromMeta: true };
     return x;
   });
-  const all = buildDays(filled, costs, conf?.monthly);
+  const all = buildDays(filled, costs, conf?.monthly, conf?.ctx);
   // 원가를 아는 날 + 주문 0건인데 광고비만 쓴 날(그날은 남는 돈 = −광고비). 원가를 모르는 매출 날은 뺀다(이익이 부풀어서).
   const first = all.find((d) => d.hasOrders)?.date;
   if (!first) return [];
