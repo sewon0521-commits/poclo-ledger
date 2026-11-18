@@ -1016,21 +1016,6 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
   const poseList = posePool(s, poses.lib).cards;
   const [run, setRun] = useState(!!startRun);
   const [codiPose, setCodiPose] = useState(null); // 이 코디 포즈 창 — 코디 id
-  /** 스타일링 창 칩 — 카드마다(이 코디만 사진은 한 칩), 다 찍었으면 done */
-  const posesOf = (c) => {
-    if (!poseList.length) return [];
-    const { shots, auto } = shotsOf(s, c, poseList, d.items);
-    const out = [];
-    for (const x of shots) {
-      const key = x.own ? "own" : x.cardId;
-      const o = out.find((y) => y.key === key);
-      if (o) {
-        o.n++;
-        o.done = o.done && x.done;
-      } else out.push({ key, code: x.own ? "이 코디만" : x.code, title: x.own ? "" : x.title, done: x.done, auto, n: 1 });
-    }
-    return out;
-  };
   const poseLine = (c) => {
     if (!poseList.length) return "";
     const { shots, auto } = shotsOf(s, c, poseList, d.items);
@@ -1258,7 +1243,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
           </button>
         </footer>
       </div>
-      {live && <StylingSheet codi={live} d={d} online={online} poses={posesOf(live)} onClose={() => setStyling(null)} />}
+      {live && <StylingSheet codi={live} d={d} online={online} dayCodis={codis} onClose={() => setStyling(null)} />}
       {run && codis.length > 0 && poseList.length > 0 && (
         <ShootRun s={s} set={set} codis={codis} d={d} cards={poseList} online={online} onClose={() => setRun(false)} onCodi={(c) => setCodiPose(c.id)} />
       )}
