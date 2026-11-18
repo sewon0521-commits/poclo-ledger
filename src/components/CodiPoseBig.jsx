@@ -205,22 +205,29 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
                     const wide = photos.length > 1;
                     return (
                       <section key={k.id} className={"flex min-w-0 flex-col rounded-xl border p-2 " + (wide ? "col-span-2 " : "") + (on ? "border-rose-200 bg-rose-50/40" : "border-stone-200")}>
-                        <div className="mb-1 flex min-w-0 items-center gap-1">
-                          <span className="shrink-0 text-xs font-bold text-stone-900">{k.code}</span>
-                          {reco.has(k.id) && <span className="shrink-0 rounded-full bg-rose-50 px-1 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">추천</span>}
-                          {k.ok !== true && <span className="shrink-0 rounded-full bg-amber-50 px-1 text-[10px] font-semibold text-amber-700">확인 전</span>}
+                        {/* 11/18 세원 "pc에서 카드째 버튼 깨진다" — 첫 줄 = 이름(말줄임) + 단추(늘 한 줄), 둘째 줄 = 추천 · 확인 전 · 찍는 방식(넘치면 다음 줄), 셋째 줄 = 이름 뒤 글 */}
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="min-w-0 flex-1 truncate text-xs font-bold text-stone-900" title={k.code}>
+                            {k.code}
+                          </span>
                           <button
                             type="button"
                             onClick={() => set(flipCard(sRef.current, c, cards, d.items, k))}
                             title={on ? "카드 빼기" : "카드째 넣기"}
-                            className={"ml-auto shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold " + (on ? "border border-stone-200 bg-white text-stone-600 hover:text-rose-700" : "bg-rose-700 text-white")}
+                            className={"shrink-0 rounded-md px-2 py-1 text-[11px] leading-none font-semibold whitespace-nowrap " + (on ? "border border-stone-200 bg-white text-stone-600 hover:text-rose-700" : "bg-rose-700 text-white")}
                           >
                             {on ? "빼기" : "카드째"}
                           </button>
                         </div>
-                        <div className="mb-1.5 truncate text-[11px] text-stone-500" title={[stripCode(k.title), k.sec?.text].filter(Boolean).join(" — ")}>
-                          {stripCode(k.title)}
-                          {k.shot && <span className="ml-1 rounded-full bg-violet-50 px-1.5 text-[10px] font-semibold text-violet-700">{k.shot}</span>}
+                        {(reco.has(k.id) || k.ok !== true || k.shot) && (
+                          <div className="mt-1 flex min-w-0 flex-wrap gap-1">
+                            {reco.has(k.id) && <span className="rounded-full bg-rose-50 px-1.5 text-[10px] font-semibold whitespace-nowrap text-rose-700 ring-1 ring-rose-200">추천</span>}
+                            {k.ok !== true && <span className="rounded-full bg-amber-50 px-1.5 text-[10px] font-semibold whitespace-nowrap text-amber-700">확인 전</span>}
+                            {k.shot && <span className="rounded-full bg-violet-50 px-1.5 text-[10px] font-semibold whitespace-nowrap text-violet-700">{k.shot}</span>}
+                          </div>
+                        )}
+                        <div className="mt-1 mb-1.5 truncate text-[11px] text-stone-500" title={[stripCode(k.title), k.sec?.text].filter(Boolean).join(" — ")}>
+                          {stripCode(k.title) || " "}
                         </div>
                         <div className={wide ? "flex snap-x gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]" : ""}>
                           {photos.map((p, i) => {
