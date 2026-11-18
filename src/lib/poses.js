@@ -10,6 +10,7 @@
 // 고른 것은 촬영 줄(settings shoot_days)에 — posePicks {코디 id: [칸 id]} · poseDone {코디 id: [칸 id]}(촬영 날 찍은 것).
 //   posePicks 에 그 코디가 없으면 = 아직 안 건드림 → 추천을 보여 주고(저장은 안 함), 세원이 한 칸이라도 누르면 그때부터 그 코디는 고른 그대로.
 import { wearPart } from "./shoot";
+import { smartPick, recoNOf } from "./poseReco";
 
 export const FITS = ["전신", "아우터", "상의", "하의"];
 
@@ -169,7 +170,13 @@ export const byCode = (a, b) => codeNo(a) - codeNo(b) || String(a.createdAt || "
 export function poseDeck(lib) {
   const folders = poseFoldersOf(lib);
   const items = (lib?.items || []).filter((s) => s.pose).sort(byCode);
-  const add = (k) => ({ ...k, folderId: k.sec.folderId || "", place: placeOfFolder(k.sec.folderId, folders), shot: k.sec.shot || "" });
+  // sub = 묶음 폴더 바로 아래 세부 폴더 이름(TOP › 나시 · BTM › 치마 · OUTER › 패딩) — 11/18 진짜 추천이 TOP 세부를 그 옷이 있을 때만 쓴다
+  const subOf = (fid) => {
+    const path = pathTo(fid, folders);
+    const gi = path.findIndex((f) => GROUP_ORDER.includes(String(f.name).toUpperCase()));
+    return gi >= 0 && path[gi + 1] ? path[gi + 1].name : "";
+  };
+  const add = (k) => ({ ...k, folderId: k.sec.folderId || "", place: placeOfFolder(k.sec.folderId, folders), shot: k.sec.shot || "", sub: subOf(k.sec.folderId) });
   const { cards, hidden } = poseCards([{ id: POSES_KEY, sections: items }]);
   return { cards: cards.map(add), hidden: hidden.map(add) };
 }
@@ -292,8 +299,36 @@ export function codiFits(c, items) {
  *   전신 포즈는 늘 · 아우터가 있으면 아우터 포즈 · 하의가 있으면 하반신·앉은 포즈 · 아우터 없이 상의만 있으면 상반신 포즈
  */
 // 11/17 밤 세원: 안쪽 옷부터 입으면서 찍는다(lib/shootOrder) — 아우터를 입기 전에 상의를 먼저 찍으니 아우터가 있어도 상의 컷을 추천한다
-export const RECO_RULE = "전신은 늘 · 상의 있으면 상반신 컷(아우터 입기 전에 찍어요) · 하의 있으면 공통 + 그 종류(치마·팬츠) 컷 · 아우터 있으면 그 종류(코트·패딩·무스탕·자켓·퍼) 컷";
-export function recommend(cards, c, items) {
+// 11/18 진짜 추천 — 위 거르기는 그대로 두고(recommendAll), 그 안에서 코디 상품을 보고 약 10장만(lib/poseReco smartPick)
+export const RECO_RULE = "코디 상품(핏·원단·넥라인·디테일·소싱 레퍼 구도)에 맞는 포즈 · 묶음마다 한 장 이상 · 카드마다 고른 이유";
+// TOP 세부 폴더(나시 …)는 그 옷이 코디에 있을 때만 — 폴더 이름이 상품 이름에 있거나 아래 말이 있으면
+const TOP_SUB_RE = { 나시: /나시|캐미|슬리브리스|민소매|뷔스티에|홀터|브라탑/i, 니트: /니트|(?<![a-z])nt(?![a-z])/i, 반팔: /반팔|숏\s?슬리브/i, 긴팔티: /긴팔|롱\s?슬리브/i, 셔츠: /셔츠|블라우스|(?<![a-z])(sh|bl)(?![a-z])/i };
+function topSubOk(k, c, items) {
+  if (groupOfCode(k) !== "TOP" || !k.sub) return true;
+  const its = (c?.itemIds || []).map((id) => (items || []).find((y) => y.id === id)).filter((x) => x && ["상의", "이너", "원피스·세트"].includes(wearPart(x)));
+  const re = TOP_SUB_RE[k.sub];
+  return its.some((x) => {
+    const t = `${x.name || ""} ${x.fullName || ""}`;
+    return t.includes(k.sub) || (re && re.test(t));
+  });
+}
+const groupOfCode = (k) => String(k?.code || "").match(/^\s*☀?\s*(TOP|SELFIE|BTM|FULL|OUTER)\b/i)?.[1]?.toUpperCase() || "";
+/** 진짜 추천 — 옷 종류로 거른 카드(recommendAll) 안에서 코디 상품을 보고 n장 → 카드 id */
+export function recommend(cards, c, items, n) {
+  return recoPick(cards, c, items, n).ids;
+}
+/** recommend 와 같은데 고른 이유(why · short)까지 */
+export function recoPick(cards, c, items, n) {
+  const pool = new Set(recommendAll(cards, c, items));
+  return smartPick(cards.filter((k) => pool.has(k.id) && topSubOk(k, c, items)), c, items, n);
+}
+/** 이 촬영 쪽(실내/야외) 카드에서 진짜 추천 — 포즈판 · 큰 창이 이유를 보여 줄 때 */
+export function recoOf(day, c, cards, items) {
+  const want = placeOfDay(day);
+  return recoPick(cards.filter((k) => !k.place || k.place === want), c, items, recoNOf(day));
+}
+/** 옛 추천(옷 종류로 거르기만) — 이 안에서 진짜 추천이 고른다 */
+export function recommendAll(cards, c, items) {
   const f = codiFits(c, items);
   const want = new Set(["전신"]);
   if (f.has("아우터")) for (const t of f) if (t.startsWith("아우터")) want.add(t);
@@ -310,8 +345,7 @@ export function picksOf(day, c, cards, items) {
   const mine = day?.posePicks?.[c.id];
   if (Array.isArray(mine)) return { ids: mine.filter((id) => have.has(id)), auto: false };
   // 11/17 포즈 칸 카드엔 place(실내/야외)가 있다 — 추천은 이 촬영 쪽 카드에서만(place 없는 예전 카드는 그대로)
-  const want = placeOfDay(day);
-  return { ids: recommend(cards.filter((k) => !k.place || k.place === want), c, items), auto: true };
+  return { ids: recoOf(day, c, cards, items).ids, auto: true };
 }
 export const doneOf = (day, c) => day?.poseDone?.[c.id] || [];
 

@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, Undo2, X } from "lucide-react";
 import { md, codiItems, codiName } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
-import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recommend, shotsOf, setLibOk, stripCode, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
+import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recoOf, shotsOf, setLibOk, stripCode, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
+import { recoNOf, RECO_MIN, RECO_MAX } from "../lib/poseReco";
 import { wearSteps, stepLabel } from "../lib/shootOrder";
 import { withChildren, childrenOf, pathName } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
@@ -281,7 +282,7 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
 }
 
 /** 줄 안 포즈 카드 — 고른 것(테두리 · 늘 보이는 ×) / 추천(점선 · 누르면 담김) */
-function PoseTile({ k, mode, mine, url, onTap, onDrop }) {
+function PoseTile({ k, mode, mine, url, onTap, onDrop, why, short }) {
   const done = mine.length > 0 && mine.every((x) => x.done);
   const part = mode !== "reco" && mine.length > 0 && mine.length < (k.sec.photos || []).length;
   return (
@@ -289,7 +290,7 @@ function PoseTile({ k, mode, mine, url, onTap, onDrop }) {
       <button
         type="button"
         onClick={onTap}
-        title={mode === "reco" ? `${k.code} 담기 (추천)` : mode === "auto" ? "추천 그대로 담기" : `${k.code} 포즈 카드 보기 · OK`}
+        title={(mode === "reco" ? `${k.code} 담기 (추천)` : mode === "auto" ? "추천 그대로 담기" : `${k.code} 포즈 카드 보기 · OK`) + (why ? `\n고른 이유: ${why}` : "")}
         className={"block w-full overflow-hidden rounded-lg text-left " + (mode === "pick" ? (done ? "ring-2 ring-emerald-600" : "ring-1 ring-stone-300") : "border border-dashed border-rose-400 bg-rose-50/50")}
       >
         <Photo url={url} className="aspect-[3/4] w-full" />
@@ -301,6 +302,8 @@ function PoseTile({ k, mode, mine, url, onTap, onDrop }) {
           </span>
           <span className="line-clamp-2 text-[10px] leading-tight text-stone-500">{stripCode(k.title)}</span>
           {mode !== "pick" && <span className="text-[10px] font-semibold text-rose-600">{mode === "reco" ? "+ 추천" : "추천"}</span>}
+          {/* 11/18 진짜 추천 — 왜 골랐는지 짧게(전부는 마우스를 올리면) */}
+          {short && mode !== "pick" && <span className="line-clamp-2 text-[10px] leading-tight text-rose-700/80">{short}</span>}
         </span>
       </button>
       {mode !== "reco" && (
@@ -327,14 +330,12 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
   const folders = poseFoldersOf(lib);
   const { cards, hidden } = poseDeck(lib);
   const want = placeOfDay(s);
+  const recoN = recoNOf(s);
   const rows = codis.map((c) => {
     const { shots, auto, ids } = shotsOf(s, c, cards, d.items);
-    const reco = recommend(
-      cards.filter((k) => k.place === want),
-      c,
-      d.items,
-    ).filter((id) => !ids.includes(id));
-    return { c, shots, auto, ids, reco };
+    // 11/18 진짜 추천 — 코디 상품을 보고 약 N장 + 카드마다 이유(lib/poseReco). 고른 코디엔 아직 안 담은 추천만 점선으로
+    const rc = recoOf(s, c, cards, d.items);
+    return { c, shots, auto, ids, reco: rc.ids.filter((id) => !ids.includes(id)), why: rc.why, short: rc.short };
   });
   const { urlOf } = usePoseUrls(
     [...new Set(rows.flatMap((r) => [...r.ids, ...r.reco]))].map((id) => cards.find((k) => k.id === id)?.sec.photos?.[0]?.key),
@@ -415,6 +416,8 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
       url={urlOf(k.sec.photos?.[0]?.key)}
       onTap={() => (mode === "reco" ? setPicks(r.c, [...r.ids, k.id]) : mode === "auto" ? setPicks(r.c, r.ids) : setOpen(k.id))}
       onDrop={() => drop(r, k)}
+      why={r.why[k.id]}
+      short={r.short[k.id]}
     />
   );
 
@@ -424,6 +427,16 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
         <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
           <Footprints size={15} className="text-rose-700" /> 포즈 판
           <span className={"rounded-full px-2 py-0.5 text-[10px] font-semibold " + (want === "out" ? "bg-sky-50 text-sky-700" : "bg-stone-100 text-stone-600")}>{want === "out" ? "야외 추천" : "실내 추천"}</span>
+          {/* 11/18 추천 장수 — 이 촬영 줄에 저장(recoN)해서 폰·PC 가 같은 추천을 본다. 세원이 고른 코디는 안 바뀐다 */}
+          <span className="flex items-center gap-0.5 rounded-full border border-stone-200 px-1 text-[10px] font-normal text-stone-600" title="추천 그대로인 코디가 코디마다 몇 장을 고를지 — 고른 코디는 안 바뀌어요">
+            <button type="button" aria-label="추천 장수 줄이기" disabled={recoN <= RECO_MIN} onClick={() => set({ recoN: Math.max(RECO_MIN, recoN - 1) })} className="px-1 py-0.5 text-stone-500 hover:text-rose-700 disabled:opacity-30">
+              −
+            </button>
+            <span className="tabular-nums">코디당 {recoN}장</span>
+            <button type="button" aria-label="추천 장수 늘리기" disabled={recoN >= RECO_MAX} onClick={() => set({ recoN: Math.min(RECO_MAX, recoN + 1) })} className="px-1 py-0.5 text-stone-500 hover:text-rose-700 disabled:opacity-30">
+              +
+            </button>
+          </span>
           {codis.length > 0 && (
             <span className="font-normal text-stone-400 tabular-nums">
               사진 {total}장{shot ? ` · 찍음 ${shot}` : ""}

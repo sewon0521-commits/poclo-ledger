@@ -21,6 +21,7 @@ import { ClothTabs, GuideSections } from "./BaseGuide";
 import { ClipBig } from "./LoopClip";
 import PoseBoard from "./PoseBoard";
 import { posePool, shotsOf, POSES_KEY } from "../lib/poses";
+import { usePoseAi } from "../lib/poseReco";
 import { runOrder } from "../lib/shootOrder";
 import PosesTab from "./PosesTab";
 import { ShootRun, CodiPoseSheet } from "./PoseRun";
@@ -1274,6 +1275,7 @@ export default function ShootDays({ d, online }) {
   const studios = useStudios(online);
   const refs = useRefList(online);
   const poses = usePoses(online);
+  usePoseAi(online); // 11/18 진짜 추천 — 포즈 카드 사진 낱말(사무실 PC 가 적어 둠). 바뀌면 다시 그린다
   // 11/17 위 탭 — 촬영 · 포즈 (세원: "촬영 관리 안에 소싱관리처럼 '포즈' 버튼") — 기기마다 기억
   const [tab, setTabRaw] = useState(() => {
     try {

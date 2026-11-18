@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { codiItems, codiName } from "../lib/shoot";
-import { picksOf, shotsOf, flipPhoto, flipCard, stripCode, recommend, codiFolder, placeOfDay, poseFoldersOf, shotsOfLib, IN_ID, OUT_ID, OLD_ID } from "../lib/poses";
+import { picksOf, shotsOf, flipPhoto, flipCard, stripCode, recoOf, codiFolder, placeOfDay, poseFoldersOf, shotsOfLib, IN_ID, OUT_ID, OLD_ID } from "../lib/poses";
 import { runOrder, stepLabel } from "../lib/shootOrder";
 import { withChildren } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
@@ -23,7 +23,9 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
   const other = place === "out" ? IN_ID : OUT_ID;
   const { ids, auto } = picksOf(s, c, cards, d.items);
   const off = new Set(s.posePhotoOff?.[c.id] || []);
-  const reco = useMemo(() => new Set(recommend(cards.filter((k) => !k.place || k.place === place), c, d.items)), [cards, c, d.items, place]);
+  // 11/18 진짜 추천 — 코디 상품을 보고 고른 카드 + 이유(lib/poseReco)
+  const rc = useMemo(() => recoOf(s, c, cards, d.items), [s, c, cards, d.items]);
+  const reco = useMemo(() => new Set(rc.ids), [rc]);
 
   // 왼쪽 묶음 — 이 촬영 쪽(실내/야외) 아래 TOP·SELFIE·BTM·FULL·OUTER(세부) + 예전 포즈 + 다른 쪽 + 폴더 없는 것 + 이 코디만
   const groups = useMemo(() => {
@@ -112,7 +114,7 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
             <div className="text-xs font-bold text-rose-700">
               코디 {n}
               {codis.length > 0 && <span className="font-normal text-stone-400"> / {codis.length}</span>}
-              {auto && <span className="ml-1.5 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">지금은 옷 종류 추천 — 하나라도 바꾸면 고른 그대로</span>}
+              {auto && <span className="ml-1.5 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">지금은 상품 맞춤 추천 — 하나라도 바꾸면 고른 그대로</span>}
             </div>
             <div className="truncate text-sm font-semibold text-stone-900">{codiName(c, d.items)}</div>
           </div>
@@ -229,6 +231,11 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
                         <div className="mt-1 mb-1.5 truncate text-[11px] text-stone-500" title={[stripCode(k.title), k.sec?.text].filter(Boolean).join(" — ")}>
                           {stripCode(k.title) || " "}
                         </div>
+                        {rc.why[k.id] && (
+                          <div className="-mt-1 mb-1.5 line-clamp-2 text-[11px] leading-snug text-rose-700" title={`고른 이유: ${rc.why[k.id]}`}>
+                            {rc.why[k.id]}
+                          </div>
+                        )}
                         <div className={wide ? "flex snap-x gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]" : ""}>
                           {photos.map((p, i) => {
                             const use = on && !off.has(p.key);
