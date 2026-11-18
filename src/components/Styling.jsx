@@ -4,7 +4,7 @@ import { FIELD, md, codiName, codiItems, loadKey, changeKey, upsert, putPhoto, p
 import { normalize } from "../lib/sinsang";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
-import { ReelKitCtx } from "../lib/refClips";
+import { ReelKitCtx, reelTitle } from "../lib/refClips";
 import { useLookbook, lookOf, lookItems, videoTally, renameLook } from "../lib/lookbook";
 import { Sheet, SheetHead, Photo, CheckList, ItemText } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
@@ -505,6 +505,13 @@ export default function StylingSheet({ codi, d, online, onClose, poses }) {
   const changeLook = (k) => (v) => lb.change(day, (l) => ({ ...l, [k]: v })).catch((e) => setMsg(e.message || "룩북 영상을 저장하지 못했어요."));
   const lookDone = new Set(st.lookDone || []);
   const flipLook = (id) => setSt((x) => ({ ...x, lookDone: (x.lookDone || []).includes(id) ? x.lookDone.filter((y) => y !== id) : [...(x.lookDone || []), id] }));
+  // 11/18 참고 영상 장면도 찍을 영상으로 센다(촬영 날 화면에서 '찍음') — 끝냄은 styling.clipDone
+  const clipDone = new Set(st.clipDone || []);
+  const flipClip = (id) => setSt((x) => ({ ...x, clipDone: (x.clipDone || []).includes(id) ? x.clipDone.filter((y) => y !== id) : [...(x.clipDone || []), id] }));
+  const clipRows = (st.clips || []).map((cl, i) => {
+    const reel = (kit?.reels || []).find((r) => r.id === cl.reelId);
+    return { id: cl.id, text: cl.note || (reel ? reelTitle(reel) : `참고 영상 ${i + 1}`) };
+  });
   return (
     <>
     <Sheet onClose={editCats ? () => setEditCats(false) : close} wide>
@@ -539,7 +546,7 @@ export default function StylingSheet({ codi, d, online, onClose, poses }) {
           placeholder="+ 이 코디만 찍을 영상 (예: 거울셀카 걸어오기) 엔터"
           tally={videoTally(st, look)}
           top={
-            lookList.length > 0 && (
+            (lookList.length > 0 || clipRows.length > 0) && (
               <ul className="mb-1.5 space-y-1 border-b border-stone-100 pb-1.5">
                 {lookList.map((x) => {
                   const on = lookDone.has(x.id);
@@ -568,6 +575,24 @@ export default function StylingSheet({ codi, d, online, onClose, poses }) {
                       >
                         룩북 · 필수
                       </button>
+                    </li>
+                  );
+                })}
+                {clipRows.map((x) => {
+                  const on = clipDone.has(x.id);
+                  return (
+                    <li key={x.id} className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => flipClip(x.id)}
+                        aria-pressed={on}
+                        aria-label={on ? "끝낸 것 풀기" : "끝냄"}
+                        className={"mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 " + (on ? "border-stone-700 bg-stone-700 text-white" : "border-stone-300 bg-white")}
+                      >
+                        {on && <Check size={12} strokeWidth={3} />}
+                      </button>
+                      <span className={"min-w-0 flex-1 text-sm " + (on ? "text-stone-400 line-through" : "text-stone-800")}>{x.text}</span>
+                      <span className="mt-0.5 shrink-0 rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold text-stone-600">참고 영상 장면</span>
                     </li>
                   );
                 })}

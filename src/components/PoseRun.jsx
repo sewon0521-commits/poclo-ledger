@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronLeft, ChevronRight, Film, ImagePlus, Images, Loader2, Pencil, Video, X } from "lucide-react";
 import { ReelKitCtx, signedUrls, videoKey, thumbKey, reelTitle } from "../lib/refClips";
 import { stepClips, useVideoRefs } from "../lib/shootVideoRefs";
+import { useLookbook, lookOf, shootVideoRows, flipShootVideo } from "../lib/lookbook";
 import { seedFolders } from "../lib/reelFolders";
 import { useSegmentLoop } from "../lib/useSegmentLoop";
 import { ClipBig } from "./LoopClip";
@@ -321,6 +322,16 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const si = pickStep ?? cur?.step ?? 1;
   const step = steps.find((x) => x.n === si) || steps[0];
   const { urlOf } = usePoseUrls(all.flatMap((r) => r.shots.map((x) => x.key)), online, d);
+  // 11/18 정정 '찍을 영상' — 세원: "그날 코디에 영상 넣은거 있잖아? 룩북영상(공통)이랑 코디별로 영상 이거 다 넣어달라는 말이었엉"
+  //   그날 룩북(공통) + 이 코디 참고 영상 장면 + 이 코디 글 줄(lib/lookbook shootVideoRows). 마지막 겹 사진을 다 찍으면 나온다 — 마지막 겹 '다 입은 영상' 대신.
+  //   찍음은 스타일링 창과 같은 곳에(lookDone · clipDone · videos[].done) → 스타일링 '찍을 영상 n / N'과 같은 수
+  const kit = useContext(ReelKitCtx);
+  const reels = kit?.reels || [];
+  const lb = useLookbook(online);
+  const rowsOf = (cx) => (cx ? shootVideoRows(cx.styling, lookOf(lb.all, cx.shootDate), reels) : []);
+  const vRows = rowsOf(c);
+  const [stageOpen, setStageOpen] = useState(false);
+  const [stageBig, setStageBig] = useState(null); // 크게 볼 장면 번호
   useEffect(() => {
     try {
       sessionStorage.setItem(memo, String(ci));
@@ -341,6 +352,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
     setCi(i);
     setAt(0);
     setPickStep(null);
+    setStageOpen(false);
   };
   const toStep = (n, stamp) => {
     setPickStep(n);
@@ -361,6 +373,9 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
       const next = shots.findIndex((x, i) => i > at && !x.done);
       const st = steps.find((x) => x.n === cur.step);
       if (next >= 0 && (shots[next].step === cur.step || st?.vidDone)) setTimeout(() => setJump({ i: next, n: Date.now() }), 250);
+      // 마지막 겹 사진을 다 찍었으면 '찍을 영상'을 연다
+      const left = shots.filter((x, i) => x.step === cur.step && !x.done && i !== at).length;
+      if (st?.last && vRows.length && !left) setTimeout(() => setStageOpen(true), 300);
     }
   };
   const flipVid = () => {
@@ -373,22 +388,35 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
     }
   };
   const nDone = shots.filter((x) => x.done).length;
-  const stepDone = (x) => x.vidDone && x.shots.every((y) => y.done);
+  // 겹 끝 = 사진 다 + 그 겹 영상. 마지막 겹에 '찍을 영상'이 있으면 그 줄을 다 찍어야 끝
+  const stepDone = (x, cx = c) => {
+    const rs = x.last ? rowsOf(cx) : [];
+    return (rs.length ? rs.every((r) => r.done) : x.vidDone) && x.shots.every((y) => y.done);
+  };
+  const flipRow = (row) =>
+    d.saveCodis((v) => ({ ...v, items: (v.items || []).map((x) => (x.id === c.id ? { ...x, styling: flipShootVideo(x.styling, row) } : x)) })).catch(() => {});
   const allDone = steps.length > 0 && steps.every(stepDone);
   const last = ci === codis.length - 1;
   const stepPhotosDone = step && step.shots.every((x) => x.done);
   const names = (list) => list.map((x) => x.name).join(" · ");
 
-  // 11/18 겹 영상 참고 영상 — 코디 참고 영상(겹) → 영상 종류마다 기본 참고 영상(lib/shootVideoRefs)
-  const kit = useContext(ReelKitCtx);
-  const reels = kit?.reels || [];
+  // 11/18 겹 영상 참고 영상 — 코디 참고 영상(겹) → (그 코디·그날 영상이 하나도 없을 때만) 영상 종류마다 추천 참고 영상(lib/shootVideoRefs)
   const { refs: vrefs, change: changeVrefs } = useVideoRefs(online);
   const [vBig, setVBig] = useState(false);
   const [vPick, setVPick] = useState(null); // 고를 영상 종류
   const [vurls, setVurls] = useState({});
-  const sc = step ? stepClips(c, step, vrefs) : { clips: [], from: "", kind: "" };
-  // 모든 코디·겹 영상을 한 번에 서명 — 겹·코디를 넘겨도 바로 나오게
-  const clipIds = [...new Set(all.flatMap((r, i) => r.steps.flatMap((st) => stepClips(codis[i], st, vrefs).clips.map((cl) => cl.reelId))))].sort().join(",");
+  const sc = step ? stepClips(c, step, vrefs, vRows.length > 0) : { clips: [], from: "", kind: "" };
+  // 모든 코디·겹 영상 + 찍을 영상 장면을 한 번에 서명 — 겹·코디를 넘겨도 바로 나오게
+  const clipIds = [
+    ...new Set(
+      all.flatMap((r, i) => {
+        const rs = rowsOf(codis[i]);
+        return [...r.steps.flatMap((st) => stepClips(codis[i], st, vrefs, rs.length > 0).clips.map((cl) => cl.reelId)), ...rs.filter((x) => x.clip).map((x) => x.clip.reelId)];
+      }),
+    ),
+  ]
+    .sort()
+    .join(",");
   useEffect(() => {
     const ids = clipIds.split(",").filter(Boolean);
     if (!ids.length) return;
@@ -405,14 +433,19 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
       clearInterval(t);
     };
   }, [clipIds, online]);
-  const vClips = sc.clips.map((cl) => ({
+  const full = (cl) => ({
     ...cl,
     src: vurls[videoKey(cl.reelId)] || "",
     poster: vurls[thumbKey(cl.reelId)] || "",
     title: reelTitle(reels.find((r) => r.id === cl.reelId)),
-  }));
+  });
+  const vClips = sc.clips.map(full);
   const hasClips = vClips.length > 0;
   const lastStep = step && !steps.some((x) => x.n > step.n);
+  const isStage = !!step?.last && vRows.length > 0;
+  const stageClips = vRows.filter((r) => r.clip); // 크게 보기는 장면만(글 줄 · 인스타 주소는 볼 영상이 없다)
+  const stageN = vRows.filter((r) => r.done).length;
+  const stageAll = stageN === vRows.length;
   return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-white">
       <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 px-3 py-2">
@@ -433,7 +466,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
                 className="group flex-1 py-2"
               >
                 {/* 11/18 막대는 그대로 얇게, 누르는 칸만 위아래로 넓게 */}
-                <span className={"block h-1.5 rounded-full " + (i === ci ? "bg-rose-700" : r.steps.length && r.steps.every(stepDone) ? "bg-emerald-500" : "bg-stone-200")} />
+                <span className={"block h-1.5 rounded-full " + (i === ci ? "bg-rose-700" : r.steps.length && r.steps.every((x) => stepDone(x, codis[i])) ? "bg-emerald-500" : "bg-stone-200")} />
               </button>
             ))}
           </div>
@@ -523,8 +556,32 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
           </button>
         </div>
       )}
+      {/* 마지막 겹 '찍을 영상' (11/18 정정) — 그날 룩북 + 이 코디 영상. 누르면 목록 */}
+      {isStage && (
+        <div className="shrink-0 px-3 pt-1.5">
+          <button
+            type="button"
+            onClick={() => setStageOpen(true)}
+            className={
+              "flex min-h-12 w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold " +
+              (stageAll ? "bg-emerald-50 text-emerald-700" : stepPhotosDone ? "animate-pulse bg-amber-100 text-amber-900 ring-2 ring-amber-400" : "bg-stone-100 text-stone-700")
+            }
+          >
+            {stageAll ? <Check size={15} strokeWidth={3} className="shrink-0" /> : <Video size={15} className="shrink-0" />}
+            <span className="min-w-0 flex-1">
+              <span className="block">
+                {CIRCLE[step.n - 1]} 찍을 영상 {stageN}/{vRows.length}
+              </span>
+              <span className="block text-[10px] font-normal opacity-75">
+                {[vRows.some((r) => r.kind === "look") && `룩북 ${vRows.filter((r) => r.kind === "look").length}`, vRows.some((r) => r.kind !== "look") && `이 코디 ${vRows.filter((r) => r.kind !== "look").length}`].filter(Boolean).join(" · ")} · 눌러서 보기
+              </span>
+            </span>
+            <ChevronRight size={16} className="shrink-0" />
+          </button>
+        </div>
+      )}
       {/* 그 겹 영상 — 사진을 다 찍으면 깜빡여서 알려 준다. 칸을 누르면 참고 영상이 화면 가득 반복(11/18) */}
-      {step && (
+      {step && !isStage && (
         <div className="shrink-0 px-3 pt-1.5">
           <div
             className={
@@ -539,7 +596,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
             )}
             <button
               type="button"
-              onClick={() => (hasClips ? setVBig(true) : setVPick(sc.kind))}
+              onClick={() => (hasClips ? setVBig(true) : !vRows.length && setVPick(sc.kind))}
               className={"flex min-h-10 min-w-0 flex-1 items-center gap-1.5 px-1 text-left " + (stepPhotosDone && !step.vidDone ? "animate-pulse" : "")}
             >
               {!hasClips && (step.vidDone ? <Check size={15} strokeWidth={3} className="shrink-0" /> : <Video size={15} className="shrink-0" />)}
@@ -549,8 +606,10 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
                 </span>
                 <span className="block text-[10px] font-normal opacity-75">
                   {hasClips
-                    ? `참고 영상${vClips.length > 1 ? ` ${vClips.length}개` : ""} · 눌러서 크게${sc.from === "default" ? " · 기본 참고" : ""}`
-                    : "참고 영상 고르기 ›"}
+                    ? `참고 영상${vClips.length > 1 ? ` ${vClips.length}개` : ""} · 눌러서 크게${sc.from === "default" ? " · 추천(세원 확인 전)" : ""}`
+                    : vRows.length
+                      ? "이 겹은 참고 영상 없이"
+                      : "참고 영상 고르기 ›"}
                 </span>
               </span>
             </button>
@@ -565,6 +624,94 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
             </button>
           </div>
         </div>
+      )}
+      {stageOpen && isStage && (
+        <div className="absolute inset-0 z-10 flex flex-col bg-white">
+          <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 px-3 py-2.5">
+            <button type="button" onClick={() => setStageOpen(false)} className="-m-1.5 flex h-11 items-center gap-0.5 px-1.5 text-sm font-semibold text-stone-600">
+              <ChevronLeft size={18} /> 사진
+            </button>
+            <div className="min-w-0 flex-1 text-center">
+              <div className="text-sm font-bold text-stone-900">
+                코디 {ci + 1} · 찍을 영상 <span className="tabular-nums">{stageN}/{vRows.length}</span>
+              </div>
+              <div className="truncate text-[11px] text-stone-500">{codiName(c, d.items)}</div>
+            </div>
+            <span className="w-14" />
+          </header>
+          <ul className="min-h-0 flex-1 divide-y divide-stone-100 overflow-y-auto px-3">
+            {vRows.map((r) => {
+              const k = stageClips.indexOf(r);
+              const fc = r.clip ? full(r.clip) : null;
+              return (
+                <li key={r.id} className="flex items-center gap-2.5 py-2.5">
+                  {fc ? (
+                    <button type="button" onClick={() => setStageBig(k)} aria-label={`${r.text} 크게 보기`} className="relative aspect-[9/16] w-11 shrink-0 overflow-hidden rounded-lg bg-stone-800">
+                      <MiniLoop clip={fc} play={r === stageClips.find((x) => !x.done)} />
+                    </button>
+                  ) : (
+                    <span className="flex aspect-[9/16] w-11 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-stone-400">
+                      <Video size={15} />
+                    </span>
+                  )}
+                  <button type="button" onClick={() => (fc ? setStageBig(k) : undefined)} className={"min-w-0 flex-1 text-left " + (fc ? "" : "cursor-default")}>
+                    <span className={"mb-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold " + (r.kind === "look" ? "bg-rose-100 text-rose-800" : "bg-stone-100 text-stone-600")}>{r.tag}</span>
+                    <span className={"line-clamp-2 text-sm " + (r.done ? "text-stone-400 line-through" : "font-semibold text-stone-900")}>{r.text}</span>
+                    {fc && <span className="block text-[10px] text-stone-400">눌러서 크게 · 그 장면만 반복</span>}
+                    {r.url && (
+                      <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="block text-[11px] text-sky-700 underline">
+                        인스타에서 보기
+                      </a>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => flipRow(r)}
+                    aria-pressed={r.done}
+                    className={"flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-3 text-xs font-bold " + (r.done ? "border-2 border-emerald-600 bg-white text-emerald-700" : "bg-emerald-600 text-white")}
+                  >
+                    <Check size={14} strokeWidth={3} /> {r.done ? "풀기" : "찍음"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <footer className="flex shrink-0 items-center gap-2 border-t border-stone-200 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+            <button type="button" onClick={() => setStageOpen(false)} className="rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-600">
+              사진으로
+            </button>
+            <button
+              type="button"
+              onClick={() => (last ? onClose() : go(ci + 1))}
+              className={"flex flex-1 items-center justify-center gap-1 rounded-xl py-3 text-sm font-bold " + (stageAll && stepPhotosDone ? "bg-rose-700 text-white" : "border border-stone-200 text-stone-700")}
+            >
+              {last ? "촬영 끝" : "다음 코디"} {!last && <ChevronRight size={17} />}
+            </button>
+          </footer>
+        </div>
+      )}
+      {stageBig != null && stageClips[stageBig] && (
+        <ClipBig
+          clips={stageClips.map((r) => ({ ...full(r.clip), note: r.text }))}
+          at={stageBig}
+          onClose={() => setStageBig(null)}
+          action={{
+            head: (i) => `${stageClips[i]?.tag || ""} · 찍을 영상 ${stageN}/${vRows.length}`,
+            done: (i) => !!stageClips[i]?.done,
+            label: (i) => (stageClips[i]?.done ? "찍음 · 풀기" : "찍음 ✓ → 다음 영상"),
+            onClick: (i) => {
+              const r = stageClips[i];
+              if (!r) return null;
+              flipRow(r);
+              if (r.done) return null;
+              // 다음 안 찍은 장면으로, 없으면 닫기
+              const nx = stageClips.findIndex((x, j) => j > i && !x.done);
+              if (nx >= 0) return nx;
+              setStageBig(null);
+              return null;
+            },
+          }}
+        />
       )}
       {vBig && hasClips && step && (
         <ClipBig

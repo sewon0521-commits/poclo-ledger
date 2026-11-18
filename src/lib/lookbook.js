@@ -36,12 +36,46 @@ export const renameLook = (look, id, text) => ({
   videos: (look.videos || []).map((v) => (v.id === id ? { ...v, name: text } : v)),
 });
 
-/** 이 코디 찍을 영상 끝낸 수 / 전체 — 룩북(그날 필수) + 이 코디 것 */
+/**
+ * 이 코디 찍을 영상 끝낸 수 / 전체 — 룩북(그날 필수) + 이 코디 참고 영상 장면(styling.clips) + 이 코디 글 줄(styling.videos)
+ * 11/18 촬영 날 화면(PoseRun.ShootRun '찍을 영상')에서 장면도 '찍음'을 누르게 되면서 장면도 센다 — 끝냄은 styling.clipDone [장면 id].
+ */
 export function videoTally(st, look) {
   const ids = lookItems(look).map((x) => x.id);
   const doneLook = new Set(st?.lookDone || []);
+  const clips = st?.clips || [];
+  const doneClip = new Set(st?.clipDone || []);
   const own = st?.videos || [];
-  return { done: ids.filter((id) => doneLook.has(id)).length + own.filter((x) => x.done).length, all: ids.length + own.length };
+  return {
+    done: ids.filter((id) => doneLook.has(id)).length + clips.filter((c) => doneClip.has(c.id)).length + own.filter((x) => x.done).length,
+    all: ids.length + clips.length + own.length,
+  };
+}
+
+/**
+ * 촬영 날 '찍을 영상' 줄 (11/18) — 맨 위 룩북 · 필수(그날 공통), 그 아래 이 코디 참고 영상 장면, 이 코디 글 줄. 이름은 lookItems 와 같게(메모 → 릴스 제목).
+ * [{id, kind: "look" | "clip" | "text", text, tag, clip?, url?, done}]
+ */
+export function shootVideoRows(st, look, reels = []) {
+  const lookDone = new Set(st?.lookDone || []);
+  const clipDone = new Set(st?.clipDone || []);
+  const byId = new Map([...(look?.clips || []).map((c) => [c.id, { clip: c }]), ...(look?.videos || []).map((v) => [v.id, { url: v.url }])]);
+  const rows = lookItems(look, reels).map((x) => ({ id: x.id, kind: "look", text: x.text, tag: "룩북 · 필수", ...byId.get(x.id), done: lookDone.has(x.id) }));
+  for (const [i, c] of (st?.clips || []).entries()) {
+    const reel = reels.find((r) => r.id === c.reelId);
+    rows.push({ id: c.id, kind: "clip", text: c.note || (reel ? reelTitle(reel) : `참고 영상 ${i + 1}`), tag: "이 코디", clip: c, done: clipDone.has(c.id) });
+  }
+  for (const v of st?.videos || []) rows.push({ id: v.id, kind: "text", text: v.text || "찍을 영상", tag: "이 코디", done: !!v.done });
+  return rows;
+}
+
+/** 찍음 켜고 끄기 — 스타일링 창과 같은 곳에(룩북 lookDone · 장면 clipDone · 글 줄 videos[].done). 순수 함수 */
+export function flipShootVideo(st0, row) {
+  const st = st0 || {};
+  const tog = (list, id) => ((list || []).includes(id) ? list.filter((x) => x !== id) : [...(list || []), id]);
+  if (row.kind === "look") return { ...st, lookDone: tog(st.lookDone, row.id) };
+  if (row.kind === "clip") return { ...st, clipDone: tog(st.clipDone, row.id) };
+  return { ...st, videos: (st.videos || []).map((v) => (v.id === row.id ? { ...v, done: !v.done } : v)) };
 }
 
 // 한 탭 안의 창들(촬영 창 · 스타일링 창)이 같은 값을 본다

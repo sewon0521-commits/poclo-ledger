@@ -22,13 +22,17 @@ export const KIND_NAME = Object.fromEntries(VIDEO_KINDS.map(([k, n]) => [k, n]))
 /** 겹 → 영상 종류 */
 export const kindOfStep = (step) => (step?.last ? "last" : step?.kind === "first" ? "first" : "mid");
 
-/** 이 겹에 틀 참고 영상 → {clips, from: "codi" | "default" | "", kind} */
-export function stepClips(codi, step, refs) {
+/**
+ * 이 겹에 틀 참고 영상 → {clips, from: "codi" | "default" | "", kind}
+ * 11/18 정정(세원: "룩북영상(공통)이랑 코디별로 영상 이거 다 넣어달라는 말"): 그 코디·그날 넣은 영상이 하나라도 있으면(noDefault)
+ * 기본 참고 영상은 안 튼다 — 세원 OK 전 '추천'이라, 아무것도 없을 때만. 마지막 겹은 촬영 화면의 '찍을 영상' 단계가 대신한다.
+ */
+export function stepClips(codi, step, refs, noDefault = false) {
   const own = codi?.styling?.clips || [];
   const mine = own.filter((c) => Number(c.step) === step.n);
-  const loose = step.last ? own.filter((c) => !c.step) : [];
   const kind = kindOfStep(step);
-  if (mine.length || loose.length) return { clips: [...mine, ...loose], from: "codi", kind };
+  if (mine.length) return { clips: mine, from: "codi", kind };
+  if (noDefault) return { clips: [], from: "", kind };
   const def = refs?.[kind] || [];
   return { clips: def, from: def.length ? "default" : "", kind };
 }
