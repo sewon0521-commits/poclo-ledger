@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronLeft, ChevronRight, Film, ImagePlus, Images, Loader2, Pencil, Video, X } from "lucide-react";
 import { ReelKitCtx, signedUrls, videoKey, thumbKey, reelTitle } from "../lib/refClips";
@@ -316,7 +316,8 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const [jump, setJump] = useState(null);
   const [pickStep, setPickStep] = useState(null); // 사진 없는 겹 칩을 눌렀을 때만 — 사진을 넘기면 풀린다
   const c = codis[ci];
-  const all = codis.map((x) => runOrder(s, x, cards, d.items));
+  // 11/18 밤 "ERP 렉" — 코디 전부의 찍는 순서(+ 추천)는 촬영 줄·코디·카드가 바뀔 때만. 예전엔 사진을 넘길 때마다 처음부터 다시 셌다
+  const all = useMemo(() => codis.map((x) => runOrder(s, x, cards, d.items)), [s, codis, cards, d.items]);
   const { steps, shots } = all[ci] || { steps: [], shots: [] };
   const cur = shots[at];
   const si = pickStep ?? cur?.step ?? 1;

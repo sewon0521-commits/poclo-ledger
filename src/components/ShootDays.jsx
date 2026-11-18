@@ -989,9 +989,10 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
     timer.current = setTimeout(flush, 500);
   };
   // 이 창에서 고친 것(아직 저장 전)까지 넣은 촬영 목록
-  const all = rows.some((r) => r.id === s.id) ? rows.map((r) => (r.id === s.id ? s : r)) : rows;
+  // 11/18 밤 "ERP 렉" — 목록·코디·포즈 계산은 바뀔 때만 다시(예전엔 누를 때마다 코디 전부의 추천·찍는 순서를 처음부터)
+  const all = useMemo(() => (rows.some((r) => r.id === s.id) ? rows.map((r) => (r.id === s.id ? s : r)) : rows), [rows, s]);
   // 10/27 세원: "촬영 관리에서 이 촬영 코디 순서를 변경하게" — 손잡이(⋮⋮)로 끌어 옮기면 s.codiOrder, 시트 링크도 이 순서
-  const codis = inOrder(codisOf(s, d.codis, all), s.codiOrder);
+  const codis = useMemo(() => inOrder(codisOf(s, d.codis, all), s.codiOrder), [s, d.codis, all]);
   const sort = useSort((from, to) => set({ codiOrder: reorder(codis.map((c) => c.id), from, to) }));
   const dayRows = sameDay(all, s.on);
   const siblings = dayRows.filter((r) => r.id !== s.id);
@@ -1013,12 +1014,13 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
   const look = lookOf(lb.all, s.on);
   const nLook = lookItems(look).length;
   // 11/16 포즈 판 — 이 촬영 포즈 카드(lib/poses). 코디 줄 · 스타일링 창에 고른 포즈를 같이 보여 준다
-  const poseList = posePool(s, poses.lib).cards;
+  const poseList = useMemo(() => posePool(null, poses.lib).cards, [poses.lib]);
   const [run, setRun] = useState(!!startRun);
   const [codiPose, setCodiPose] = useState(null); // 이 코디 포즈 창 — 코디 id
+  const shotsBy = useMemo(() => new Map(poseList.length ? codis.map((c) => [c.id, shotsOf(s, c, poseList, d.items)]) : []), [s, codis, poseList, d.items]);
   const poseLine = (c) => {
     if (!poseList.length) return "";
-    const { shots, auto } = shotsOf(s, c, poseList, d.items);
+    const { shots, auto } = shotsBy.get(c.id) || shotsOf(s, c, poseList, d.items);
     if (!shots.length) return "포즈 안 고름";
     const codes = [...new Set(shots.map((x) => (x.own ? "" : x.code)).filter(Boolean))];
     const own = shots.filter((x) => x.own).length;
@@ -1035,7 +1037,7 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
     return `포즈 ${gText}${own ? `${codes.length ? " + " : ""}이 코디만 ${own}` : ""}${auto ? " (추천)" : ""} · ${nd ? `찍음 ${nd}/${shots.length}` : `${shots.length}장`}`;
   };
   // 11/17 밤 촬영 날 화면과 같은 수 — 겹마다 다시 찍는 상의 포즈까지(lib/shootOrder)
-  const runs = poseList.length ? codis.map((c) => runOrder(s, c, poseList, d.items).shots) : [];
+  const runs = useMemo(() => (poseList.length ? codis.map((c) => runOrder(s, c, poseList, d.items).shots) : []), [s, codis, poseList, d.items]);
   const totalShots = runs.reduce((n, l) => n + l.length, 0);
   const doneShots = runs.reduce((n, l) => n + l.filter((x) => x.done).length, 0);
   const liveCodiPose = codiPose && codis.find((c) => c.id === codiPose);

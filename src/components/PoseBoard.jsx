@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, Undo2, X } from "lucide-react";
 import { md, codiItems, codiName } from "../lib/shoot";
@@ -328,15 +328,20 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
   const [undo, setUndo] = useState(null); // {text, prev:{posePicks, posePhotoOff}}
   const lib = poses.lib;
   const folders = poseFoldersOf(lib);
-  const { cards, hidden } = poseDeck(lib);
+  // 11/18 밤 "ERP 렉" — 카드·코디 줄 계산은 바뀔 때만(예전엔 누를 때마다 코디 전부의 추천을 처음부터)
+  const { cards, hidden } = useMemo(() => poseDeck(lib), [lib]);
   const want = placeOfDay(s);
   const recoN = recoNOf(s);
-  const rows = codis.map((c) => {
-    const { shots, auto, ids } = shotsOf(s, c, cards, d.items);
-    // 11/18 진짜 추천 — 코디 상품을 보고 약 N장 + 카드마다 이유(lib/poseReco). 고른 코디엔 아직 안 담은 추천만 점선으로
-    const rc = recoOf(s, c, cards, d.items);
-    return { c, shots, auto, ids, reco: rc.ids.filter((id) => !ids.includes(id)), why: rc.why, short: rc.short };
-  });
+  const rows = useMemo(
+    () =>
+      codis.map((c) => {
+        const { shots, auto, ids } = shotsOf(s, c, cards, d.items);
+        // 11/18 진짜 추천 — 코디 상품을 보고 약 N장 + 카드마다 이유(lib/poseReco). 고른 코디엔 아직 안 담은 추천만 점선으로
+        const rc = recoOf(s, c, cards, d.items);
+        return { c, shots, auto, ids, reco: rc.ids.filter((id) => !ids.includes(id)), why: rc.why, short: rc.short };
+      }),
+    [s, codis, cards, d.items],
+  );
   const { urlOf } = usePoseUrls(
     [...new Set(rows.flatMap((r) => [...r.ids, ...r.reco]))].map((id) => cards.find((k) => k.id === id)?.sec.photos?.[0]?.key),
     online,

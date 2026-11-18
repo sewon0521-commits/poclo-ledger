@@ -30,7 +30,7 @@ import { ReelKitCtx } from "../lib/refClips";
 // 예전엔 화면을 바꿀 때마다 상품 목록 전체(약 640KB)를 다시 받고 다 받을 때까지 '불러오는 중'이었다.
 // 이제 받은 것을 이 탭에 들고 있다가(없으면 이 기기 사본) 바로 보여 주고, 60초가 지났을 때만 뒤에서 새로 읽는다.
 // 그 사이 상대가 고친 건 방송·4초 확인(onSettingsChange·watchKeys)이 그 키만 받아 온다. 사진 주소도 들고 있는다.
-const MEM = { at: 0, d: null, urls: {} };
+const MEM = { at: 0, d: null, urls: {}, inflight: null };
 // 이 기기 사본은 마지막으로 서버에서 읽은 지 30분 안일 때만 먼저 보여 준다 (10/27 세원: "새로고침하면 예전에 진행했던 게 갑자기 떠" —
 // 며칠 묵은 사본이 먼저 보였다가 서버 것으로 바뀌었다). 그보다 오래되면 서버에서 받을 때까지 '불러오는 중'.
 const LOADED_AT = "poclo_shoot_loaded_at";
@@ -93,18 +93,28 @@ function useData(online) {
       return;
     }
     // 읽는 동안 내가 저장한 키는 그 답을 버린다(누르기 전 값이라 되돌린다 — lib/saveQueue '저장 표시')
-    const m0 = Object.fromEntries(["shoot_items", "shoot_codis", "shoot_refs", "sample_refusals"].map((k) => [k, saveMark(k)]));
+    // 11/18 밤 "ERP 렉" — 촬영 화면을 옮겨 다니면(촬영 → 촬영 관리) 다 읽기 전에 칸이 새로 떠서 상품 목록(약 1.3MB)을 두 번 받았다 → 읽는 중이면 그 읽기를 같이 쓴다
+    if (!MEM.inflight || MEM.inflight.online !== online)
+      MEM.inflight = {
+        online,
+        m0: Object.fromEntries(["shoot_items", "shoot_codis", "shoot_refs", "sample_refusals"].map((k) => [k, saveMark(k)])),
+        p: Promise.all([
+          loadKey("shoot_items", online),
+          loadKey("shoot_codis", online),
+          loadKey("shoot_refs", online),
+          loadKey("shoot_tags", online, DEFAULT_TAGS),
+          loadKey("shoot_folders", online),
+          loadKey("shoot_msg", online, DEFAULT_MSGS),
+          loadKey("sample_refusals", online),
+        ]),
+      };
+    const job = MEM.inflight;
+    const m0 = job.m0;
     const fresh = (k) => saveMark(k) === m0[k];
     try {
-      const [a, b, c, t, f, m, r] = await Promise.all([
-        loadKey("shoot_items", online),
-        loadKey("shoot_codis", online),
-        loadKey("shoot_refs", online),
-        loadKey("shoot_tags", online, DEFAULT_TAGS),
-        loadKey("shoot_folders", online),
-        loadKey("shoot_msg", online, DEFAULT_MSGS),
-        loadKey("sample_refusals", online),
-      ]);
+      const [a, b, c, t, f, m, r] = await job.p.finally(() => {
+        if (MEM.inflight === job) MEM.inflight = null;
+      });
       // 서버 값 위에 아직 저장 중인 변경을 얹는다 (lib/saveQueue — 저장 중에 새로 읽어도 예전 상태가 안 뜨게)
       if (fresh("sample_refusals")) setRefusals(withPending("sample_refusals", r).items || []);
       setMsgs({ ...DEFAULT_MSGS, ...m });

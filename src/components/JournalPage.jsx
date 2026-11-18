@@ -32,6 +32,7 @@ import { clipImages, filesOf } from "../lib/pasteImages";
 import { PEOPLE, dayKey, shiftDay, dayTitle, shortDay, loadJournal, changeJournal, routinesOn, weekdayOf, WEEKDAYS } from "../lib/journal";
 import { newId } from "../lib/id";
 import { kindOf, isTask } from "../lib/journalBlocks";
+import { useWide } from "../lib/split";
 
 // 노션식 편집기 (10/11) — 업무일지를 쓸 때만 받는다. 받기에 실패하면(인터넷 끊김 등) 예전 편집기로
 const NoteEditor = lazy(() =>
@@ -2675,9 +2676,18 @@ export default function JournalPage({ online }) {
  * 내 일지(이 기기 사람)의 하루 페이지 + 오늘 할 일만. 업무일지 화면에서는 App 이 안 그린다(같은 글을 두 곳에서 고치지 않게).
  * 닫아도 칸은 그대로 두고(치던 글·저장 타이머 유지) 숨기기만 한다. 열 때 30초 넘게 지났으면 새로 읽고 칸을 새로 만든다(gen) —
  * 그사이 업무일지 화면이나 다른 기기에서 고친 글을 예전 글로 덮지 않으려고.
+ * 11/18 밤 "ERP 렉" — 예전엔 닫혀 있어도(폰에선 단추도 안 보이는데) 노션식 편집기(BlockNote) 두 개를 늘 띄워 뒀다.
+ *   그 편집기는 화면이 움직일 때마다 페이지 맨 위(html)에 글자 칸 크기를 다시 적고 폭을 재서 페이지 전체 모양을 다시 계산하게 한다(폰에서 크게 느려짐).
+ *   → 폰(768px 아래)에선 아예 안 그리고, PC 에서도 처음 열 때부터만 편집기를 띄운다(그 뒤로는 닫아도 그대로 — 치던 글 유지).
  */
 export function JournalQuick({ online, onOpenPage }) {
+  const wide = useWide("(min-width: 768px)");
+  if (!wide) return null;
+  return <JournalQuickPc online={online} onOpenPage={onOpenPage} />;
+}
+function JournalQuickPc({ online, onOpenPage }) {
   const [open, setOpen] = useState(false);
+  const [ever, setEver] = useState(false); // 한 번이라도 열었나 — 그 전엔 편집기를 안 띄운다
   const [me, setMe] = useState(readMe);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -2711,6 +2721,7 @@ export function JournalQuick({ online, onOpenPage }) {
   const toggle = async () => {
     if (open) return setOpen(false);
     setOpen(true);
+    setEver(true);
     const t = dayKey();
     if (t !== today) {
       setToday(t);
@@ -2816,7 +2827,7 @@ export function JournalQuick({ online, onOpenPage }) {
               </div>
               <p className="text-xs text-stone-400">고르면 내 일지를 여기서 바로 써요.</p>
             </div>
-          ) : !data || loading ? (
+          ) : !data || loading || !ever ? (
             <div className="flex h-48 items-center justify-center text-stone-300">
               <Loader2 size={20} className="animate-spin" />
             </div>

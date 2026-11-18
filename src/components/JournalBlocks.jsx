@@ -7,7 +7,7 @@ import {
   useBlockNoteEditor,
   useComponentsContext,
   useActiveStyles,
-  FormattingToolbarController,
+  DesktopFormattingToolbarController,
   FormattingToolbar,
   BlockTypeSelect,
   BasicTextStyleButton,
@@ -175,11 +175,14 @@ const dragMenu = () => (
   </DragHandleMenu>
 );
 
-/** 글을 고르면 뜨는 꾸미기 막대 — 색·링크·정렬은 저장할 수 없어서 뺐다 */
+/** 글을 고르면 뜨는 꾸미기 막대 — 색·링크·정렬은 저장할 수 없어서 뺐다
+ *  11/18 밤 "ERP 렉" — FormattingToolbarController 는 폰 키보드를 재려고(useVirtualKeyboard) 화면이 움직일 때마다 html 에 --bn-vv-* 5개를 적고
+ *  폭을 다시 재서 **페이지 전체**를 다시 계산하게 했다(편집기가 떠 있는 동안 — 촬영 창 메모 · 업무일지 단추 · 소싱 메모). 폰에서 촬영 창이 크게 느려진 원인.
+ *  → PC 용 막대(DesktopFormattingToolbarController — 고른 글 위에 뜨는 막대)를 폰에서도 쓴다. */
 function Bars({ todo }) {
   return (
     <>
-      <FormattingToolbarController
+      <DesktopFormattingToolbarController
         formattingToolbar={() => (
           <FormattingToolbar>
             <BlockTypeSelect key="type" />
