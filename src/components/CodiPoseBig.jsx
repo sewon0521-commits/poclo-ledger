@@ -122,7 +122,7 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
         </button>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[13rem_minmax(0,1fr)_17rem]">
+      <div className="grid min-h-0 flex-1 grid-cols-[11.5rem_minmax(0,1fr)_15rem]">
         {/* 왼쪽 묶음 */}
         <nav className="min-h-0 overflow-y-auto border-r border-stone-200 bg-stone-50/60 p-2">
           {groups.map((gr) => {
@@ -180,32 +180,36 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
               {!shown.length ? (
                 <p className="py-10 text-center text-sm text-stone-400">이 묶음엔 포즈 카드가 없어요 — 왼쪽에서 다른 묶음을 눌러 봐요.</p>
               ) : (
-                <div className="space-y-4">
+                // 11/18 카드를 여러 칸으로 나란히(1440 → 5칸 · 1280 → 4칸) — 사진이 2장 넘는 카드만 두 칸, 그 안에서 옆으로 넘기기
+                <div className="grid grid-flow-row-dense grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2.5">
                   {shown.map((k) => {
                     const on = ids.includes(k.id);
                     const photos = k.sec.photos || [];
+                    const wide = photos.length > 1;
                     return (
-                      <section key={k.id} className={"rounded-xl border p-3 " + (on ? "border-rose-200 bg-rose-50/40" : "border-stone-200")}>
-                        <div className="mb-2 flex items-center gap-2">
-                          <span className="text-sm font-bold text-stone-900">{k.code}</span>
-                          <span className="min-w-0 truncate text-sm text-stone-600">{stripCode(k.title)}</span>
-                          {reco.has(k.id) && <span className="shrink-0 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">추천</span>}
-                          {k.ok !== true && <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">확인 전</span>}
-                          {k.shot && <span className="shrink-0 rounded bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-600">{k.shot}</span>}
+                      <section key={k.id} className={"flex min-w-0 flex-col rounded-xl border p-2 " + (wide ? "col-span-2 " : "") + (on ? "border-rose-200 bg-rose-50/40" : "border-stone-200")}>
+                        <div className="mb-1 flex min-w-0 items-center gap-1">
+                          <span className="shrink-0 text-xs font-bold text-stone-900">{k.code}</span>
+                          {reco.has(k.id) && <span className="shrink-0 rounded-full bg-rose-50 px-1 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">추천</span>}
+                          {k.ok !== true && <span className="shrink-0 rounded-full bg-amber-50 px-1 text-[10px] font-semibold text-amber-700">확인 전</span>}
                           <button
                             type="button"
                             onClick={() => set(flipCard(sRef.current, c, cards, d.items, k))}
-                            className={"ml-auto shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold " + (on ? "border border-stone-200 bg-white text-stone-600 hover:text-rose-700" : "bg-rose-700 text-white")}
+                            title={on ? "카드 빼기" : "카드째 넣기"}
+                            className={"ml-auto shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold " + (on ? "border border-stone-200 bg-white text-stone-600 hover:text-rose-700" : "bg-rose-700 text-white")}
                           >
-                            {on ? "카드 빼기" : "카드째 넣기"}
+                            {on ? "빼기" : "카드째"}
                           </button>
                         </div>
-                        {k.sec?.text && <p className="mb-2 line-clamp-2 text-xs text-stone-500">{k.sec.text}</p>}
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5">
+                        <div className="mb-1.5 truncate text-[11px] text-stone-500" title={[stripCode(k.title), k.sec?.text].filter(Boolean).join(" — ")}>
+                          {stripCode(k.title)}
+                          {k.shot && <span className="ml-1 text-stone-400">· {k.shot}</span>}
+                        </div>
+                        <div className={wide ? "flex snap-x gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]" : ""}>
                           {photos.map((p, i) => {
                             const use = on && !off.has(p.key);
                             return (
-                              <div key={p.key} className="group relative">
+                              <div key={p.key} className={"group relative " + (wide ? "w-[calc(50%-0.1875rem)] shrink-0 snap-start" : "")}>
                                 <button
                                   type="button"
                                   onClick={() => set(flipPhoto(sRef.current, c, cards, d.items, k, p.key))}
@@ -234,6 +238,7 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
                             );
                           })}
                         </div>
+                        {wide && photos.length > 2 && <div className="mt-1 text-right text-[10px] text-stone-400">사진 {photos.length}장 · 옆으로 넘겨요</div>}
                       </section>
                     );
                   })}
