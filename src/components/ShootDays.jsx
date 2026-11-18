@@ -24,6 +24,7 @@ import { posePool, shotsOf, POSES_KEY } from "../lib/poses";
 import { runOrder } from "../lib/shootOrder";
 import PosesTab from "./PosesTab";
 import { ShootRun, CodiPoseSheet } from "./PoseRun";
+import VideoRefsBox from "./VideoRefsBox";
 
 /**
  * 촬영 › 촬영 관리 (10/25) — 세원: "소싱 관리랑 촬영 관리랑 따로 나눠야 할 것 같기도 하고. 모델분들도 다른 건 다 못 보게 하고 촬영 관리만 볼 수 있게"
@@ -1154,6 +1155,9 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
 
           {/* 11/16 포즈 판 — 줄 = 이 촬영 코디, 칸 = 포즈 카드(모델 레퍼런스). 옷 종류로 추천을 깔아 두고 세원은 바꾸기만 */}
           <PoseBoard s={s} set={set} codis={codis} d={d} poses={poses} online={online} onRun={() => setRun(true)} onCodi={(c) => setCodiPose(c.id)} />
+
+          {/* 11/18 촬영 날 겹 영상 칸을 누르면 나오는 기본 참고 영상(코디에 참고 영상이 없을 때) */}
+          <VideoRefsBox online={online} />
 
           {/* 10/27 세원: "찍을 컷, 찍을 영상 그걸 이 촬영 코디 안에 각각" → 11/6 "스타일링에 찍을 컷, 찍을 영상 없애도 될 듯"(코디마다 칸도 뺌).
               예전에 촬영 전체로 적어 둔 것만 아래에 남겨 보여 준다(지우면 사라짐). */}

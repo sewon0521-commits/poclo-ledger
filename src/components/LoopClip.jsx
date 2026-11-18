@@ -91,8 +91,11 @@ export default function LoopClip({ src, poster, start = 0, end = 0, className = 
   );
 }
 
-/** 화면 가득 — 촬영장에서 모델에게 보여 줄 때. clips [{src, poster, start, end, note, title}] · ← → 넘기기 · Esc 닫기 */
-export function ClipBig({ clips, at = 0, onClose }) {
+/**
+ * 화면 가득 — 촬영장에서 모델에게 보여 줄 때. clips [{src, poster, start, end, note, title}] · ← → 넘기기 · Esc 닫기
+ * action {label, done, onClick, head} (11/18 촬영 날 겹 영상) — 맨 아래 큰 단추(예: '영상 찍음'), head = 맨 위 작은 글(어느 겹 영상인지)
+ */
+export function ClipBig({ clips, at = 0, onClose, action }) {
   const [i, setI] = useState(Math.min(Math.max(0, at), clips.length - 1));
   const go = (d) => setI((x) => (x + d + clips.length) % clips.length);
   useEffect(() => {
@@ -115,6 +118,7 @@ export function ClipBig({ clips, at = 0, onClose }) {
     <div className="backdrop-in fixed inset-0 z-[70] flex flex-col bg-black text-white">
       <div className="flex shrink-0 items-center gap-2 px-3 py-2">
         <span className="min-w-0 flex-1">
+          {action?.head && <span className="block truncate text-[11px] font-semibold text-amber-300">{action.head}</span>}
           {clips.length > 1 && <span className="mr-2 text-sm text-white/60 tabular-nums">{i + 1} / {clips.length}</span>}
           <span className="text-sm font-semibold">{c.note || c.title || "참고 영상"}</span>
         </span>
@@ -135,7 +139,20 @@ export function ClipBig({ clips, at = 0, onClose }) {
           </>
         )}
       </div>
-      <p className="shrink-0 px-3 py-2 text-center text-xs text-white/50">영상을 누르면 멈추고, 다시 누르면 그 장면만 계속 반복돼요</p>
+      {action ? (
+        <div className="shrink-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={action.onClick}
+            className={"flex min-h-12 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-bold " + (action.done ? "border-2 border-emerald-400 text-emerald-300" : "bg-emerald-600 text-white")}
+          >
+            {action.label}
+          </button>
+          <p className="mt-1.5 text-center text-[11px] text-white/45">영상을 누르면 멈추고, 다시 누르면 그 장면만 계속 반복돼요</p>
+        </div>
+      ) : (
+        <p className="shrink-0 px-3 py-2 text-center text-xs text-white/50">영상을 누르면 멈추고, 다시 누르면 그 장면만 계속 반복돼요</p>
+      )}
     </div>,
     document.body,
   );

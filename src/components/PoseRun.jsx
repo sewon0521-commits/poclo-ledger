@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, ImagePlus, Images, Loader2, Pencil, Video, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Film, ImagePlus, Images, Loader2, Pencil, Video, X } from "lucide-react";
+import { ReelKitCtx, signedUrls, videoKey, thumbKey, reelTitle } from "../lib/refClips";
+import { stepClips, useVideoRefs } from "../lib/shootVideoRefs";
+import { seedFolders } from "../lib/reelFolders";
+import { useSegmentLoop } from "../lib/useSegmentLoop";
+import { ClipBig } from "./LoopClip";
+import { ReelPick } from "./RefClips";
 import { codiItems, codiName } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -232,6 +238,28 @@ export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose }) {
 
 const CIRCLE = "①②③④⑤⑥⑦⑧⑨";
 
+/** 겹 영상 칸 안 작은 미리보기 — 그 겹 사진을 다 찍으면 소리 없이 그 구간만 반복, 아니면 썸네일 */
+function MiniLoop({ clip, play }) {
+  const ref = useRef(null);
+  useSegmentLoop(ref, clip?.start || 0, clip?.end || 0, !!clip?.src && play);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    v.muted = true;
+    v.currentTime = clip?.start || 0;
+    v.play().catch(() => {});
+  }, [play, clip?.src, clip?.start]);
+  if (clip?.src && play)
+    // eslint-disable-next-line jsx-a11y/media-has-caption
+    return <video ref={ref} src={`${clip.src}#t=${clip.start || 0}`} muted playsInline preload="metadata" className="h-full w-full object-cover" />;
+  if (clip?.poster) return <img src={clip.poster} alt="" className="h-full w-full object-cover" />;
+  return (
+    <span className="flex h-full w-full items-center justify-center text-stone-400">
+      <Film size={14} />
+    </span>
+  );
+}
+
 /**
  * 촬영 날 화면 — 폰 먼저. 코디 하나씩, 포즈 사진 크게, 사진마다 찍음 ✓
  * 11/17 밤 찍는 순서(lib/shootOrder): 안쪽 옷부터 입으면서 — 겹(①②③) 칩 · 겹마다 사진(TOP → SELFIE → BTM / OUTER → FULL) → 그 겹 영상 ✓.
@@ -313,6 +341,41 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const last = ci === codis.length - 1;
   const stepPhotosDone = step && step.shots.every((x) => x.done);
   const names = (list) => list.map((x) => x.name).join(" · ");
+
+  // 11/18 겹 영상 참고 영상 — 코디 참고 영상(겹) → 영상 종류마다 기본 참고 영상(lib/shootVideoRefs)
+  const kit = useContext(ReelKitCtx);
+  const reels = kit?.reels || [];
+  const { refs: vrefs, change: changeVrefs } = useVideoRefs(online);
+  const [vBig, setVBig] = useState(false);
+  const [vPick, setVPick] = useState(null); // 고를 영상 종류
+  const [vurls, setVurls] = useState({});
+  const sc = step ? stepClips(c, step, vrefs) : { clips: [], from: "", kind: "" };
+  // 모든 코디·겹 영상을 한 번에 서명 — 겹·코디를 넘겨도 바로 나오게
+  const clipIds = [...new Set(all.flatMap((r, i) => r.steps.flatMap((st) => stepClips(codis[i], st, vrefs).clips.map((cl) => cl.reelId))))].sort().join(",");
+  useEffect(() => {
+    const ids = clipIds.split(",").filter(Boolean);
+    if (!ids.length) return;
+    let alive = true;
+    const get = () =>
+      signedUrls(ids.flatMap((id) => [videoKey(id), thumbKey(id)]), online)
+        .then((m) => alive && setVurls((u) => ({ ...u, ...m })))
+        .catch(() => {});
+    get();
+    // 서명 주소는 4시간 — 촬영이 길어져도 안 끊기게 20분마다 확인(3시간 반이 지난 것만 새로 받는다)
+    const t = setInterval(get, 20 * 60 * 1000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [clipIds, online]);
+  const vClips = sc.clips.map((cl) => ({
+    ...cl,
+    src: vurls[videoKey(cl.reelId)] || "",
+    poster: vurls[thumbKey(cl.reelId)] || "",
+    title: reelTitle(reels.find((r) => r.id === cl.reelId)),
+  }));
+  const hasClips = vClips.length > 0;
+  const lastStep = step && !steps.some((x) => x.n > step.n);
   return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-white">
       <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 px-3 py-2">
@@ -423,25 +486,75 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
           </button>
         </div>
       )}
-      {/* 그 겹 영상 — 사진을 다 찍으면 깜빡여서 알려 준다 */}
+      {/* 그 겹 영상 — 사진을 다 찍으면 깜빡여서 알려 준다. 칸을 누르면 참고 영상이 화면 가득 반복(11/18) */}
       {step && (
         <div className="shrink-0 px-3 pt-1.5">
-          <button
-            type="button"
-            onClick={flipVid}
-            aria-pressed={step.vidDone}
+          <div
             className={
-              "flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-semibold " +
-              (step.vidDone ? "bg-emerald-50 text-emerald-700" : stepPhotosDone ? "animate-pulse bg-amber-100 text-amber-900 ring-2 ring-amber-400" : "bg-stone-100 text-stone-600")
+              "flex min-h-12 items-center gap-1.5 rounded-xl p-1.5 text-xs font-semibold " +
+              (step.vidDone ? "bg-emerald-50 text-emerald-700" : stepPhotosDone ? "bg-amber-100 text-amber-900 ring-2 ring-amber-400" : "bg-stone-100 text-stone-600")
             }
           >
-            {step.vidDone ? <Check size={15} strokeWidth={3} className="shrink-0" /> : <Video size={15} className="shrink-0" />}
-            <span className="min-w-0 flex-1">
-              {CIRCLE[step.n - 1]} {step.video}
-            </span>
-            <span className="shrink-0 font-bold">{step.vidDone ? "영상 찍음 · 풀기" : "영상 찍음"}</span>
-          </button>
+            {hasClips && (
+              <button type="button" onClick={() => setVBig(true)} aria-label="참고 영상 크게 보기" className="relative aspect-[9/16] w-9 shrink-0 overflow-hidden rounded-lg bg-stone-800">
+                <MiniLoop clip={vClips[0]} play={!!stepPhotosDone && !step.vidDone} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => (hasClips ? setVBig(true) : setVPick(sc.kind))}
+              className={"flex min-h-10 min-w-0 flex-1 items-center gap-1.5 px-1 text-left " + (stepPhotosDone && !step.vidDone ? "animate-pulse" : "")}
+            >
+              {!hasClips && (step.vidDone ? <Check size={15} strokeWidth={3} className="shrink-0" /> : <Video size={15} className="shrink-0" />)}
+              <span className="min-w-0">
+                <span className="line-clamp-2">
+                  {CIRCLE[step.n - 1]} {step.video}
+                </span>
+                <span className="block text-[10px] font-normal opacity-75">
+                  {hasClips
+                    ? `참고 영상${vClips.length > 1 ? ` ${vClips.length}개` : ""} · 눌러서 크게${sc.from === "default" ? " · 기본 참고" : ""}`
+                    : "참고 영상 고르기 ›"}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={flipVid}
+              aria-pressed={step.vidDone}
+              className={"flex min-h-10 shrink-0 items-center gap-1 rounded-lg px-2.5 font-bold " + (step.vidDone ? "bg-white text-emerald-700" : "bg-white/80 text-stone-800")}
+            >
+              {step.vidDone && <Check size={13} strokeWidth={3} />}
+              {step.vidDone ? "찍음 · 풀기" : "영상 찍음"}
+            </button>
+          </div>
         </div>
+      )}
+      {vBig && hasClips && step && (
+        <ClipBig
+          clips={vClips}
+          onClose={() => setVBig(false)}
+          action={{
+            head: `${CIRCLE[step.n - 1]} ${step.video}`,
+            done: step.vidDone,
+            label: step.vidDone ? "영상 찍음 · 풀기" : lastStep ? "영상 찍음 ✓" : "영상 찍음 ✓ → 다음 겹",
+            onClick: () => {
+              setVBig(false);
+              flipVid();
+            },
+          }}
+        />
+      )}
+      {vPick && (
+        <ReelPick
+          reels={reels}
+          folders={kit?.folders?.length ? kit.folders : seedFolders(reels)}
+          online={online}
+          onClose={() => setVPick(null)}
+          onPick={(clip) => {
+            changeVrefs(vPick, [...(vrefs[vPick] || []), clip]).catch(() => {});
+            setVPick(null);
+          }}
+        />
       )}
       <footer className="mt-1.5 flex shrink-0 items-center gap-2 border-t border-stone-200 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
         <button type="button" onClick={() => ci > 0 && go(ci - 1)} disabled={ci === 0} aria-label="앞 코디" className="rounded-xl border border-stone-200 p-3 text-stone-600 disabled:opacity-30">

@@ -253,7 +253,7 @@ function ClipEditor({ reel, online, init, onSave, onBack, backLabel }) {
 }
 
 /** 릴스 기획 라이브러리에서 고르기 → 자르기. edit = {clip, reel} 이면 바로 자르기(다시 자르기) */
-function ReelPick({ reels, folders, online, edit, onPick, onClose }) {
+export function ReelPick({ reels, folders, online, edit, onPick, onClose }) {
   const [sel, setSel] = useState("all");
   const [q, setQ] = useState("");
   const [bestOnly, setBestOnly] = useState(false);
