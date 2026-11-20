@@ -39,6 +39,13 @@ export const CHANNELS = [
   { k: "etc", label: "기타", short: "기타", via: "paste", tone: "bg-stone-100 text-stone-700 ring-stone-200" },
 ];
 export const channelOf = (k) => CHANNELS.find((c) => c.k === k) || CHANNELS[CHANNELS.length - 1];
+/** 11/21 네이버페이 고객문의는 24시간 안에 답해야 한다(네이버페이센터 '고객 문의에 대해서는 24시간 내에 답변부탁드립니다' · 처리율이 보임)
+ *  — 아직 안 보낸 N페이 문의가 받은 지 24시간 넘었으면 넘은 시간(시간 단위), 아니면 0 */
+export function npayLate(x, now = Date.now()) {
+  if (x?.channel !== "npay" || ["sent", "done"].includes(x.status) || !x.at) return 0;
+  const h = (now - new Date(x.at).getTime()) / 3600e3;
+  return h > 24 ? Math.floor(h) : 0;
+}
 export const isAuto = (k) => !!channelOf(k).auto;
 /** 사무실 PC 가 보내 주는 채널인가 (카페24 API 또는 어사이드) */
 export const canSend = (k) => ["cafe24", "aside"].includes(channelOf(k).via) && !channelOf(k).noSend;

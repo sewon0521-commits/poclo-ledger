@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTriangle, ExternalLink, Trash2, Undo2, ImagePlus, Settings2, CircleCheck, Inbox, Package } from "lucide-react";
 import { loadKey, changeKey, upsert, remove, onSettingsChange, watchKeys } from "../lib/shoot";
-import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, closingOf, closerChips, REVIEW_QUICK, isReview, reviewFlag, answerRow, answersFor, voiceFor, ANSWERS_MAX, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
+import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, closingOf, closerChips, npayLate, REVIEW_QUICK, isReview, reviewFlag, answerRow, answersFor, voiceFor, ANSWERS_MAX, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
 import DelayPage from "./DelayPage";
 import LateOrders from "./LateOrders";
 import { OpsBanner } from "./OpsAlerts";
@@ -645,6 +645,7 @@ ${lines}
                     {(x.urgent || /^🔥/.test(x.caution || "")) && <span title="급함" className="text-xs leading-none">🔥</span>}
                     <span className="min-w-0 truncate text-sm font-semibold text-stone-900">{x.customer || "고객"}</span>
                     <StatusChip s={x.status} />
+                    {npayLate(x) > 0 && <span title="네이버페이는 24시간 안에 답해야 해요(처리율에 잡혀요)" className="shrink-0 rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">24시간 넘음</span>}
                     <span className="ml-auto shrink-0 text-[11px] text-stone-400 tabular-nums">{when(x.at || x.createdAt)}</span>
                   </span>
                   <span className="mt-1 flex items-center gap-1.5 text-[11px] text-stone-500">
@@ -1171,6 +1172,11 @@ function Detail({ x, D, pcOn, onMsg, bare = false }) {
             <StatusChip s={v.status} />
           </span>
         </div>
+        {npayLate(v) > 0 && (
+          <p className="flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-800 ring-1 ring-rose-200">
+            <AlertTriangle size={13} className="shrink-0" /> 받은 지 {npayLate(v)}시간 — 네이버페이는 24시간 안에 답해야 해요(네이버페이센터 처리율에 잡혀요)
+          </p>
+        )}
         <h3 className="text-lg font-bold text-stone-900">{v.customer ? `${v.customer} 고객님 문의` : "고객 문의"}</h3>
         <p className="text-xs text-stone-400">
           {v.at ? `접수 ${when(v.at)}` : ""}
