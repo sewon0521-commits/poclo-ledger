@@ -37,6 +37,9 @@ export function opsDown(ops, worker, now = Date.now()) {
     if (!last || last.state !== "fail") continue;
     let i = rows.length - 1;
     while (i > 0 && rows[i - 1].state === "fail") i--;
+    // 카톡은 세원이 [카톡 다시 켜기]를 누르면 PC 가 채널 상태를 ok 로 다시 적는다 — 그게 멈춤보다 나중이면 풀린 것(예전 PC 코드는 ok 줄을 안 썼다)
+    const ch = worker?.channels?.[kind];
+    if (kind === "kakao" && ch?.ok && new Date(ch.at || 0).getTime() > new Date(last.at || 0).getTime()) continue;
     const meta = OPS[kind] || { name: last.name || kind, fix: "확인 필요", url: "" };
     const name = meta.name || last.name || kind;
     out.push({ kind, name, since: rows[i].at, msg: last.msg || "", fix: meta.fix, url: meta.url, line: `${name}${iga(name)} ${sinceText(rows[i].at, now)}부터 멈췄어요` });
