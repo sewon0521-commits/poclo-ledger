@@ -10,7 +10,7 @@
 // 고른 것은 촬영 줄(settings shoot_days)에 — posePicks {코디 id: [칸 id]} · poseDone {코디 id: [칸 id]}(촬영 날 찍은 것).
 //   posePicks 에 그 코디가 없으면 = 아직 안 건드림 → 추천을 보여 주고(저장은 안 함), 세원이 한 칸이라도 누르면 그때부터 그 코디는 고른 그대로.
 import { wearPart } from "./shoot";
-import { smartPick, recoNOf } from "./poseReco";
+import { smartPick, recoQOf } from "./poseReco";
 
 export const FITS = ["전신", "아우터", "상의", "하의"];
 
@@ -301,7 +301,7 @@ export function codiFits(c, items) {
  */
 // 11/17 밤 세원: 안쪽 옷부터 입으면서 찍는다(lib/shootOrder) — 아우터를 입기 전에 상의를 먼저 찍으니 아우터가 있어도 상의 컷을 추천한다
 // 11/18 진짜 추천 — 위 거르기는 그대로 두고(recommendAll), 그 안에서 코디 상품을 보고 약 10장만(lib/poseReco smartPick)
-export const RECO_RULE = "코디 상품(핏·원단·넥라인·디테일·소싱 레퍼 구도)에 맞는 포즈 · 묶음마다 한 장 이상 · 카드마다 고른 이유";
+export const RECO_RULE = "코디 상품(핏·원단·넥라인·디테일·소싱 레퍼 구도)에 맞는 포즈 · 묶음마다 추천 장수만큼(겹·옷이 많으면 더) · 카드마다 고른 이유";
 // TOP 세부 폴더(나시 …)는 그 옷이 코디에 있을 때만 — 폴더 이름이 상품 이름에 있거나 아래 말이 있으면
 const TOP_SUB_RE = { 나시: /나시|캐미|슬리브리스|민소매|뷔스티에|홀터|브라탑/i, 니트: /니트|(?<![a-z])nt(?![a-z])/i, 반팔: /반팔|숏\s?슬리브/i, 긴팔티: /긴팔|롱\s?슬리브/i, 셔츠: /셔츠|블라우스|(?<![a-z])(sh|bl)(?![a-z])/i };
 /** TOP 세부 폴더 이름(나시 …)이 이 상의에 맞나 */
@@ -382,20 +382,20 @@ function outerOnly(pool, c, items) {
 export function recommend(cards, c, items, n) {
   return recoPick(cards, c, items, n).ids;
 }
-/** recommend 와 같은데 고른 이유(why · short)까지 */
-export function recoPick(cards, c, items, n) {
+/** recommend 와 같은데 고른 이유(why · short)까지. q = 묶음마다 장수(11/20, 주면 n 대신) */
+export function recoPick(cards, c, items, n, q = null) {
   const pool = new Set(recommendAll(cards, c, items));
   const mine = outerOnly(
     cards.filter((k) => pool.has(k.id) && topSubOk(k, c, items)),
     c,
     items,
   );
-  return smartPick(mine, c, items, n, undefined, topSlots(mine, c, items));
+  return smartPick(mine, c, items, n, undefined, topSlots(mine, c, items), q);
 }
 /** 이 촬영 쪽(실내/야외) 카드에서 진짜 추천 — 포즈판 · 큰 창이 이유를 보여 줄 때 */
 export function recoOf(day, c, cards, items) {
   const want = placeOfDay(day);
-  return recoPick(cards.filter((k) => !k.place || k.place === want), c, items, recoNOf(day));
+  return recoPick(cards.filter((k) => !k.place || k.place === want), c, items, undefined, recoQOf(day));
 }
 /** 옛 추천(옷 종류로 거르기만) — 이 안에서 진짜 추천이 고른다 */
 export function recommendAll(cards, c, items) {

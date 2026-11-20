@@ -4,7 +4,7 @@ import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, Undo2, 
 import { md, codiItems, codiName } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
 import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recoOf, shotsOf, setLibOk, stripCode, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
-import { recoNOf, RECO_MIN, RECO_MAX } from "../lib/poseReco";
+import { recoQOf, RECO_Q_MIN, RECO_Q_MAX } from "../lib/poseReco";
 import { wearSteps, stepLabel } from "../lib/shootOrder";
 import { withChildren, childrenOf, pathName } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
@@ -331,7 +331,7 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
   // 11/18 밤 "ERP 렉" — 카드·코디 줄 계산은 바뀔 때만(예전엔 누를 때마다 코디 전부의 추천을 처음부터)
   const { cards, hidden } = useMemo(() => poseDeck(lib), [lib]);
   const want = placeOfDay(s);
-  const recoN = recoNOf(s);
+  const recoQ = recoQOf(s);
   const rows = useMemo(
     () =>
       codis.map((c) => {
@@ -342,6 +342,8 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
       }),
     [s, codis, cards, d.items],
   );
+  const autoNs = rows.filter((r) => r.auto).map((r) => r.shots.length);
+  const autoRange = autoNs.length ? (Math.min(...autoNs) === Math.max(...autoNs) ? `${autoNs[0]}장` : `${Math.min(...autoNs)}~${Math.max(...autoNs)}장`) : "";
   const { urlOf } = usePoseUrls(
     [...new Set(rows.flatMap((r) => [...r.ids, ...r.reco]))].map((id) => cards.find((k) => k.id === id)?.sec.photos?.[0]?.key),
     online,
@@ -432,16 +434,6 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
         <div className="flex items-center gap-1.5 text-sm font-semibold text-stone-800">
           <Footprints size={15} className="text-rose-700" /> 포즈 판
           <span className={"rounded-full px-2 py-0.5 text-[10px] font-semibold " + (want === "out" ? "bg-sky-50 text-sky-700" : "bg-stone-100 text-stone-600")}>{want === "out" ? "야외 추천" : "실내 추천"}</span>
-          {/* 11/18 추천 장수 — 이 촬영 줄에 저장(recoN)해서 폰·PC 가 같은 추천을 본다. 세원이 고른 코디는 안 바뀐다 */}
-          <span className="flex items-center gap-0.5 rounded-full border border-stone-200 px-1 text-[10px] font-normal text-stone-600" title="추천 그대로인 코디가 코디마다 몇 장을 고를지 — 고른 코디는 안 바뀌어요">
-            <button type="button" aria-label="추천 장수 줄이기" disabled={recoN <= RECO_MIN} onClick={() => set({ recoN: Math.max(RECO_MIN, recoN - 1) })} className="px-1 py-0.5 text-stone-500 hover:text-rose-700 disabled:opacity-30">
-              −
-            </button>
-            <span className="tabular-nums">코디당 {recoN}장</span>
-            <button type="button" aria-label="추천 장수 늘리기" disabled={recoN >= RECO_MAX} onClick={() => set({ recoN: Math.min(RECO_MAX, recoN + 1) })} className="px-1 py-0.5 text-stone-500 hover:text-rose-700 disabled:opacity-30">
-              +
-            </button>
-          </span>
           {codis.length > 0 && (
             <span className="font-normal text-stone-400 tabular-nums">
               사진 {total}장{shot ? ` · 찍음 ${shot}` : ""}
@@ -454,6 +446,36 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
           </button>
         )}
       </div>
+      {/* 11/20 추천 장수 — 묶음(TOP·BTM·FULL·OUTER …)마다 몇 장. 겹·옷이 많은 코디일수록 많아진다. 촬영 줄(recoQ)에 저장 → 폰·PC 같은 추천. 세원이 고른 코디는 안 바뀐다 */}
+      {codis.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-rose-50/60 px-3 py-2">
+          <span className="text-sm font-semibold text-stone-800">추천 장수</span>
+          <span className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-label="추천 장수 줄이기"
+              disabled={recoQ <= RECO_Q_MIN}
+              onClick={() => set({ recoQ: Math.max(RECO_Q_MIN, recoQ - 1) })}
+              className="flex size-8 items-center justify-center rounded-lg border border-rose-200 bg-white text-lg leading-none font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-30"
+            >
+              −
+            </button>
+            <span className="min-w-[7.5rem] text-center text-sm font-bold text-rose-800 tabular-nums">묶음마다 {recoQ}장</span>
+            <button
+              type="button"
+              aria-label="추천 장수 늘리기"
+              disabled={recoQ >= RECO_Q_MAX}
+              onClick={() => set({ recoQ: Math.min(RECO_Q_MAX, recoQ + 1) })}
+              className="flex size-8 items-center justify-center rounded-lg border border-rose-200 bg-white text-lg leading-none font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-30"
+            >
+              +
+            </button>
+          </span>
+          <span className="text-xs text-stone-500">
+            {autoRange ? `추천 코디 ${autoRange} · ` : ""}겹·옷이 많을수록 많아져요 · 직접 고른 코디는 안 바뀌어요
+          </span>
+        </div>
+      )}
       <p className="mb-2 text-xs text-stone-500">
         코디마다 찍을 포즈만 보여요 · <b className="font-semibold text-stone-700">×</b> 빼기 · 점선 = 추천({RECO_RULE}) — 누르면 담겨요 · <b className="font-semibold text-stone-700">+ 포즈</b>로 포즈 칸에서 더 골라요.
         카드를 누르면 사진 · OK, 코디 이름을 누르면 카드에서 사진 한 장만 쓰거나 이 코디만 사진을 넣어요.

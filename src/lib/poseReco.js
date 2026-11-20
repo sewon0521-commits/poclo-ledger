@@ -15,9 +15,14 @@ import { useCallback, useEffect, useState } from "react";
 import { loadKey, onSettingsChange, watchKeys, wearPart } from "./shoot";
 
 export const POSE_AI_KEY = "pose_ai";
-export const RECO_N = 10; // 촬영 줄 recoN 이 없을 때
-export const RECO_MIN = 4;
-export const RECO_MAX = 30;
+export const RECO_N = 10; // (예전) 코디당 장수 — 지금은 묶음마다 장수(recoQ)를 쓴다
+// 11/20 세원: "포즈 판 추천이 10장 밖에 안나오는데 이거 고쳐줘" — 코디당 10장 고정이라 겹이 많은 코디도 10장이었다.
+//   이제 **묶음마다 몇 장**(촬영 줄 recoQ, 기본 5 — 고정 1군 5×5 · 세원이 11/19 직접 고른 코디가 18~26장): 그 코디 겹에 나오는 묶음(TOP·SELFIE·BTM·OUTER·FULL)마다 그만큼,
+//   상의는 세부 카드가 맞는 겹(나시 …)마다 따로 그만큼 → 겹·옷이 많을수록 많아진다. 같은 구도는 깎고, 묶음 몫은 안 넘는다.
+//   찍는 순서(lib/shootOrder)에서 상의·셀카 카드는 상의 겹마다 다시 찍으니 실제 찍는 장수는 겹 수만큼 더 늘어난다.
+export const RECO_Q = 5;
+export const RECO_Q_MIN = 1;
+export const RECO_Q_MAX = 8;
 
 // ---------------------------------------------------------------- 사무실 PC 가 적어 둔 사진 낱말 (pose_ai) — 화면 어디서나 같은 값을 쓰게 한 곳에
 let AI = (() => {
@@ -318,7 +323,8 @@ const shapeOf = (g, tags) => [g, [...tags].find((t) => t.startsWith("f:")) || ""
  * → {ids(카드 순서), why:{카드 id: 이유 한 줄}, short:{카드 id: 짧은 이유}, photos}
  */
 // slots = 상의 겹마다 꼭 한 장(lib/poses topSlots — 나시 겹엔 TOP › 나시 카드) [{label, fit(카드)}]. 없으면 TOP 도 한 장
-export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null) {
+// q = 묶음마다 장수(11/20 — 주면 n 대신 이걸로, recoQOf)
+export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q = null) {
   const its = (c?.itemIds || []).map((id) => (items || []).find((x) => x.id === id)).filter(Boolean);
   const traits = its.flatMap((x) => itemTraits(x, ai));
   const order = new Map(pool.map((k, i) => [k.id, i]));
@@ -372,6 +378,31 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null) {
     }
     take(rows.find((r) => r.g === g), true);
   }
+  // ②' 11/20 묶음마다 q장(q 를 주면) — 묶음(상의는 겹 자리마다)마다 q장까지만, 점수 순·같은 구도는 깎아서. 모자란 묶음 몫을 다른 묶음에 넘기지 않는다
+  if (q) {
+    const keyOf = (r) => (r.g === "TOP" && slots?.length ? `TOP#${slots.findIndex((sl) => sl.fit(r.k))}` : r.g);
+    const inKey = {};
+    for (const r of picked) inKey[keyOf(r)] = (inKey[keyOf(r)] || 0) + r.photos;
+    for (;;) {
+      let best = null;
+      let bestAdj = -Infinity;
+      for (const r of rows) {
+        if (picked.includes(r)) continue;
+        const key = keyOf(r);
+        if (key === "TOP#-1" || (inKey[key] || 0) >= q) continue;
+        const adj = r.score - 2 * picked.filter((p) => p.shape === r.shape).length;
+        if (adj > bestAdj) {
+          bestAdj = adj;
+          best = r;
+        }
+      }
+      if (!best) break;
+      inKey[keyOf(best)] = (inKey[keyOf(best)] || 0) + best.photos;
+      take(best, false);
+    }
+    const ids = picked.map((r) => r.k.id).sort((a, b) => order.get(a) - order.get(b));
+    return { ids, why, short, photos, q };
+  }
   // ② 나머지 — 점수 순, 같은 구도가 겹치면 깎아서. 먼저 묶음 몫(반올림)까지만 채우고, 그래도 모자라면 몫을 넘겨서(깎아서)
   for (const capped of [true, false]) {
     while (photos < n) {
@@ -396,8 +427,8 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null) {
   return { ids, why, short, photos };
 }
 
-/** 촬영 줄의 추천 장수 */
-export const recoNOf = (day) => {
-  const v = Number(day?.recoN);
-  return Number.isFinite(v) && v >= RECO_MIN ? Math.min(RECO_MAX, Math.round(v)) : RECO_N;
+/** 촬영 줄의 추천 — 묶음마다 장수(recoQ, 11/20~) */
+export const recoQOf = (day) => {
+  const v = Number(day?.recoQ);
+  return Number.isFinite(v) && v >= RECO_Q_MIN ? Math.min(RECO_Q_MAX, Math.round(v)) : RECO_Q;
 };
