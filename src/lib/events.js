@@ -15,20 +15,21 @@ export const KEY = "events";
 
 /** 신상 업로드 날 — 날짜마다 그때 규칙(요일 0=일 … 6=토). 지난 달력도 그때 요일로 보이게 규칙을 쌓아 둔다.
  *   예전 월·목 → 10/20 세원 "신상 업로드 월, 화 저녁 6시로 변경" → 11/9 "월요일 18시 하루만"
- *   → 11/18 세원 "일요일 저녁 6시로. 돌아오는 주까지는 23일 월요일로, 다음 주 일요일(29일)부터" (11/23 월 = 마지막 월요일 드랍)
+ *   → 11/18 세원 "일요일 저녁 6시로. 돌아오는 주까지는 23일 월요일로, 다음 주 일요일(29일)부터" (이 줄은 11/21 아래로 바뀜 — 한 번도 안 씀)
+ *   → 11/21 세원 "일·월·화 3일에 나눠 18:00"(주 5~6코디·약 20개, 쇼만마 권유) — 첫 회 11/22(일), 포클로_방향성 창 전달
  *   한 번만 바뀐 날: 11/1(일) 드랍 · 그 주 11/2(월)은 없음(11/3 화로). 바뀌면 여기에 한 줄 더한다. */
 export const DROP_RULES = [
   { from: "", days: [1, 4] },
   { from: "2026-10-20", days: [1, 2] },
   { from: "2026-11-09", days: [1] },
-  { from: "2026-11-29", days: [0] },
+  { from: "2026-11-22", days: [0, 1, 2] },
 ];
 const DROP_ONCE = { "2026-11-01": true, "2026-11-02": false };
 const ruleOf = (k) => [...DROP_RULES].reverse().find((r) => k >= r.from);
 export const isDropDay = (k) => (k in DROP_ONCE ? DROP_ONCE[k] : ruleOf(k).days.includes(weekday(k)));
 export const DROP_LABEL = "신상 6시";
 const DAY_NAME = "일월화수목금토";
-/** 안내 한 줄 — '매주 일요일 저녁 6시' (바뀔 날이 남아 있으면 '11/23까지 월요일 · 11/29부터 일요일 저녁 6시') */
+/** 안내 한 줄 — '매주 일·월·화요일 저녁 6시' (바뀔 날이 남아 있으면 '11/16(월)까지 월요일 · 11/22(일)부터 …', 예전 규칙의 마지막 드랍이 이미 지났으면 '11/22(일)부터 매주 …') */
 export function dropRuleText(today) {
   const now = ruleOf(today);
   const next = DROP_RULES.find((r) => r.from > today);
@@ -37,6 +38,7 @@ export function dropRuleText(today) {
   if (!next) return `매주 ${days(now)} 저녁 6시`;
   let last = shiftDay(next.from, -1);
   for (let i = 0; i < 7 && !isDropDay(last); i++) last = shiftDay(last, -1);
+  if (last < today) return `${md(next.from)}(${DAY_NAME[weekday(next.from)]})부터 매주 ${days(next)} 저녁 6시`;
   return `${md(last)}(${DAY_NAME[weekday(last)]})까지 ${days(now)} · ${md(next.from)}(${DAY_NAME[weekday(next.from)]})부터 ${days(next)} 저녁 6시`;
 }
 
