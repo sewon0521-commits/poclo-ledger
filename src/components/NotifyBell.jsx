@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Bell, Headset } from "lucide-react";
+import { Bell, Headset, AlertOctagon, ExternalLink } from "lucide-react";
 import { loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { channelOf, inTab } from "../lib/cs";
+import { useOps } from "./OpsAlerts";
 
 /**
  * 위 오른쪽 알림 종 + 'HH:MM 기준' (11/10 세원: "넥스트팩처럼 알림이랑 언제 업데이트됐는지 보여줄 수 있어?")
@@ -98,7 +99,9 @@ export default function NotifyBell({ online, onPage }) {
       }))
       .sort((p, q) => String(q.when).localeCompare(String(p.when)));
   }, [cs]);
-  const unread = list.filter((x) => !seen.has(x.id)).length;
+  // 11/20 세원 "멈춰도 모름" — 사무실 PC 자동화가 멈춘 것(ops_alerts). 봤다고 사라지지 않고, 다시 되면(ok) 사라진다
+  const down = useOps(online);
+  const unread = list.filter((x) => !seen.has(x.id)).length + down.length;
 
   const toggle = () => {
     const next = !open;
@@ -124,7 +127,7 @@ export default function NotifyBell({ online, onPage }) {
     <div ref={box} className="relative flex items-center gap-2">
       <button type="button" onClick={toggle} aria-label={`알림 ${unread}개`} className="relative rounded-full p-1.5 text-stone-500 hover:bg-stone-100 hover:text-stone-800">
         <Bell size={18} />
-        {unread > 0 && <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] leading-none font-bold text-white tabular-nums">{unread > 99 ? "99+" : unread}</span>}
+        {unread > 0 && <span className={"absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none font-bold text-white tabular-nums " + (down.length ? "bg-rose-700 ring-2 ring-rose-200" : "bg-rose-600")}>{unread > 99 ? "99+" : unread}</span>}
       </button>
       {at && (
         <span className="flex items-center gap-1 text-xs text-stone-500 tabular-nums" title="서버에서 마지막으로 새로 읽은 시각 — 30초마다 바뀐 게 있는지 봐요">
@@ -135,11 +138,34 @@ export default function NotifyBell({ online, onPage }) {
       {open && (
         <div style={pos || { right: 0, width: 320 }} className="absolute top-full z-40 mt-2 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-lg">
           <div className="flex items-center justify-between border-b border-stone-100 px-3 py-2">
-            <span className="text-sm font-bold text-stone-900">알림 {list.length}</span>
-            <span className="text-[11px] text-stone-400">답할 CS 문의</span>
+            <span className="text-sm font-bold text-stone-900">알림 {list.length + down.length}</span>
+            <span className="text-[11px] text-stone-400">{down.length ? "멈춘 자동화 · 답할 CS 문의" : "답할 CS 문의"}</span>
           </div>
+          {down.length > 0 && (
+            <ul className="divide-y divide-rose-100 border-b border-rose-100 bg-rose-50">
+              {down.map((a) => (
+                <li key={a.kind} className="flex items-start gap-2 px-3 py-2">
+                  <AlertOctagon size={14} className="mt-0.5 shrink-0 text-rose-700" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-rose-900">{a.line}</span>
+                    <span className="block text-[11px] text-rose-800">{a.fix}</span>
+                    <span className="mt-1 flex gap-2 text-[11px]">
+                      {a.url && (
+                        <a href={a.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-semibold text-rose-700 hover:underline">
+                          <ExternalLink size={10} /> 열기
+                        </a>
+                      )}
+                      <button type="button" onClick={() => go("cs")} className="font-semibold text-rose-700 hover:underline">
+                        CS 관리
+                      </button>
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           {!list.length ? (
-            <p className="px-3 py-6 text-center text-xs text-stone-400">새 알림이 없어요.</p>
+            <p className="px-3 py-6 text-center text-xs text-stone-400">{down.length ? "답할 CS 문의는 없어요." : "새 알림이 없어요."}</p>
           ) : (
             <ul className="max-h-96 divide-y divide-stone-100 overflow-y-auto">
               {list.slice(0, 30).map((x) => (

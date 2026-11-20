@@ -3,6 +3,8 @@ import { Send, Loader2, Plus, Search, X, Copy, Check, RefreshCw, Wand2, AlertTri
 import { loadKey, changeKey, upsert, remove, onSettingsChange, watchKeys } from "../lib/shoot";
 import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, closingOf, closerChips, REVIEW_QUICK, isReview, reviewFlag, answerRow, answersFor, voiceFor, ANSWERS_MAX, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
 import DelayPage from "./DelayPage";
+import LateOrders from "./LateOrders";
+import { OpsBanner } from "./OpsAlerts";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
 import { newId } from "../lib/id";
@@ -306,9 +308,10 @@ function StatusChip({ s }) {
 
 // 11/11 세원 "합쳐줘" — 일 › CS 관리 = [문의 답하기] [먼저 연락(배송지연)] [입고 예정]. 같은 손님 기록을 잇는다(lib/cs recentReplies·repliedTo·delaysFor).
 // ⚠ 세원: "지연 칸은 남겨둬야 된다" — 먼저 연락 탭에 네이버 발송지연 처리 + 지연 문자 그대로(DelayPage part="delay").
+// 11/20 '먼저 연락' 탭 → '늦는 주문'(lib/late.js): 맨 위에 주문마다 한 줄 표(LateOrders) + 그 아래 네이버 발송지연·지연 문자 칸 그대로. 열쇠 "delay" 는 그대로(주문내역 '먼저 연락' 단추·기기 기억).
 const SECTIONS = [
   ["inbox", "문의 답하기"],
-  ["delay", "먼저 연락 (배송지연)"],
+  ["delay", "늦는 주문"],
   ["inbound", "입고 예정"],
 ];
 const SECTION_KEY = "poclo_cs_section";
@@ -334,8 +337,16 @@ export default function CsPage({ online, products = [], part = "" }) {
   const replies = useMemo(() => recentReplies(D.inbox, now), [D.inbox, now]);
   const replied = useCallback((row) => repliedTo(replies, row), [replies]);
   const todo = D.inbox.filter((x) => inTab(x, "todo")).length;
+  // 늦는 주문에서 '카드 보기' · '문의 카드에 초안으로' → 문의 답하기 탭의 그 카드
+  const [focus, setFocus] = useState(null);
+  const openCard = useCallback((id) => {
+    if (!id) return;
+    setSec("inbox");
+    setFocus({ id, n: Date.now() });
+  }, []);
   return (
     <div className="space-y-4">
+      <OpsBanner online={online} />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-xl font-bold text-stone-900">CS 관리</h2>
         <nav className="flex gap-1 rounded-xl bg-stone-100 p-1" aria-label="CS 관리 갈래">
@@ -348,10 +359,11 @@ export default function CsPage({ online, products = [], part = "" }) {
         </nav>
       </div>
       {sec === "inbox" ? (
-        <CsInbox products={products} D={D} online={online} />
+        <CsInbox products={products} D={D} online={online} focus={focus} />
       ) : (
         <>
-          {sec === "delay" && <p className="text-sm text-stone-500">늦어지는 주문에 우리가 먼저 연락 — 대상 목록 → 문구·날짜 → 버튼. 최근 3일 안에 개별 답장을 받은 손님은 표시돼요(문자에선 기본으로 빠져요).</p>}
+          {sec === "delay" && <LateOrders online={online} inbox={D.inbox} saveCard={D.saveItem} openCard={openCard} />}
+          {sec === "delay" && <p className="pt-2 text-sm text-stone-500">아래는 예전 '먼저 연락' 칸 그대로 — 네이버페이 발송지연 처리 · 카페24 지연 문자(세원 "지연 칸은 남겨둬야 된다").</p>}
           <DelayPage online={online} part={sec} replied={replied} />
         </>
       )}
@@ -359,7 +371,7 @@ export default function CsPage({ online, products = [], part = "" }) {
   );
 }
 
-function CsInbox({ products = [], D, online }) {
+function CsInbox({ products = [], D, online, focus = null }) {
   const [tab, setTab] = useState(() => {
     try {
       return localStorage.getItem("poclo_cs_tab") || "todo";
@@ -369,7 +381,14 @@ function CsInbox({ products = [], D, online }) {
   });
   const [q, setQ] = useState("");
   const [ch, setCh] = useState("");
-  const [sel, setSel] = useState(null);
+  const [sel, setSel] = useState(() => focus?.id || null);
+  // 늦는 주문에서 '카드 보기'로 들어오면 그 카드를 연다(어느 탭이든 보이게 '전체'로)
+  useEffect(() => {
+    if (!focus?.id) return;
+    setSel(focus.id);
+    setTab("all");
+    setCh("");
+  }, [focus]);
   const [adding, setAdding] = useState(null); // {images?:[dataURL]} — 문의 붙여넣기 창
   const [tplOpen, setTplOpen] = useState(false);
   const [msg, setMsg] = useState("");

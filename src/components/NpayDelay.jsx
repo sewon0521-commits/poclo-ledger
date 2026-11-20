@@ -80,7 +80,7 @@ export default function NpayDelay({ online, always = false, replied = null }) {
   };
 
   return (
-    <section className="rounded-2xl border border-green-200 bg-white">
+    <section id="npay-delay" className="scroll-mt-4 rounded-2xl border border-green-200 bg-white">
       <button type="button" onClick={() => setOpen(!open)} className="flex w-full flex-wrap items-center gap-2 px-4 pt-3 pb-2 text-left">
         <Truck size={15} className="text-green-700" />
         <span className="text-sm font-bold text-stone-900">네이버페이 발송지연</span>
