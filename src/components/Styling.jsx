@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ExternalLink, Film, ImagePlus, Loader2, Pencil, Plus, X } from "lucide-react";
+import { Check, ExternalLink, Film, ImagePlus, Loader2, Pencil, X } from "lucide-react";
 import { FIELD, md, codiName, codiItems, loadKey, changeKey, upsert, putPhoto, photoUrls, fixUrl } from "../lib/shoot";
 import { newId } from "../lib/id";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -8,8 +8,8 @@ import { Sheet, SheetHead, Photo } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
 import { IgEmbed, igEmbedOf } from "./IgEmbed";
 import { RefClipsBox } from "./RefClips";
-import GoodsPick from "./GoodsPick";
-import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING, goodsOf, pickedGoods } from "../lib/styling";
+import GoodsBoard from "./GoodsBoard";
+import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING } from "../lib/styling";
 
 /**
  * 코디 스타일링 (10/25) — 세원: "이날 코디에 해당 칸이 뜨면 눌러서 이 코디에 헤어는 어떻게 할지, 신발, 악세서리(반지, 목걸이 등)는
@@ -26,7 +26,8 @@ import { OPTS_KEY, DEFAULT_OPTS, EMPTY_STYLING, goodsOf, pickedGoods } from "../
  *   찍을 컷, 찍을 영상 밑에. 헤어, 악세 선택하는 게 마지막으로." → 창 순서: 코디 → 찍을 컷 · 찍을 영상 → 참고 사진 → 참고 영상 → 코디 사진 → 메모 → 헤어 → 신발·가방·목걸이·반지·양말.
  * 11/18 세원: "그날 코디 누르면 맨위에 찍을 영상 없애고, 포즈도 없애도 될 것 같고, 참고 사진 없애도 될 것 같고. 그러면 참고 영상이 자연스럽게 맨위에 갈거고,
  *   메모는 조금만 들어갈거같아. 그러니까 내가 빨간 네모 친곳에 넣어주고. 헤어는 냅두고, 신발, 가방, 목걸이등 악세를 … 포즈판에 쓴것 처럼 하나씩 고르는게"
- *   → 창 순서: 코디 사진·이름·**메모(오른쪽 작은 칸)** → 참고 영상(룩북 포함) → 코디 사진(벽걸이) → 헤어 → 신발·잡화(한 줄 + 큰 창 GoodsPick).
+ *   → 창 순서: 코디 사진·이름·**메모(오른쪽 작은 칸)** → 참고 영상(룩북 포함) → 코디 사진(벽걸이) → 헤어 → 신발·잡화.
+ * 11/20 밤 신발·잡화는 큰 창(GoodsPick) 없이 이 창 안에서 종류마다 한 줄(GoodsBoard) — 지원 "전보다 헷갈린다".
  *   찍을 영상(styling.videos · lookDone · clipDone) · 포즈 · 참고 사진(refIds · refCuts) 데이터는 그대로 남는다 — 화면에서만 뺐다.
  *   폰 촬영 화면 마지막 '찍을 영상'(PoseRun)은 그대로 — 코디별 영상은 이제 아래 '참고 영상 › 이 코디만' 한 곳에서 넣는다.
  */
@@ -131,51 +132,6 @@ function OptsEditor({ title, list, onSave, onClose }) {
           칩 저장
         </button>
       </div>
-    </div>
-  );
-}
-
-/**
- * 신발·잡화 한 줄 (11/18) — 고른 것(작은 사진 · 종류 이름표 · 이름) + 직접 적은 칩 + '+ 신발·잡화 고르기'(큰 창 GoodsPick).
- * 칩을 누르면 그 종류 탭으로 큰 창이 열리고, × 는 바로 뺀다.
- */
-function GoodsRow({ st, setSt, d, onOpen }) {
-  const list = pickedGoods(st);
-  const drop = (key, s) => setSt((x) => ({ ...x, [key]: (x[key] || []).filter((y) => y !== s && !(s.itemId ? y.itemId === s.itemId : y.text === s.text)) }));
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {list.map(({ key, s }) => {
-        const x = s.itemId ? d.items.find((y) => y.id === s.itemId) : null;
-        if (s.itemId && !x) return null; // 신상 관리에서 지운 상품
-        const url = x ? d.urls[x.photo] || x.photoUrl : "";
-        return (
-          <span
-            key={key + (s.itemId || s.text)}
-            className={
-              "flex max-w-full items-center gap-1.5 rounded-xl border py-1 pr-1 " +
-              (x ? "border-stone-200 bg-white pl-1" : "border-dashed border-rose-400 bg-rose-50 pl-2.5")
-            }
-          >
-            <button type="button" onClick={() => onOpen(key)} title={`${goodsOf(key)?.label} 고르기 열기`} className="flex min-w-0 items-center gap-1.5 text-left">
-              {x && <Photo url={url} className="aspect-[3/4] w-7 shrink-0 rounded-md" />}
-              <span className="min-w-0">
-                <span className={"block text-[10px] leading-tight " + (x ? "text-stone-400" : "text-rose-500")}>{goodsOf(key)?.label}</span>
-                <span className={"block max-w-[11rem] truncate text-xs leading-tight font-medium " + (x ? "text-stone-800" : "text-rose-800")}>{x ? x.name : s.text}</span>
-              </span>
-            </button>
-            <button type="button" onClick={() => drop(key, s)} aria-label={`${x ? x.name : s.text} 빼기`} className="shrink-0 p-1 text-stone-300 hover:text-rose-700">
-              <X size={13} />
-            </button>
-          </span>
-        );
-      })}
-      <button
-        type="button"
-        onClick={() => onOpen("all")}
-        className="flex items-center gap-1 rounded-xl border border-dashed border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-      >
-        <Plus size={14} /> 신발·잡화 고르기
-      </button>
     </div>
   );
 }
@@ -295,12 +251,24 @@ export default function StylingSheet({ codi, d, online, onClose, dayCodis }) {
   const [opts, setOpts] = useState(DEFAULT_OPTS);
   const [editOpts, setEditOpts] = useState(""); // "hair"
   const [msg, setMsg] = useState("");
-  const [goodsTab, setGoodsTab] = useState(null); // 신발·잡화 큰 창 — 처음 열 탭("all" · 종류 key), null 닫힘
+  const [bigGoods, setBigGoods] = useState(null); // 신발·잡화 사진 크게 보기 [주소]
+  const [bigCodi, setBigCodi] = useState(null);
+  // 사진 크게 보기가 떠 있으면 Esc 는 그것만 닫는다 — 붙잡기 단계에서 먼저 받아 아래(이 창 · 촬영 창)로 안 보낸다(11/20 시험에서 스타일링 창까지 닫혔다)
+  useEffect(() => {
+    if (!bigGoods && bigCodi == null) return;
+    const k = (e) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setBigGoods(null);
+      setBigCodi(null);
+    };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [bigGoods, bigCodi]);
   // 코디 사진(10/25 세원: "참고 사진 위에 코디 사진 — 우리가 직접 벽걸이에 걸은 사진") — 촬영 레퍼런스엔 안 담고 이 코디에만(st.codiPhotos = 보관 이름)
   const [codiPending, setCodiPending] = useState([]);
   const [fresh, setFresh] = useState({}); // 방금 올린 사진 → 이 기기 미리 보기 주소
   const [signed, setSigned] = useState({});
-  const [bigCodi, setBigCodi] = useState(null);
   useEffect(() => {
     const want = (st.codiPhotos || []).filter((k) => !k.startsWith("data:") && !d.urls[k] && !fresh[k] && !signed[k]);
     if (!want.length) return;
@@ -415,8 +383,7 @@ export default function StylingSheet({ codi, d, online, onClose, dayCodis }) {
   const sameDay = dayCodis || (day ? d.codis.filter((c) => c.shootDate === day) : []);
   const changeLook = (k) => (v) => lb.change(day, (l) => ({ ...l, [k]: v })).catch((e) => setMsg(e.message || "룩북 영상을 저장하지 못했어요."));
   return (
-    <>
-    <Sheet onClose={goodsTab ? () => setGoodsTab(null) : close} wide>
+    <Sheet onClose={close} wide>
       <SheetHead title="스타일링" onClose={close} />
       <div
         className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4"
@@ -517,8 +484,8 @@ export default function StylingSheet({ codi, d, online, onClose, dayCodis }) {
             <ChipPick opts={opts.hair} value={st.hair || []} onChange={set("hair")} placeholder="직접 (예: 앞머리 내림)" onEditOpts={() => setEditOpts("hair")} />
           )}
         </Section>
-        <Section title="신발·잡화" hint="신발 · 가방 · 목걸이 · 반지 · 양말 · 벨트 · 모자 — 큰 창에서 하나씩 골라요">
-          <GoodsRow st={st} setSt={setSt} d={d} onOpen={setGoodsTab} />
+        <Section title="신발·잡화" hint="누르면 바로 골라져요 · 다시 누르면 빠져요">
+          <GoodsBoard st={st} setSt={setSt} d={d} codi={codi} dayCodis={sameDay} onZoom={setBigGoods} />
         </Section>
         {(st.acc || []).length > 0 && (
           <Section title="예전에 고른 악세서리" hint="눌러서 빼기 — 이제는 위 칸으로 골라요">
@@ -563,8 +530,7 @@ export default function StylingSheet({ codi, d, online, onClose, dayCodis }) {
         </button>
       </footer>
       {bigCodi != null && <BigSlides urls={(st.codiPhotos || []).map(codiUrl)} start={bigCodi} onClose={() => setBigCodi(null)} />}
+      {bigGoods && <BigSlides urls={bigGoods} start={0} onClose={() => setBigGoods(null)} />}
     </Sheet>
-      {goodsTab && <GoodsPick st={st} setSt={setSt} d={d} codi={codi} dayCodis={sameDay} start={goodsTab} onClose={() => setGoodsTab(null)} />}
-    </>
   );
 }

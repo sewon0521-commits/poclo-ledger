@@ -41,7 +41,8 @@ export function mapRefCloth(st, from, to) {
 }
 
 // 신발·잡화 (11/18 다시 — 세원: "신발, 가방, 목걸이등 악세를 선택할 수 있는 칸이 업데이트가 안되고 너무 고르기가 빡센데 포즈판처럼 하나씩 고르는게 어떻까?")
-// 고르기는 큰 창 하나(components/GoodsPick) — 종류 탭 · 찾기 · 최근 담은 것 먼저 · 큰 사진 격자. 저장은 예전 그대로 styling.<key> [{itemId}|{text}],
+// 11/20 밤 다시(세원: "신발, 잡화 지원이가 보통 고르는데 전보다 헷갈리다고 하네") — 큰 창(GoodsPick, b3f1241~)을 없애고 스타일링 창 안에서 종류마다 한 줄(components/GoodsBoard).
+// 기본은 지금 사무실에 있는 것만(goodsAway). 저장은 예전 그대로 styling.<key> [{itemId}|{text}],
 // 벨트 · 모자·머플러 · 기타 칸만 새로(belt · hat · etc). 목걸이 칸에 귀걸이, 반지 칸에 팔찌, 양말 칸에 스타킹도 같이 든다(예전 고른 것 안 끊기게 키는 그대로).
 // '업데이트 안 됨' 원인: 예전엔 종류마다 상품 **이름 말**(가방·목걸이·반지·양말)로만 가려서 신발·잡화 31개 중 18개(모자·머플러·비니·벨트·스카프·집게핀,
 //   '르아 스틸레토 힐 no'·'CNK 475 어그' 같은 신발까지)가 어느 칸에도 안 떴다 — 11/16 담은 모자·머플러·벨트가 안 보인 것. 이제 종류가 신발·잡화면 늘 어느 탭(없으면 기타)에 든다.
@@ -50,7 +51,8 @@ export function mapRefCloth(st, from, to) {
 export const GOODS = [
   { key: "shoes", label: "신발", place: "모델 개인 검정 로퍼" },
   { key: "bag", label: "가방", place: "가방 없이", re: /가방|백(?=\s|$|\))|토트|파우치|클러치|\bbag\b/i, old: true },
-  { key: "necklace", label: "목걸이·귀걸이", place: "얇은 은색 체인", re: /목걸이|네크리스|necklace|초커|펜던트|귀걸이|이어링|earring|피어싱|귀찌/i, old: true },
+  // (?<!레)이어링 — '레이어링 긴팔티'(상의)가 목걸이 줄에 들던 것(11/20)
+  { key: "necklace", label: "목걸이·귀걸이", place: "얇은 은색 체인", re: /목걸이|네크리스|necklace|초커|펜던트|귀걸이|(?<!레)이어링|earring|피어싱|귀찌/i, old: true },
   { key: "ring", label: "반지·팔찌", place: "얇은 금반지 2개", re: /반지|(^|\s)링(?=\s|$)|\bring\b|팔찌|브레이슬릿|bracelet|뱅글|발찌/i, old: true },
   { key: "socks", label: "양말·스타킹", place: "흰 발목 양말", re: /양말|삭스|socks|레그워머|발토시|스타킹|타이즈/i, old: true },
   { key: "belt", label: "벨트", place: "얇은 검정 벨트", re: /벨트|belt/i },
@@ -67,8 +69,25 @@ export function goodsKey(x) {
   if (wearPart(x) === "신발") return "shoes";
   const n = x.name || "";
   if (x.kind && x.kind !== "신발·잡화") return GOODS.find((p) => p.old && p.re.test(n))?.key || null;
+  // 종류를 안 적은 상품(11/20 'tw86벨벳 필드 누빔 자켓' · '슬라브 나그랑긴팔')은 잡화 말이 있을 때만 — 예전엔 옷도 전부 기타에 들었다
+  if (!x.kind) return CLOTH.test(n) ? null : GOODS.find((p) => p.re?.test(n))?.key || null;
   if (CLOTH.test(n)) return "etc";
   return GOODS.find((p) => p.re?.test(n))?.key || "etc";
+}
+
+/**
+ * 지금 사무실에 없는 신발·잡화면 그 까닭('요청' · '드랍' · '반납 등록' · '반납함'), 있으면 "" (11/20).
+ * 요청(아직 픽업 전) · 보류·드랍 · 반납 등록 · 휴지통은 없음. 업데이트 완료여도 샘플을 거래처에 돌려줬으면(returnedOn) 없음 —
+ * 결제한 게 있으면(paid — 일부만 사고 나머지 반납) 산 건 남아 있으니 있음. 사입(buy)은 반납이 없어서 늘 있음.
+ */
+export function goodsAway(x) {
+  if (!x) return "";
+  if (x.stage === "trash") return "휴지통";
+  if (x.stage === "request") return x.pickup ? "픽업 전" : "요청";
+  if (x.stage === "drop") return x.refused ? "샘플 안 됨" : "드랍";
+  if (x.stage === "back") return x.returnedOn ? "반납함" : "반납 등록";
+  if (x.returnedOn && !x.paid) return "반납함";
+  return "";
 }
 
 /** 이 코디에 고른 신발·잡화 전부 [{key, s}] — 탭 순서대로 */
