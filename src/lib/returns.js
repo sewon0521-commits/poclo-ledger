@@ -7,7 +7,12 @@
  *  - settings returns_marks {marks: {[줄 id]: {np:{on}, arrived:{on}, memo, cls}}}  ERP 에서 누른 것(넥스트팩 회수 접수·입고 확인·메모·사유 고침) — PC 가 안 덮는다
  *  - settings stock  넥스트팩 현재고(교환 재고 보기)
  *
+ *  - settings np_returns  {at, rows}  사무실 PC poclo-cafe24/np_returns.py 가 30분마다 — 넥스트팩 '반품 교환 신청' 최근 신청(31일): 이름·반품/교환 수거·상품·옵션·상태(방문 예정·수거 완료·다시 신청 필요)
+ *  - settings np_pickup   {mode, items}  ERP '넥스트팩 수거 접수' 버튼 → 사무실 PC 가 넥스트팩에 접수(mode live 일 때만 신청 단추, 아니면 미리보기) — 11/24 세원 "버튼만 누르면 넥스트팩 접수"
+ *  - settings orders_track  결제수단(카페24 60일 주문 — returns_live 에 pm 이 없던 때 대신)
  * 단계: 요청(넥스트팩 회수 접수 전) → [세원이 넥스트팩에 회수 접수] → 회수 중 → 입고·검수 → 환불·교환 완료.
+ *   넥스트팩 최근 신청과 이름·상품으로 맞춰 단계를 저절로 옮긴다(방문 예정 = 회수 중 · 수거 완료 = 입고·검수 · 다시 신청 필요 = 빨강).
+ * 11/24 세원: 배송비 기준 7만 원 하나 · 반품 주소 남양주 · 카드 등은 환불금에서 배송비 차감 · 계좌이체(무통장) 손님만 문자 · 네이버페이는 네이버에서 차감.
  *   단계마다 머문 평일이 STALE 을 넘으면 빨강(오래 멈춤).
  * 판단 초안: 사유(변심·불량·오배송, PC 가 카페24 사유 코드+글로 나눔 — ERP 에서 고칠 수 있음) · 배송비(쇼핑몰 공지 규칙) · 받은 지 7일 안 · 교환 재고 · 손님 안내 글(틀, AI 안 씀).
  * ⛔ 자동으로 안 하는 것: 환불 · 손님에게 보내기 · 넥스트팩 입력 · 카페24·네이버 반품 승인(2~4단계, 세원 확인 뒤).
@@ -78,8 +83,8 @@ const NAVER_LABEL = {
 };
 export const naverLabel = (s) => NAVER_LABEL[s] || s || "";
 
-/** 줄 하나의 지금 단계와 그 단계 시작 날 */
-export function stageOf(r, mark = {}) {
+/** 줄 하나의 지금 단계와 그 단계 시작 날 — np = 넥스트팩 최근 신청에서 맞춘 줄, job = ERP 버튼으로 맡긴 접수 */
+export function stageOf(r, mark = {}, np = null, job = null) {
   const s = r.s || "";
   if (r.kind === "C") {
     if (/^C4/.test(s) || r.done) return { stage: "done", since: dayOf(r.done || r.req), how: r.st || "취소 완료" };
@@ -88,9 +93,18 @@ export function stageOf(r, mark = {}) {
   const refunded = r.kind === "R" && (s === "R40" || !!r.ref);
   const exchanged = r.kind === "E" && (/^E4/.test(s) || s === "E50");
   if (refunded || exchanged) return { stage: "done", since: dayOf(r.ref || r.exd || r.col), how: s === "E50" ? "교환 철회" : r.st };
-  const collected = !!r.col || !!mark.arrived || /^(R13|R20|R31|R34|R36|R41|R42|R43|E13|E31|E32|E33|E34|E35|E36)$/.test(s) || r.nps === "COLLECT_DONE";
-  if (collected) return { stage: "check", since: dayOf(r.col || mark.arrived?.on || r.acc || r.req), how: /^R4[123]$/.test(s) ? `${r.st} — 환불 남음` : "회수됨 · 검수·환불 기다림" };
+  const collected = !!r.col || !!mark.arrived || /^(R13|R20|R31|R34|R36|R41|R42|R43|E13|E31|E32|E33|E34|E35|E36)$/.test(s) || r.nps === "COLLECT_DONE" || np?.state === "done";
+  if (collected)
+    return {
+      stage: "check",
+      since: dayOf(r.col || mark.arrived?.on || (np?.state === "done" ? np.since : "") || r.acc || r.req),
+      how: /^R4[123]$/.test(s) ? `${r.st} — 환불 남음` : np?.state === "done" && !r.col ? "넥스트팩 수거 완료(반품지 도착) · 검수·환불 기다림" : "회수됨 · 검수·환불 기다림",
+    };
+  if (np && np.state !== "redo" && np.state !== "cancel")
+    return { stage: "pickup", since: dayOf(np.since || job?.doneAt || r.req), how: np.visit ? `넥스트팩 ${md(np.visit)} 방문 예정` : `넥스트팩 접수됨 · ${np.note || "진행 중"}` };
+  if (job?.status === "done") return { stage: "pickup", since: dayOf(job.doneAt || job.at), how: "넥스트팩 수거 접수함(ERP 버튼)" };
   if (mark.np || r.nps === "COLLECTING") return { stage: "pickup", since: dayOf(mark.np?.on || r.acc || r.req), how: mark.np ? "넥스트팩 회수 접수함" : "네이버 수거 중" };
+  if (np?.state === "redo") return { stage: "req", since: dayOf(r.req || r.acc || r.at), how: `넥스트팩 다시 신청 필요 — ${np.note || ""}` };
   return { stage: "req", since: dayOf(r.req || r.acc || r.at), how: /^(R00|E00)$/.test(s) ? "카페24·네이버 접수 전" : r.st || "" };
 }
 
@@ -113,16 +127,17 @@ export function within7(r) {
 const claimAmount = (r) => (r.items || []).reduce((s, it) => s + (Number(it.p) || 0) * (Number(it.q) || 1), 0);
 
 /**
- * 배송비 누가·얼마 — 쇼핑몰 NOTICE 5번 '교환 및 반품 안내사항'(6/3) 그대로. ⚠ 공지 안에서 무료배송 기준이 6만·7만으로 섞여 있어 '확인 필요'.
- *  변심 전체 반품: 6만↑ 왕복 7,000 · 6만↓ 반품 4,000 / 변심 부분 반품: 남은 금액 7만↑·↓ 모두 7,000 / 변심 교환: 왕복 7,000 / 불량·오배송: 포클로 부담 / 도서·산간 +5,000(편도)
+ * 배송비 누가·얼마 — 쇼핑몰 공지 '교환 및 반품 안내사항'. 11/24 세원 "6만원 없애고 7만원만" (공지 NOTICE 11·12·13 도 7만으로 고침 — 방향성 창)
+ *  변심 전체 반품: 7만↑ 왕복 7,000 · 7만↓ 반품 4,000 / 변심 부분 반품: 7,000 / 변심 교환: 왕복 7,000 / 불량·오배송: 포클로 부담 / 도서·산간 +5,000(편도)
  */
+export const FREE_SHIP = 70000;
+export const RETURN_ADDR = "경기도 남양주시 진건읍 배양리 513-1, 2층";
 export function feeOf(r, cls) {
   const c = cls || r.cls || "change";
-  const notes = ["공지 안에서 무료배송 기준이 6만·7만 원으로 섞여 있어요 — 세원 확인 전 계산"];
+  const notes = [];
   if (r.retFee > 0) notes.push(`카페24에 적힌 반품 배송비 ${won(r.retFee)}`);
-  if (r.kind === "C") return { who: "없음", amount: 0, why: r.sh ? "출고 뒤 취소 — 배송비 확인" : "출고 전 취소 — 배송비 없음", notes: r.retFee > 0 ? notes.slice(1) : [] };
-  if (c === "defect" || c === "wrong")
-    return { who: "포클로", amount: 0, why: `${CLS[c]} — 포클로가 왕복 부담${r.kind === "E" ? "(같은 상품·같은 사이즈로 교환할 때)" : ""}`, notes: r.retFee > 0 ? notes.slice(1) : [] };
+  if (r.kind === "C") return { who: "없음", amount: 0, why: r.sh ? "출고 뒤 취소 — 배송비 확인" : "출고 전 취소 — 배송비 없음", notes };
+  if (c === "defect" || c === "wrong") return { who: "포클로", amount: 0, why: `${CLS[c]} — 포클로가 왕복 부담${r.kind === "E" ? "(같은 상품·같은 사이즈로 교환할 때)" : ""}`, notes };
   let amount;
   let why;
   if (r.kind === "E") {
@@ -133,16 +148,16 @@ export function feeOf(r, cls) {
     const keep = Number(r.keep) || 0;
     const total = Number(r.total) || claim + keep;
     if (keep <= 0) {
-      if (total >= 60000) {
+      if (total >= FREE_SHIP) {
         amount = 7000;
-        why = `6만 원 이상(${won(total)}) 산 뒤 전체 반품 — 왕복 7,000원`;
+        why = `7만 원 이상(${won(total)}) 산 뒤 전체 반품 — 왕복 7,000원`;
       } else {
         amount = 4000;
-        why = `6만 원 미만(${won(total)}) 전체 반품 — 반품 배송비 4,000원`;
+        why = `7만 원 미만(${won(total)}) 전체 반품 — 반품 배송비 4,000원`;
       }
     } else {
       amount = 7000;
-      why = `부분 반품(${won(claim)}) 뒤 남은 금액 ${won(keep)} — 7만 원 ${keep >= 70000 ? "이상" : "미만"}이라 7,000원`;
+      why = `부분 반품(${won(claim)}) · 남은 금액 ${won(keep)} — 7,000원`;
     }
   }
   if (r.remote) {
@@ -180,15 +195,63 @@ export function exchStock(r, stock) {
   });
 }
 
-/** 줄 + 표시 → 화면용 */
-export function decorate(r, mark = {}, today) {
-  const st = stageOf(r, mark);
+// ------------------------------------------------------------------ 넥스트팩 · 결제수단 (11/24)
+const squash = (n) =>
+  String(n || "")
+    .replace(/^\s*(\[[^\]]*\]\s*)+/, "")
+    .replace(/\s*\((\d+|one)\s*colou?r\)\s*$/i, "")
+    .replace(/[^\p{L}\p{N}]/gu, "");
+/** 넥스트팩 최근 신청 줄 중 이 반품과 같은 것(받는 사람 이름 + 상품 이름) — 여러 개면 끝나지 않은 것 먼저 */
+export function npMatch(r, npRows = []) {
+  if (r.kind === "C") return null;
+  const names = new Set((r.items || []).map((it) => squash(it.n)));
+  const hits = npRows.filter((x) => x && x.name && x.name === r.name && names.has(squash(x.product)) && x.kind === (r.kind === "E" ? "exchange" : "return"));
+  if (!hits.length) return null;
+  const order = { visit: 0, other: 1, redo: 2, done: 3, cancel: 4 };
+  return [...hits].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9))[0];
+}
+
+/** 넥스트팩 반품 사유 라디오(11/24 화면) ← ERP 사유 */
+export const NP_REASONS = ["변심·상품불만족", "사이즈·색상", "불량·오염·냄새", "오배송·출고문제", "기타"];
+export const npReasonOf = (x) => (x.cls === "defect" ? "불량·오염·냄새" : x.cls === "wrong" ? "오배송·출고문제" : x.grp === "사이즈·핏" ? "사이즈·색상" : "변심·상품불만족");
+
+const BANK = /cash|tcash|icash/; // 무통장입금 · 계좌이체 · 가상계좌
+/**
+ * 배송비를 어떻게 받나 — 11/24 세원 "카페24 같은 경우에는 우리가 환불할 때 70000원 이상이었으면 7000원 걍 환불금에서 빼고 보내거든? 문자를 보내는 경우에는 계좌이체 한 사람들인 경우야."
+ *  카드 등 → 환불금에서 차감(문자 없음) · 계좌이체·무통장·가상계좌 → 문자 · 네이버페이 → 네이버가 차감 · 교환 → 빼 줄 환불금이 없어 따로 받기
+ */
+export function payWay(x, method = "") {
+  if (!x.fee || x.fee.who !== "손님") return null;
+  const pm = (x.pm || []).join(",");
+  const name = x.pmName || method || "";
+  const refund = (x.items || []).reduce((s, it) => s + (Number(it.pay) || 0), 0);
+  const after = refund > 0 ? refund - x.fee.amount : 0;
+  if (x.kind === "E") return { mode: "exch", label: "교환 배송비 따로 받기", text: `교환은 빼 줄 환불금이 없어요 — 왕복 ${won(x.fee.amount)} 받는 방법은 세원이 정해요${name ? ` (결제: ${name})` : ""}` };
+  if (x.channel === "네이버페이") return { mode: "naver", label: "네이버페이에서 차감", text: `반품 배송비 ${won(x.fee.amount)}은 네이버페이가 환불금에서 빼요 — 문자 필요 없음` };
+  if (BANK.test(pm) || /무통장|계좌|가상계좌/.test(name))
+    return {
+      mode: "sms",
+      label: "계좌 결제 — 문자 안내",
+      text: `${name || "계좌이체"} 결제라 문자로 안내해요${x.refundAcct ? " · 손님이 환불 계좌를 적어 뒀어요" : ""}`,
+      after,
+    };
+  if (!pm && !name) return { mode: "unknown", label: "결제수단 확인", text: "결제수단을 못 찾았어요 — 카페24 주문에서 확인" };
+  return { mode: "deduct", label: `환불금에서 ${won(x.fee.amount)} 차감`, text: `${name} 결제 — 환불할 때 배송비를 빼고 환불해요(문자 필요 없음)${after > 0 ? ` · 환불 약 ${won(after)}` : ""}`, after };
+}
+
+/** 줄 + 표시 → 화면용. ctx = {npRows, jobs:{[rid]: 마지막 접수}, methods:{[주문번호]: 결제수단 글}} */
+export function decorate(r, mark = {}, today, ctx = {}) {
+  const np = npMatch(r, ctx.npRows || []);
+  const job = (ctx.jobs || {})[r.id] || null;
+  const st = stageOf(r, mark, np, job);
   const cls = mark.cls || r.cls || "change";
   const waited = st.stage === "done" ? 0 : weekdaysBetween(st.since, today);
   const limit = STALE[st.stage];
-  return {
+  const base = {
     ...r,
     mark,
+    np,
+    job,
     cls,
     autoCls: r.cls || "change",
     clsFixed: !!mark.cls,
@@ -196,23 +259,31 @@ export function decorate(r, mark = {}, today) {
     since: st.since,
     how: st.how,
     waited,
-    stale: limit != null && waited > limit,
+    stale: (limit != null && waited > limit) || np?.state === "redo" || job?.status === "error",
     channel: placeOf(r.place),
     fee: feeOf(r, cls),
     w7: r.kind === "C" ? null : within7(r),
     needNp: (r.kind === "R" || r.kind === "E") && st.stage === "req",
   };
+  base.pay = payWay(base, (ctx.methods || {})[r.order] || "");
+  return base;
 }
 
 /** 목록 — 진행 중 + 끝난 지 DONE_KEEP 일 안. 취소는 끝나지 않은 것만(끝난 취소는 카페24가 알아서 끝낸 것이라 통계에만) */
-export function returnRows(live, marks = {}, today) {
+export function returnRows(live, marks = {}, today, ctx = {}) {
   return (live?.rows || [])
-    .map((r) => decorate(r, marks[r.id] || {}, today))
+    .map((r) => decorate(r, marks[r.id] || {}, today, ctx))
     .filter((x) => (x.stage === "done" ? x.kind !== "C" && x.since && daysBetween(x.since, today) <= DONE_KEEP : true))
     .sort((a, b) => {
       const o = { req: 0, pickup: 1, check: 2, done: 3 };
       return o[a.stage] - o[b.stage] || Number(b.stale) - Number(a.stale) || String(a.since).localeCompare(String(b.since));
     });
+}
+/** 반품 줄마다 마지막 넥스트팩 접수(np_pickup) */
+export function jobsByReturn(v) {
+  const out = {};
+  for (const j of v?.items || []) if (j.rid && (!out[j.rid] || String(j.at) > String(out[j.rid].at))) out[j.rid] = j;
+  return out;
 }
 
 export function returnSummary(list) {
@@ -291,5 +362,31 @@ export function reasonParts(text) {
     t = t.slice(0, m.index).trim();
   }
   return { body: t, pick };
+}
+/**
+ * 계좌이체·무통장 손님 문자 초안(11/24 세원 — 이 손님들만 문자). 두 가지 중 세원이 고름:
+ *  deposit = 반품 배송비를 [입금 계좌]로 입금 부탁(방향성 창이 읽은 뜻) · account = 배송비를 뺀 금액을 환불, 환불 계좌 받기
+ * ⛔ 보내기 없음 — 복사만(손님에게 가는 글은 세원 OK 뒤).
+ */
+export const SMS_KINDS = [
+  ["deposit", "배송비 입금 안내"],
+  ["account", "배송비 빼고 환불 · 계좌 받기"],
+];
+export function smsDraft(x, kind = "deposit") {
+  const names = [...new Set((x.items || []).map((it) => shortName(it.n)))].join(", ");
+  const fee = won(x.fee?.amount || 0);
+  const L = ["[포클로] 안녕하세요 고객님 :) 포클로입니다 🤍", `${names} 반품 신청 확인했어요.`];
+  if (kind === "account") {
+    const after = x.pay?.after > 0 ? won(x.pay.after) : "[환불 금액]";
+    L.push(`단순 변심 반품이라 반품 배송비 ${fee}을 뺀 ${after}을 환불해 드릴게요.`);
+    L.push(x.refundAcct ? "적어 주신 환불 계좌로 상품 확인 후 3영업일 안에 보내 드릴게요." : "환불 받으실 계좌(은행 · 계좌번호 · 예금주)를 알려 주시면 상품 확인 후 3영업일 안에 보내 드릴게요.");
+  } else {
+    L.push(`단순 변심 반품이라 반품 배송비 ${fee}이 고객님 부담이에요.`);
+    L.push(`번거로우시겠지만 [입금 계좌]로 ${fee} 입금 부탁드려요.`);
+    L.push("상품이 저희에게 도착해 확인되면 3영업일 안에 환불해 드릴게요.");
+  }
+  if (x.w7 && x.w7.ok === false) L.push("[⚠ 받으신 지 7일이 지났어요 — 받아 줄지 세원이 정하고 이 줄을 고치기]");
+  L.push("감사합니다 🤍");
+  return L.join(NL);
 }
 export const draftBlank = (t) => /\[[^\]]+\]/.test(String(t || ""));
