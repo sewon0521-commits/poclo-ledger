@@ -4,6 +4,7 @@ import { loadKey, changeKey, upsert, remove, onSettingsChange, watchKeys } from 
 import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow, pickExamples, LEARN_MAX, etaFor, etaText, codeOf, TYPES, STATUS, TABS, inTab, finalText, openBlanks, blankOverlaps, bakeFills, closingOf, closerChips, npayLate, REVIEW_QUICK, isReview, reviewFlag, answerRow, answersFor, voiceFor, ANSWERS_MAX, staleDone, archiveKey, productUrl, orderAdminUrl, withDefaults, when, fixType, recentReplies, repliedTo, delaysFor } from "../lib/cs";
 import DelayPage from "./DelayPage";
 import LateOrders from "./LateOrders";
+import ReturnsBoard from "./ReturnsBoard";
 import { OpsBanner } from "./OpsAlerts";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -313,6 +314,7 @@ const SECTIONS = [
   ["inbox", "문의 답하기"],
   ["delay", "늦는 주문"],
   ["inbound", "입고 예정"],
+  ["returns", "반품·교환"], // 11/24 방향성 창 전달 — 반품·교환 자동화 1단계(ReturnsBoard, lib/returns.js)
 ];
 const SECTION_KEY = "poclo_cs_section";
 export default function CsPage({ online, products = [], part = "" }) {
@@ -360,6 +362,8 @@ export default function CsPage({ online, products = [], part = "" }) {
       </div>
       {sec === "inbox" ? (
         <CsInbox products={products} D={D} online={online} focus={focus} />
+      ) : sec === "returns" ? (
+        <ReturnsBoard online={online} />
       ) : (
         <>
           {sec === "delay" && <LateOrders online={online} inbox={D.inbox} saveCard={D.saveItem} openCard={openCard} />}
