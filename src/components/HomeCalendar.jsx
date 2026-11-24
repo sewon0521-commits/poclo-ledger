@@ -529,7 +529,7 @@ export default function HomeCalendar({ online, onPage, rows }) {
           <span className="[@media(pointer:fine)]:hidden">날짜를 누르면 그날 일정 · 넣기 · 일정을 누르면 고치기 · 길게 눌러 끌면 옮기기 · 초록 점 = {DROP_LABEL}</span>
           <span className="hidden [@media(pointer:fine)]:inline">날짜 칸을 누르면 일정 넣기 · 여러 칸을 끌면 여러 날 · 일정을 끌어 옮기기 · 날짜 숫자를 누르면 그날 전부</span>
         </span>
-        <span>진한 색 막대 = 이벤트 캘린더 이벤트(누르면 보기·고치기 · 끌어 옮기기)</span>
+        <span>진한 색 막대 = 마케팅 캘린더 이벤트(누르면 보기·고치기 · 끌어 옮기기)</span>
       </p>
       <div ref={tag} className={"pointer-events-none fixed top-0 left-0 z-[60] max-w-[80vw] truncate rounded-lg bg-stone-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg " + (bar ? "" : "hidden")}>
         {bar && (
@@ -551,7 +551,7 @@ export default function HomeCalendar({ online, onPage, rows }) {
           onRemove={(id) => saveBiz(removeItem(id))}
           head={
             <button type="button" onClick={() => (setBizEdit(null), onPage?.("events"))} className="flex items-center gap-0.5 rounded-lg px-2 py-1 text-xs font-medium text-stone-500 hover:bg-stone-100 hover:text-rose-700">
-              이벤트 캘린더 <ChevronRight size={13} />
+              마케팅 캘린더 <ChevronRight size={13} />
             </button>
           }
         />

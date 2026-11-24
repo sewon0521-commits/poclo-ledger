@@ -131,7 +131,7 @@ function Guide() {
           </div>
           <div className="space-y-1">
             <div className="text-xs font-bold text-rose-800">이렇게 써요</div>
-            <p>위 <b>캠페인 칩</b>(얼리윈터·블프·가입 쿠폰…)을 누르면 그 이벤트를 하는 몰만 모여요. 줄을 누르면 그 몰 페이지가 열려요. 아래 <b>타임라인</b>에서 우리 이벤트 캘린더와 같이 놓고 언제 따라 할지 정해요.</p>
+            <p>위 <b>캠페인 칩</b>(얼리윈터·블프·가입 쿠폰…)을 누르면 그 이벤트를 하는 몰만 모여요. 줄을 누르면 그 몰 페이지가 열려요. 아래 <b>타임라인</b>에서 우리 마케팅 캘린더와 같이 놓고 언제 따라 할지 정해요.</p>
           </div>
         </div>
       )}
@@ -299,7 +299,7 @@ function Timeline({ items, events, today, conf, log, kindsOn }) {
             </div>
             {our.length > 0 && (
               <div className="border-b border-stone-200 pb-1">
-                <div className="px-2 pt-1.5 text-[11px] font-bold text-rose-800">포클로 (이벤트 캘린더)</div>
+                <div className="px-2 pt-1.5 text-[11px] font-bold text-rose-800">포클로 (마케팅 캘린더)</div>
                 {our.map((e) => (
                   <div key={e.id} className="flex items-center">
                     <div className="w-52 shrink-0 truncate px-2 text-xs text-stone-700" title={e.title}>

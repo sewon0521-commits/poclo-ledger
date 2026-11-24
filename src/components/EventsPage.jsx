@@ -5,9 +5,10 @@ import { dayKey, dayTitle, shiftDay } from "../lib/journal";
 import { KEY, KINDS, kindOf, colorOf, TEMPLATES, newTodo, isDropDay, dropRuleText, DROP_LABEL, monthWeeks, shiftMonth, weekday, weekBars, endOf, isOn, resultOf, periodLabel } from "../lib/events";
 import { useBarDrag, dropRange, rangeText } from "../lib/barDrag";
 import EventSheet, { ResultLine } from "./EventSheet";
+import MktNote from "./MktNote";
 
 /**
- * 일 › 이벤트 캘린더 (lib/events.js 머리말).
+ * 일 › 마케팅 캘린더 (예전 이름 이벤트 캘린더 — 11/25 합침, lib/events.js · lib/mktCalendar.js 머리말).
  * 위 = 달력(기간 막대 · 신상 업로드 날 '신상 6시' 표시(lib/events DROP_RULES) · 빈 칸 누르면 그날 새 이벤트), 아래 = 상시 진행 / 진행 중 / 다가오는 / 지난 이벤트(그 기간 매출).
  * 10/22 세원: "이벤트 바 옮길 수 있게 해줘." → 막대를 끌어 다른 날에 놓으면 기간 길이 그대로 옮김(마우스 = 끌기, 폰 = 길게 눌러 끌기, lib/barDrag.js).
  *   짧게 누르면 예전처럼 이벤트 창(EventSheet — 홈 캘린더도 같은 창).
@@ -234,8 +235,8 @@ export default function EventsPage({ online, rows }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-xl font-bold text-stone-900">이벤트 캘린더</h2>
-          <p className="mt-0.5 text-sm text-stone-500">기획전·쿠폰·배너·알림을 날짜에 올려 두고 할 일을 챙겨요. 끝나면 그 기간 매출이 저절로 붙어요.</p>
+          <h2 className="text-xl font-bold text-stone-900">마케팅 캘린더</h2>
+          <p className="mt-0.5 text-sm text-stone-500">달마다 올릴 것·준비할 것·업계 이슈를 보고, 기획전·쿠폰·배너는 날짜에 올려 할 일을 챙겨요. 끝나면 그 기간 매출이 저절로 붙어요.</p>
         </div>
         <button type="button" onClick={() => setEdit({ start: today, end: today })} className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-3.5 py-2.5 text-sm font-semibold text-white">
           <Plus size={16} /> 이벤트 넣기
@@ -279,6 +280,9 @@ export default function EventsPage({ online, rows }) {
           ))}
         </div>
       </div>
+
+      {/* 11/25 세원 "이벤트 캘린더랑 합치는 게 맞아 보여" — 달력 위에 1년 한눈에 + 이 달 노트(lib/mktCalendar) */}
+      <MktNote ym={ym} rows={rows} online={online} today={today} onPick={setYm} />
 
       <Month ym={ym} events={shown} today={today} onNew={(k) => setEdit({ start: k, end: k })} onOpen={setEdit} onMove={moveEvent} />
       <p className="-mt-2 px-1 text-[11px] text-stone-400">

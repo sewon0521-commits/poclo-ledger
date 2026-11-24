@@ -90,7 +90,8 @@ export const SECTIONS = [
           // 11/17 밤 세원 "미송 + 리드타임 계산기 … 팔리는 거 보고 다시 잡으면 되지" (components/OrderCalcPage.jsx, lib/orderCalc.js)
           { key: "orderCalc", label: "발주 계산기", icon: Calculator },
           // 10/17 세원: "재구매 쿠폰·이벤트를 배너로 알리는 계획을 짜는 틀 — 이벤트 캘린더"
-          { key: "events", label: "이벤트 캘린더", icon: CalendarDays },
+          // 11/25 세원 "마케팅 캘린더 — 이벤트 캘린더랑 합치는 게 맞아 보여" → 이름만 바꾸고 화면 키(events)는 그대로 (lib/mktCalendar.js)
+          { key: "events", label: "마케팅 캘린더", icon: CalendarDays },
           // 11/8 세원: "포클로 물류 업무 메뉴얼 노션 참고해서 erp에 하나 만들어 줘 나중에 쓰게. 노션 구독 해지하려고" (components/ManualPage.jsx)
           { key: "manual", label: "매뉴얼", icon: BookMarked },
           // 10/13 세원: CS 자동화 영상·PDF — "포클로 일 칸에 CS 관리를 할 수 있는 칸"

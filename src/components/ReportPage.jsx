@@ -539,7 +539,7 @@ function Report({ r, hist, rows, journals }) {
               </div>
             ) : null,
           )}
-          {!evs.now?.length && !evs.soon?.length && !evs.always?.length && <p className="text-xs text-stone-400">이벤트 캘린더에 잡힌 일정이 없어요.</p>}
+          {!evs.now?.length && !evs.soon?.length && !evs.always?.length && <p className="text-xs text-stone-400">마케팅 캘린더에 잡힌 일정이 없어요.</p>}
         </Box>
       </div>
 
