@@ -307,6 +307,8 @@ function MiniLoop({ clip, play }) {
  *   → 겹마다 찍어주는 컷을 먼저, 그다음 셀카(lib/shootOrder shotKindOf). 겹 칩 아래 '찍어주는 컷 n/N · 셀카 n/N' 칸(누르면 그쪽 첫 안 찍은 사진으로),
  *   사진 위 '찍어주는 컷' / '셀카 · 모델이 찍어요' 표시, 아래 작은 사진 줄에 경계. 찍어주는 컷을 다 찍으면 '이제 셀카 — 폰을 모델에게' 알림이 뜬다.
  * 11/24 고침: 다음 코디로 넘어갈 때 앞 코디에서 넘기던 자리(jump)가 남아 새 코디가 첫 사진이 아니라 그 번째 사진으로 열리던 것.
+ * 11/24 밤 세원: ① "셀카는 그냥 맨 뒤로 다 모였으면" → 셀카는 코디 맨 뒤(마지막 겹 '셀카' 칸)에 다 모임, 앞 겹 셀카는 '① 티셔츠 + 팬츠 상태' 표시(lib/shootOrder layer)
+ *   ② "영상은 어떤 컷 위에서 눌러도 그냥 영상 보이게, 마지막컷 가야지만 눌리게 말고" → 앞 겹 영상 칸에서도 이 코디 '찍을 영상' 목록을 바로 연다, 작은 미리보기는 늘 재생.
  */
 export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const memo = "poclo_run_" + s.id;
@@ -578,7 +580,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
           <div className="relative min-h-0 flex-1 bg-stone-100">
             <SlideViewer key={c.id} urls={shots.map((x) => urlOf(x.key))} onAt={onAt} jump={jump} expandable className="h-full w-full" />
             <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
-              {CIRCLE[(cur?.step || 1) - 1]} {GROUP_NAME[cur?.group] || cur?.code} · {at + 1}/{shots.length}
+              {CIRCLE[(cur?.layer || cur?.step || 1) - 1]} {GROUP_NAME[cur?.group] || cur?.code} · {at + 1}/{shots.length}
             </span>
             {cur?.done && (
               <span className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white">
@@ -589,6 +591,12 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
               <span className={"pointer-events-none absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold shadow " + (cur.kind === "selfie" ? "bg-violet-600 text-white" : "bg-white/90 text-stone-800")}>
                 {cur.kind === "selfie" ? <Smartphone size={13} /> : <Camera size={13} />}
                 {cur.kind === "selfie" ? "셀카 · 모델이 찍어요" : "찍어주는 컷"}
+                {/* 11/24 밤 셀카는 맨 뒤에 모임 — 앞 겹 셀카면 어느 옷 상태인지 */}
+                {cur.kind === "selfie" && cur.layer && cur.layer !== cur.step && (
+                  <span className="ml-0.5 rounded-full bg-white/25 px-1.5 text-[10px]">
+                    {CIRCLE[cur.layer - 1]} {stepLabel(steps.find((x) => x.n === cur.layer) || { n: cur.layer, add: [] })} 상태
+                  </span>
+                )}
                 {!cur.own && isFaceCard(cards.find((k) => k.id === cur.cardId)) && <span className="ml-0.5 rounded-full bg-amber-400 px-1.5 text-[10px] text-amber-950">얼굴</span>}
               </span>
             )}
@@ -678,14 +686,22 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
               (step.vidDone ? "bg-emerald-50 text-emerald-700" : stepPhotosDone ? "bg-amber-100 text-amber-900 ring-2 ring-amber-400" : "bg-stone-100 text-stone-600")
             }
           >
-            {hasClips && (
-              <button type="button" onClick={() => setVBig(true)} aria-label="참고 영상 크게 보기" className="relative aspect-[9/16] w-9 shrink-0 overflow-hidden rounded-lg bg-stone-800">
-                <MiniLoop clip={vClips[0]} play={!!stepPhotosDone && !step.vidDone} />
+            {/* 11/24 밤 세원: "이 상태로 영상은 어떤 컷 위에서 눌러도 그냥 영상 보이게 해줘. 마지막컷 가야지만 눌리게 말고"
+                 → 겹 참고 영상이 없어도 이 코디 '찍을 영상'(룩북 + 코디 영상)이 있으면 어느 겹·어느 컷에서든 눌러서 바로 본다(예전엔 마지막 겹에서만).
+                    작은 미리보기도 사진을 다 찍을 때까지 기다리지 않고 늘 반복 재생 */}
+            {(hasClips || stageClips.length > 0) && (
+              <button
+                type="button"
+                onClick={() => (hasClips ? setVBig(true) : setStageOpen(true))}
+                aria-label={hasClips ? "참고 영상 크게 보기" : "이 코디 찍을 영상 보기"}
+                className="relative aspect-[9/16] w-9 shrink-0 overflow-hidden rounded-lg bg-stone-800"
+              >
+                <MiniLoop clip={hasClips ? vClips[0] : full(stageClips[0].clip)} play={!step.vidDone} />
               </button>
             )}
             <button
               type="button"
-              onClick={() => (hasClips ? setVBig(true) : !vRows.length && setVPick(sc.kind))}
+              onClick={() => (hasClips ? setVBig(true) : vRows.length ? setStageOpen(true) : setVPick(sc.kind))}
               className={"flex min-h-10 min-w-0 flex-1 items-center gap-1.5 px-1 text-left " + (stepPhotosDone && !step.vidDone ? "animate-pulse" : "")}
             >
               {!hasClips && (step.vidDone ? <Check size={15} strokeWidth={3} className="shrink-0" /> : <Video size={15} className="shrink-0" />)}
@@ -697,7 +713,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
                   {hasClips
                     ? `참고 영상${vClips.length > 1 ? ` ${vClips.length}개` : ""} · 눌러서 크게${sc.from === "default" ? " · 추천(세원 확인 전)" : ""}`
                     : vRows.length
-                      ? "이 겹은 참고 영상 없이"
+                      ? `이 코디 찍을 영상 ${vRows.length}개 · 눌러서 보기 ›`
                       : "참고 영상 고르기 ›"}
                 </span>
               </span>
@@ -714,7 +730,7 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
           </div>
         </div>
       )}
-      {stageOpen && isStage && (
+      {stageOpen && vRows.length > 0 && (
         <div className="absolute inset-0 z-10 flex flex-col bg-white">
           <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 px-3 py-2.5">
             <button type="button" onClick={() => setStageOpen(false)} className="-m-1.5 flex h-11 items-center gap-0.5 px-1.5 text-sm font-semibold text-stone-600">
@@ -766,16 +782,23 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
             })}
           </ul>
           <footer className="flex shrink-0 items-center gap-2 border-t border-stone-200 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
-            <button type="button" onClick={() => setStageOpen(false)} className="rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-600">
-              사진으로
-            </button>
             <button
               type="button"
-              onClick={() => (last ? onClose() : go(ci + 1))}
-              className={"flex flex-1 items-center justify-center gap-1 rounded-xl py-3 text-sm font-bold " + (stageAll && stepPhotosDone ? "bg-rose-700 text-white" : "border border-stone-200 text-stone-700")}
+              onClick={() => setStageOpen(false)}
+              className={"rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-600 " + (isStage ? "" : "flex-1")}
             >
-              {last ? "촬영 끝" : "다음 코디"} {!last && <ChevronRight size={17} />}
+              {isStage ? "사진으로" : "사진으로 돌아가기"}
             </button>
+            {/* 앞 겹에서 영상만 보러 들어왔으면 '다음 코디'는 안 보인다(남은 겹을 건너뛰지 않게) */}
+            {isStage && (
+              <button
+                type="button"
+                onClick={() => (last ? onClose() : go(ci + 1))}
+                className={"flex flex-1 items-center justify-center gap-1 rounded-xl py-3 text-sm font-bold " + (stageAll && stepPhotosDone ? "bg-rose-700 text-white" : "border border-stone-200 text-stone-700")}
+              >
+                {last ? "촬영 끝" : "다음 코디"} {!last && <ChevronRight size={17} />}
+              </button>
+            )}
           </footer>
         </div>
       )}

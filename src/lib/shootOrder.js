@@ -157,6 +157,7 @@ export const sheetName = (day, c, items) => String(day?.sheetNames?.[c?.id] || "
 
 // 11/24 찍어주는 컷 · 셀카 나누기 — 세원(방향성 창): "촬영 시작을 누르면 셀카랑 찍어주는 컷이랑 분리되게 만들어줄 수 있어? 보통 우리가 먼저 찍어주고 태은씨나 주현씨한테 셀카 찍으라고 주거든."
 //   → 겹마다 찍어주는 컷을 먼저 다 찍고, 그다음 그 겹 셀카(폰을 모델에게) → 그 겹 영상. 촬영 날 화면(PoseRun.ShootRun)은 위에 '찍어주는 컷 · 셀카' 칸으로 나눠 보인다.
+//   11/24 밤 바뀜: 셀카는 겹마다가 아니라 코디 맨 뒤에 다 모음(runOrder 아래 — 세원 "셀카는 그냥 맨 뒤로 다 모였으면").
 //   셀카인지 = 카드 찍는 방식(shot) → 없으면 묶음(SELFIE·FULL 셀카 · TOP·BTM 찍어주는) → 사무실 PC 사진 낱말(pose_ai shot) → 찍어주는 컷.
 //   이 코디만 사진은 설명에 '셀카'가 있으면 셀카.
 export const KIND_NAME = { photo: "찍어주는 컷", selfie: "셀카" };
@@ -257,6 +258,7 @@ export function runOrder(day, c, cards, items) {
   const layerOf = topLayerMap(topCards, topsInOrder(c, items));
   const onStep = (x, s) => x.group !== "TOP" || !layerOf.has(x.cardId) || layerOf.get(x.cardId).includes(topSteps.indexOf(s));
   const seen = new Set();
+  const selfies = []; // 11/24 밤 셀카는 코디 맨 뒤로(아래)
   for (const s of steps) {
     const mine = [];
     for (const g of s.groups) for (const x of withGroup) if (x.group === g && onStep(x, s)) mine.push(x);
@@ -274,12 +276,18 @@ export function runOrder(day, c, cards, items) {
     // 11/24 찍어주는 컷 먼저 → 셀카(폰을 모델에게). 같은 쪽 안에서는 묶음 순서 · 짝 순서 그대로
     mine.splice(0, mine.length, ...lead.filter((x) => x.kind !== "selfie"), ...lead.filter((x) => x.kind === "selfie"));
     // 처음 나오는 사진은 키 그대로(예전 찍음 표시와 이어진다), 같은 사진이 다음 상의 겹에 또 나오면 겹 번호를 붙인다
+    //   찍음 표시 키(doneKey)는 예전처럼 겹 순서대로 세고(이미 찍은 표시가 안 풀리게), 셀카만 따로 모은다
     for (const x of mine) {
       const doneKey = seen.has(x.key) ? `s${s.n}|${x.key}` : x.key;
       seen.add(x.key);
-      shots.push({ ...x, step: s.n, doneKey, done: doneKey === x.key ? x.done : done.has(doneKey) });
+      const row = { ...x, step: s.n, layer: s.n, doneKey, done: doneKey === x.key ? x.done : done.has(doneKey) };
+      (x.kind === "selfie" ? selfies : shots).push(row);
     }
   }
+  // 11/24 밤 세원: "포즈판 촬영 시작 누르면 셀카는 그냥 맨 뒤로 다 모였으면 좋겠어" — 겹마다 셀카를 끼우지 않고 코디 맨 뒤(마지막 겹 찍어주는 컷 다음)에 한꺼번에.
+  //   step = 마지막 겹(화면은 마지막 겹 '셀카' 칸에 다 모임), layer = 원래 겹(어느 옷 상태 셀카인지 ①② 표시). 마지막 겹 영상은 셀카까지 다 찍은 뒤.
+  const lastN = steps[steps.length - 1]?.n || 1;
+  for (const x of selfies) shots.push({ ...x, step: lastN });
   const out = steps.map((s) => ({ ...s, video: videoOf(s, steps), vidKey: `vid:${s.n}`, vidDone: done.has(`vid:${s.n}`), shots: shots.filter((x) => x.step === s.n) }));
   return { steps: out, shots };
 }

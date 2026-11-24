@@ -301,7 +301,11 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
                       <button type="button" onClick={() => setBig({ urls: st.shots.map((y) => urlOf(y.key)), at: i })} title={`${x.code || "이 코디만"} ${x.title || ""}`} className="block w-full overflow-hidden rounded-md">
                         <Photo url={urlOf(x.key)} className="aspect-[3/4] w-full" />
                       </button>
-                      <span className="pointer-events-none absolute bottom-0.5 left-0.5 rounded bg-black/55 px-1 text-[9px] font-semibold text-white">{x.own ? "이 코디" : x.code}</span>
+                      <span className="pointer-events-none absolute bottom-0.5 left-0.5 rounded bg-black/55 px-1 text-[9px] font-semibold text-white">
+                        {x.own ? "이 코디" : x.code}
+                        {/* 11/24 밤 셀카는 맨 뒤에 모임 — 앞 겹 셀카면 원래 겹 번호 */}
+                        {x.layer && x.layer !== x.step ? ` · ${CIRCLE[x.layer - 1] || x.layer} 상태` : ""}
+                      </span>
                       <button
                         type="button"
                         onClick={() => dropShot(x)}
