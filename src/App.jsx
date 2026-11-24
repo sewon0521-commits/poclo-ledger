@@ -657,7 +657,7 @@ pg === "home" ? (
         </header>
 
         {/* 계정 아카이브는 날짜 타임라인·격자라 넓게 쓴다 · SO+ 발주 변환은 PC 전용이라 표가 옆으로 안 밀리게 더 넓게(11/4) */}
-        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "stories" || page === "stock" || page === "orders" || page === "orderCalc" || page.startsWith("finance") || page === "cs" || page === "delay" ? "max-w-6xl" : page === "events" || page === "settle" || page === "manual" ? "max-w-5xl" : page === "home" || page === "soOrder" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
+        <main className={"mx-auto px-4 py-6 sm:px-6 " + (page === "accounts" || page === "stories" || page === "stock" || page === "orders" || page === "orderCalc" || page.startsWith("finance") || page === "cs" || page === "delay" ? "max-w-6xl" : page === "settle" || page === "manual" ? "max-w-5xl" : page === "events" ? "max-w-7xl" : page === "home" || page === "soOrder" ? "max-w-[96rem]" : page === "reports" || page === "tracker" || page === "mallEvents" || page === "creatives" || page === "contentTracker" ? "max-w-[96rem]" : "max-w-4xl")}>
           <div className="mb-4 flex items-center justify-end gap-2">
             {/* 11/10 세원 "넥스트팩처럼 알림이랑 언제 업데이트됐는지" — 답할 CS 문의 · 세원 할 일 */}
             {(L.mode !== "remote" || L.session) && <NotifyBell online={L.mode === "remote" && !!L.session} onPage={goMain} />}
