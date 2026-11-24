@@ -276,6 +276,7 @@ export function CodiPoseSheet({ s, set, c, n, d, cards, online, onClose, codis, 
 }
 
 const CIRCLE = "①②③④⑤⑥⑦⑧⑨";
+const RUN_BIG = { noZoom: true, swipeClose: true }; // 촬영 화면 크게 보기 — 확대 없음 · 아래로 밀어 닫기 (11/25)
 
 /** 겹 영상 칸 안 작은 미리보기 — 그 겹 사진을 다 찍으면 소리 없이 그 구간만 반복, 아니면 썸네일 */
 function MiniLoop({ clip, play }) {
@@ -578,7 +579,8 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
       {shots.length ? (
         <>
           <div className="relative min-h-0 flex-1 bg-stone-100">
-            <SlideViewer key={c.id} urls={shots.map((x) => urlOf(x.key))} onAt={onAt} jump={jump} expandable className="h-full w-full" />
+            {/* 11/25 세원: 크게 보기에서 누르면 확대·확대/원래대로 단추 없앰 · 아래로 밀면 촬영 화면으로 */}
+            <SlideViewer key={c.id} urls={shots.map((x) => urlOf(x.key))} onAt={onAt} jump={jump} expandable bigOpts={RUN_BIG} className="h-full w-full" />
             <span className="pointer-events-none absolute top-2 left-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-white">
               {CIRCLE[(cur?.layer || cur?.step || 1) - 1]} {GROUP_NAME[cur?.group] || cur?.code} · {at + 1}/{shots.length}
             </span>

@@ -115,11 +115,43 @@ export function EditableTitle({ value, onChange, className = "" }) {
  * 전체 화면 넘겨 보기 — 사진을 누르면 그 자리를 확대(2.5배), 한 번 더 누르면 원래대로. 확대한 채로 끌어서(손가락은 밀어서) 옮겨 본다.
  * 상세 창 안(움직이는 창 안에선 fixed 가 갇힌다)이 아니라 body 에 띄운다.
  */
-export function BigSlides({ urls, start = 0, onClose }) {
+export function BigSlides({ urls, start = 0, onClose, noZoom = false, swipeClose = false }) {
   const [at, setAt] = useState(start);
   const [zoom, setZoom] = useState(null); // {i, fx, fy} 누른 자리(0~1)
   const pane = useRef(null);
   const pan = useRef(null);
+  // 11/25 세원(촬영 시작): "사진 한 번 터치하면 커지는 거 없애 줘 · 확대, 원래대로 없애 줘 · 아래로 손가락 드래그하면 전 화면으로"
+  //   noZoom = 누르기 확대·'확대' 단추 없음, swipeClose = 손가락으로 아래로 밀면 닫힘(마우스는 그대로 — PC 는 Esc·×)
+  //   가로 넘기기는 브라우저에 맡기고(touch-pan-x) 세로로 민 것만 받는다. 90px 넘게 내리면 닫고, 덜 내리면 제자리로
+  const sw = useRef(null);
+  const [drop, setDrop] = useState(0);
+  const swDown = (e) => {
+    if (!swipeClose || zoom || e.pointerType === "mouse") return;
+    sw.current = { x: e.clientX, y: e.clientY, id: e.pointerId, on: false, dy: 0 };
+  };
+  const swMove = (e) => {
+    const s = sw.current;
+    if (!s || s.id !== e.pointerId) return;
+    const dx = e.clientX - s.x;
+    const dy = e.clientY - s.y;
+    if (!s.on) {
+      if (dy > 10 && dy > Math.abs(dx) * 1.3) s.on = true;
+      else if (Math.abs(dx) > 10 || dy < -10) {
+        sw.current = null; // 옆으로 넘기는 중 · 위로 민 것
+        return;
+      } else return;
+    }
+    s.dy = Math.max(0, dy);
+    setDrop(s.dy);
+  };
+  const swUp = (e) => {
+    const s = sw.current;
+    if (!s || s.id !== e.pointerId) return;
+    sw.current = null;
+    if (!s.on) return;
+    if (s.dy > 90) onClose();
+    else setDrop(0);
+  };
   useEffect(() => {
     const k = (e) => {
       if (e.key !== "Escape") return;
@@ -143,20 +175,31 @@ export function BigSlides({ urls, start = 0, onClose }) {
   }, [zoom]);
   const z = 2.5;
   return createPortal(
-    <div className="backdrop-in fixed inset-0 z-[70] flex flex-col bg-black">
-      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-white">
+    <div
+      className={"backdrop-in fixed inset-0 z-[70] flex flex-col" + (swipeClose ? " touch-pan-x" : "")}
+      style={{ backgroundColor: `rgba(0,0,0,${drop ? Math.max(0.35, 1 - drop / 500) : 1})` }}
+      onPointerDown={swDown}
+      onPointerMove={swMove}
+      onPointerUp={swUp}
+      onPointerCancel={swUp}
+    >
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-white" style={drop ? { opacity: 0 } : undefined}>
         <span className="text-sm text-white/70 tabular-nums">
           {at + 1} / {urls.length}
-          <span className="ml-2 hidden text-white/50 sm:inline">{zoom ? "끌어서 옮겨 보기 · 누르면 원래대로" : "사진을 누르면 확대 · ← → 넘기기 · Esc 닫기"}</span>
+          <span className="ml-2 hidden text-white/50 sm:inline">
+            {noZoom ? "← → 넘기기 · 아래로 밀면 닫기 · Esc 닫기" : zoom ? "끌어서 옮겨 보기 · 누르면 원래대로" : "사진을 누르면 확대 · ← → 넘기기 · Esc 닫기"}
+          </span>
         </span>
         <span className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setZoom(zoom ? null : { i: at, fx: 0.5, fy: 0.35 })}
-            className="flex items-center gap-1 rounded-full px-3 py-1.5 text-sm hover:bg-white/10"
-          >
-            {zoom ? <ZoomOut size={17} /> : <ZoomIn size={17} />} {zoom ? "원래대로" : "확대"}
-          </button>
+          {!noZoom && (
+            <button
+              type="button"
+              onClick={() => setZoom(zoom ? null : { i: at, fx: 0.5, fy: 0.35 })}
+              className="flex items-center gap-1 rounded-full px-3 py-1.5 text-sm hover:bg-white/10"
+            >
+              {zoom ? <ZoomOut size={17} /> : <ZoomIn size={17} />} {zoom ? "원래대로" : "확대"}
+            </button>
+          )}
           <button type="button" onClick={onClose} aria-label="닫기" className="rounded-full p-2 hover:bg-white/10">
             <X size={22} />
           </button>
@@ -194,6 +237,10 @@ export function BigSlides({ urls, start = 0, onClose }) {
             style={{ height: `${z * 100}%`, width: "auto", margin: "0 auto" }}
           />
         </div>
+      ) : noZoom ? (
+        <div className="flex min-h-0 w-full flex-1 flex-col" style={{ transform: drop ? `translateY(${drop}px)` : undefined, transition: drop ? "none" : "transform 200ms ease-out" }}>
+          <SlideViewer urls={urls} start={at} onAt={setAt} panX={swipeClose} className="min-h-0 w-full flex-1" />
+        </div>
       ) : (
         <SlideViewer
           urls={urls}
@@ -217,7 +264,8 @@ export function BigSlides({ urls, start = 0, onClose }) {
   );
 }
 
-export function SlideViewer({ urls, className = "", fit = "contain", start = 0, jump, onAt, expandable, onTap }) {
+// bigOpts = 크게 보기(BigSlides)에 넘길 것({noZoom, swipeClose}), panX = 손가락 세로 밀기를 브라우저가 가져가지 않게(아래로 밀어 닫기용)
+export function SlideViewer({ urls, className = "", fit = "contain", start = 0, jump, onAt, expandable, onTap, bigOpts, panX }) {
   const box = useRef(null);
   const drag = useRef(null); // 마우스로 끌기 {x, left, moved}
   const dragged = useRef(false);
@@ -302,7 +350,7 @@ export function SlideViewer({ urls, className = "", fit = "contain", start = 0, 
           const el = e.currentTarget;
           setAt(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
         }}
-        className={"flex h-full w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden " + (n > 1 ? "cursor-grab active:cursor-grabbing" : "")}
+        className={"flex h-full w-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden " + (n > 1 ? "cursor-grab active:cursor-grabbing" : "") + (panX ? " touch-pan-x" : "")}
       >
         {urls.map((u, i) => (
           <div key={i} className="flex h-full w-full shrink-0 snap-center items-center justify-center">
@@ -366,7 +414,7 @@ export function SlideViewer({ urls, className = "", fit = "contain", start = 0, 
           <Maximize2 size={12} /> 크게 보기
         </button>
       )}
-      {big && <BigSlides urls={urls} start={at} onClose={() => setBig(false)} />}
+      {big && <BigSlides urls={urls} start={at} onClose={() => setBig(false)} {...bigOpts} />}
     </div>
   );
 }
