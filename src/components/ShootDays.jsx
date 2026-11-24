@@ -21,7 +21,7 @@ import { ClothTabs, GuideSections } from "./BaseGuide";
 import { ClipBig } from "./LoopClip";
 import PoseBoard from "./PoseBoard";
 import { posePool, shotsOf, POSES_KEY } from "../lib/poses";
-import { usePoseAi } from "../lib/poseReco";
+import { usePoseAi, poseAiVer } from "../lib/poseReco";
 import { runOrder, codiLabel } from "../lib/shootOrder";
 import PosesTab from "./PosesTab";
 import { ShootRun, CodiPoseSheet } from "./PoseRun";
@@ -136,13 +136,21 @@ function useDays(online) {
     }
   });
   const [msg, setMsg] = useState("");
+  // 11/24 열려 있는 동안에도 새로 — 예전엔 처음 한 번만 읽어서, 휴대폰에 열어 둔 화면은 PC 에서 새로 만든 촬영 · 고른 포즈를 몰랐다.
+  //   그 상태로 날짜 카드를 누르면 빈 '모델 미정' 촬영 창이 열리고 '촬영 시작'에 고른 포즈 대신 추천이 나왔다(세원 "촬영 시작을 누르면 다른 사진이 나오는 버그").
   useEffect(() => {
     let alive = true;
-    loadKey(DAYS_KEY, online)
-      .then((v) => alive && setItems(v.items || []))
-      .catch(() => alive && setMsg("촬영 목록을 불러오지 못했어요. 인터넷을 확인해 주세요."));
+    const load = () =>
+      loadKey(DAYS_KEY, online)
+        .then((v) => alive && setItems(v.items || []))
+        .catch(() => alive && setMsg("촬영 목록을 불러오지 못했어요. 인터넷을 확인해 주세요."));
+    load();
+    const off = onSettingsChange((k) => k === DAYS_KEY && load());
+    const stop = watchKeys([DAYS_KEY], (k) => k === DAYS_KEY && load());
     return () => {
       alive = false;
+      off();
+      stop();
     };
   }, [online]);
   const change = useCallback(
@@ -988,6 +996,16 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, 500);
   };
+  // 11/24 다른 기기에서 고친 이 촬영(포즈 고르기 · 찍음 표시 …)을 열린 창에도 — 이 창에 저장 전 고침이 없을 때만(있으면 내 것을 먼저 저장)
+  const server = rows.find((r) => r.id === s.id);
+  const serverJ = server ? JSON.stringify(server) : "";
+  useEffect(() => {
+    if (!serverJ || serverJ === saved.current || JSON.stringify(latest.current) !== saved.current) return;
+    const v = JSON.parse(serverJ);
+    saved.current = serverJ;
+    latest.current = v;
+    setS(v);
+  }, [serverJ]);
   // 이 창에서 고친 것(아직 저장 전)까지 넣은 촬영 목록
   // 11/18 밤 "ERP 렉" — 목록·코디·포즈 계산은 바뀔 때만 다시(예전엔 누를 때마다 코디 전부의 추천·찍는 순서를 처음부터)
   const all = useMemo(() => (rows.some((r) => r.id === s.id) ? rows.map((r) => (r.id === s.id ? s : r)) : rows), [rows, s]);
@@ -1017,7 +1035,9 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
   const poseList = useMemo(() => posePool(null, poses.lib).cards, [poses.lib]);
   const [run, setRun] = useState(!!startRun);
   const [codiPose, setCodiPose] = useState(null); // 이 코디 포즈 창 — 코디 id
-  const shotsBy = useMemo(() => new Map(poseList.length ? codis.map((c) => [c.id, shotsOf(s, c, poseList, d.items)]) : []), [s, codis, poseList, d.items]);
+  const aiv = poseAiVer(); // 11/24 사진 낱말이 새로 오면 추천도 다시(포즈 판 · 촬영 날 화면과 같게)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const shotsBy = useMemo(() => new Map(poseList.length ? codis.map((c) => [c.id, shotsOf(s, c, poseList, d.items)]) : []), [s, codis, poseList, d.items, aiv]);
   const poseLine = (c) => {
     if (!poseList.length) return "";
     const { shots, auto } = shotsBy.get(c.id) || shotsOf(s, c, poseList, d.items);
@@ -1037,7 +1057,8 @@ function DaySheet({ day: start, d, online, rows = [], studios, refs, poses, onSa
     return `포즈 ${gText}${own ? `${codes.length ? " + " : ""}이 코디만 ${own}` : ""}${auto ? " (추천)" : ""} · ${nd ? `찍음 ${nd}/${shots.length}` : `${shots.length}장`}`;
   };
   // 11/17 밤 촬영 날 화면과 같은 수 — 겹마다 다시 찍는 상의 포즈까지(lib/shootOrder)
-  const runs = useMemo(() => (poseList.length ? codis.map((c) => runOrder(s, c, poseList, d.items).shots) : []), [s, codis, poseList, d.items]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const runs = useMemo(() => (poseList.length ? codis.map((c) => runOrder(s, c, poseList, d.items).shots) : []), [s, codis, poseList, d.items, aiv]);
   const totalShots = runs.reduce((n, l) => n + l.length, 0);
   const doneShots = runs.reduce((n, l) => n + l.filter((x) => x.done).length, 0);
   const liveCodiPose = codiPose && codis.find((c) => c.id === codiPose);
@@ -1352,7 +1373,9 @@ export default function ShootDays({ d, online }) {
   // 새 촬영 장소 = 스튜디오 목록 맨 위
   const home = placeOf(studios.list[0]);
   const blank = (on) => ({ id: newId("sd"), on, time: "12:00", place: home, models: [], modelNote: "", memo: "", cuts: [], videos: [], createdAt: new Date().toISOString() });
-  const openDay = open && (days.items.find((x) => x.id === open.id) || open);
+  // 11/24 날짜 카드에서 연 빈 창(그날 촬영 기록을 아직 못 읽었을 때) — 그날 기록이 들어오면 그 기록으로 바꿔 연다(빈 창에서 고친 게 없을 때만 — 고치면 저장돼서 목록에 있다)
+  const [draftId, setDraftId] = useState(null);
+  const openDay = open && (days.items.find((x) => x.id === open.id) || (open.id === draftId && days.items.find((x) => x.on && x.on === open.on)) || open);
   // 같은 날 다른 모델 촬영 — 시간은 비워 두고 장소는 그대로
   const addSibling = (from) => {
     const x = { ...blank(from.on), time: "", place: from.place || home, ...(from.outdoor ? { outdoor: from.outdoor } : {}) };
@@ -1368,7 +1391,13 @@ export default function ShootDays({ d, online }) {
     const dup = r.rec && r.n > 1 && who && days.items.some((x) => x.id !== rec.id && x.on === r.on && (x.models || []).filter(Boolean).join(", ") === who);
     // 11/16 밤 촬영 날 화면 바로 열기 — 오늘·다가오는 촬영에 코디와 포즈 카드가 있으면
     const canRun = r.on >= today && r.codis.length > 0 && posePool(rec.on ? rec : { on: r.on }, poses.lib).cards.length > 0;
-    const openIt = () => setOpen(r.rec || blank(r.on));
+    const openIt = () => {
+      const rec = r.rec || days.items.find((x) => x.on && x.on === r.on);
+      if (rec) return setOpen(rec);
+      const b = blank(r.on);
+      setDraftId(b.id);
+      setOpen(b);
+    };
     return (
       <div
         key={rec.id || r.on}

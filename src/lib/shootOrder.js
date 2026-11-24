@@ -16,6 +16,7 @@
 // 찍음 표시(촬영 줄 poseDone[코디 id]) — 첫 겹 사진은 예전처럼 보관 키 그대로, 두 번째 상의 겹부터는 `s<겹>|<키>`, 겹 영상은 `vid:<겹>`.
 import { wearPart } from "./shoot";
 import { shotsOf, topsInOrder, topLayerMap } from "./poses";
+import { poseAi } from "./poseReco";
 
 export const GROUPS = ["TOP", "SELFIE", "BTM", "FULL", "OUTER"];
 export const GROUP_NAME = { TOP: "상의", SELFIE: "상의 셀카", BTM: "하의", FULL: "전신", OUTER: "아우터" };
@@ -154,6 +155,22 @@ export function codiLabel(c, items) {
 /** 시트에 보이는 코디 이름 — 촬영 창에서 고친 말(촬영 줄 sheetNames) 먼저 */
 export const sheetName = (day, c, items) => String(day?.sheetNames?.[c?.id] || "").trim() || codiLabel(c, items);
 
+// 11/24 찍어주는 컷 · 셀카 나누기 — 세원(방향성 창): "촬영 시작을 누르면 셀카랑 찍어주는 컷이랑 분리되게 만들어줄 수 있어? 보통 우리가 먼저 찍어주고 태은씨나 주현씨한테 셀카 찍으라고 주거든."
+//   → 겹마다 찍어주는 컷을 먼저 다 찍고, 그다음 그 겹 셀카(폰을 모델에게) → 그 겹 영상. 촬영 날 화면(PoseRun.ShootRun)은 위에 '찍어주는 컷 · 셀카' 칸으로 나눠 보인다.
+//   셀카인지 = 카드 찍는 방식(shot) → 없으면 묶음(SELFIE·FULL 셀카 · TOP·BTM 찍어주는) → 사무실 PC 사진 낱말(pose_ai shot) → 찍어주는 컷.
+//   이 코디만 사진은 설명에 '셀카'가 있으면 셀카.
+export const KIND_NAME = { photo: "찍어주는 컷", selfie: "셀카" };
+export function shotKindOf(k, group, ai = null) {
+  const s = k?.shot || k?.sec?.shot || "";
+  if (s === "거울 셀카") return "selfie";
+  if (s === "찍어주는 컷") return "photo";
+  if (group === "SELFIE" || group === "FULL") return "selfie";
+  if (group === "TOP" || group === "BTM") return "photo";
+  const a = ai?.cards?.[k?.id]?.shot || "";
+  if (/셀카/.test(a)) return "selfie";
+  return /셀카/.test(`${k?.title || ""} ${k?.sec?.text || ""}`) ? "selfie" : "photo";
+}
+
 /** 포즈 카드 → 묶음(TOP·SELFIE·BTM·FULL·OUTER). 모르면 "" */
 export function groupOf(k) {
   if (!k) return "";
@@ -226,7 +243,11 @@ export function runOrder(day, c, cards, items) {
   const base = shotsOf(day, c, cards, items).shots;
   const byId = new Map(cards.map((k) => [k.id, k]));
   const done = new Set(day?.poseDone?.[c.id] || []);
-  const withGroup = base.map((x) => ({ ...x, group: x.own ? "" : groupOf(byId.get(x.cardId)) }));
+  const withGroup = base.map((x) => {
+    const group = x.own ? "" : groupOf(byId.get(x.cardId));
+    const kind = x.own ? (/셀카/.test(x.cap || "") ? "selfie" : "photo") : shotKindOf(byId.get(x.cardId), group, poseAi());
+    return { ...x, group, kind };
+  });
   const known = new Set(steps.flatMap((s) => s.groups));
   const shots = [];
   // 11/18 상의 겹마다 그 겹 상의에 맞는 TOP 카드(lib/poses topLayerMap) — 나시 겹엔 TOP › 나시, 티셔츠 겹엔 세부 없는 TOP.
@@ -250,7 +271,8 @@ export function runOrder(day, c, cards, items) {
       const at = lead.findLastIndex((y) => y.cardId === pr || pairOf(y) === pr);
       lead.splice(at + 1, 0, x);
     }
-    mine.splice(0, mine.length, ...lead);
+    // 11/24 찍어주는 컷 먼저 → 셀카(폰을 모델에게). 같은 쪽 안에서는 묶음 순서 · 짝 순서 그대로
+    mine.splice(0, mine.length, ...lead.filter((x) => x.kind !== "selfie"), ...lead.filter((x) => x.kind === "selfie"));
     // 처음 나오는 사진은 키 그대로(예전 찍음 표시와 이어진다), 같은 사진이 다음 상의 겹에 또 나오면 겹 번호를 붙인다
     for (const x of mine) {
       const doneKey = seen.has(x.key) ? `s${s.n}|${x.key}` : x.key;

@@ -24,6 +24,35 @@ export const RECO_Q = 5;
 export const RECO_Q_MIN = 1;
 export const RECO_Q_MAX = 8;
 
+// ---------------------------------------------------------------- 얼굴 보이는 포즈 (11/24)
+// 세원(방향성 창): "포즈 판에서 태은씨는 얼굴이 보이는 컷을 최소화 하려구. 주현씨는 에어리 레퍼런스처럼 얼굴컷을 쓰되 많이는 안쓰게."
+//   카드 pose.face = true 가 얼굴이 보이는 사진(폰으로 가림 · 입·턱 아래에서 잘림 · 고개 돌림·숙임 · 뒷모습은 '안 보임').
+//   11/24 방향성 창이 포즈 칸 사진을 다 보고 8장에 표시 — FULL·1 · FULL·11(멀리) · FULL·14 · TOP·긴팔티3 · TOP·긴팔티4 · OUTER·코트8(멀리) · OUTER·코트10 · OUTER·코트11.
+//   새 카드는 포즈 칸 고치기 창 '얼굴 보임' 칩으로 표시한다.
+// 진짜 추천은 코디당 얼굴 컷을 faceRuleOf(촬영 줄).max 장까지만 — 촬영 줄 faceMax(포즈 판에서 바꿈)가 먼저, 없으면 모델 기본(FACE_RULES), 모르는 모델은 0.
+//   0 = 추천에서 뺌 · 1장↑ = 그만큼까지 섞고 그 안에서는 조금 앞에 둔다(주현 '쓰되'). 세원이 직접 고른 코디는 안 건드린다 — 포즈 판 줄에 '얼굴 N장' + '얼굴 컷 빼기'만.
+export const isFaceCard = (k) => (k?.sec?.pose || k?.pose)?.face === true;
+export const FACE_MAX = 4;
+export const FACE_RULES = [
+  { re: /태은/, max: 0, who: "태은 씨", text: "얼굴 보이는 컷 최소화" },
+  { re: /주현/, max: 2, who: "주현 씨", text: "에어리처럼 얼굴 컷 조금" },
+];
+/** 이 촬영 얼굴 컷 규칙 → {max(코디당), base(모델 기본), who, text, custom(포즈 판에서 바꿈)} */
+export function faceRuleOf(day) {
+  const ms = (day?.models || []).map(String);
+  const hits = FACE_RULES.filter((r) => ms.some((m) => r.re.test(m)));
+  const base = hits.length ? hits.reduce((a, b) => (b.max < a.max ? b : a)) : null;
+  const v = Number(day?.faceMax);
+  const custom = day?.faceMax != null && day?.faceMax !== "" && Number.isFinite(v);
+  return {
+    max: custom ? Math.max(0, Math.min(FACE_MAX, Math.round(v))) : base ? base.max : 0,
+    base: base ? base.max : 0,
+    who: base?.who || "",
+    text: base?.text || "",
+    custom,
+  };
+}
+
 // ---------------------------------------------------------------- 사무실 PC 가 적어 둔 사진 낱말 (pose_ai) — 화면 어디서나 같은 값을 쓰게 한 곳에
 let AI = (() => {
   try {
@@ -33,9 +62,14 @@ let AI = (() => {
   }
 })();
 export const poseAi = () => AI;
+// 11/24 낱말이 바뀐 횟수 — 화면의 추천 계산(useMemo)이 이걸 같이 보게. 예전엔 포즈 판이 처음 읽은(이 기기에 남은 옛) 낱말로 센 추천을 들고 있고,
+//   나중에 연 촬영 날 화면은 새 낱말로 세서 '촬영 시작을 누르면 다른 사진'이 될 수 있었다.
+let VER = 0;
+export const poseAiVer = () => VER;
 /** 테스트·미리 보기용 — 바깥에서 낱말을 바꿔 넣는다 */
 export const setPoseAi = (v) => {
   AI = v || {};
+  VER += 1;
 };
 /** 촬영 관리가 열려 있는 동안 pose_ai 를 읽어 둔다(바뀌면 다시) — 바뀌면 화면을 다시 그리게 상태를 돌려준다 */
 export function usePoseAi(online) {
@@ -44,7 +78,11 @@ export function usePoseAi(online) {
     () =>
       loadKey(POSE_AI_KEY, online, {})
         .then((x) => {
-          AI = x || {};
+          const next = x || {};
+          if (JSON.stringify(next) !== JSON.stringify(AI)) {
+            AI = next;
+            VER += 1;
+          }
           setV(AI);
         })
         .catch(() => {}),
@@ -324,14 +362,17 @@ const shapeOf = (g, tags) => [g, [...tags].find((t) => t.startsWith("f:")) || ""
  */
 // slots = 상의 겹마다 꼭 한 장(lib/poses topSlots — 나시 겹엔 TOP › 나시 카드) [{label, fit(카드)}]. 없으면 TOP 도 한 장
 // q = 묶음마다 장수(11/20 — 주면 n 대신 이걸로, recoQOf)
-export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q = null) {
+// faceMax = 코디당 얼굴 보이는 카드 수(11/24 — faceRuleOf). null 이면 예전처럼 안 본다. 0 이면 얼굴 카드를 빼고, 1↑ 이면 그만큼까지(조금 앞에)
+export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q = null, faceMax = null) {
   const its = (c?.itemIds || []).map((id) => (items || []).find((x) => x.id === id)).filter(Boolean);
   const traits = its.flatMap((x) => itemTraits(x, ai));
   const order = new Map(pool.map((k, i) => [k.id, i]));
+  if (faceMax === 0) pool = pool.filter((k) => !isFaceCard(k));
   const rows = pool.map((k) => {
     const g = groupOfCard(k);
     const { tags, desc } = cardTags(k, ai);
-    let score = k.ok === true ? 0.6 : 0;
+    const face = faceMax != null && isFaceCard(k);
+    let score = (k.ok === true ? 0.6 : 0) + (face ? 0.8 : 0);
     let best = null;
     for (const t of traits) {
       if (!t.groups.includes(g)) continue;
@@ -341,7 +382,7 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q =
       if (!best || hit.w > best.w) best = { w: hit.w, label: t.label, why: hit.why };
     }
     if (k.sec?.pose?.only && its.some((x) => wearPart(x) === "가방") && (!best || best.w < 3)) best = { w: 3, label: "가방 코디", why: "가방이 보이는 컷" };
-    return { k, g, tags, desc, score, best, shape: shapeOf(g, tags), photos: photosOf(k) };
+    return { k, g, tags, desc, score, best, shape: shapeOf(g, tags), photos: photosOf(k), face };
   });
   rows.sort((a, b) => b.score - a.score || (b.k.ok === true) - (a.k.ok === true) || order.get(a.k.id) - order.get(b.k.id));
   const groups = ORDER.filter((g) => rows.some((r) => r.g === g));
@@ -351,9 +392,13 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q =
   const why = {};
   const short = {};
   let photos = 0;
+  let faceN = 0;
+  const faceOk = (r) => !r.face || faceN < faceMax;
   const take = (r, base, slot = "") => {
+    if (!r) return;
     picked.push(r);
     photos += r.photos;
+    if (r.face) faceN += 1;
     if (r.best) {
       why[r.k.id] = `${slot ? slot + " · " : ""}${r.best.label} → ${r.best.why}`;
       short[r.k.id] = r.best.label;
@@ -362,13 +407,14 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q =
       why[r.k.id] = slot ? `${slot} 상의 한 장${d}` : base ? (r.g === "FULL" ? `코디 전체가 보이는 전신 한 장${d}` : `${GROUP_LABEL[r.g]} 기본 한 장${d}`) : `${GROUP_LABEL[r.g]} 컷 더${d}`;
       short[r.k.id] = slot || (base ? `${GROUP_LABEL[r.g]} 기본` : GROUP_LABEL[r.g]);
     }
+    if (r.face) why[r.k.id] += " · 얼굴 보이는 컷";
   };
   // ① 묶음마다 한 장 — 가장 맞는 것. 상의는 겹마다 한 장(slots — 나시 겹엔 나시 카드)
   for (const g of groups) {
     if (g === "TOP" && slots?.length) {
       let any = false;
       for (const sl of slots) {
-        const r = rows.find((x) => x.g === "TOP" && !picked.includes(x) && sl.fit(x.k));
+        const r = rows.find((x) => x.g === "TOP" && !picked.includes(x) && sl.fit(x.k) && faceOk(x));
         if (r) {
           take(r, true, sl.label);
           any = true;
@@ -376,7 +422,7 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q =
       }
       if (any) continue;
     }
-    take(rows.find((r) => r.g === g), true);
+    take(rows.find((r) => r.g === g && faceOk(r)), true);
   }
   // ②' 11/20 묶음마다 q장(q 를 주면) — 묶음(상의는 겹 자리마다)마다 q장까지만, 점수 순·같은 구도는 깎아서. 모자란 묶음 몫을 다른 묶음에 넘기지 않는다
   if (q) {
@@ -387,7 +433,7 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q =
       let best = null;
       let bestAdj = -Infinity;
       for (const r of rows) {
-        if (picked.includes(r)) continue;
+        if (picked.includes(r) || !faceOk(r)) continue;
         const key = keyOf(r);
         if (key === "TOP#-1" || (inKey[key] || 0) >= q) continue;
         const adj = r.score - 2 * picked.filter((p) => p.shape === r.shape).length;
@@ -409,7 +455,7 @@ export function smartPick(pool, c, items, n = RECO_N, ai = AI, slots = null, q =
       let best = null;
       let bestAdj = -Infinity;
       for (const r of rows) {
-        if (picked.includes(r)) continue;
+        if (picked.includes(r) || !faceOk(r)) continue;
         const inG = picked.filter((p) => p.g === r.g).length;
         if (capped && inG + 1 > Math.round(fair[r.g])) continue;
         const dup = picked.filter((p) => p.shape === r.shape).length;

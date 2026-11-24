@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, ChevronRight, Film, ImagePlus, Images, Loader2, Pencil, Video, X } from "lucide-react";
+import { Camera, Check, ChevronLeft, ChevronRight, Film, ImagePlus, Images, Loader2, Pencil, Smartphone, Video, X } from "lucide-react";
 import { ReelKitCtx, signedUrls, videoKey, thumbKey, reelTitle } from "../lib/refClips";
 import { stepClips, useVideoRefs } from "../lib/shootVideoRefs";
 import { useLookbook, lookOf, shootVideoRows, flipShootVideo } from "../lib/lookbook";
@@ -15,6 +15,7 @@ import { clipImages, filesOf } from "../lib/pasteImages";
 import { guidePhoto } from "../lib/modelGuide";
 import { picksOf, flipPhoto, flipCard, stripCode } from "../lib/poses";
 import { runOrder, flipRun, stepLabel, GROUP_NAME } from "../lib/shootOrder";
+import { poseAiVer, isFaceCard } from "../lib/poseReco";
 import { Photo } from "./ShootBits";
 import { SlideViewer } from "./ContentBits";
 import RefPick from "./RefPick";
@@ -302,6 +303,10 @@ function MiniLoop({ clip, play }) {
  * 촬영 날 화면 — 폰 먼저. 코디 하나씩, 포즈 사진 크게, 사진마다 찍음 ✓
  * 11/17 밤 찍는 순서(lib/shootOrder): 안쪽 옷부터 입으면서 — 겹(①②③) 칩 · 겹마다 사진(TOP → SELFIE → BTM / OUTER → FULL) → 그 겹 영상 ✓.
  *   한 겹 사진을 다 찍으면 다음 겹으로 넘어가지 않고 '영상' 단추가 깜빡인다 → 영상 찍음을 누르면 다음 겹 첫 사진으로.
+ * 11/24 세원: "셀카랑 찍어주는 컷이랑 분리되게 — 보통 우리가 먼저 찍어주고 태은씨나 주현씨한테 셀카 찍으라고 주거든"
+ *   → 겹마다 찍어주는 컷을 먼저, 그다음 셀카(lib/shootOrder shotKindOf). 겹 칩 아래 '찍어주는 컷 n/N · 셀카 n/N' 칸(누르면 그쪽 첫 안 찍은 사진으로),
+ *   사진 위 '찍어주는 컷' / '셀카 · 모델이 찍어요' 표시, 아래 작은 사진 줄에 경계. 찍어주는 컷을 다 찍으면 '이제 셀카 — 폰을 모델에게' 알림이 뜬다.
+ * 11/24 고침: 다음 코디로 넘어갈 때 앞 코디에서 넘기던 자리(jump)가 남아 새 코디가 첫 사진이 아니라 그 번째 사진으로 열리던 것.
  */
 export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const memo = "poclo_run_" + s.id;
@@ -317,7 +322,9 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const [pickStep, setPickStep] = useState(null); // 사진 없는 겹 칩을 눌렀을 때만 — 사진을 넘기면 풀린다
   const c = codis[ci];
   // 11/18 밤 "ERP 렉" — 코디 전부의 찍는 순서(+ 추천)는 촬영 줄·코디·카드가 바뀔 때만. 예전엔 사진을 넘길 때마다 처음부터 다시 셌다
-  const all = useMemo(() => codis.map((x) => runOrder(s, x, cards, d.items)), [s, codis, cards, d.items]);
+  const aiv = poseAiVer(); // 11/24 사진 낱말이 새로 오면 추천도 다시(포즈 판과 같은 추천)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const all = useMemo(() => codis.map((x) => runOrder(s, x, cards, d.items)), [s, codis, cards, d.items, aiv]);
   const { steps, shots } = all[ci] || { steps: [], shots: [] };
   const cur = shots[at];
   const si = pickStep ?? cur?.step ?? 1;
@@ -349,9 +356,17 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
       .catch(() => {});
     return () => lock?.release?.().catch?.(() => {});
   }, []);
+  const [hand, setHand] = useState(false); // 11/24 '이제 셀카 — 폰을 모델에게' 알림
+  useEffect(() => {
+    if (!hand) return;
+    const t = setTimeout(() => setHand(false), 4000);
+    return () => clearTimeout(t);
+  }, [hand]);
   const go = (i) => {
     setCi(i);
     setAt(0);
+    setJump(null); // 11/24 앞 코디에서 넘기던 자리가 새 코디에 남지 않게
+    setHand(false);
     setPickStep(null);
     setStageOpen(false);
   };
@@ -370,6 +385,12 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
     const wasDone = cur.done;
     set(flipRun(s, c, cards, d.items, cur.doneKey));
     if (!wasDone) {
+      // 11/24 그 겹 찍어주는 컷을 다 찍었고 셀카가 남았으면 — '이제 셀카' 알림
+      if (cur.kind !== "selfie") {
+        const leftPhoto = shots.some((x, i) => i !== at && x.step === cur.step && x.kind !== "selfie" && !x.done);
+        const leftSelfie = shots.some((x) => x.step === cur.step && x.kind === "selfie" && !x.done);
+        if (!leftPhoto && leftSelfie) setHand(true);
+      }
       // 다음 안 찍은 사진으로 — 그 겹 영상을 아직 안 찍었으면 다음 겹으로는 안 넘어간다(영상 단추가 깜빡임)
       const next = shots.findIndex((x, i) => i > at && !x.done);
       const st = steps.find((x) => x.n === cur.step);
@@ -400,6 +421,17 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
   const last = ci === codis.length - 1;
   const stepPhotosDone = step && step.shots.every((x) => x.done);
   const names = (list) => list.map((x) => x.name).join(" · ");
+  // 11/24 이 겹 찍어주는 컷 · 셀카 — 칸을 누르면 그쪽 첫 안 찍은 사진으로
+  const stepIdx = step ? shots.map((x, i) => ({ x, i })).filter((o) => o.x.step === step.n) : [];
+  const kinds = { photo: stepIdx.filter((o) => o.x.kind !== "selfie"), selfie: stepIdx.filter((o) => o.x.kind === "selfie") };
+  const jumpKind = (kd) => {
+    const l = kinds[kd];
+    const o = l.find((y) => !y.x.done) || l[0];
+    setHand(false);
+    if (!o) return;
+    setPickStep(null);
+    setJump({ i: o.i, n: Date.now() });
+  };
 
   // 11/18 겹 영상 참고 영상 — 코디 참고 영상(겹) → (그 코디·그날 영상이 하나도 없을 때만) 영상 종류마다 추천 참고 영상(lib/shootVideoRefs)
   const { refs: vrefs, change: changeVrefs } = useVideoRefs(online);
@@ -510,6 +542,37 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
           )}
         </div>
       )}
+      {/* 11/24 찍어주는 컷 → 셀카(폰을 모델에게) — 이 겹 것만 센다 */}
+      {stepIdx.length > 0 && (
+        <div className="flex shrink-0 gap-1.5 px-3 pb-1.5">
+          {["photo", "selfie"].map((kd) => {
+            const l = kinds[kd];
+            if (!l.length) return null;
+            const n = l.filter((o) => o.x.done).length;
+            const on = !!cur && cur.step === step.n && (cur.kind === "selfie") === (kd === "selfie");
+            const fin = n === l.length;
+            const self = kd === "selfie";
+            return (
+              <button
+                key={kd}
+                type="button"
+                onClick={() => jumpKind(kd)}
+                aria-pressed={on}
+                className={
+                  "flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 text-xs font-bold " +
+                  (on ? (self ? "border-violet-600 bg-violet-600 text-white" : "border-stone-800 bg-stone-800 text-white") : fin ? "border-emerald-200 bg-emerald-50 text-emerald-700" : self ? "border-violet-200 bg-violet-50 text-violet-800" : "border-stone-200 bg-white text-stone-700")
+                }
+              >
+                {fin && !on ? <Check size={14} strokeWidth={3} /> : self ? <Smartphone size={14} /> : <Camera size={14} />}
+                {self ? "셀카 · 모델이 찍어요" : "찍어주는 컷"}
+                <span className="font-semibold tabular-nums opacity-80">
+                  {n}/{l.length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {shots.length ? (
         <>
           <div className="relative min-h-0 flex-1 bg-stone-100">
@@ -521,6 +584,25 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
               <span className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white">
                 <Check size={13} strokeWidth={3} /> 찍음
               </span>
+            )}
+            {cur && (
+              <span className={"pointer-events-none absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold shadow " + (cur.kind === "selfie" ? "bg-violet-600 text-white" : "bg-white/90 text-stone-800")}>
+                {cur.kind === "selfie" ? <Smartphone size={13} /> : <Camera size={13} />}
+                {cur.kind === "selfie" ? "셀카 · 모델이 찍어요" : "찍어주는 컷"}
+                {!cur.own && isFaceCard(cards.find((k) => k.id === cur.cardId)) && <span className="ml-0.5 rounded-full bg-amber-400 px-1.5 text-[10px] text-amber-950">얼굴</span>}
+              </span>
+            )}
+            {hand && (
+              <div role="status" className="absolute inset-x-3 top-11 z-10 flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white shadow-lg">
+                <Smartphone size={18} className="shrink-0" />
+                <span className="min-w-0 flex-1">
+                  이제 셀카 차례예요
+                  <span className="block text-xs font-medium opacity-90">찍어주는 컷 다 찍었어요 · 폰을 모델에게 넘겨 주세요</span>
+                </span>
+                <button type="button" onClick={() => setHand(false)} aria-label="알림 닫기" className="-m-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg hover:bg-white/15">
+                  <X size={16} />
+                </button>
+              </div>
             )}
           </div>
           <div className="shrink-0 space-y-1.5 px-3 pt-2">
@@ -536,8 +618,14 @@ export function ShootRun({ s, set, codis, d, cards, online, onClose, onCodi }) {
               {shots.map((x, i) => (
                 <span key={x.doneKey + i} className="flex shrink-0 items-center gap-1">
                   {i > 0 && x.step !== shots[i - 1].step && <span className="mx-0.5 h-8 w-px bg-stone-300" aria-hidden />}
+                  {i > 0 && x.step === shots[i - 1].step && x.kind !== shots[i - 1].kind && (
+                    <span className="flex h-8 items-center px-0.5 text-violet-600" title="여기부터 셀카" aria-hidden>
+                      <Smartphone size={13} />
+                    </span>
+                  )}
                   <button type="button" onClick={() => setJump({ i, n: Date.now() })} aria-label={`${i + 1}번째 포즈`} className={"relative w-10 overflow-hidden rounded-md " + (i === at ? "ring-2 ring-rose-700" : "")}>
                     <Photo url={urlOf(x.key)} className="aspect-[3/4] w-full" />
+                    {x.kind === "selfie" && <span className="absolute inset-x-0 bottom-0 h-1 bg-violet-500" aria-hidden />}
                     {x.done && (
                       <span className="absolute inset-0 flex items-center justify-center bg-emerald-600/55 text-white">
                         <Check size={14} strokeWidth={3} />

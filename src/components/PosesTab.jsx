@@ -232,6 +232,10 @@ function PoseEditSheet({ card, folders, shots, d, online, onSave, onRemove, onCl
             <button type="button" aria-pressed={p.only === "가방"} onClick={() => setPose({ only: p.only === "가방" ? undefined : "가방" })} className={chip + " " + (p.only === "가방" ? "border-amber-600 bg-amber-500 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-400")}>
               가방 있을 때만
             </button>
+            {/* 11/24 얼굴 보이는 사진 — 태은 씨 촬영은 추천에서 빼고, 주현 씨는 코디당 2장까지(lib/poseReco faceRuleOf). 폰으로 가림 · 턱 아래에서 잘림은 '안 보임' */}
+            <button type="button" aria-pressed={p.face === true} onClick={() => setPose({ face: p.face === true ? undefined : true })} className={chip + " " + (p.face === true ? "border-amber-600 bg-amber-500 text-white" : "border-stone-200 bg-white text-stone-600 hover:border-stone-400")}>
+              얼굴 보임
+            </button>
           </div>
           <label className="block text-xs font-medium text-stone-500">
             고른 이유 <span className="font-normal text-stone-400">(우리만 봐요)</span>
@@ -493,6 +497,7 @@ export default function PosesTab({ poses, d, online }) {
                     <span className={"rounded-full px-1.5 py-0.5 font-semibold " + okTone(x.pose?.ok)}>{okText(x.pose?.ok)}</span>
                     {x.pose?.spare && <span className="rounded-full bg-stone-700 px-1.5 py-0.5 font-semibold text-white">예비</span>}
                     {x.pose?.only === "가방" && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">가방 있을 때만</span>}
+                    {x.pose?.face === true && <span className="rounded-full bg-amber-400 px-1.5 py-0.5 font-semibold text-amber-950">얼굴 보임</span>}
                     {x.pose?.pair && <span className="rounded-full bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-700">{codeOf((lib.items || []).find((y) => y.id === x.pose.pair) || {}) || "셀카"} 짝</span>}
                   </span>
                 </span>

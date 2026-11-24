@@ -3,6 +3,7 @@ import { Check, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { codiItems, codiName } from "../lib/shoot";
 import { picksOf, shotsOf, flipPhoto, flipCard, stripCode, recoOf, codiFolder, placeOfDay, poseFoldersOf, shotsOfLib, IN_ID, OUT_ID, OLD_ID } from "../lib/poses";
 import { runOrder, stepLabel } from "../lib/shootOrder";
+import { isFaceCard } from "../lib/poseReco";
 import { withChildren } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
 import { BigSlides } from "./ContentBits";
@@ -221,9 +222,10 @@ export default function CodiPoseBig({ s, set, sRef, c, n, codis = [], onGo, d, c
                             {on ? "빼기" : "카드째"}
                           </button>
                         </div>
-                        {(reco.has(k.id) || k.ok !== true || k.shot) && (
+                        {(reco.has(k.id) || k.ok !== true || k.shot || isFaceCard(k)) && (
                           <div className="mt-1 flex min-w-0 flex-wrap gap-1">
                             {reco.has(k.id) && <span className="rounded-full bg-rose-50 px-1.5 text-[10px] font-semibold whitespace-nowrap text-rose-700 ring-1 ring-rose-200">추천</span>}
+                            {isFaceCard(k) && <span className="rounded-full bg-amber-400 px-1.5 text-[10px] font-semibold whitespace-nowrap text-amber-950">얼굴</span>}
                             {k.ok !== true && <span className="rounded-full bg-amber-50 px-1.5 text-[10px] font-semibold whitespace-nowrap text-amber-700">확인 전</span>}
                             {k.shot && <span className="rounded-full bg-violet-50 px-1.5 text-[10px] font-semibold whitespace-nowrap text-violet-700">{k.shot}</span>}
                           </div>

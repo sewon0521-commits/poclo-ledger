@@ -4,7 +4,7 @@ import { Check, ExternalLink, Footprints, Pencil, Play, Plus, RotateCcw, Undo2, 
 import { md, codiItems, codiName } from "../lib/shoot";
 import { usePoseUrls } from "../lib/usePoseUrls";
 import { poseDeck, poseFoldersOf, shotsOfLib, placeOfDay, codiFolder, recoOf, shotsOf, setLibOk, stripCode, RECO_RULE, IN_ID, OUT_ID } from "../lib/poses";
-import { recoQOf, RECO_Q_MIN, RECO_Q_MAX } from "../lib/poseReco";
+import { recoQOf, RECO_Q_MIN, RECO_Q_MAX, poseAiVer, faceRuleOf, isFaceCard, FACE_MAX } from "../lib/poseReco";
 import { wearSteps, stepLabel } from "../lib/shootOrder";
 import { withChildren, childrenOf, pathName } from "../lib/reelFolders";
 import { Photo } from "./ShootBits";
@@ -259,6 +259,7 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
                       <span className="mt-0.5 flex flex-wrap gap-1 text-[10px]">
                         {k.shot && <span className="rounded bg-stone-100 px-1 text-stone-600">{k.shot}</span>}
                         <span className={"rounded px-1 font-semibold " + (k.ok === true ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{k.ok === true ? "OK" : "확인 전"}</span>
+                        {isFaceCard(k) && <span className="rounded bg-amber-400 px-1 font-semibold text-amber-950">얼굴</span>}
                       </span>
                     </span>
                   </button>
@@ -281,8 +282,11 @@ function PosePicker({ c, n, name, s, cards, folders, shots, items, picked, onlin
   );
 }
 
+/** 줄 칸 사진 — 이 코디에서 쓰는 그 카드 첫 사진(코디 창에서 끈 사진 말고). 안 고른 추천 카드는 카드 첫 사진 */
+const tileKey = (r, k) => (k ? r.shots.find((x) => x.cardId === k.id)?.key || k.sec.photos?.[0]?.key : undefined);
+
 /** 줄 안 포즈 카드 — 고른 것(테두리 · 늘 보이는 ×) / 추천(점선 · 누르면 담김) */
-function PoseTile({ k, mode, mine, url, onTap, onDrop, why, short }) {
+function PoseTile({ k, mode, mine, url, onTap, onDrop, why, short, face }) {
   const done = mine.length > 0 && mine.every((x) => x.done);
   const part = mode !== "reco" && mine.length > 0 && mine.length < (k.sec.photos || []).length;
   return (
@@ -293,7 +297,11 @@ function PoseTile({ k, mode, mine, url, onTap, onDrop, why, short }) {
         title={(mode === "reco" ? `${k.code} 담기 (추천)` : mode === "auto" ? "추천 그대로 담기" : `${k.code} 포즈 카드 보기 · OK`) + (why ? `\n고른 이유: ${why}` : "")}
         className={"block w-full overflow-hidden rounded-lg text-left " + (mode === "pick" ? (done ? "ring-2 ring-emerald-600" : "ring-1 ring-stone-300") : "border border-dashed border-rose-400 bg-rose-50/50")}
       >
-        <Photo url={url} className="aspect-[3/4] w-full" />
+        <span className="relative block">
+          <Photo url={url} className="aspect-[3/4] w-full" />
+          {/* 11/24 얼굴 보이는 포즈 — 태은 씨 촬영은 최소화 · 주현 씨는 조금 */}
+          {face && <span className="absolute bottom-1 left-1 rounded-full bg-amber-400 px-1.5 text-[10px] leading-4 font-bold text-amber-950 shadow-sm">얼굴</span>}
+        </span>
         <span className="block px-1 py-0.5">
           <span className="flex items-center gap-0.5 text-[11px] font-bold text-stone-900">
             {k.code}
@@ -332,6 +340,8 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
   const { cards, hidden } = useMemo(() => poseDeck(lib), [lib]);
   const want = placeOfDay(s);
   const recoQ = recoQOf(s);
+  const aiv = poseAiVer(); // 11/24 사진 낱말이 새로 오면 추천도 다시(촬영 날 화면과 같은 추천)
+  const face = faceRuleOf(s);
   const rows = useMemo(
     () =>
       codis.map((c) => {
@@ -340,12 +350,14 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
         const rc = recoOf(s, c, cards, d.items);
         return { c, shots, auto, ids, reco: rc.ids.filter((id) => !ids.includes(id)), why: rc.why, short: rc.short };
       }),
-    [s, codis, cards, d.items],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [s, codis, cards, d.items, aiv],
   );
   const autoNs = rows.filter((r) => r.auto).map((r) => r.shots.length);
   const autoRange = autoNs.length ? (Math.min(...autoNs) === Math.max(...autoNs) ? `${autoNs[0]}장` : `${Math.min(...autoNs)}~${Math.max(...autoNs)}장`) : "";
   const { urlOf } = usePoseUrls(
-    [...new Set(rows.flatMap((r) => [...r.ids, ...r.reco]))].map((id) => cards.find((k) => k.id === id)?.sec.photos?.[0]?.key),
+    // 11/24 칸 사진 = 이 코디에서 쓰는 첫 사진(코디 창에서 끈 사진 말고) — 예전엔 카드 첫 사진이라, 첫 사진을 끈 카드는 촬영 시작에서 다른 사진이 나왔다
+    rows.flatMap((r) => [...r.ids, ...r.reco].map((id) => tileKey(r, cards.find((k) => k.id === id)))),
     online,
     d,
   );
@@ -392,6 +404,19 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
     });
     setUndo({ text: `${k.code} 뺐어요`, prev });
   };
+  // 11/24 직접 고른 코디의 얼굴 컷을 기준까지 — 앞(카드 순서)에서 face.max 장만 남김. 찍음 표시가 있으면 한 번 묻는다
+  const dropFaces = (r, fs) => {
+    const out = fs.slice(face.max);
+    const marked = out.filter((id) => r.shots.some((x) => x.cardId === id && x.done));
+    if (marked.length && !window.confirm(`${marked.map((id) => byId(id)?.code).join(" · ")} 는 '찍음' 표시가 있어요. 그래도 뺄까요?`)) return;
+    const prev = snap();
+    const keys = new Set(out.flatMap((id) => (byId(id)?.sec.photos || []).map((p) => p.key)));
+    set({
+      posePicks: { ...(s.posePicks || {}), [r.c.id]: r.ids.filter((x) => !out.includes(x)) },
+      posePhotoOff: { ...(s.posePhotoOff || {}), [r.c.id]: (s.posePhotoOff?.[r.c.id] || []).filter((x) => !keys.has(x)) },
+    });
+    setUndo({ text: `얼굴 컷 ${out.length}장 뺐어요`, prev });
+  };
   const backToReco = (c) => {
     const prev = snap();
     const without = (o) => Object.fromEntries(Object.entries(o || {}).filter(([id]) => id !== c.id));
@@ -420,7 +445,8 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
       k={k}
       mode={mode}
       mine={r.shots.filter((x) => x.cardId === k.id)}
-      url={urlOf(k.sec.photos?.[0]?.key)}
+      url={urlOf(tileKey(r, k))}
+      face={isFaceCard(k)}
       onTap={() => (mode === "reco" ? setPicks(r.c, [...r.ids, k.id]) : mode === "auto" ? setPicks(r.c, r.ids) : setOpen(k.id))}
       onDrop={() => drop(r, k)}
       why={r.why[k.id]}
@@ -476,6 +502,40 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
           </span>
         </div>
       )}
+      {/* 11/24 얼굴 보이는 포즈 — 세원: "태은씨는 얼굴이 보이는 컷을 최소화 · 주현씨는 에어리 레퍼런스처럼 얼굴컷을 쓰되 많이는 안쓰게". 모델 기본(lib/poseReco FACE_RULES), 촬영마다 바꿈(faceMax) */}
+      {codis.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl bg-amber-50/70 px-3 py-2">
+          <span className="text-sm font-semibold text-stone-800">얼굴 보이는 포즈</span>
+          <span className="flex flex-wrap gap-1" role="group" aria-label="코디당 얼굴 보이는 포즈 수">
+            {Array.from({ length: FACE_MAX + 1 }, (_, n) => (
+              <button
+                key={n}
+                type="button"
+                aria-pressed={face.max === n}
+                onClick={() => set({ faceMax: n === face.base ? null : n })}
+                className={"min-h-8 rounded-lg border px-2.5 text-xs font-semibold " + (face.max === n ? "border-amber-600 bg-amber-500 text-white" : "border-amber-200 bg-white text-amber-900 hover:border-amber-400")}
+              >
+                {n === 0 ? "빼기" : `코디당 ${n}장까지`}
+              </button>
+            ))}
+          </span>
+          <span className="text-xs text-stone-600">
+            {face.custom ? (
+              <>
+                이 촬영만 바꿨어요{face.who ? ` · ${face.who} 기본은 ${face.base ? `${face.base}장까지` : "빼기"}` : ""}{" "}
+                <button type="button" onClick={() => set({ faceMax: null })} className="font-semibold text-amber-800 underline underline-offset-2">
+                  기본으로
+                </button>
+              </>
+            ) : face.who ? (
+              `${face.who} 기본 — ${face.text}`
+            ) : (
+              "기본은 빼기 — 모델마다 다르면 여기서 바꿔요"
+            )}
+            {" · 추천에만 써요(직접 고른 코디는 줄에 '얼굴 N장'으로 알려 줘요)"}
+          </span>
+        </div>
+      )}
       <p className="mb-2 text-xs text-stone-500">
         코디마다 찍을 포즈만 보여요 · <b className="font-semibold text-stone-700">×</b> 빼기 · 점선 = 추천({RECO_RULE}) — 누르면 담겨요 · <b className="font-semibold text-stone-700">+ 포즈</b>로 포즈 칸에서 더 골라요.
         카드를 누르면 사진 · OK, 코디 이름을 누르면 카드에서 사진 한 장만 쓰거나 이 코디만 사진을 넣어요.
@@ -501,6 +561,23 @@ export default function PoseBoard({ s, set, codis, d, poses, online, onRun, onCo
                   <span className={"shrink-0 text-[10px] tabular-nums " + (r.shots.length && nDone === r.shots.length ? "font-semibold text-emerald-700" : "text-stone-400")}>
                     {r.shots.length}장{nDone ? ` · 찍음 ${nDone}` : ""}
                   </span>
+                  {(() => {
+                    const fs = r.ids.filter((id) => isFaceCard(byId(id)));
+                    if (!fs.length) return null;
+                    const over = fs.length > face.max;
+                    return (
+                      <>
+                        <span className={"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold " + (over ? "bg-amber-400 text-amber-950" : "bg-amber-50 text-amber-800")} title={fs.map((id) => byId(id)?.code).join(" · ")}>
+                          얼굴 {fs.length}장{over ? ` (기준 ${face.max ? `${face.max}장` : "빼기"})` : ""}
+                        </span>
+                        {over && !r.auto && (
+                          <button type="button" onClick={() => dropFaces(r, fs)} className="-my-2 shrink-0 py-2 text-[10px] font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-950">
+                            {face.max ? `${face.max}장만 남기기` : "얼굴 컷 빼기"}
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
                   {r.auto ? (
                     <span className="shrink-0 text-[10px] font-semibold text-rose-600">추천 그대로</span>
                   ) : (

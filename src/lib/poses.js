@@ -10,7 +10,8 @@
 // 고른 것은 촬영 줄(settings shoot_days)에 — posePicks {코디 id: [칸 id]} · poseDone {코디 id: [칸 id]}(촬영 날 찍은 것).
 //   posePicks 에 그 코디가 없으면 = 아직 안 건드림 → 추천을 보여 주고(저장은 안 함), 세원이 한 칸이라도 누르면 그때부터 그 코디는 고른 그대로.
 import { wearPart } from "./shoot";
-import { smartPick, recoQOf } from "./poseReco";
+import { smartPick, recoQOf, faceRuleOf, isFaceCard } from "./poseReco";
+export { faceRuleOf, isFaceCard };
 
 export const FITS = ["전신", "아우터", "상의", "하의"];
 
@@ -382,20 +383,20 @@ function outerOnly(pool, c, items) {
 export function recommend(cards, c, items, n) {
   return recoPick(cards, c, items, n).ids;
 }
-/** recommend 와 같은데 고른 이유(why · short)까지. q = 묶음마다 장수(11/20, 주면 n 대신) */
-export function recoPick(cards, c, items, n, q = null) {
+/** recommend 와 같은데 고른 이유(why · short)까지. q = 묶음마다 장수(11/20, 주면 n 대신) · faceMax = 코디당 얼굴 보이는 카드 수(11/24, poseReco faceRuleOf) */
+export function recoPick(cards, c, items, n, q = null, faceMax = null) {
   const pool = new Set(recommendAll(cards, c, items));
   const mine = outerOnly(
     cards.filter((k) => pool.has(k.id) && topSubOk(k, c, items)),
     c,
     items,
   );
-  return smartPick(mine, c, items, n, undefined, topSlots(mine, c, items), q);
+  return smartPick(mine, c, items, n, undefined, topSlots(mine, c, items), q, faceMax);
 }
 /** 이 촬영 쪽(실내/야외) 카드에서 진짜 추천 — 포즈판 · 큰 창이 이유를 보여 줄 때 */
 export function recoOf(day, c, cards, items) {
   const want = placeOfDay(day);
-  return recoPick(cards.filter((k) => !k.place || k.place === want), c, items, undefined, recoQOf(day));
+  return recoPick(cards.filter((k) => !k.place || k.place === want), c, items, undefined, recoQOf(day), faceRuleOf(day).max);
 }
 /** 옛 추천(옷 종류로 거르기만) — 이 안에서 진짜 추천이 고른다 */
 export function recommendAll(cards, c, items) {
