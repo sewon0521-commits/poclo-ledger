@@ -31,7 +31,7 @@ export const CHANNELS = [
   { k: "cafe24_review", label: "카페24 리뷰", short: "리뷰", auto: true, via: "cafe24", pc: "cafe24", tone: "bg-amber-50 text-amber-900 ring-amber-200" },
   { k: "npay", label: "네이버페이 주문형 문의", short: "N페이", via: "aside", pc: "npay", tone: "bg-green-50 text-green-800 ring-green-200" },
   // 11/10 세원 "카카오만 버튼 안 눌리게"(복사만) → 11/17 세원 "카톡도 보내주되 내가 답장 보내기를 누르면 30분 단위로 모아서" —
-  // [한꺼번에 보내기]로 맡긴 카톡 답은 사무실 PC 가 카톡 읽기 차례(10~19시 30분마다)에 한꺼번에 보낸다(batch). 일부러 넣는 기다림 없음.
+  // [한꺼번에 보내기]로 맡긴 카톡 답은 사무실 PC 가 카톡 읽기 차례(30분마다 · 11/24부터 24시간, 예전 10~19시)에 한꺼번에 보낸다(batch). 일부러 넣는 기다림 없음.
   { k: "kakao", label: "카카오톡 채널", short: "카톡", via: "aside", pc: "kakao", batch: true, tone: "bg-yellow-50 text-yellow-900 ring-yellow-200" },
   { k: "naver", label: "네이버 톡톡", short: "톡톡", via: "aside", pc: "talk", tone: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
   { k: "insta", label: "인스타 DM", short: "인스타", via: "paste", tone: "bg-rose-50 text-rose-800 ring-rose-200" },
