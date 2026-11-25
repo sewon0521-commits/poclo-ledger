@@ -7,7 +7,7 @@ import { Tab } from "./ui";
 import SoSaved from "./SoSaved";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
-import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder, splitOpt, joinOpt, colorKey, vendorColors, colorMatch, optSize, sizeKey, vendorSizes, isFreeSize } from "../lib/soOrder";
+import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder, splitOpt, joinOpt, colorKey, vendorColors, colorMatch, optSize, sizeKey, vendorSizes, isFreeSize, misongOnlyRow, MISONG_OLD_DAYS } from "../lib/soOrder";
 import { flowBoard } from "../lib/pending";
 import { displayName } from "../lib/stock";
 import { RESTOCK_CONF, DEFAULT_RESTOCK, restockFor, missingRestock, saleKey } from "../lib/restock";
@@ -299,7 +299,10 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   // × 로 뺀 줄 (10/12 세원: "x 누르면 바로 없어지지 말고 맨 밑으로 내려갔다가 다시 살릴 수 있게, 최종적으로 확인할 때 지울 수 있게")
   // — 표 맨 아래 '뺀 줄'로 내려가고 복사·합계·미송·저장에서 빠진다. 되살리기 / 지우기(진짜로)
   const offRows = useMemo(() => priced.filter((r) => r.off), [priced]);
-  const rows = useMemo(() => {
+  const vendorAddr = useCallback((id) => (vendors || []).find((v) => v.id === id)?.address || "", [vendors]);
+  const misOffKeys = draft?.misOff;
+  const misStores = draft?.misStore;
+  const { rows, misOffRows } = useMemo(() => {
     const list = priced.filter((r) => !r.off);
     // 같은 매장끼리 붙여서 (10/11 세원: "같은 거래처에서 같은 상품 다른 옵션이든 그냥 같은 거래처이면 바로 아래 보여주게")
     // 매장은 처음 나온 순서, 매장 안에서는 같은 상품끼리(처음 나온 순서), 나머지는 원래 순서. 복사 글도 이 순서
@@ -338,15 +341,58 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       return { ...r, want: need, wantOrder: r.qty, qty: Math.max(0, need - used), misUsed: used, misSpare: Math.max(0, used - need), misFrom: from, misExact: m.exact, misLoose: m.loose };
     });
     // 옵션이 다른 미송은 아직 남았고 다른 줄이 안 쓴 것만 알려 준다
-    return out.map((r) => ({ ...r, misHint: r.misLoose.filter((l) => !usedBy.has(l.key) && (left.get(l.key) || 0) > 0 && !(r.misongForce || []).includes(l.key)) }));
-  }, [priced, misong]);
+    const done = out.map((r) => ({ ...r, misHint: r.misLoose.filter((l) => !usedBy.has(l.key) && (left.get(l.key) || 0) > 0 && !(r.misongForce || []).includes(l.key)) }));
+
+    // 발주 줄이 안 쓴 남은 미송 → '미송만 받을 줄' (11/26 세원: "발주가 없어도 주문 건으로 뜨게 — 미송 건은") — lib/soOrder.misongOnlyRow
+    // 매장명 = 직접 고친 이름 → 같은 거래처 발주 줄의 매장명 → 매입 장부 거래처 이름. 같은 매장 발주 줄 바로 뒤에 붙인다
+    const today = dayKey();
+    const offSet = new Set(misOffKeys || []);
+    const extra = misong
+      .filter((l) => (left.get(l.key) || 0) > 0)
+      .map((l) => {
+        const near = done.find((r) => sameVendor(l.vendor, r.store || r.vendor) || sameVendor(l.vendor, r.vendor));
+        const store = (misStores || {})[l.vendor] || near?.store || l.vendor;
+        return misongOnlyRow({ ...l, left: left.get(l.key) }, { store, addr: near?.addr || addrOf(store) || vendorAddr(l.vendorId), today });
+      });
+    const on = extra.filter((r) => !offSet.has(r.misKey));
+    const placed = new Set();
+    const merged = [];
+    done.forEach((r, i) => {
+      merged.push(r);
+      const k = storeKey(r);
+      if (i + 1 < done.length && storeKey(done[i + 1]) === k) return;
+      for (const m of on) {
+        if (placed.has(m.id) || storeKey(m) !== k) continue;
+        merged.push(m);
+        placed.add(m.id);
+      }
+    });
+    const rest = on.filter((m) => !placed.has(m.id)).sort((a, b) => storeKey(a).localeCompare(storeKey(b), "ko") || a.name.localeCompare(b.name, "ko"));
+    const misKeys = new Set(on.map((m) => m.misKey));
+    return {
+      // 옵션이 다른 미송이 아래 '미송 받기' 줄로 들어갔으면 힌트에 표시(이 줄로 합칠 수도 있게 '빼기'는 그대로)
+      rows: [...merged, ...rest].map((r) => (r.misOnly ? r : { ...r, misHint: r.misHint.map((l) => (misKeys.has(l.key) ? { ...l, ownRow: true } : l)) })),
+      misOffRows: extra.filter((r) => offSet.has(r.misKey)),
+    };
+  }, [priced, misong, misOffKeys, misStores, addrOf, vendorAddr]);
+  const misRows = rows.filter((r) => r.misOnly);
+  const setMisOff = (keys, off) =>
+    setDraft((d) => {
+      const cur = new Set(d.misOff || []);
+      for (const k of keys) {
+        if (off) cur.add(k);
+        else cur.delete(k);
+      }
+      return { ...d, misOff: [...cur] };
+    });
+  const setMisStore = (vendor, value) => setDraft((d) => ({ ...d, misStore: { ...(d.misStore || {}), [vendor]: value.trim() || undefined } }));
   const dropRows = (ids) => setDraft((d) => ({ ...d, rows: d.rows.filter((x) => !ids.includes(x.id)) }));
 
   // 오늘출발 여유분 (11/8, lib/restock.js) — 발주 줄마다 + 파일에 없는데 재고가 다 나간 잘 팔리는 옵션
   const restockItems = useMemo(() => {
     if (!optSales) return [];
     const src = { sales: optSales, stock: stockData, pricing, conf: restockConf };
-    const fileItems = rows.map((r) => {
+    const fileItems = rows.filter((r) => !r.misOnly).map((r) => {
       const opt = r.optionFile || r.option;
       const x = restockFor(src, r.shopName || r.name, opt);
       return { ...x, id: r.id, kind: r.restock && !r.wantOrder ? "new" : "file", name: displayName(r.shopName) || r.name, option: opt.replace(/^\[|\]$/g, ""), extra: r.extra || 0, order: r.wantOrder, canAdd: true };
@@ -499,7 +545,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const noPay = live.filter((r) => !r.pay);
   // 사이즈를 모르는 줄 — 미송만 받는 0장 줄도 거래처가 사이즈를 알아야 해서 전부 (11/25)
   const noSize = rows.filter((r) => r.sizeNeed);
-  const misTaken = rows.filter((r) => r.misUsed > 0);
+  const misTaken = rows.filter((r) => r.misUsed > 0 && !r.misOnly);
   const differ = rows.filter((r) => r.manual == null && r.auto?.alt);
 
   // 날짜별 저장 (10/6 세원: "다 끝나면 날짜별로 저장") — 날짜 기본 = 이지어드민 요청일. 복사할 때도 저절로 저장(같은 발주는 덮어씀)
@@ -524,6 +570,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
         stamp: draft.stamp || orderStamp(draft.file, draft.title),
         fileRows: draft.fileRows || null,
         misBefore: draft.misBefore || {},
+        misOff: draft.misOff || [],
+        misStore: draft.misStore || {},
         type,
         savedAt,
         lines: lines.length,
@@ -559,10 +607,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       file: rec.file,
       at: rec.savedAt,
       type: rec.type || "주문",
-      rows: rec.rows.map(strip),
+      // 미송만 받을 줄(11/26)은 저장값을 안 쓰고 지금 남은 미송으로 다시 만든다 — 두 번 안 들어가게
+      rows: rec.rows.filter((r) => !r.misOnly).map(strip),
       stamp: rec.stamp,
       fileRows: rec.fileRows,
       misBefore: rec.misBefore || {},
+      misOff: rec.misOff || [],
+      misStore: rec.misStore || {},
       savedId: rec.id,
       saveOn: rec.on,
       savedSig: `${rec.on}|${rec.text}`,
@@ -597,7 +648,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     // 매장명 기억 — 괄호에서 읽은 이름을 고쳤으면 '@괄호 이름' → 고친 이름, 제조사 → 매장명(다음 발주에 괄호가 없어도 그 매장으로)
     const named = {};
     for (const r of rows) {
-      if (!r.store) continue;
+      if (!r.store || r.misOnly) continue;
       if (r.parsedStore && r.storeEdit) named["@" + r.parsedStore] = r.store;
       if (r.storeEdit || r.store !== r.vendor) named[r.vendor] = r.store;
     }
@@ -777,6 +828,29 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
             />
           </div>
 
+          {/* 발주에 없는 남은 미송 (11/26 세원: "미송 잡힌 거 SO+에 발주가 없어도 주문 건으로 뜨게") */}
+          {misRows.length + misOffRows.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-900">
+              <span>
+                오늘 발주 파일에 없는 <b>남은 미송 {misRows.length}줄({new Set(misRows.map((r) => r.store)).size}곳)</b>도 '미송만 받을 줄'로 넣었어요 — 수량 0 · '미송 N장 받기(결제함)'라 삼촌이 그 매장에 들러 받아 와요.
+                {misRows.some((r) => r.misAge > MISONG_OLD_DAYS) && <span className="text-amber-700"> {MISONG_OLD_DAYS}일 넘은 미송이 있어요(노란 글씨) — 아직 받을 게 맞는지 봐 주세요.</span>}
+                {misOffRows.length > 0 && <span className="text-stone-500"> 뺀 미송 {misOffRows.length}줄은 표 맨 아래.</span>}
+              </span>
+              <span className="ml-auto flex gap-1.5">
+                {misRows.length > 0 && (
+                  <button type="button" onClick={() => setMisOff(misRows.map((r) => r.misKey), true)} className="rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50">
+                    전부 빼기
+                  </button>
+                )}
+                {misOffRows.length > 0 && (
+                  <button type="button" onClick={() => setMisOff(misOffRows.map((r) => r.misKey), false)} className="rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50">
+                    전부 넣기
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
+
           {/* 줄 */}
           <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white">
             {/* 11/4 세원: "PC 에서만 쓰니까 옆으로 드래그 안 하게" — 본문 칸을 넓히고(App) 칸 여백을 줄임. 메모 칸은 좁으면 6rem 까지 줄어든다 */}
@@ -824,14 +898,12 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                   while (top && end + 1 < rows.length && storeKey(rows[end + 1]) === storeKey(r)) end++;
                   const group = top ? rows.slice(i, end + 1) : null;
                   const sameItem = !top && nameKey(rows[i - 1]) === nameKey(r);
-                  return (
-                    <tr key={r.id} className={"group align-top " +(top && i > 0 ? "border-t-2 border-t-stone-300" : "") + (r.qty <= 0 ? " bg-emerald-50/40" : "")}>
-                      {top && (
+                  const storeCell = top ? (
                       <td rowSpan={group.length} className="bg-stone-50/70 px-2 py-2">
                         <input
                           key={r.store}
                           defaultValue={r.store}
-                          onBlur={(e) => e.target.value.trim() !== r.store && setStore(r, e.target.value)}
+                          onBlur={(e) => e.target.value.trim() !== r.store && (r.misOnly ? setMisStore(r.vendor, e.target.value) : setStore(r, e.target.value))}
                           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                           aria-label={`${r.name} 매장명`}
                           title="SO+ 에 들어갈 매장명 — 고치면 같은 제조사 줄도 같이 바뀌어요"
@@ -842,7 +914,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         />
                         <div className="mt-0.5 max-w-[8.5rem] space-y-px text-[11px] leading-tight text-stone-400">
                           {r.addr ? <div className="text-stone-600">{r.addr}</div> : <div className="text-amber-700">위치 모름</div>}
-                          {r.store !== r.vendor && <div className="truncate">제조사 {r.vendor}</div>}
+                          {r.store !== r.vendor && <div className="truncate">{r.misOnly ? "장부" : "제조사"} {r.vendor}</div>}
                           {group.length > 1 && (
                             <div className="pt-0.5 font-medium text-stone-500">
                               {group.length}줄 · {group.reduce((n, x) => n + x.qty, 0)}장
@@ -850,7 +922,42 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                           )}
                         </div>
                       </td>
-                      )}
+                  ) : null;
+                  if (r.misOnly) {
+                    const old = r.misAge != null && r.misAge > MISONG_OLD_DAYS;
+                    return (
+                      <tr key={r.id} className={"group align-top bg-emerald-50/70 " + (top && i > 0 ? "border-t-2 border-t-stone-300" : "")}>
+                        {storeCell}
+                        <td className="max-w-[15rem] px-2 py-2">
+                          <div className="font-medium text-stone-900">{r.name}</div>
+                          <div className="mt-0.5 inline-flex items-center rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">미송만 받을 줄 · 오늘 발주엔 없어요</div>
+                          <div className={"mt-0.5 text-[11px] " + (old ? "font-semibold text-amber-700" : "text-stone-500")} title={r.misFrom.map((x) => `${x.name} ${x.qty}장`).join(" / ")}>
+                            {r.misDate ? `${+r.misDate.slice(5, 7)}/${+r.misDate.slice(8, 10)} 잡음` : "잡은 날 모름"}
+                            {r.misFirst && r.misFirst !== r.misDate ? ` (처음 ${+r.misFirst.slice(5, 7)}/${+r.misFirst.slice(8, 10)})` : ""}
+                            {r.misAge != null ? ` · ${r.misAge}일 지남` : ""}
+                            {old && " — 오래된 미송이에요, 아직 받을 게 맞는지 확인"}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap text-stone-700">{r.option || <span className="text-stone-400">옵션 없음</span>}</td>
+                        <td className="px-2 py-2 text-right">
+                          <div className="font-medium text-stone-900 tabular-nums">0</div>
+                          <div className="mt-1 max-w-[7rem] text-right text-[11px] leading-tight font-semibold text-emerald-700">미송 {r.misUsed}장 받기</div>
+                        </td>
+                        <td className="px-2 py-2 text-[11px] text-emerald-700">결제함</td>
+                        <td className="px-2 py-2" />
+                        <td colSpan={2} className="px-2 py-2 text-[11px] text-stone-400">새로 사는 게 없어서 안 골라도 돼요</td>
+                        <td className="px-2 py-2 text-[11px] text-stone-500">메모: 미송 {r.misUsed}장 받기(결제함)/ 총 {r.misUsed}장</td>
+                        <td className="sticky right-0 bg-white py-2 pr-1.5 pl-1 shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.12)]">
+                          <button type="button" onClick={() => setMisOff([r.misKey], true)} aria-label="이 미송 줄 빼기" title="이 미송 줄 빼기 — 맨 아래 '뺀 줄'로 내려가요(되살릴 수 있어요)" className="rounded-md p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-700">
+                            <X size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return (
+                    <tr key={r.id} className={"group align-top " +(top && i > 0 ? "border-t-2 border-t-stone-300" : "") + (r.qty <= 0 ? " bg-emerald-50/40" : "")}>
+                      {storeCell}
                       <td className="max-w-[15rem] px-2 py-2">
                         <div className={"font-medium " + (sameItem ? "text-stone-400" : "text-stone-900")} title={sameItem ? "바로 위와 같은 상품 · 다른 옵션" : undefined}>
                           {r.name}
@@ -1015,8 +1122,9 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         {r.misHint.map((l) => (
                           <div key={l.key} className="mt-1 max-w-[7rem] text-right text-[11px] leading-tight text-amber-700" title={`${l.name} — 색상·사이즈가 달라서 안 뺐어요`}>
                             같은 상품 미송 {l.left}장{misongOpt(l.name) ? ` (${misongOpt(l.name)})` : ""}
+                            {l.ownRow && <span className="text-stone-500"> — 아래 '미송 받기' 줄로 넣었어요(같은 옷이면 이 줄로 합치기)</span>}
                             <button type="button" onClick={() => patchRow(r.id, { misongOff: false, misongForce: [...(r.misongForce || []), l.key] })} className="ml-1 text-emerald-700 underline decoration-dotted">
-                              빼기
+                              {l.ownRow ? "합치기" : "빼기"}
                             </button>
                           </div>
                         ))}
@@ -1072,12 +1180,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                     </tr>
                   );
                 })}
-                {offRows.length > 0 && (
+                {offRows.length + misOffRows.length > 0 && (
                   <tr className="border-t-2 border-t-stone-300 bg-stone-100/70">
                     <td colSpan={10} className="px-2 py-2">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="font-semibold text-stone-600">뺀 줄 {offRows.length}개</span>
+                        <span className="font-semibold text-stone-600">뺀 줄 {offRows.length + misOffRows.length}개</span>
                         {/* 표가 넓어 오른쪽 끝은 잘려 보일 수 있어서 글 바로 옆에 */}
+                        {offRows.length > 0 && (
                         <button
                           type="button"
                           onClick={() => window.confirm(`뺀 줄 ${offRows.length}개를 지울까요? 지우면 되살릴 수 없어요.`) && dropRows(offRows.map((r) => r.id))}
@@ -1085,6 +1194,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         >
                           <Trash2 size={12} /> 전부 지우기
                         </button>
+                        )}
                         <span className="text-stone-500">SO+ 에 안 넣어요 · 다시 넣으려면 '되살리기', 마지막에 확인하고 지워요</span>
                       </div>
                     </td>
@@ -1118,6 +1228,31 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                     </td>
                   </tr>
                 ))}
+                {misOffRows.map((r) => (
+                  <tr key={r.id} className="bg-stone-50/80 align-top text-stone-400">
+                    <td className="px-2 py-2">
+                      <div className="w-28 truncate font-medium">{r.store}</div>
+                    </td>
+                    <td className="max-w-[15rem] px-2 py-2">
+                      <div className="font-medium line-through decoration-stone-300">{r.name}</div>
+                      <div className="text-[11px]">미송만 받을 줄 · 미송 {r.misUsed}장{r.misDate ? ` · ${+r.misDate.slice(5, 7)}/${+r.misDate.slice(8, 10)} 잡음` : ""}</div>
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap">{r.option}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">0</td>
+                    <td className="px-2 py-2" />
+                    <td className="px-2 py-2" />
+                    <td colSpan={3} className="px-2 py-2">
+                      <button
+                        type="button"
+                        onClick={() => setMisOff([r.misKey], false)}
+                        className="flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                      >
+                        <Undo2 size={12} /> 되살리기
+                      </button>
+                    </td>
+                    <td className="sticky right-0 bg-stone-50 py-2 pr-1.5 pl-1" />
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -1137,10 +1272,16 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                   <div className="text-emerald-700">
                     남은 미송을 전부 받아요 — {misTaken.map((r) => `${r.store} ${r.name} ${r.misUsed}장${r.misSpare > 0 ? `(${r.misSpare}장 재고로)` : ""}`).join(" · ")}
                     {" — 수량 칸은 새로 주문하는 장수만, 메모는 '미송가능/ 미송 N장 같이 받기(결제함)/ 총 N장'이에요"}
-                    {rows.some((r) => r.qty <= 0) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0).length}줄은 수량 0 · 메모 '미송 N장 받기(결제함)/ 총 N장'으로 넣어요 — 삼촌이 매장에 들르게)`}
+                    {rows.some((r) => r.qty <= 0 && !r.misOnly) && ` (미송으로 다 채운 ${rows.filter((r) => r.qty <= 0 && !r.misOnly).length}줄은 수량 0 · 메모 '미송 N장 받기(결제함)/ 총 N장'으로 넣어요 — 삼촌이 매장에 들르게)`}
                   </div>
                 )}
-                {offRows.length > 0 && <div className="text-stone-500">뺀 줄 {offRows.length}개는 안 넣어요 — 표 맨 아래에서 되살리거나 지워요.</div>}
+                {misRows.length > 0 && (
+                  <div className="text-emerald-700">
+                    오늘 발주엔 없는 남은 미송 {misRows.length}줄({new Set(misRows.map((r) => r.store)).size}곳)도 넣어요 — {misRows.map((r) => `${r.store} ${r.name}${r.option ? ` ${r.option}` : ""} ${r.misUsed}장`).join(" · ")}
+                    {" — 수량 0 · 메모 '미송 N장 받기(결제함)/ 총 N장'(삼촌이 들러 받아 오게)"}
+                  </div>
+                )}
+                {offRows.length + misOffRows.length > 0 && <div className="text-stone-500">뺀 줄 {offRows.length + misOffRows.length}개는 안 넣어요 — 표 맨 아래에서 되살리거나 지워요.</div>}
                 {noMiss.length > 0 && <div className="text-amber-700">미송을 아직 안 고른 줄 {noMiss.length}개 — 표 머리 '전부 가능 / 전부 X' 또는 줄마다 골라 주세요.</div>}
                 {noPay.length > 0 && <div className="text-amber-700">입금을 아직 안 고른 줄 {noPay.length}개 — 표 머리 '전부 대납 / 전부 온라인' 또는 줄마다 골라 주세요. 온라인 입금하는 거래처는 꼭 '온라인 입금'으로.</div>}
                 {noSize.length > 0 && (

@@ -389,6 +389,59 @@ export const misongOpt = (name) =>
     .filter(Boolean)
     .join("/");
 
+// ---------------------------------------------------------------- 발주에 없는 남은 미송도 줄로 (11/26)
+//
+// 세원: "우리 미송 잡힌 거 SO+에 발주 넣으면 내가 해당 제품 발주가 없어도 주문 건으로 뜨게 해 줘. 미송 건은."
+// 오늘 이지어드민 발주 파일에 없는 상품의 남은 미송은 복사 글에 안 들어가서 삼촌이 그 매장을 안 들렀다.
+// → 발주 줄이 안 쓴 남은 미송(돈 › 미송·매입금 과 같은 계산)을 '미송만 받을 줄'로 붙인다 — 수량 0 + 메모 '미송 N장 받기(결제함)/ 총 N장'
+//   (10/12 의 0장 줄과 같은 모양). 화면에서 빼기·되살리기(draft.misOff), 매장명 고치기(draft.misStore).
+//   같은 날 앞 차수가 이미 넣은 미송은 misBefore(줄의 misFrom)로 빠져서 두 번 안 들어간다.
+
+/** 이만큼 지난 미송은 노랗게 — 넣기는 그대로, 세원이 판단 */
+export const MISONG_OLD_DAYS = 30;
+
+/** 남은 미송 한 줄 → SO+ '미송만 받을 줄' (l = flowBoard 줄, left = 지금 남은 수량) */
+export function misongOnlyRow(l, { store, addr, today } = {}) {
+  const base = String(l.name || "").split("/")[0].trim();
+  const opt = misongOpt(l.name)
+    .split("/")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join("-");
+  const option = opt ? `[${opt}]` : "";
+  const date = l.lastDate || l.firstDate || "";
+  const age = date && today ? Math.max(0, Math.round((Date.parse(today) - Date.parse(date)) / 86400000)) : null;
+  return {
+    id: `mis:${l.key}`,
+    misOnly: true,
+    misKey: l.key,
+    vendor: l.vendor,
+    vendorId: l.vendorId,
+    store: store || l.vendor,
+    addr: addr || "",
+    name: base || l.name,
+    option,
+    optionFile: option,
+    qty: 0,
+    want: 0,
+    wantOrder: 0,
+    misUsed: l.left,
+    misSpare: 0,
+    misFrom: [{ key: l.key, name: l.name, qty: l.left, date }],
+    misExact: [],
+    misLoose: [],
+    misHint: [],
+    misDate: date,
+    misFirst: l.firstDate || "",
+    misAge: age,
+    price: null,
+    auto: {},
+    miss: null,
+    pay: null,
+    memo: "",
+  };
+}
+
 // ---------------------------------------------------------------- 2차 · 3차 발주 (10/11)
 //
 // 세원: "1차·2차·3차 쭉 발주를 넣을 때 이지어드민에서 엑셀을 받으면 다 긁어와져서, 2차를 넣으려고 하면 1차에서 진행했던 주문 건을
