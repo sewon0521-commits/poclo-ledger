@@ -26,6 +26,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, codiName } from "../lib/shoot";
+import { useLiveKey } from "../lib/useLiveKey";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stageName, moveTo, normalize } from "../lib/sinsang";
@@ -90,6 +91,8 @@ function useList(key, online) {
       alive = false;
     };
   }, [key, online]);
+  // 11/25 세원 "소싱관리도 바로바로 지원이랑 동기화" — 상대가 저장하면 바로(방송)·놓쳐도 4초 안에
+  useLiveKey([key], online, (_, v) => setItems(v?.items || []));
   const change = useCallback(
     async (fn) => {
       try {

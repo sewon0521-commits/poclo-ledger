@@ -155,7 +155,20 @@ function useData(online) {
   useEffect(() => {
     if (!online) return;
     const sets = { shoot_items: setItems, shoot_codis: setCodis, shoot_refs: setRefs, sample_refusals: setRefusals };
+    // 11/25 세원 "소싱관리 → 촬영 레퍼런스도 바로바로 지원이랑 동기화" — 촬영 레퍼런스 목록(폴더)·컷 종류·쇼핑몰 이름·카톡 글 틀도 듣는다.
+    // 이 셋은 통째로 쓰는 값이라 받은 그대로 넣는다(목록이 비어 온 건 처음 깔기 전이라 안 덮음)
+    const whole = {
+      shoot_tags: [DEFAULT_TAGS, (v) => setTags({ ...DEFAULT_TAGS, ...v })],
+      shoot_folders: [{ items: [] }, (v) => (v?.items || []).length && setFolders(v.items)],
+      shoot_msg: [DEFAULT_MSGS, (v) => setMsgs({ ...DEFAULT_MSGS, ...v })],
+    };
     const again = (key) => {
+      if (whole[key]) {
+        loadKey(key, online, whole[key][0])
+          .then(whole[key][1])
+          .catch(() => {});
+        return;
+      }
       if (!sets[key]) return;
       const m0 = saveMark(key);
       loadKey(key, online)
@@ -163,7 +176,7 @@ function useData(online) {
         .catch(() => {});
     };
     const off = onSettingsChange(again);
-    const stop = watchKeys(Object.keys(sets), again);
+    const stop = watchKeys([...Object.keys(sets), ...Object.keys(whole)], again);
     return () => {
       off();
       stop();

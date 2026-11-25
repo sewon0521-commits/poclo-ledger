@@ -4259,3 +4259,11 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - 화면(`SoOrderPage`): 색상 칸 옆 사이즈 칸(고치면 같은 상품·같은 원래 사이즈 줄이 색과 상관없이 같이) · '기억한 사이즈 / 신상 관리 실측 사이즈 · 원래 사이즈 없음'(누르면 원래대로) · 사이즈 없는 줄은 마우스를 올리면 '+사이즈'. 복사할 때 고른 사이즈·실측으로 채운 사이즈를 기억.
 - 노마드는 서버 기억에 `노마드|모노홀가먼트니트|free → M` 을 미리 넣음(백업 `poclo-cafe24/_보관/데이터백업/_백업_ERP_so_prices_261125.json`). 같은 경우 찾기(상품 폴더 메모 = FREE · 신상 관리 거래처 사이즈 둘 이상, 이지어드민 발주 파일 42개) → 노마드 하나뿐.
 - 확인(실제 서버 자료 · 쓰기 막음, scratchpad `pose1124/so1125.mjs mem|measure|need`, 11/24 발주 파일): 기억 → `[그레이-M]` · 기억 빼면 실측 M · 실측도 빼면 노란 칸·복사 막힘 → M 누르면 `[그레이-M]` · 복사 때 `so_prices.sizes` 보냄 · 다른 14줄 옵션 그대로.
+
+## 110. 소싱 관리 · 촬영 레퍼런스도 둘이 바로 같이 보기 (2026-11-25, 포클로_방향성 창)
+
+- 세원: "소싱관리 → 촬영 레퍼런스도 바로바로 지원이랑 동기화 가능?" — 촬영 관리(shoot_days)·신상 관리(shoot_items 등)·촬영 레퍼런스 사진(shoot_refs)은 10/14 부터 바로 따라 바뀌었는데,
+  **소싱 관리 소싱 회차(`shoot_sessions`)·계정 탭(`sourcing_accounts`)과 촬영 레퍼런스의 목록(폴더 `shoot_folders`)·컷 종류·쇼핑몰 이름(`shoot_tags`)·카톡 글 틀(`shoot_msg`)** 은 처음 한 번 읽고 끝이었다(탭을 다시 볼 때·60초 지난 뒤만).
+- `lib/useLiveKey.js` `useLiveKey(keys, online, apply, fallback)` — 상대가 저장하면 방송(`onSettingsChange`)으로 바로, 놓쳐도 4초마다 updated_at(`watchKeys`) → 다시 읽어 `apply(key, 값)`. 내 저장은 changeKey 가 seen 에 적어 다시 안 읽는다. 공유 장부일 때만.
+  붙인 곳: `ShootPlan.useList`(소싱 회차) · `SourcingAccountsTab`. `ShootPage.useData` 듣는 키에 shoot_tags·shoot_folders·shoot_msg 더함(통째 값이라 받은 그대로, 빈 목록은 안 덮음).
+- 뜨는 릴스·경쟁몰 베스트는 사무실 PC 가 쓰는 값이라 그대로(탭 다시 볼 때). 열려 있는 화면은 새로고침해야 새 코드를 받는다(둘 다).

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, Loader2, Plus, X, Film, Check, FolderInput, AtSign, ShoppingBag } from "lucide-react";
 import { loadKey, changeKey, putPhoto, photoUrls, md, won } from "../lib/shoot";
+import { useLiveKey } from "../lib/useLiveKey";
 import { isRemote, supabase } from "../lib/supabase";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
@@ -659,6 +660,8 @@ export function SourcingAccountsTab({ reels, online }) {
       alive = false;
     };
   }, [online]);
+  // 11/25 둘이 같이 쓰기 — 상대가 계정을 더하거나 고치면 바로
+  useLiveKey([KEYS.accounts], online, (_, v) => setItems(v?.items || []), { items: [] });
 
   const change = async (fn) => {
     try {
