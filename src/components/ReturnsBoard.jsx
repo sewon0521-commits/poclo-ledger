@@ -490,7 +490,7 @@ function PickupSheet({ x, live, onClose, onGo }) {
 function Judge({ x, mark, stock, tpl }) {
   // 11/24 세원: 문자는 계좌이체(무통장) 손님만 — 그때 문자 초안, 나머지는 '필요할 때 보기'로 접어 둔다
   const sms = x.pay?.mode === "sms";
-  const [smsKind, setSmsKind] = useState("deposit");
+  const [smsKind, setSmsKind] = useState("account"); // 11/25 세원: 계좌이체 손님은 환불 계좌 받기(②)가 기본
   const [showDraft, setShowDraft] = useState(false);
   const base = useMemo(() => (sms ? smsDraft(x, smsKind) : draftOf(x, tpl || {})), [x, tpl, sms, smsKind]);
   const [edited, setEdited] = useState(null); // null = 초안 그대로(자료가 바뀌면 같이 바뀜)

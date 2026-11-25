@@ -366,19 +366,19 @@ export function reasonParts(text) {
 /**
  * 계좌이체·무통장 손님 문자 초안(11/24 세원 — 이 손님들만 문자). 두 가지 중 세원이 고름:
  *  deposit = 반품 배송비를 [입금 계좌]로 입금 부탁(방향성 창이 읽은 뜻) · account = 배송비를 뺀 금액을 환불, 환불 계좌 받기
+ * ⭐ 11/25 세원: "계좌이체로 결제한 사람들은 그 사람들의 계좌번호를 받아야 하는 거 아냐? 2번이 나을 것 같고,
+ *    '단순 변심 반품이라 반품 배송비 7,000원을 뺀 …원을 환불해 드릴게요' 줄은 빼도 될 것 같아" → account 가 기본·맨 앞, 그 줄 뺌.
  * ⛔ 보내기 없음 — 복사만(손님에게 가는 글은 세원 OK 뒤).
  */
 export const SMS_KINDS = [
+  ["account", "환불 계좌 받기"],
   ["deposit", "배송비 입금 안내"],
-  ["account", "배송비 빼고 환불 · 계좌 받기"],
 ];
-export function smsDraft(x, kind = "deposit") {
+export function smsDraft(x, kind = "account") {
   const names = [...new Set((x.items || []).map((it) => shortName(it.n)))].join(", ");
   const fee = won(x.fee?.amount || 0);
   const L = ["[포클로] 안녕하세요 고객님 :) 포클로입니다 🤍", `${names} 반품 신청 확인했어요.`];
   if (kind === "account") {
-    const after = x.pay?.after > 0 ? won(x.pay.after) : "[환불 금액]";
-    L.push(`단순 변심 반품이라 반품 배송비 ${fee}을 뺀 ${after}을 환불해 드릴게요.`);
     L.push(x.refundAcct ? "적어 주신 환불 계좌로 상품 확인 후 3영업일 안에 보내 드릴게요." : "환불 받으실 계좌(은행 · 계좌번호 · 예금주)를 알려 주시면 상품 확인 후 3영업일 안에 보내 드릴게요.");
   } else {
     L.push(`단순 변심 반품이라 반품 배송비 ${fee}이 고객님 부담이에요.`);
