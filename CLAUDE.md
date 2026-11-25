@@ -4267,3 +4267,17 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - `lib/useLiveKey.js` `useLiveKey(keys, online, apply, fallback)` — 상대가 저장하면 방송(`onSettingsChange`)으로 바로, 놓쳐도 4초마다 updated_at(`watchKeys`) → 다시 읽어 `apply(key, 값)`. 내 저장은 changeKey 가 seen 에 적어 다시 안 읽는다. 공유 장부일 때만.
   붙인 곳: `ShootPlan.useList`(소싱 회차) · `SourcingAccountsTab`. `ShootPage.useData` 듣는 키에 shoot_tags·shoot_folders·shoot_msg 더함(통째 값이라 받은 그대로, 빈 목록은 안 덮음).
 - 뜨는 릴스·경쟁몰 베스트는 사무실 PC 가 쓰는 값이라 그대로(탭 다시 볼 때). 열려 있는 화면은 새로고침해야 새 코드를 받는다(둘 다).
+
+## 111. 신마에서 찾기 — 소싱 회차 사진을 사무실 PC 가 어사이드로 (2026-11-25, 포클로_방향성 창)
+
+- 세원: "촬영 레퍼런스 옆에 버튼 하나 — 우리가 요번에 찍을 사진 쫙 넣고 버튼 하나 누르면 신마에서 찾아주게."
+  예전엔 소싱 창(Claude)이 사진마다 손으로 어사이드를 돌리고 결과를 `sinma_finds_<회차 id>` 에 넣었다(메모리 poclo-sourcing-auto). 그 실행 파일은 지워진 scratchpad 에 있었다.
+- 화면(`components/SinmaSearch.jsx`, 규칙 `lib/sinmaJobs.js` 머리말): 소싱 회차 창 '촬영 레퍼런스' 칸 머리 **[신마에서 찾기]** → 고르기 창(기본 = 아직 신마 후보가 없고 찾는 중도 아닌 사진, 룩 메모 같이 보임)
+  → 'N장 찾기 시작' = settings **`sinma_jobs`** 일감(회차마다 살아 있는 일감 하나 — 또 누르면 사진만 더함). 칸 머리 아래 상태 한 줄: 대기 · `2/3 찾는 중 · 3번 사진 · 지금까지 7개` · 멈춤(이유 + 어사이드에서 로그인 후 [이어서]) · 끝 N개 / [멈추기]·[이어서]·[닫기](끝난 줄만, 후보는 그대로).
+  둘이 같이 보기·PC 진행은 `useLiveKey`(110장). 결과는 기존 '신마 후보'(SinmaFinds)에 사진마다 들어온다.
+- 사무실 PC: `poclo-cafe24/sinma_worker.py`(PocloReels 안 스레드) — 20초마다 `sinma_jobs` 만 읽고 일감 하나·사진 하나씩 어사이드 세션(aside exec → 폴더에 사진 → session resume). 다른 어사이드 일이 돌면 기다림.
+  지시문 `poclo-cafe24/sinma_prompts/common.txt` + 소싱_기준표.xlsx(도매가·찾는 방법 규칙, 사진마다 새로 읽음) + 모델별 무드(회차 이름의 태은/주현) + 계절 + 사입 트래커 아우터(7일·새로 들어온 것 먼저) + 샘플 거절 거래처.
+  답(JSON) → 후보에 slot·kind·cls·pick(자리마다 하나)·why·사진(reels sinsang/<gid>.jpg) — updated_at 조건부로 합침(세원이 고친 추천·메모 안 덮음). 샘플 거절 거래처·드랍된 상품은 '[샘플 거절…]' + 추천 안 함.
+  BLOCKED(신마 로그아웃·보안 확인)면 일감 blocked + ops_alerts kind **sinma**(`lib/ops.js` OPS.sinma — 알림 종·CS 관리 빨간 줄) + PC 알림. 찜 폴더 `YYMMDD_N번코디`.
+- 확인(이 기기 저장 모드, 어사이드로 localhost): 단추 · 기본 2장(후보 있는 사진 빠짐) · 일감 저장(룩 메모) · 대기 → 멈추기 → 이어서 · PC 상태 흉내(찾는 중 / 멈춤 / 끝 13개) · 닫기 · 폰 390 넘침 없음.
+  PC 쪽은 가짜 어사이드 답으로 시험 키(zz_test_)에서 막힘 → 이어서 → 끝 · 세원 추천 안 덮음 · 멈춘 일감 안 돎(시험 키·사진 지움). **실제 신마 검색은 아직 안 돌림**(세원이 처음 누를 때).

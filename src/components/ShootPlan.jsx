@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { FIELD, md, won, loadKey, changeKey, upsert, remove, putPhoto, codiName } from "../lib/shoot";
 import { useLiveKey } from "../lib/useLiveKey";
+import { SinmaSearchButton, SinmaJobBar, SinmaPickSheet, useSinmaSearch } from "./SinmaSearch";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
 import { stageName, moveTo, normalize } from "../lib/sinsang";
@@ -1246,7 +1247,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
   );
 }
 
-function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook, cats, onCats, sinma, codiKit: kit }) {
+function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks = {}, onLook, cats, onCats, sinma, codiKit: kit, search }) {
   const [pick, setPick] = useState(false);
   const [view, setView] = useState(null);
   const [open, setOpen] = useState(null); // 룩 창 — 레퍼런스 id
@@ -1386,7 +1387,9 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
             에도 같이 담겨요
           </span>
         </span>
-        <span className="flex shrink-0 gap-1.5">
+        <span className="flex shrink-0 flex-wrap gap-1.5">
+          {/* 11/25 세원 "사진 쫙 넣고 버튼 하나 누르면 신마에서 찾아주게" (components/SinmaSearch) */}
+          {search && refs.length > 0 && <SinmaSearchButton job={search.job} onOpen={() => search.setOpen(true)} />}
           <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-rose-300 hover:text-rose-800">
             <ImagePlus size={13} /> 사진
           </button>
@@ -1407,6 +1410,19 @@ function PickedRefs({ d, ids, onChange, onAdd, online, onMsg, hot, onHot, looks 
           }}
         />
       </div>
+      {search && <SinmaJobBar job={search.job} change={search.change} busy={search.busy} />}
+      {search?.open && (
+        <SinmaPickSheet
+          refs={refs}
+          src={src}
+          refNoOf={search.refNoOf}
+          hasFinds={search.hasFinds}
+          job={search.job}
+          looks={looks}
+          onClose={() => search.setOpen(false)}
+          onGo={(picked) => search.go(picked.map((r) => ({ ...r, lookText: looks[r.id]?.text || "" })))}
+        />
+      )}
       {busy && (
         <p className="mb-2 flex items-center gap-1.5 text-sm text-stone-600">
           <Loader2 size={14} className="animate-spin" /> {busy}
@@ -1627,6 +1643,8 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
     const f = (sinma0.data?.items || []).find((x) => x.refId === refId && x.refNo != null);
     return f ? f.refNo : (s.refIds || []).indexOf(refId) + 1;
   };
+  // 11/25 [신마에서 찾기] — 고른 사진을 사무실 PC 가 어사이드로 찾아 위 sinma0(신마 후보)에 넣는다 (components/SinmaSearch)
+  const search = useSinmaSearch({ session: s, refNoOf, hasFinds: (refId) => (sinma0.data?.items || []).some((x) => x.refId === refId), online });
   const codiKit = (refId) => {
     const c = refCodiOf(codis, session.id, refId);
     return {
@@ -1784,6 +1802,7 @@ function SessionSheet({ session, d, codis, items, onSave, onRemove, onClose, onl
             onCats={(next) => d.saveTags((v) => ({ ...v, refCats: next }))}
             sinma={sinma}
             codiKit={codiKit}
+            search={search}
           />
           {sinma0.data && (
             <SinmaBoard

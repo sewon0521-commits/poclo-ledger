@@ -9,6 +9,8 @@ export const OPS = {
   talk: { name: "네이버 톡톡", fix: "어사이드에서 톡톡 파트너센터 다시 로그인", url: "https://partner.talk.naver.com/web/accounts/102608245/chat?state=wait" },
   kakao: { name: "카톡 채널", fix: "카카오비즈니스 화면을 직접 확인한 뒤 CS 관리에서 [카톡 다시 켜기]", url: "https://business.kakao.com/space/10151425/channel/_xixaxbRX/chats" },
   stock: { name: "이지어드민 재고", fix: "어사이드에서 이지어드민 다시 로그인", url: "https://ka01.ezadmin.co.kr/template35.htm?template=I100" },
+  // 11/25 [신마에서 찾기] — 사무실 PC(sinma_worker)가 신마 로그아웃·보안 확인으로 멈추면 fail, 다시 찾으면 ok
+  sinma: { name: "신마에서 찾기", fix: "어사이드 신마 화면에서 로그인·보안 확인을 직접 한 뒤 소싱 관리 회차에서 [이어서]", url: "https://sinsangmarket.kr" },
   pc: { name: "사무실 PC 자동화", fix: "사무실 PC 가 켜져 있는지, 분석기(PocloReels)가 돌고 있는지 확인", url: "" },
 };
 export const PC_STALE_MIN = 15;
