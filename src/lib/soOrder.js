@@ -305,9 +305,10 @@ export const colorList = (s) =>
     .split(/[,/·、\n]+/)
     .map((x) => x.replace(/^\s*\d+\s*[.)]\s*/, "").trim())
     .filter((x) => x && !SIZE_LIKE.test(x));
-export function vendorColors(row, items, vname) {
+/** 신상 관리에서 같은 거래처 · 같은 도매 상품(가장 잘 맞는 것들). ok(x) 가 아니면 건너뜀 — 색상 비교·사이즈 넣기가 같이 쓴다 */
+function vendorItems(row, items, vname, ok) {
   const w = wholesaleKey(row.name);
-  if (!w) return null;
+  if (!w) return [];
   const like = (n) => {
     const k = squash(n);
     if (!k) return 0;
@@ -323,15 +324,54 @@ export function vendorColors(row, items, vname) {
     const vn = vname?.[x.vendorId] || x.vendor || "";
     if (!sameVendor(vn, row.store || row.vendor) && !sameVendor(vn, row.vendor) && !sameVendor(vn, splitName(row.name).store)) continue;
     const s = Math.max(like(x.name), like(x.fullName));
-    if (!s || !colorList(x.colors).length) continue;
+    if (!s || !ok(x)) continue;
     if (s > best) {
       best = s;
       hits = [x];
     } else if (s === best) hits.push(x);
   }
+  return hits;
+}
+export function vendorColors(row, items, vname) {
+  const hits = vendorItems(row, items, vname, (x) => colorList(x.colors).length > 0);
   if (!hits.length) return null;
   const list = [...new Set(hits.flatMap((x) => colorList(x.colors)))];
   return { list, item: hits[0].name || hits[0].fullName || "" };
+}
+
+// ---------------------------------------------------------------- 사이즈 넣기 (11/25)
+//
+// 세원: "apm 노마드 같은 경우는 원래 M,L 가 있는데 우리는 하나만 팔려고 M 을 Free 로 변경해서 옵션등록해서 진행한단 말이야?
+// 근데 이게 SO+ 발주 변환에서 안 뜨면 우리가 발주를 넣어도 거래처에서 못 내려준단 말이야. 이거 SO+ 에서 자동으로 가능하게."
+// 이지어드민 옵션은 우리 옵션([그레이] · [그레이-Free])이라 거래처가 어느 사이즈인지 모른다 → SO+ 엔 [그레이-M] 으로 넣는다.
+// 어느 사이즈인지:
+//   ① 이 화면에서 고른 값 — settings so_prices.sizes {'제조사|도매 상품|원래 사이즈': 거래처 사이즈} (복사할 때 기억, 다음 발주부터 저절로)
+//   ② 신상 관리 실측이 한 사이즈뿐이고 그 사이즈가 거래처 사이즈에 있으면 그것(우리가 받아서 잰 그 사이즈를 판다 — 노마드 실측 M)
+//   ③ 모르면 노란 칸 + 거래처 사이즈 칩 — 고를 때까지 복사가 막힌다(추측해서 넣지 않음). '사이즈 없이'도 고를 수 있다.
+// 거래처 사이즈 = 신상 관리 sizes(신마에서 담은 거래처 옵션)에서 Free 같은 것을 뺀 것이 둘 이상일 때만 본다.
+const FREE_SIZE = /^(free|f|프리|프리사이즈|onesize|one|원사이즈)?$/i;
+/** 사이즈 없음 · Free 같은 한 사이즈 */
+export const isFreeSize = (s) => FREE_SIZE.test(squash(s));
+/** '[그레이-M]' → 'M' · '[그레이]' → '' */
+export const optSize = (option) => splitOpt(option).rest.replace(/^-/, "").trim();
+/** 사이즈 기억 키 — 사이즈 없음과 Free 는 같은 칸('free') */
+export const sizeKey = (r, size) => `${squash(r.vendor)}|${wholesaleKey(r.name)}|${isFreeSize(size) ? "free" : squash(size)}`;
+/** 'M,L' · ['S','M'] → 거래처 사이즈 목록(Free 같은 것 빼고) */
+export const sizeList = (s) =>
+  [...new Set((Array.isArray(s) ? s.join(",") : String(s || "")).split(/[,/·、\s]+/).map((x) => x.trim()).filter(Boolean))].filter((x) => !isFreeSize(x));
+const measuredSizes = (x) => {
+  const m = x.measure || {};
+  const v = m.v || {};
+  const keys = Array.isArray(m.sizes) && m.sizes.length ? m.sizes : Object.keys(v);
+  return keys.filter((k) => Object.values(v[k] || {}).some((n) => String(n ?? "").trim()));
+};
+/** 신상 관리에서 거래처 사이즈가 둘 이상인 같은 상품 → {list, measured(실측한 사이즈 중 거래처 사이즈에 있는 것), item} · 없으면 null */
+export function vendorSizes(row, items, vname) {
+  const hits = vendorItems(row, items, vname, (x) => sizeList(x.sizes).length >= 2);
+  if (!hits.length) return null;
+  const list = [...new Set(hits.flatMap((x) => sizeList(x.sizes)))];
+  const measured = [...new Set(hits.flatMap(measuredSizes))].map((s) => list.find((l) => squash(l) === squash(s))).filter(Boolean);
+  return { list, measured: [...new Set(measured)], item: hits[0].name || hits[0].fullName || "" };
 }
 /** 고른 색이 거래처 색상 목록에 있나 — 띄어쓰기·대소문자 무시. 색이 사이즈처럼 생겼으면 null(비교 안 함) */
 export function colorMatch(color, list) {

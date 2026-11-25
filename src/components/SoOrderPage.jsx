@@ -7,7 +7,7 @@ import { Tab } from "./ui";
 import SoSaved from "./SoSaved";
 import { dayKey } from "../lib/journal";
 import { fileToCsv, fileFromDrop } from "../lib/tabular";
-import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder, splitOpt, joinOpt, colorKey, vendorColors, colorMatch } from "../lib/soOrder";
+import { parseOrder, findPrice, memoryKey, soLines, splitName, sameVendor, SO_TYPES, misongFor, misongOpt, orderKey, orderStamp, stampLabel, diffOrder, splitOpt, joinOpt, colorKey, vendorColors, colorMatch, optSize, sizeKey, vendorSizes, isFreeSize } from "../lib/soOrder";
 import { flowBoard } from "../lib/pending";
 import { displayName } from "../lib/stock";
 import { RESTOCK_CONF, DEFAULT_RESTOCK, restockFor, missingRestock, saleKey } from "../lib/restock";
@@ -129,6 +129,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const [memory, setMemory] = useState({});
   const [stores, setStores] = useState({}); // 제조사 → 지난번 적은 매장명
   const [colors, setColors] = useState({}); // '제조사|도매 상품|원래 색' → 거래처가 부르는 색 (10/13)
+  const [sizes, setSizes] = useState({}); // '제조사|도매 상품|원래 사이즈(free)' → 거래처 사이즈 (11/25 노마드 Free → M)
   const [shootItems, setShootItems] = useState([]); // 신상 관리 상품 — 거래처 색상과 맞춰 보기 (10/13)
   // 오늘출발 여유분 (11/8) — 옵션별 판매(settings opt_sales) · 재고(settings stock) · 계산 설정(이 기기)
   const [optSales, setOptSales] = useState(null);
@@ -188,6 +189,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       setMemory(m.prices || {});
       setStores(m.stores || {});
       setColors(m.colors || {});
+      setSizes(m.sizes || {});
     } catch {
       /* 기억한 단가 없이도 된다 */
     }
@@ -238,9 +240,33 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
         // 신상 관리에 적힌 거래처 색상과 비교 — 없는 색이면 노랗게 + 거래처 색상 칩
         const vc = vendorColors(r, shootItems, vname);
         const colorOk = vc ? colorMatch(color, vc.list) : null;
-        return { ...r, store, addr: addrOf(store) || r.place || "", optionFile: r.option, option: joinOpt({ ...o, color }), colorFrom: color !== o.color ? o.color : "", colorAuto: r.colorEdit == null && !!remembered, vc, colorOk };
+        // 사이즈 (11/25 세원: 노마드 M,L 인데 우리는 M 을 Free 로 팔아 — SO+ 엔 거래처 사이즈로) — lib/soOrder '사이즈 넣기'
+        // 직접 고른 사이즈 → 기억한 사이즈 → 신상 관리 실측이 한 사이즈뿐이면 그것 → 원래 그대로. 거래처 사이즈가 여럿인데 모르면 sizeNeed(복사 막힘)
+        const sizeOrig = optSize(r.option);
+        const vs = isFreeSize(sizeOrig) ? vendorSizes(r, shootItems, vname) : null;
+        const sizeMem = sizes[sizeKey(r, sizeOrig)];
+        const measured = vs?.measured.length === 1 ? vs.measured[0] : null;
+        const sizeNow = r.sizeEdit ?? sizeMem ?? measured ?? sizeOrig;
+        const sizeAuto = r.sizeEdit != null ? "" : sizeMem != null ? "memory" : measured ? "measure" : "";
+        const sizeNeed = !!vs && r.sizeEdit == null && sizeMem == null && !measured;
+        return {
+          ...r,
+          store,
+          addr: addrOf(store) || r.place || "",
+          optionFile: r.option,
+          option: joinOpt({ ...o, color, rest: sizeNow ? `-${sizeNow}` : "" }),
+          colorFrom: color !== o.color ? o.color : "",
+          colorAuto: r.colorEdit == null && !!remembered,
+          vc,
+          colorOk,
+          sizeOrig,
+          sizeNow,
+          sizeAuto,
+          sizeNeed,
+          vs,
+        };
       }),
-    [draft?.rows, autoStore, addrOf, colors, shootItems, vname],
+    [draft?.rows, autoStore, addrOf, colors, sizes, shootItems, vname],
   );
 
   // 줄마다 찾은 단가 — 장끼·판매가 목록이 바뀌면 다시 찾는다(직접 고친 값은 그대로)
@@ -448,6 +474,13 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       rows: d.rows.map((x) => (x.vendor === row.vendor && x.name === row.name && splitOpt(x.option).color === orig ? { ...x, colorEdit: v === orig ? (colors[colorKey(x, orig)] ? orig : null) : v } : x)),
     }));
   };
+  // 사이즈 고르기 (11/25) — 같은 제조사·같은 도매 상품·같은 원래 사이즈 줄을 같이(색은 상관없이). 복사할 때 기억 → 다음 발주부터 저절로.
+  // 원래 사이즈를 고르면 '사이즈 없이 / 그대로'로 정한 것(기억도 그렇게)
+  const setSize = (row, value) => {
+    const v = String(value ?? "").trim();
+    const k = sizeKey(row, row.sizeOrig ?? optSize(row.optionFile || row.option));
+    setDraft((d) => ({ ...d, rows: d.rows.map((x) => (sizeKey(x, optSize(x.option)) === k ? { ...x, sizeEdit: v, sizeOpen: false } : x)) }));
+  };
   const diffOff = () => setDraft((d) => ({ ...d, rows: d.diff.all, diff: { ...d.diff, off: true } }));
   const diffOn = () => setDraft((d) => ({ ...d, rows: d.diff.kept, diff: { ...d.diff, off: false } }));
   const allMiss = (v) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => ({ ...r, miss: v })) }));
@@ -464,6 +497,8 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   const noPrice = live.filter((r) => !r.price);
   const noMiss = live.filter((r) => !r.miss);
   const noPay = live.filter((r) => !r.pay);
+  // 사이즈를 모르는 줄 — 미송만 받는 0장 줄도 거래처가 사이즈를 알아야 해서 전부 (11/25)
+  const noSize = rows.filter((r) => r.sizeNeed);
   const misTaken = rows.filter((r) => r.misUsed > 0);
   const differ = rows.filter((r) => r.manual == null && r.auto?.alt);
 
@@ -478,7 +513,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       const id = draft.savedId || newId("so");
       const savedAt = new Date().toISOString();
       // 저장하는 qty = SO+ 에 넣은 수량(미송 뺀 것), want = 요청 수량
-      const pick = ({ auto, misExact: _e, misLoose: _l, misHint: _h, vc: _vc, colorOk: _ok, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
+      const pick = ({ auto, misExact: _e, misLoose: _l, misHint: _h, vc: _vc, colorOk: _ok, vs: _vs, sizeNeed: _sn, sizeOpen: _so, ...r }) => ({ ...r, note: r.manual != null ? "직접 적음" : auto?.note || "" });
       const stores = [...new Set(rows.map((r) => r.store || r.vendor))];
       const rec = {
         id,
@@ -515,7 +550,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
       // 불러올 땐 요청 수량으로 — 미송은 지금 남은 걸로 다시 뺀다(두 번 빼지 않게)
       // 오늘출발 여유분(extra)은 따로 남아 있어서 수량은 밀린 주문(wantOrder)만 — 예전 저장은 want
       const out = { ...r, qty: r.wantOrder ?? r.want ?? r.qty, option: r.optionFile || r.option };
-      for (const k of ["store", "addr", "price", "note", "want", "wantOrder", "misUsed", "misSpare", "misFrom", "misExact", "misLoose", "misHint", "optionFile", "colorFrom", "colorAuto", "vc", "colorOk"]) delete out[k];
+      for (const k of ["store", "addr", "price", "note", "want", "wantOrder", "misUsed", "misSpare", "misFrom", "misExact", "misLoose", "misHint", "optionFile", "colorFrom", "colorAuto", "vc", "colorOk", "sizeOrig", "sizeNow", "sizeAuto", "sizeNeed", "vs"]) delete out[k];
       return out;
     };
     setDraft({
@@ -548,7 +583,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
   };
 
   const copy = async () => {
-    if (noMiss.length || noPay.length) return;
+    if (noMiss.length || noPay.length || noSize.length) return;
     const ok = await copyText(text);
     if (!ok) {
       setMsg("복사가 막혔어요. 아래 '복사되는 내용 보기'에서 직접 골라 복사해 주세요.");
@@ -570,8 +605,12 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
     const colorNew = {};
     for (const r of rows) if (r.colorEdit != null) colorNew[colorKey(r, splitOpt(r.optionFile).color)] = r.colorEdit;
     const newColors = Object.entries(colorNew).filter(([k, v]) => colors[k] !== v);
+    // 고른 사이즈 · 실측으로 채운 사이즈 기억 (11/25) — 복사했으면 그 사이즈가 맞다는 뜻
+    const sizeNew = {};
+    for (const r of rows) if (r.sizeEdit != null || r.sizeAuto === "measure") sizeNew[sizeKey(r, r.sizeOrig)] = r.sizeNow;
+    const newSizes = Object.entries(sizeNew).filter(([k, v]) => sizes[k] !== v);
     const newNames = Object.entries(named).filter(([k, v]) => (stores[k] || (k.startsWith("@") ? k.slice(1) : k)) !== v);
-    if (mine.length || newNames.length || newColors.length) {
+    if (mine.length || newNames.length || newColors.length || newSizes.length) {
       try {
         const next = await changeKey(
           MEMORY,
@@ -581,12 +620,14 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
             prices: { ...(v.prices || {}), ...Object.fromEntries(mine.map((r) => [memoryKey(r), { price: r.manual, on: dayKey(), name: r.name, vendor: r.store }])) },
             stores: { ...(v.stores || {}), ...named },
             colors: { ...(v.colors || {}), ...colorNew },
+            sizes: { ...(v.sizes || {}), ...sizeNew },
           }),
           { prices: {} },
         );
         setMemory(next.prices || {});
         setStores(next.stores || {});
         setColors(next.colors || {});
+        setSizes(next.sizes || {});
       } catch {
         /* 기억은 못 해도 복사는 됐다 */
       }
@@ -784,7 +825,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                   const group = top ? rows.slice(i, end + 1) : null;
                   const sameItem = !top && nameKey(rows[i - 1]) === nameKey(r);
                   return (
-                    <tr key={r.id} className={"align-top " + (top && i > 0 ? "border-t-2 border-t-stone-300" : "") + (r.qty <= 0 ? " bg-emerald-50/40" : "")}>
+                    <tr key={r.id} className={"group align-top " +(top && i > 0 ? "border-t-2 border-t-stone-300" : "") + (r.qty <= 0 ? " bg-emerald-50/40" : "")}>
                       {top && (
                       <td rowSpan={group.length} className="bg-stone-50/70 px-2 py-2">
                         <input
@@ -831,7 +872,36 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                             style={{ width: `calc(${optWidth(splitOpt(r.option).color)}em + 16px)` }}
                             className={"rounded-md border px-1.5 py-0.5 text-sm outline-none focus:border-rose-600 " + (r.colorOk === false ? "border-amber-400 bg-amber-50" : r.colorFrom ? "border-rose-300 bg-rose-50/50" : "border-transparent hover:border-stone-200")}
                           />
-                          <span>{splitOpt(r.option).rest}</span>
+                          {/* 사이즈 (11/25) — 거래처 사이즈로 고칠 수 있다. 사이즈 없는 줄은 줄에 마우스를 올리면 '+사이즈' */}
+                          {r.sizeNow || r.sizeOrig || r.vs || r.sizeOpen ? (
+                            <>
+                              {(r.sizeNow || r.sizeNeed || r.sizeOpen) && <span>-</span>}
+                              <input
+                                key={`${r.option}|${r.sizeNeed}`}
+                                defaultValue={r.sizeNow}
+                                autoFocus={!!r.sizeOpen}
+                                placeholder={r.sizeNeed ? "?" : ""}
+                                onBlur={(e) => (e.target.value.trim() !== r.sizeNow ? setSize(r, e.target.value) : r.sizeOpen && patchRow(r.id, { sizeOpen: false }))}
+                                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                                aria-label={`${r.name} 사이즈`}
+                                title={r.vs ? `거래처 사이즈 ${r.vs.list.join(" · ")} — SO+ 에 넣을 사이즈. 같은 상품 줄도 같이, 다음 발주부터 저절로` : "SO+ 에 넣을 사이즈 — 같은 상품 줄도 같이, 다음 발주부터 저절로"}
+                                style={{ width: `calc(${optWidth(r.sizeNow || "M")}em + 16px)` }}
+                                className={
+                                  "rounded-md border px-1.5 py-0.5 text-sm outline-none focus:border-rose-600 " +
+                                  (r.sizeNeed ? "border-amber-400 bg-amber-50" : r.sizeNow !== r.sizeOrig ? "border-rose-300 bg-rose-50/50" : "border-transparent hover:border-stone-200")
+                                }
+                              />
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => patchRow(r.id, { sizeOpen: true })}
+                              title="거래처에 사이즈를 알려 줘야 하는 상품이면 — 같은 상품 줄도 같이, 다음 발주부터 저절로"
+                              className="ml-0.5 text-[11px] text-stone-300 opacity-0 group-hover:opacity-100 hover:text-rose-700 focus:opacity-100"
+                            >
+                              +사이즈
+                            </button>
+                          )}
                           {splitOpt(r.option).wrap && <span className="text-stone-400">]</span>}
                           {r.colorOk && <Check size={13} className="ml-0.5 text-emerald-600" aria-label="거래처 색상과 같아요" title={`신상 관리 거래처 색상과 같아요 (${r.vc.list.join(", ")})`} />}
                         </span>
@@ -850,6 +920,32 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                         {r.colorFrom && (
                           <button type="button" onClick={() => setColor(r, r.colorFrom)} title="원래 색으로" className="block text-[11px] text-stone-400 underline decoration-dotted">
                             {r.colorAuto ? "기억한 색 · " : ""}원래 {r.colorFrom}
+                          </button>
+                        )}
+                        {/* 11/25 세원: "노마드는 M,L 인데 우리는 M 을 Free 로 — SO+ 에 안 뜨면 거래처가 못 내려 줘" */}
+                        {r.sizeNeed && (
+                          <div className="mt-1 max-w-[16rem] whitespace-normal rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                            거래처는 {r.vs.list.join(" · ")} 로 팔아요 — 우리는 {r.sizeOrig || "사이즈 없이"}. SO+ 에 넣을 사이즈를 골라 주세요(신상 관리 '{r.vs.item}', 다음 발주부터 저절로)
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {r.vs.list.map((s) => (
+                                <button key={s} type="button" onClick={() => setSize(r, s)} className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[11px] text-stone-700 hover:border-rose-400 hover:text-rose-700">
+                                  {s}
+                                </button>
+                              ))}
+                              <button type="button" onClick={() => setSize(r, r.sizeOrig)} className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-[11px] text-stone-500 hover:border-stone-400">
+                                {r.sizeOrig ? `${r.sizeOrig} 그대로` : "사이즈 없이"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {!r.sizeNeed && r.sizeNow !== r.sizeOrig && (
+                          <button
+                            type="button"
+                            onClick={() => setSize(r, r.sizeOrig)}
+                            title={r.vs ? `거래처 사이즈 ${r.vs.list.join(" · ")} · 누르면 원래대로` : "누르면 원래대로"}
+                            className="block text-[11px] text-stone-400 underline decoration-dotted"
+                          >
+                            {r.sizeAuto === "memory" ? "기억한 사이즈 · " : r.sizeAuto === "measure" ? "신상 관리 실측 사이즈 · " : ""}원래 {r.sizeOrig || "사이즈 없음"}
                           </button>
                         )}
                       </td>
@@ -1047,6 +1143,11 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 {offRows.length > 0 && <div className="text-stone-500">뺀 줄 {offRows.length}개는 안 넣어요 — 표 맨 아래에서 되살리거나 지워요.</div>}
                 {noMiss.length > 0 && <div className="text-amber-700">미송을 아직 안 고른 줄 {noMiss.length}개 — 표 머리 '전부 가능 / 전부 X' 또는 줄마다 골라 주세요.</div>}
                 {noPay.length > 0 && <div className="text-amber-700">입금을 아직 안 고른 줄 {noPay.length}개 — 표 머리 '전부 대납 / 전부 온라인' 또는 줄마다 골라 주세요. 온라인 입금하는 거래처는 꼭 '온라인 입금'으로.</div>}
+                {noSize.length > 0 && (
+                  <div className="text-amber-700">
+                    사이즈를 아직 안 고른 줄 {noSize.length}개 — 거래처는 사이즈가 여럿인데 우리는 한 사이즈(Free)로 팔아요. 색상 칸 아래에서 거래처 사이즈를 골라 주세요(다음 발주부터 저절로).
+                  </div>
+                )}
                 {noPrice.length > 0 && <div className="text-amber-700">단가가 빈 줄 {noPrice.length}개 — 비운 채 복사하면 SO+ 에서 따로 넣어야 해요.</div>}
                 {differ.length > 0 && <div className="text-stone-500">장끼 단가와 판매가 목록 공급가가 다른 상품 {differ.length}개 — 장끼(실제로 낸 값)로 넣었어요.</div>}
                 {copied && (
@@ -1083,7 +1184,7 @@ export default function SoOrderPage({ tx, vendors, pricing, online }) {
                 </button>
                 <button
                   type="button"
-                  disabled={!!noMiss.length || !!noPay.length || !lines.length}
+                  disabled={!!noMiss.length || !!noPay.length || !!noSize.length || !lines.length}
                   onClick={copy}
                   className="flex items-center gap-1.5 rounded-xl bg-rose-700 px-5 py-2.5 font-semibold text-white disabled:bg-stone-300"
                 >
