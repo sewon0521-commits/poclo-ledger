@@ -4291,3 +4291,17 @@ PC 카톡 매크로는 운영정책 위반이라 계정이 제한될 수 있어 
 - 화면: 초록 줄 '미송만 받을 줄 · 오늘 발주엔 없어요' + 'M/D 잡음 (처음 M/D) · N일 지남' — `MISONG_OLD_DAYS`(30일) 넘으면 노란 글씨. 단가·미송 가능/X·입금은 안 고른다(새로 사는 게 없음). × → 맨 아래 '뺀 줄'(draft.misOff, 되살리기), 표 위 초록 띠 '남은 미송 N줄(M곳)도 넣었어요 · 전부 빼기 / 전부 넣기'. 옵션만 다른 같은 상품(오웰티 민트 줄 옆 네이비 미송 같은)은 발주 줄 힌트에 "아래 '미송 받기' 줄로 넣었어요 · 합치기".
 - 저장: 미송만 받을 줄도 rows 에 `misOnly`·misFrom 으로 저장 → **같은 날 2차·3차 파일을 넣으면 misBefore 로 빠져 다시 안 나온다**. 저장한 발주를 불러올 땐 misOnly 줄은 버리고 지금 남은 미송으로 다시 만든다(misOff·misStore 는 저장값). 오늘출발 여유분·매장명/색/사이즈 기억에는 안 넣는다. 저장한 발주 보기 '발주 없음 · 미송 N장만 받기'.
 - 확인(이 기기 저장 모드 + 서버 장끼·거래처 사본 + 11/25 실제 발주 파일, scratchpad `somis/ui.mjs`): 남은 미송 5줄 중 역시 조거 3줄은 발주 줄에서 빼고, **오웰티 레트로후리스나그랑티 [네이비] 32장(오웰티 민트·브라운 줄 바로 뒤) · 슈퍼땅콩 클레어ct [그레이] 1장(맨 뒤, 테크노 3층 319…)** 이 0장 + '미송 N장 받기(결제함)/ 총 N장' 으로 복사 글에 들어감 / × → 뺀 줄 · 복사 19→18줄 → 되살리기 19줄 / 1차 저장 뒤 2차 파일만 넣기 → 미송만 받을 줄 0(이미 1차가 넣음) / 1차 불러오기 → 미송 줄 2개(중복 없음).
+
+## 113. 신상 관리 저장이 시간 제한에 걸려 되돌아가던 것 (2026-11-26 밤, 포클로_방향성 창)
+
+- 세원: "신상관리가 이상해 내가 요청함을 눌러도 돌아오고" → 화면 위 'canceling statement due to statement timeout'.
+  원인: shoot_items 가 상품 836개 · **2.5MB 한 덩어리**라 단추 하나에도 통째로 다시 씀 + 그날 Supabase 가 느림(작은 조회도 10~30초) → 저장이 authenticated 시간 제한 8초에 걸려 취소 → 화면이 서버 값으로 되돌아감.
+- 고친 것(세원 '둘 다' OK):
+  ① Supabase SQL 편집창(어사이드)에서 `alter role authenticated set statement_timeout = '30s'; notify pgrst, 'reload config';` — 확인 anon 3s · **authenticated 30s** · authenticator 8s(lock_timeout 8s 그대로).
+  ② **신마 사진 주소 줄여 담기**(`lib/sinsang` `packPhoto`·`photoUrl`·`photosOf`): `https://v4.img.sinsang.market/?f=https://image-cache.sinsang.market/` + 가운데 + `&w=900&h=1200` → `~가운데`. 읽을 땐 붙인다, 예전 전체 주소도 그대로.
+     **⚠ shoot_items 의 `x.photos` 를 화면에 쓸 땐 꼭 `photosOf(x)`**(ShootItems 상품 창 · ShootPlan 룩 창 · GoodsBoard). 개수만 셀 땐 `x.photos.length` 그대로. 파이썬 `erp_detail.py --photos` 도 '~' 를 풀게 고침.
+  ③ **제품 설명 글(desc)은 settings `shoot_desc` {d: {상품 id: 글}}** (`lib/shootDesc` `descOf`·`saveDesc`) — 상품 창을 열 때만 읽음(1분 캐시). 담기(clipSave)도 여기에. 예전처럼 x.desc 가 있으면 그걸 먼저.
+- 서버 옮기기: `poclo-cafe24/_보관/기록/shoot_items_줄이기_261126.py --go`(updated_at 조건부, 3번째에 저장) → **2,466KB → 1,407KB**, 설명 826개 shoot_desc 로, 상품에 남은 설명 0 · 긴 사진 주소 0.
+  원본 백업 `poclo-cafe24/_보관/데이터백업/_백업_shoot_items_줄이기전_261126_2224.json`. 읽기 10~21초 → 0.4초.
+- 확인(어사이드, 배포 26a2817): 새로고침 전 화면(예전 코드)은 사진 칸이 '~…' 라 깨짐 → **열려 있던 화면은 새로고침해야 함**. 새로고침 뒤 상품 창 신마 사진 9/9 · 제품 설명 나옴.
+- 다음에 또 커지면: 단계가 끝난(완료·드랍) 상품을 따로 키로 빼는 것까지 생각할 것(1.4MB 중 완료 151 · 드랍 271 · 반납 204).
