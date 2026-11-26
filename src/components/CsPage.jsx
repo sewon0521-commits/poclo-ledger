@@ -895,6 +895,29 @@ function ChatThread({ v }) {
 }
 
 /**
+ * 11/26 세원 "취소 누르기만 하면 끝이 아니라 선불금 전체 취소까지 눌러줘야 실제로 환불이 돼"
+ * ERP 취소(카페24 API)는 주문만 '취소완료'로 바꾸고 결제사 환불은 안 한다 → 사무실 PC(cs_worker.pg_check)가 10분마다
+ * 카페24 환불 기록의 결제사 취소 상태를 읽어 cancelInfo.pg {status T|F|M|"", date} 로 적는다(읽기만, 환불 버튼은 사람이).
+ */
+function PgNote({ info }) {
+  const pg = info.pg;
+  const d = pg?.date ? when(pg.date) : "";
+  if (pg?.status === "T") return <p className="mt-1.5 font-semibold text-emerald-700">✓ 결제사 환불도 끝났어요{d ? ` · ${d}` : ""}</p>;
+  if (pg?.status === "M") return <p className="mt-1.5 text-stone-600">결제사 환불: 관리자에서 따로 처리됨{d ? ` · ${d}` : ""}</p>;
+  return (
+    <div className="mt-2 rounded-lg border border-rose-300 bg-white p-2 text-rose-800">
+      <p className="font-bold">⚠ {pg ? "아직 손님에게 돈이 안 돌아갔어요" : "환불됐는지 확인 중이에요(사무실 PC, 10분 안)"}</p>
+      <p className="mt-0.5">
+        카페24 관리자 주문 상세에서 <b>'선불금 전체 취소'</b>(카드는 결제 취소)까지 눌러야 환불돼요. 누르면 10분 안에 여기가 초록으로 바뀌어요.
+      </p>
+      <div className="mt-1">
+        <OrderLink no={info.orderNo} />
+      </div>
+    </div>
+  );
+}
+
+/**
  * 11/11 세원 "카톡처럼 취소 CS 오면 옆에 버튼으로 카페24 해당 주문건 취소하기 누르면 취소되게 — 내가 누르면 너가"
  * [카페24 주문 취소] → 사무실 PC 가 주문을 다시 읽어 확인(order_info) → 확인 창(주문번호·상품·옵션·결제수단·환불 금액·되는지) →
  * [이 주문 취소하기] → PC 가 그 순간 한 번 더 읽고 막을 건 막은 뒤 카페24 주문 취소(cancel_order). 되돌릴 수 없어요.
@@ -914,7 +937,7 @@ function CancelBox({ v, D, pcOn }) {
   };
   const cancel = async () => {
     const lines = (info.items || []).map((i) => `${cleanName(i.name)} ${i.option || ""} ×${i.qty} (${i.status})`).join("\n");
-    if (!window.confirm(`이 주문을 취소할까요? 되돌릴 수 없어요.\n\n주문 ${info.orderNo}\n${lines}\n결제 ${(info.pays || []).join("+")} · 환불 ${Number(info.amount || 0).toLocaleString()}원${info.reasonLabel ? `\n취소 사유: ${info.reasonLabel} · 환불 방식: ${info.refundLabel || ""}` : ""}${info.why ? `\n\n⚠ ${info.why}` : ""}`)) return;
+    if (!window.confirm(`이 주문을 취소할까요? 되돌릴 수 없어요.\n\n주문 ${info.orderNo}\n${lines}\n결제 ${(info.pays || []).join("+")} · 환불 ${Number(info.amount || 0).toLocaleString()}원${info.reasonLabel ? `\n취소 사유: ${info.reasonLabel} · 환불 방식: ${info.refundLabel || ""}` : ""}${info.why ? `\n\n⚠ ${info.why}` : ""}\n\n※ 여기서 취소해도 돈은 안 돌아가요 — 취소 뒤 카페24 관리자 주문 상세에서 '선불금 전체 취소'(카드는 결제 취소)까지 눌러야 환불돼요.`)) return;
     setWait({ kind: "cancel", at: Date.now() });
     await D.enqueue({ id: v.id, kind: "cancel", orderNo: v.orderNo });
   };
@@ -935,6 +958,7 @@ function CancelBox({ v, D, pcOn }) {
           {!pcOn ? "사무실 PC가 꺼져 있어요 — 켜지면 해요." : wait.kind === "cancel" ? "사무실 PC가 한 번 더 확인하고 취소하는 중이에요(1분 안)." : "사무실 PC가 주문을 읽고 있어요(1분 안)."}
         </p>
       )}
+      {info?.done && <PgNote info={info} />}
       {fresh && !info.done && !(waiting && wait.kind === "info") && (
         <div className="mt-2 space-y-1 text-stone-700">
           <div>
