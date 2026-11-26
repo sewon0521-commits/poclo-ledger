@@ -30,7 +30,7 @@ import { useLiveKey } from "../lib/useLiveKey";
 import { SinmaSearchButton, SinmaJobBar, SinmaPickSheet, useSinmaSearch } from "./SinmaSearch";
 import { newId } from "../lib/id";
 import { dayKey } from "../lib/journal";
-import { stageName, moveTo, normalize } from "../lib/sinsang";
+import { stageName, moveTo, normalize, photosOf } from "../lib/sinsang";
 import { refCodiOf, codiDayFor, toggleRefCodi } from "../lib/refCodi";
 import { BigSlides } from "./ContentBits";
 import { lookKinds, lookGroupOf, lookBest, bestPatch, isBest } from "../lib/lookStars";
@@ -897,7 +897,7 @@ function LookView({ d, refs, start, src, looks, cats, onEdit, onLook, onRef, onC
     return () => document.removeEventListener("keydown", k);
   }); // eslint-disable-line react-hooks/exhaustive-deps
   if (!r) return null;
-  const gallery = (x) => ((x.photos || []).length > 1 ? x.photos : itemSrc(x, d.urls) ? [itemSrc(x, d.urls)] : []);
+  const gallery = (x) => ((x.photos || []).length > 1 ? photosOf(x) : itemSrc(x, d.urls) ? [itemSrc(x, d.urls)] : []);
   return (
     <div className="backdrop-in fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/80 p-0 sm:p-4">
       <button type="button" aria-label="닫기" onClick={onClose} className="absolute inset-0 cursor-default" />
@@ -1147,7 +1147,7 @@ function ProductGroups({ d, items, groups, best: bestRaw = {}, sel, setSel, onMo
                 <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
                   {xs.map((x) => {
                     const on = sel.has(x.id);
-                    const img = itemSrc(x, d.urls) || (x.photos || [])[0] || "";
+                    const img = itemSrc(x, d.urls) || photosOf(x)[0] || "";
                     const n = (x.photos || []).length;
                     return (
                       <div

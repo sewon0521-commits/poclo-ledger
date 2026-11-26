@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, Plus, Search, X, ZoomIn } from "lucide-react";
-import { normalize } from "../lib/sinsang";
+import { normalize, photosOf } from "../lib/sinsang";
 import { GOODS, goodsKey, goodsAway, goodsOf } from "../lib/styling";
 
 /**
@@ -146,7 +146,7 @@ export default function GoodsBoard({ st, setSt, d, codi, dayCodis = [], onZoom }
               const on = stored.has(x.id);
               const by = usedBy.get(x.id);
               const url = urlOf(x);
-              const urls = [...new Set([url, ...(x.photos || [])].filter(Boolean))];
+              const urls = [...new Set([url, ...photosOf(x)].filter(Boolean))];
               return (
                 <div key={x.id} className={cardW + " group relative min-w-0"}>
                   <button type="button" onClick={() => flip(o)} aria-pressed={on} title={x.name} className="block w-full min-w-0 text-left">

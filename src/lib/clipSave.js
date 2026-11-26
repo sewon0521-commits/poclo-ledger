@@ -1,6 +1,7 @@
 // 신마 '포클로에 담기'로 넘어온 것 하나를 신상 관리에 저장 — 한 개 담기 창(ClipPage)·여러 개 담기 창(ClipBatch)이 같이 쓴다.
 import { loadKey, changeKey, upsert, putPhoto } from "./shoot";
-import { parseClip, normalize, findVendor, vendorFill, contactLines, refusalsOf, knownKeys } from "./sinsang";
+import { parseClip, normalize, findVendor, vendorFill, contactLines, refusalsOf, knownKeys, packPhoto } from "./sinsang";
+import { hasDesc, saveDesc } from "./shootDesc";
 import { newId } from "./id";
 import { hasWear, wearSummary } from "./measure";
 
@@ -85,11 +86,14 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     if (same.hasDetailCut == null && p.hasDetailCut != null) fill.hasDetailCut = p.hasDetailCut;
     if (!hasWear(same.wear) && hasWear(p.wear)) Object.assign(fill, { wear: p.wear, wearFrom: "신마" });
     // 예전에 담은 상품을 다시 누르면 신마 사진 전부를 채운다(10/14)
-    if ((same.photos || []).length < 2 && p.photos.length > 1) fill.photos = p.photos;
+    // 사진 주소는 줄여서 담는다(11/26 — shoot_items 가 커서 저장이 시간 제한에 걸렸다, lib/sinsang packPhoto)
+    if ((same.photos || []).length < 2 && p.photos.length > 1) fill.photos = p.photos.map(packPhoto);
     // 11/16 소싱 관리 '신마 후보'에서 담아 둔 상품(needsSinma) — 신마 화면에만 있는 값을 채우고 표시를 끈다 (lib/sinmaPick)
     let sinmaNote = "";
     if (same.needsSinma) {
-      for (const k of ["colors", "sizes", "origin", "desc", "place"]) if (p[k] && !String(same[k] || "").trim()) fill[k] = p[k];
+      for (const k of ["colors", "sizes", "origin", "place"]) if (p[k] && !String(same[k] || "").trim()) fill[k] = p[k];
+      // 제품 설명 글은 따로 키에 (11/26, lib/shootDesc)
+      if (p.desc && !same.desc && !(await hasDesc(same.id, online).catch(() => true))) await saveDesc(same.id, p.desc, online).catch(() => {});
       if (p.fabric) fill.fabric = p.fabric; // 후보의 혼용률은 짧게 적힌 것 — 신마 상세정보가 맞다
       if (p.fullName) fill.fullName = p.fullName;
       if (!same.price && p.price) fill.price = p.price;
@@ -156,10 +160,9 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     fabric: p.fabric,
     origin: p.origin,
     contact: p.contact,
-    desc: p.desc,
     sizeText: p.sizeText,
     hasDetailCut: p.hasDetailCut,
-    ...(p.photos.length > 1 ? { photos: p.photos } : {}),
+    ...(p.photos.length > 1 ? { photos: p.photos.map(packPhoto) } : {}),
     ...(hasWear(p.wear) ? { wear: p.wear, wearFrom: "신마" } : {}),
     photo: key || "",
     photoUrl: key ? "" : p.photoUrl,
@@ -167,6 +170,8 @@ export async function saveClip(payload, { online, vendors = [], onVendor }) {
     createdAt: new Date().toISOString(),
   };
   await changeKey("shoot_items", online, upsert(made));
+  // 제품 설명 글은 shoot_items 가 아니라 따로 (11/26 — lib/shootDesc). 못 담아도 상품은 담겼다
+  if (p.desc) await saveDesc(made.id, p.desc, online).catch(() => {});
   tellKnown(payload, v && !vendors.some((x) => x.id === v.id) ? [...vendors, v] : vendors, cur);
   return { state: "saved", item: made, photo, note, refused: refusalsOf(past, made.vendorId, made.vendor), vendor: v || null };
 }

@@ -558,6 +558,16 @@ const NOISE = /^.{0,6}랭킹.{0,6}$|^\d+위$|^[\d,]+$|^NEW$|^BEST$|^디테일컷
 /** 주소에 든 상품번호 (상품을 누르면 주소 뒤에 modalGid=… 가 붙는다) */
 const urlGoods = (u) => (String(u || "").match(/(?:modalGid|gid|goodsId)=(\d{6,11})/i) || String(u || "").match(/\/goods\/(\d{6,11})/) || [])[1] || "";
 
+// 신마 사진 주소 줄여 담기 (11/26 세원: "요청함을 눌러도 돌아와" — 'canceling statement due to statement timeout').
+// shoot_items 가 상품 833개 · 2.5MB 한 덩어리라 단추 하나에도 통째로 다시 써서 서버 시간 제한에 걸렸다. 그중 0.87MB 가 신마 사진 주소였다
+// (주소마다 앞 68자·뒤 13자가 같음). 그래서 저장은 '~' + 가운데만, 읽을 때 다시 붙인다. 예전처럼 전체 주소로 들어 있어도 그대로 쓴다.
+// ⚠ x.photos 를 화면에 쓸 땐 꼭 photosOf(x) 로. (제품 설명 desc 는 따로 shoot_desc 키 — lib/shootDesc.js)
+const SINMA_IMG = "https://v4.img.sinsang.market/?f=https://image-cache.sinsang.market/";
+const SINMA_SIZE = "&w=900&h=1200";
+export const packPhoto = (u) => (typeof u === "string" && u.startsWith(SINMA_IMG) && u.endsWith(SINMA_SIZE) ? "~" + u.slice(SINMA_IMG.length, -SINMA_SIZE.length) : u);
+export const photoUrl = (s) => (typeof s === "string" && s[0] === "~" ? SINMA_IMG + s.slice(1) + SINMA_SIZE : s);
+export const photosOf = (x) => (x?.photos || []).map(photoUrl);
+
 // 실측 (10/6 세원: "디테일컷을 누르면 사이즈표가 나와. 사이즈표나 사이즈 잰 거 칸 하나") —
 // 거래처가 제품 설명에 '총장50 / 가슴품64 / 어깨너비68' 처럼 적어 두는 일이 많다 → 그 줄만 뽑는다.
 // 부위 이름 — '품'은 '품목·상품·품번' 이 아닌 홀로 쓰인 것만, '기장'은 '팔기장·소매기장·총기장' 포함

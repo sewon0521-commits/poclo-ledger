@@ -5,7 +5,8 @@ import { FIELD, md, won, upsert, remove, putPhoto, loadKey, onSettingsChange, wa
 import { starsOf, starLabel } from "../lib/lookStars";
 import { MeasureBox, MeasureSheet, WearBox } from "./MeasureBox";
 import { filled, wearSummary } from "../lib/measure";
-import { MODELS, modelsOf, sortModels, suggestModel, sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, fabricAsk, fabricText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf, backTo, backToName } from "../lib/sinsang";
+import { MODELS, modelsOf, sortModels, suggestModel, sourcedOf, STAGES, CHANNELS, RETURN_DAYS, shootsOf, withShoots, extendDays, extendText, fabricAsk, fabricText, stageName, normalize, closed, dueOf, daysLeft, dueLabel, paidLabel, moveTo, bookmarklet, cleanName, vendorName, findVendor, vendorFill, contactLines, contactOf, MSG_SLOT, requestText, askName, friendName, REFUSE_REASONS, refusalText, refusalsOf, buyAmount, changedOf, backTo, backToName, photosOf } from "../lib/sinsang";
+import { descOf } from "../lib/shootDesc";
 import { dayKey, shiftDay, dayTitle } from "../lib/journal";
 import { newId } from "../lib/id";
 import { Sheet, SheetHead, Chips, Photo } from "./ShootBits";
@@ -642,6 +643,15 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
   const [open, flip] = useFolds(startPay ? { settle: true } : {});
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState("");
+  // 제품 설명 글은 따로 키에 있어서(11/26, lib/shootDesc) 창을 열 때 읽는다 — 예전 상품은 x.desc 에 그대로 있을 수 있다
+  const [descTxt, setDescTxt] = useState("");
+  useEffect(() => {
+    let alive = true;
+    if (item.id && !item.desc) descOf(item.id, online).then((t) => alive && setDescTxt(t)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [item.id, item.desc, online]);
   const [note, setNote] = useState("");
   const [editNote, setEditNote] = useState(-1);
   const [vendorEdit, setVendorEdit] = useState(false);
@@ -737,7 +747,8 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
   const info = [x.colors, x.sizes, x.fabric, x.origin].filter(Boolean).join(" · ");
   // 사진 — 신마 사진을 여러 장 담아 왔으면 그걸 전부(첫 장이 대표 사진과 같은 사진), 아니면 대표 사진 하나 (10/14)
   const mainSrc = preview || srcOf(x, d.urls);
-  const gallery = (x.photos || []).length > 1 ? x.photos : mainSrc ? [mainSrc] : [];
+  const gallery = (x.photos || []).length > 1 ? photosOf(x) : mainSrc ? [mainSrc] : [];
+  const descShown = x.desc || descTxt;
 
   return (
     <Sheet onClose={onClose} xwide>
@@ -939,14 +950,14 @@ export function ItemSheet({ item, d, online, vendors, onVendor, today, onClose, 
                 </Label>
               </div>
               {fabricAsk(x) && <FabricAsk x={x} items={d.items} />}
-              {(contactLines(x.contact).length > 0 || x.desc) && (
+              {(contactLines(x.contact).length > 0 || descShown) && (
                 <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-relaxed text-stone-600">
                   <span className="font-semibold text-stone-500">거래처가 제품 설명에 적어 둔 것</span>
                   {contactLines(x.contact).length > 0 && <p className="mt-0.5 text-stone-800 select-all">{contactLines(x.contact).join(" · ")}</p>}
-                  {x.desc && (
+                  {descShown && (
                     <details className="mt-1">
                       <summary className="cursor-pointer text-stone-500">전체 글 보기</summary>
-                      <p className="mt-1 whitespace-pre-line">{x.desc}</p>
+                      <p className="mt-1 whitespace-pre-line">{descShown}</p>
                     </details>
                   )}
                 </div>
