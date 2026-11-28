@@ -57,14 +57,6 @@ async function copyText(text) {
 }
 
 const VIEW_KEY = "poclo_returns_view";
-const FILTERS = [
-  ["open", "진행 중"],
-  ["req", "회수 접수 필요"],
-  ["pickup", "회수 중"],
-  ["check", "입고·검수"],
-  ["stale", "오래 멈춤"],
-  ["done", `완료(${DONE_KEEP}일)`],
-];
 const hit = (x, f) => (f === "open" ? x.stage !== "done" : f === "stale" ? x.stale : x.stage === f);
 const CHANNEL_TONE = { 카페24: "bg-sky-50 text-sky-800 ring-sky-200", 네이버페이: "bg-green-50 text-green-800 ring-green-200", 톡체크아웃: "bg-yellow-50 text-yellow-900 ring-yellow-200" };
 const STAGE_TONE = { req: "bg-amber-100 text-amber-900", pickup: "bg-sky-100 text-sky-900", check: "bg-violet-100 text-violet-900", done: "bg-emerald-100 text-emerald-800" };
@@ -151,37 +143,12 @@ export default function ReturnsBoard({ online }) {
 
   return (
     <section className="rounded-2xl border border-stone-200 bg-white">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3 pb-2">
-        <RotateCcw size={15} className="text-rose-700" />
-        <span className="text-sm font-bold text-stone-900">반품·교환</span>
-        <span className="text-sm text-stone-700 tabular-nums">
-          진행 중 {sum.open}건 · <b className={sum.needNp ? "text-amber-700" : "text-stone-500"}>넥스트팩 회수 접수 필요 {sum.needNp}건</b> · <b className={sum.stale ? "text-rose-700" : "text-stone-500"}>오래 멈춤 {sum.stale}건</b>
-          {thisMonth && (
-            <>
-              {" "}
-              · 이번 달 반품률 <b>{pct(rateOf(thisMonth))}</b>
-            </>
-          )}
-        </span>
-        <span className="ml-auto flex items-center gap-2 text-[11px] text-stone-400">
-          {live?.at ? `카페24 ${when(live.at)}` : "자료를 읽는 중…"}
-          {D.np_returns?.at && ` · 넥스트팩 ${when(D.np_returns.at)}`}
-          {D.np_returns?.error && (
-            <span className="text-rose-600" title={D.np_returns.error}>
-              {" "}
-              · 넥스트팩 읽기 실패
-            </span>
-          )}
-          <button type="button" onClick={refresh} className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-stone-500 hover:text-stone-800">
-            <RefreshCw size={12} /> 새로 읽기
-          </button>
-          <button type="button" onClick={npRefresh} className="rounded-lg px-1.5 py-1 text-stone-500 hover:text-stone-800">
-            넥스트팩 다시 읽기
-          </button>
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
-        <nav className="flex gap-1 rounded-xl bg-stone-100 p-1 text-sm" aria-label="반품·교환 보기">
+      {/* 11/28 세원 "반품·교환 왤캐 눈에 안 들어오지? 가독성 좋게" — 머리는 제목·보기만, 숫자는 아래 '지금 할 일' 칸으로 */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-4 pb-3">
+        <RotateCcw size={17} className="text-rose-700" />
+        <h3 className="text-base font-bold text-stone-900">카페24·네이버 반품·교환</h3>
+        {thisMonth && <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-xs text-stone-600">이번 달 반품률 <b className="text-stone-900">{pct(rateOf(thisMonth))}</b></span>}
+        <nav className="ml-auto flex gap-1 rounded-xl bg-stone-100 p-1 text-sm" aria-label="반품·교환 보기">
           {[
             ["list", "한 건씩", ListChecks],
             ["stats", "통계", ChartColumn],
@@ -191,27 +158,35 @@ export default function ReturnsBoard({ online }) {
             </button>
           ))}
         </nav>
-        <p className="text-xs text-stone-500">환불·손님에게 보내기는 자동으로 안 해요 · 넥스트팩 수거 접수는 세원이 누른 것만.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 pb-3 text-[11px] text-stone-400">
+        <span>{live?.at ? `카페24 ${when(live.at)} 읽음` : "자료를 읽는 중…"}</span>
+        {D.np_returns?.at && <span>· 넥스트팩 {when(D.np_returns.at)}</span>}
+        {D.np_returns?.error && (
+          <span className="text-rose-600" title={D.np_returns.error}>
+            · 넥스트팩 읽기 실패
+          </span>
+        )}
+        <button type="button" onClick={refresh} className="flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-stone-500 hover:bg-stone-100 hover:text-stone-800">
+          <RefreshCw size={11} /> 새로 읽기
+        </button>
+        <button type="button" onClick={npRefresh} className="rounded-lg px-1.5 py-0.5 text-stone-500 hover:bg-stone-100 hover:text-stone-800">
+          넥스트팩 다시 읽기
+        </button>
+        <span className="ml-auto text-stone-400">환불·손님 연락은 자동으로 안 해요</span>
       </div>
       {msg && <p className="mx-4 mb-2 rounded-lg bg-stone-100 px-3 py-1.5 text-xs text-stone-700">{msg}</p>}
       {view === "stats" ? (
         <Stats stats={D.returns_stats} />
       ) : (
         <>
-          <StageStrip sum={sum} filter={filter} setFilter={setFilter} />
-          <div className="flex flex-wrap gap-1 px-4 pb-2">
-            {FILTERS.map(([k, label]) => (
-              <button key={k} type="button" onClick={() => setFilter(k)} className={"rounded-full px-2.5 py-1 text-xs font-semibold " + (filter === k ? "bg-stone-800 text-white" : k === "stale" && count.stale ? "bg-rose-50 text-rose-700 hover:bg-rose-100" : "bg-stone-100 text-stone-600 hover:bg-stone-200")}>
-                {label} {count[k] ?? 0}
-              </button>
-            ))}
-          </div>
+          <TodoTiles count={count} filter={filter} setFilter={setFilter} />
           {!live ? (
             <p className="px-4 pb-4 text-sm text-stone-400">{live === null ? "아직 모은 자료가 없어요 — 사무실 PC 가 10분 안에 처음 모아요." : "불러오는 중…"}</p>
           ) : !shown.length ? (
             <p className="px-4 pb-4 text-sm text-stone-500">{filter === "open" ? "지금 진행 중인 반품·교환이 없어요." : "여기에 해당하는 건이 없어요."}</p>
           ) : (
-            <ul className="divide-y divide-stone-100 px-2 pb-3 sm:px-4">
+            <ul className="space-y-2.5 px-3 pb-4 sm:px-4">
               {shown.map((x) => (
                 <Row key={x.id} x={x} open={open.has(x.id)} onToggle={() => toggle(x.id)} mark={mark} stock={D.stock} tpl={D.cs_templates} onPickup={() => setPickOf(x)} />
               ))}
@@ -224,81 +199,97 @@ export default function ReturnsBoard({ online }) {
   );
 }
 
-/** 요청 → 넥스트팩 회수 접수(세원) → 회수 중 → 입고·검수 → 완료 */
-function StageStrip({ sum, filter, setFilter }) {
-  const steps = [
-    { k: "req", label: "요청", n: sum.req },
-    { k: "np", label: "넥스트팩 회수 접수", sub: "세원", n: sum.needNp, action: true },
-    { k: "pickup", label: "회수 중", n: sum.pickup },
-    { k: "check", label: "입고·검수", n: sum.check },
-    { k: "done", label: "환불·교환 완료", n: sum.done },
-  ];
+/** 11/28 '지금 할 일' 칸 — 누르면 그것만 거른다(예전 단계 띠 + 거르기 칩을 하나로) */
+const TILES = [
+  { k: "open", label: "진행 중", hint: "끝나지 않은 것 전부", tone: "stone" },
+  { k: "req", label: "넥스트팩 회수 접수", hint: "세원이 접수 단추", tone: "amber", act: true },
+  { k: "pickup", label: "회수 중", hint: "기사님이 가지러 감", tone: "sky" },
+  { k: "check", label: "입고·검수", hint: "검수 뒤 환불·교환", tone: "violet" },
+  { k: "stale", label: "오래 멈춤", hint: "기준보다 늦어짐", tone: "rose", act: true },
+  { k: "done", label: `완료(${DONE_KEEP}일)`, hint: "환불·교환 끝", tone: "emerald" },
+];
+const TILE_TONE = {
+  stone: ["text-stone-900", "ring-stone-800 bg-stone-50"],
+  amber: ["text-amber-700", "ring-amber-500 bg-amber-50"],
+  sky: ["text-sky-700", "ring-sky-500 bg-sky-50"],
+  violet: ["text-violet-700", "ring-violet-500 bg-violet-50"],
+  rose: ["text-rose-700", "ring-rose-500 bg-rose-50"],
+  emerald: ["text-emerald-700", "ring-emerald-500 bg-emerald-50"],
+};
+function TodoTiles({ count, filter, setFilter }) {
   return (
-    <ol className="mx-4 mb-2 flex gap-1 overflow-x-auto rounded-xl bg-stone-50 p-1.5 text-xs">
-      {steps.map((s, i) => {
-        const f = s.k === "np" ? "req" : s.k;
-        const on = filter === f;
+    <div className="grid grid-cols-3 gap-2 px-4 pb-4 sm:grid-cols-6">
+      {TILES.map((t) => {
+        const n = count[t.k] ?? 0;
+        const on = filter === t.k;
+        const [num, ring] = TILE_TONE[t.tone];
+        const hot = t.act && n > 0;
         return (
-          <li key={s.k} className="flex min-w-0 shrink-0 items-center gap-1">
-            {i > 0 && <ChevronRight size={12} className="shrink-0 text-stone-300" />}
-            <button
-              type="button"
-              onClick={() => setFilter(f)}
-              className={"rounded-lg px-2.5 py-1.5 text-left " + (on ? "bg-white shadow-sm ring-1 ring-stone-200" : "hover:bg-white/70") + (s.action ? " border border-dashed border-amber-300" : "")}
-            >
-              <span className="block font-semibold text-stone-800">
-                {s.label}
-                {s.sub && <span className="ml-1 text-[10px] font-medium text-amber-700">({s.sub})</span>}
-              </span>
-              <span className={"block tabular-nums " + (s.action && s.n ? "font-bold text-amber-700" : "text-stone-500")}>{s.action ? (s.n ? `${s.n}건 할 일` : "할 일 없음") : `${s.n}건`}</span>
-            </button>
-          </li>
+          <button
+            key={t.k}
+            type="button"
+            onClick={() => setFilter(t.k)}
+            className={"rounded-xl px-3 py-2.5 text-left ring-1 transition-colors " + (on ? "ring-2 " + ring : hot ? "bg-white ring-stone-200 hover:bg-stone-50" : "bg-white ring-stone-200 hover:bg-stone-50")}
+          >
+            <span className="block truncate text-xs font-semibold text-stone-600">{t.label}</span>
+            <span className={"block text-2xl leading-tight font-bold tabular-nums " + (n ? num : "text-stone-300")}>{n}</span>
+            <span className={"block truncate text-[11px] " + (hot ? "font-semibold " + num : "text-stone-400")}>{hot ? "할 일 있어요" : t.hint}</span>
+          </button>
         );
       })}
-    </ol>
+    </div>
   );
 }
 
+const BAR = { req: "border-l-amber-400", pickup: "border-l-sky-400", check: "border-l-violet-400", done: "border-l-emerald-400" };
+const NEXT = {
+  req: "넥스트팩 회수 접수가 필요해요",
+  pickup: "기사님이 가지러 가는 중",
+  check: "넥스트팩 검수 뒤 환불·교환은 세원이 카페24·네이버에서",
+  done: "끝났어요",
+};
 function Row({ x, open, onToggle, mark, stock, tpl, onPickup }) {
   const waitText = x.stage === "done" ? `${md(x.since)} 끝` : `${md(x.since)}부터 평일 ${x.waited}일째`;
+  const staleWhy = x.stale ? (x.np?.state === "redo" ? "넥스트팩 다시 신청 필요" : x.job?.status === "error" ? "넥스트팩 접수 실패" : STALE[x.stage] != null ? `오래 멈춤 — 기준 ${STALE[x.stage]}일` : "오래 멈춤") : "";
   return (
-    <li className={"py-2.5 " + (x.stale ? "bg-rose-50/50" : x.needNp ? "bg-amber-50/40" : "")}>
-      <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5 px-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-1">
-            <span className={"rounded-md px-1.5 py-0.5 text-[11px] font-bold ring-1 ring-inset " + KIND_TONE[x.kind]}>{KIND[x.kind]}</span>
-            <span className={"rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset " + (CHANNEL_TONE[x.channel] || CHANNEL_TONE.카페24)}>{x.channel}</span>
-            <span className={"rounded-full px-2 py-0.5 text-[11px] font-semibold " + STAGE_TONE[x.stage]}>{STAGE_LABEL[x.stage]}</span>
-            <span className={"text-[11px] tabular-nums " + (x.stale ? "font-bold text-rose-700" : "text-stone-500")}>
+    <li className={"rounded-xl border border-l-4 border-stone-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] " + (x.stale ? "border-l-rose-500" : BAR[x.stage] || "border-l-stone-300")}>
+      <div className="flex flex-col gap-2 p-3.5 sm:flex-row sm:items-start sm:gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className={"rounded-md px-1.5 py-0.5 font-bold ring-1 ring-inset " + KIND_TONE[x.kind]}>{KIND[x.kind]}</span>
+            <span className={"rounded-full px-2.5 py-0.5 font-bold " + STAGE_TONE[x.stage]}>{STAGE_LABEL[x.stage]}</span>
+            <span className={"tabular-nums " + (x.stale ? "font-bold text-rose-700" : "text-stone-500")}>
               {waitText}
-              {x.stale && (x.np?.state === "redo" ? " — 넥스트팩 다시 신청 필요" : x.job?.status === "error" ? " — 넥스트팩 접수 실패" : STALE[x.stage] != null ? ` — 오래 멈춤(기준 ${STALE[x.stage]}일)` : "")}
+              {staleWhy && ` · ${staleWhy}`}
             </span>
-            {x.kind !== "C" && <span className={"rounded-full px-1.5 py-px text-[10px] font-bold " + (x.cls === "change" ? "bg-stone-100 text-stone-600" : "bg-rose-100 text-rose-800")}>{CLS[x.cls]}</span>}
-            <NpChip x={x} />
           </div>
           <ul className="space-y-0.5">
             {x.items.map((it, i) => (
-              <li key={i} className="flex flex-wrap items-center gap-1 text-sm">
-                <span className="min-w-0 truncate text-stone-900">{shortName(it.n)}</span>
-                {it.o && <span className="rounded bg-stone-800 px-1.5 py-px text-[11px] font-semibold text-white">{it.o}</span>}
-                {it.q > 1 && <span className="text-xs text-stone-500">×{it.q}</span>}
+              <li key={i} className="flex flex-wrap items-center gap-1.5">
+                <span className="min-w-0 truncate text-[15px] font-semibold text-stone-900">{shortName(it.n)}</span>
+                {it.o && <span className="rounded-md bg-stone-800 px-1.5 py-px text-xs font-semibold text-white">{it.o}</span>}
+                {it.q > 1 && <span className="text-sm text-stone-500">×{it.q}</span>}
               </li>
             ))}
           </ul>
-          <Reason text={x.reason} />
-          <p className="text-[11px] text-stone-500">
-            {x.name || "손님"} ·{" "}
-            <a href={orderAdminUrl(x.order)} target="_blank" rel="noreferrer" className="whitespace-nowrap font-mono hover:text-rose-700 hover:underline">
+          <Reason text={x.reason} cls={x.kind !== "C" ? x.cls : null} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-stone-500">
+            <span className={"rounded px-1.5 py-px font-semibold ring-1 ring-inset " + (CHANNEL_TONE[x.channel] || CHANNEL_TONE.카페24)}>{x.channel}</span>
+            <span>{x.name || "손님"}</span>
+            <a href={orderAdminUrl(x.order)} target="_blank" rel="noreferrer" className="font-mono text-[11px] hover:text-rose-700 hover:underline">
               {x.order}
             </a>
-            {x.cc && <span className="ml-1 font-mono text-stone-400">{x.cc}</span>} · {x.how}
-            {x.nps && <span className="ml-1 text-green-800">· {naverLabel(x.nps)}</span>}
-            {x.mark.memo && <span className="ml-1 text-stone-700">· 메모: {x.mark.memo}</span>}
-          </p>
+            <NpChip x={x} />
+            {x.nps && <span className="text-green-800">네이버 {naverLabel(x.nps)}</span>}
+            {x.mark.memo && <span className="text-stone-700">메모: {x.mark.memo}</span>}
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          <Actions x={x} mark={mark} onPickup={onPickup} />
-          <button type="button" onClick={onToggle} className="flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-stone-600 hover:bg-stone-100">
+        <div className="flex shrink-0 flex-col items-stretch gap-1.5 sm:w-56 sm:items-end">
+          <p className={"text-xs sm:text-right " + (x.needNp ? "font-semibold text-amber-800" : "text-stone-500")}>{NEXT[x.stage] || x.how}</p>
+          <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+            <Actions x={x} mark={mark} onPickup={onPickup} />
+          </div>
+          <button type="button" onClick={onToggle} className="flex items-center gap-0.5 self-start rounded-lg px-1.5 py-1 text-xs font-semibold text-stone-500 hover:bg-stone-100 hover:text-stone-800 sm:self-end">
             {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} 판단 보기
           </button>
         </div>
@@ -308,14 +299,20 @@ function Row({ x, open, onToggle, mark, stock, tpl, onPickup }) {
   );
 }
 
-function Reason({ text }) {
+function Reason({ text, cls }) {
   const { body, pick } = reasonParts(text);
-  if (!body && !pick) return <p className="text-xs text-stone-400">사유를 안 적었어요</p>;
   return (
-    <p className="line-clamp-2 text-xs text-stone-700">
-      {body && `“${body}”`}
-      {pick && <span className="ml-1 rounded bg-stone-100 px-1 py-px text-[11px] text-stone-600">고른 사유: {pick}</span>}
-    </p>
+    <div className="mt-1.5 flex flex-wrap items-start gap-1.5">
+      {cls && <span className={"shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold " + (cls === "change" ? "bg-stone-100 text-stone-600" : "bg-rose-100 text-rose-800")}>{CLS[cls]}</span>}
+      {body || pick ? (
+        <p className="line-clamp-2 min-w-0 rounded-lg bg-stone-50 px-2.5 py-1 text-sm text-stone-700">
+          {body && `“${body}”`}
+          {pick && <span className="ml-1 text-xs text-stone-500">고른 사유: {pick}</span>}
+        </p>
+      ) : (
+        <span className="text-xs text-stone-400">손님이 사유를 안 적었어요</span>
+      )}
+    </div>
   );
 }
 
@@ -331,9 +328,11 @@ const JOB = {
 function NpChip({ x }) {
   const out = [];
   if (x.np) {
-    const t = x.np.state === "done" ? "넥스트팩 수거 완료" : x.np.state === "visit" ? `넥스트팩 ${md(x.np.visit)} 방문 예정` : x.np.state === "redo" ? "넥스트팩 다시 신청 필요" : `넥스트팩 ${x.np.note || "접수됨"}`;
+    // 11/28 넥스트팩 새 '반품 내역' — 상태 글(양품·검수 전·이동 중·불량 …)을 그대로, 양품화 결과(grade)로 색
+    const t = x.np.stat ? `넥스트팩 ${x.np.stat}` : x.np.state === "done" ? "넥스트팩 수거 완료" : x.np.state === "visit" ? `넥스트팩 ${md(x.np.visit)} 방문 예정` : x.np.state === "redo" ? "넥스트팩 다시 신청 필요" : `넥스트팩 ${x.np.note || "접수됨"}`;
+    const bad = x.np.state === "redo" || x.np.grade === "bad" || x.np.grade === "hold";
     out.push(
-      <span key="np" title={x.np.note} className={"rounded-full px-2 py-0.5 text-[11px] font-semibold " + (x.np.state === "redo" ? "bg-rose-100 text-rose-800" : "bg-emerald-50 text-emerald-800")}>
+      <span key="np" title={x.np.note} className={"rounded-full px-2 py-px text-[11px] font-semibold " + (bad ? "bg-rose-100 text-rose-800" : x.np.grade === "wait" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800")}>
         {t}
       </span>,
     );
@@ -386,7 +385,6 @@ function Actions({ x, mark, onPickup }) {
             {md(x.mark.arrived.on)} 입고 표시 · 되돌리기
           </button>
         )}
-        <span className="rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-800">검수 뒤 {x.kind === "E" ? "교환 출고" : "환불"}은 세원이 카페24·네이버에서</span>
       </>
     );
   return null;
