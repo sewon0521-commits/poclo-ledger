@@ -104,6 +104,9 @@ export function stageOf(r, mark = {}, np = null, job = null) {
     return { stage: "pickup", since: dayOf(np.since || job?.doneAt || r.req), how: np.visit ? `넥스트팩 ${md(np.visit)} 방문 예정` : `넥스트팩 접수됨 · ${np.note || "진행 중"}` };
   if (job?.status === "done") return { stage: "pickup", since: dayOf(job.doneAt || job.at), how: "넥스트팩 수거 접수함(ERP 버튼)" };
   if (mark.np || r.nps === "COLLECTING") return { stage: "pickup", since: dayOf(mark.np?.on || r.acc || r.req), how: mark.np ? "넥스트팩 회수 접수함" : "네이버 수거 중" };
+  // 11/28 세원 "네이버페이는 자동 수거야" — 네이버페이 주문(주문 경로 '네이버 페이')은 넥스트팩 수거 접수를 안 한다(선불금은 토스·카카오도 섞여 있어 경로로 판단)
+  if (placeOf(r.place) === "네이버페이" && (r.kind === "R" || r.kind === "E"))
+    return { stage: "pickup", since: dayOf(r.req || r.acc || r.at), how: "네이버페이 자동 수거 — 넥스트팩 접수 안 함" };
   if (np?.state === "redo") return { stage: "req", since: dayOf(r.req || r.acc || r.at), how: `넥스트팩 다시 신청 필요 — ${np.note || ""}` };
   return { stage: "req", since: dayOf(r.req || r.acc || r.at), how: /^(R00|E00)$/.test(s) ? "카페24·네이버 접수 전" : r.st || "" };
 }
