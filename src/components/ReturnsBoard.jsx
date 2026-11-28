@@ -280,7 +280,7 @@ function Row({ x, open, onToggle, mark, stock, tpl, onPickup }) {
               {x.order}
             </a>
             <NpChip x={x} />
-            {x.nps && <span className="text-green-800">네이버 {naverLabel(x.nps)}</span>}
+            {x.nps && <span className="text-green-800">{naverLabel(x.nps)}</span>}
             {x.mark.memo && <span className="text-stone-700">메모: {x.mark.memo}</span>}
           </div>
         </div>
