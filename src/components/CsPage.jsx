@@ -5,6 +5,7 @@ import { CHANNELS, channelOf, canSend, pcState, PC_CHANNELS, stockFor, learnRow,
 import DelayPage from "./DelayPage";
 import LateOrders from "./LateOrders";
 import ReturnsBoard from "./ReturnsBoard";
+import NpayReturns from "./NpayReturns";
 import { OpsBanner } from "./OpsAlerts";
 import { shrink } from "../lib/photos";
 import { clipImages, filesOf } from "../lib/pasteImages";
@@ -363,7 +364,10 @@ export default function CsPage({ online, products = [], part = "" }) {
       {sec === "inbox" ? (
         <CsInbox products={products} D={D} online={online} focus={focus} />
       ) : sec === "returns" ? (
-        <ReturnsBoard online={online} />
+        <>
+          <NpayReturns online={online} />
+          <ReturnsBoard online={online} />
+        </>
       ) : (
         <>
           {sec === "delay" && <LateOrders online={online} inbox={D.inbox} saveCard={D.saveItem} openCard={openCard} />}

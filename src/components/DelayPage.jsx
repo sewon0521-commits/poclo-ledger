@@ -3,6 +3,7 @@ import { MessageSquareText, AlertTriangle, PackageSearch, Trash2, Plus } from "l
 import { changeKey, loadKey, onSettingsChange, watchKeys } from "../lib/shoot";
 import { when, etaFor, DELAY_TEMPLATE, fillDelay, scheduleText, codeOf } from "../lib/cs";
 import NpayDelay from "./NpayDelay";
+import UnpaidSms from "./UnpaidSms";
 
 /**
  * 일 › 배송지연 안내 (11/10 세원: "네이버페이도 묶어서 erp에 배송지연 메시지 발송 요런 카테고리 만들어서 진행할 수 있게")
@@ -254,6 +255,7 @@ export default function DelayPage({ online, part = "all", replied = null }) {
       <div className="space-y-4">
         <NpayDelay online={online} always replied={replied} />
         <DelaySms online={online} replied={replied} />
+        <UnpaidSms online={online} />
       </div>
     );
   if (part === "inbound") return <InboundEta online={online} />;
@@ -266,6 +268,7 @@ export default function DelayPage({ online, part = "all", replied = null }) {
       <InboundEta online={online} />
       <NpayDelay online={online} always />
       <DelaySms online={online} />
+      <UnpaidSms online={online} />
     </div>
   );
 }
